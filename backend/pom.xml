@@ -14,8 +14,6 @@
     <version>0.1.0</version>
     <properties>
         <java.version>17</java.version>
-        <!-- Docker Engine 29+ 要求 API >= 1.44；Testcontainers 1.21.x 内置 docker-java 3.4.x 满足 -->
-        <testcontainers.version>1.21.3</testcontainers.version>
     </properties>
     <dependencies>
         <dependency>
