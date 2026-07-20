@@ -1,0 +1,27 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: video-tagger
+  datasource:
+    url: jdbc:mysql://localhost:3306/video_tagger?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: root
+    password: ${MYSQL_ROOT_PASSWORD:root123456}
+  sql:
+    init:
+      mode: always
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+videotagger:
+  milvus:
+    uri: ${MILVUS_URI:http://localhost:19530}
+    collection: clip_embeddings
+  embedding:
+    base-url: ${EMBEDDING_BASE_URL:}
+    api-key: ${EMBEDDING_API_KEY:}
+    model: ${EMBEDDING_MODEL:text-embedding-3-small}
+    dim: ${EMBEDDING_DIM:1024}
