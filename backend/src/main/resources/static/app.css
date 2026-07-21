@@ -1,0 +1,101 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: #1e1e2e;
+    color: #cdd6f4;
+    font-family: "Microsoft YaHei UI", system-ui, sans-serif;
+    min-height: 100vh;
+}
+
+.container { max-width: 760px; margin: 0 auto; padding: 48px 20px; }
+
+.logo {
+    font-size: 22px;
+    font-weight: 600;
+    color: #cba6f7;
+    margin-bottom: 20px;
+    letter-spacing: 1px;
+}
+
+.search-box {
+    display: flex;
+    align-items: center;
+    background: #313244;
+    border: 1px solid #45475a;
+    border-radius: 12px;
+    padding: 4px 8px 4px 18px;
+    transition: border-color .15s;
+}
+.search-box:focus-within { border-color: #cba6f7; }
+
+#search-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #cdd6f4;
+    font-size: 16px;
+    padding: 12px 0;
+}
+#search-input::placeholder { color: #6c7086; }
+
+#clear-btn {
+    background: transparent;
+    border: none;
+    color: #6c7086;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 8px;
+}
+#clear-btn:hover { color: #cdd6f4; background: #45475a; }
+
+.semantic-hint {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #f9e2af;
+    background: rgba(249, 226, 175, .08);
+    border: 1px solid rgba(249, 226, 175, .25);
+    border-radius: 8px;
+    padding: 8px 12px;
+}
+
+.status { margin-top: 14px; font-size: 13px; color: #6c7086; min-height: 18px; }
+
+.results { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+
+.card {
+    background: #313244;
+    border: 1px solid #45475a;
+    border-radius: 12px;
+    padding: 16px 18px;
+    cursor: pointer;
+    transition: transform .15s, border-color .15s;
+    animation: fadeIn .15s ease-out;
+}
+.card:hover { transform: translateY(-2px); border-color: #cba6f7; }
+
+.card-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+
+.badge-time {
+    display: inline-block;
+    background: rgba(203, 166, 247, .15);
+    color: #cba6f7;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 6px;
+    padding: 2px 8px;
+    margin-right: 8px;
+    font-variant-numeric: tabular-nums;
+}
+
+.card-tag { font-size: 14px; color: #a6e3a1; }
+.card-note { font-size: 13px; color: #7f849c; margin-top: 6px; }
+
+.score-bar { margin-top: 10px; height: 3px; background: #45475a; border-radius: 2px; overflow: hidden; }
+.score-bar > div { height: 100%; background: #cba6f7; border-radius: 2px; }
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}

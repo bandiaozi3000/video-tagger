@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Tagger</title>
+    <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<main class="container">
+    <h1 class="logo">Video Tagger</h1>
+    <form id="search-form" class="search-box">
+        <input id="search-input" type="text" placeholder="用自然语言描述你想找的片段，如「主角爆种的战斗场面」"
+               autocomplete="off" autofocus>
+        <button type="button" id="clear-btn" title="清空">&times;</button>
+    </form>
+    <div id="semantic-hint" class="semantic-hint" hidden>语义搜索未启用（未配置 Embedding API），当前为关键词搜索</div>
+    <div id="status" class="status"></div>
+    <section id="results" class="results"></section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
