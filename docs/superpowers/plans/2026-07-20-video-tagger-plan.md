@@ -21,6 +21,7 @@
 - UI 色系：背景 `#1e1e2e`、卡片 `#313244`、强调色 `#cba6f7`；不引入前端框架与构建链。
 - 提交信息格式：`type: 中文描述`（与首个提交一致）。
 - 与规格的偏差说明：规格中的 `MilvusCollectionManager` 合并进 `MilvusVectorStore`（初始化+存取单文件，职责仍单一）；`FusionService` 命名为 `RrfFusion` 工具类。
+- 与计划原文的偏差说明：Task 9 的 Milvus 调用已按钉版 milvus-sdk-java 2.4.5 实际签名适配（`metricType` 收 String；`SearchReq.data` 收 `List<BaseVector>`，用 `FloatVec` 包装）；Task 7 测试桩 `isConfigured` 改 `true`、`updateById(any(EmbeddingTask.class))`（MP 3.5.7 重载歧义）。
 
 ---
 
@@ -1575,6 +1576,7 @@ import io.milvus.v2.service.collection.request.HasCollectionReq;
 import io.milvus.v2.service.vector.request.DeleteReq;
 import io.milvus.v2.service.vector.request.SearchReq;
 import io.milvus.v2.service.vector.request.UpsertReq;
+import io.milvus.v2.service.vector.request.data.FloatVec;
 import io.milvus.v2.service.vector.response.SearchResp;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -1627,7 +1629,7 @@ public class MilvusVectorStore implements VectorStore {
             client.createCollection(CreateCollectionReq.builder()
                     .collectionName(name)
                     .dimension(embeddingProps.getDim())
-                    .metricType(io.milvus.v2.common.IndexParam.MetricType.COSINE)
+                    .metricType("COSINE")
                     .build());
             log.info("创建 Milvus collection {}（dim={}）", name, embeddingProps.getDim());
         }
@@ -1667,7 +1669,7 @@ public class MilvusVectorStore implements VectorStore {
             }
             SearchResp resp = client.search(SearchReq.builder()
                     .collectionName(milvusProps.getCollection())
-                    .data(List.of(query))
+                    .data(List.of(new FloatVec(query)))
                     .topK(topK)
                     .build());
             List<VectorHit> hits = new ArrayList<>();
