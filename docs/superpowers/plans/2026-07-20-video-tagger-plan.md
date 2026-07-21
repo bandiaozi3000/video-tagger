@@ -1160,7 +1160,7 @@ class EmbeddingTaskServiceTest {
         service.process(1L);
 
         verifyNoInteractions(vectorStore);
-        verify(taskMapper, never()).updateById(any());
+        verify(taskMapper, never()).updateById(any(EmbeddingTask.class));
     }
 
     @Test
