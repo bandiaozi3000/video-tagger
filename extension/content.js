@@ -157,4 +157,46 @@
       if (e.key === 'Escape') close();
     });
   }
+
+  // ===== 回看 seek：页面加载后轮询后端「待跳转」标记 =====
+  const VT_DEFAULT_BACKEND = 'http://localhost:8080';
+
+  /** 去掉 URL 中的时间参数，与后端待跳转队列的 key 对齐 */
+  function normalizeUrl(url) {
+    return url.replace(/([?&])t=\d+s?(&|$)/g, (m, p1, p2) => (p2 === '&' ? p1 : ''))
+              .replace(/[?&]$/, '');
+  }
+
+  async function getBackendBase() {
+    const { backendBaseUrl } = await chrome.storage.sync.get('backendBaseUrl');
+    return backendBaseUrl || VT_DEFAULT_BACKEND;
+  }
+
+  function seekWhenReady(video, timestampSec) {
+    if (video.readyState >= 1) {
+      video.currentTime = timestampSec;
+    } else {
+      video.addEventListener('loadedmetadata', () => { video.currentTime = timestampSec; }, { once: true });
+    }
+  }
+
+  async function trySeek() {
+    const video = findVideo();
+    if (!video) return;
+    try {
+      const base = await getBackendBase();
+      const url = normalizeUrl(location.href);
+      const resp = await fetch(`${base}/api/jump/pending?url=${encodeURIComponent(url)}`);
+      if (!resp.ok) return; // 204 或后端未启动
+      const data = await resp.json();
+      if (typeof data.timestampSec === 'number') {
+        seekWhenReady(video, data.timestampSec);
+      }
+    } catch (e) { /* 后端未启动，静默 */ }
+  }
+
+  // 视频元素可能延迟出现：加载后 0s / 2s / 5s 各试一次
+  trySeek();
+  setTimeout(trySeek, 2_000);
+  setTimeout(trySeek, 5_000);
 })();
