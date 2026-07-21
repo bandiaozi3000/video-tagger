@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Video Tagger 设置</title>
+  <style>
+    body { font-family: "Microsoft YaHei UI", sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; }
+    label { display: block; margin-bottom: 8px; font-weight: 600; }
+    input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; }
+    button { margin-top: 16px; padding: 8px 20px; border: none; border-radius: 8px; background: #7c5cbf; color: #fff; cursor: pointer; }
+    #status { margin-top: 12px; color: green; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h2>Video Tagger 设置</h2>
+  <label for="backend">后端地址</label>
+  <input id="backend" placeholder="http://localhost:8080">
+  <button id="save">保存</button>
+  <div id="status"></div>
+  <script src="options.js"></script>
+</body>
+</html>

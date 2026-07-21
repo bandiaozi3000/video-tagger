@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Video Tagger",
+  "version": "0.1.0",
+  "description": "网页视频片段打标签与回看",
+  "permissions": ["commands", "storage", "notifications"],
+  "host_permissions": ["http://localhost:8080/*", "http://127.0.0.1:8080/*"],
+  "background": { "service_worker": "background.js" },
+  "commands": {
+    "tag-clip": {
+      "suggested_key": { "default": "Alt+S" },
+      "description": "标记当前视频片段"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "all_frames": false
+    }
+  ],
+  "options_page": "options.html"
+}
