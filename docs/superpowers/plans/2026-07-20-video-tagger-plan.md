@@ -1212,7 +1212,7 @@ class EmbeddingTaskServiceTest {
         EmbeddingTask due = pendingTask(1L, 1, now - 5_000);    // 退避 2^1*1000=2s，已到期
         EmbeddingTask notDue = pendingTask(2L, 3, now - 5_000); // 退避 2^3*1000=8s，未到期
         when(taskMapper.selectPending()).thenReturn(List.of(due, notDue));
-        when(embeddingClient.isConfigured()).thenReturn(false); // process 内直接返回，便于观察调用
+        when(embeddingClient.isConfigured()).thenReturn(true); // process 推进到 selectById 后因 clip 为 null 早退，便于观察调用
 
         service.sweep();
 
