@@ -54,6 +54,25 @@ services:
       - etcd
       - minio
 
+  app:
+    build: ./backend
+    container_name: vt-app
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/video_tagger?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      MYSQL_ROOT_PASSWORD: root123456
+      MILVUS_URI: http://milvus:19530
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      milvus:
+        condition: service_started
+
 volumes:
   mysql_data:
   etcd_data:
