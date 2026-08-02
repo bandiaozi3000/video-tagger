@@ -4,6 +4,7 @@ import com.videotagger.entity.Clip;
 import com.videotagger.entity.EmbeddingTask;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.EmbeddingTaskMapper;
+import com.videotagger.util.VideoFingerprint;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,7 +48,9 @@ public class ClipService {
         Clip clip = new Clip();
         clip.setTitle(req.title());
         clip.setUrl(req.url());
+        clip.setVideoFp(VideoFingerprint.fingerprint(req.url()));
         clip.setTimestampSec(req.timestampSec());
+        clip.setVideoDuration(req.videoDuration());
         clip.setTag(req.tag());
         clip.setNote(req.note() == null ? "" : req.note());
         clip.setCreatedAt(now);
@@ -78,7 +81,10 @@ public class ClipService {
 
         clip.setTitle(req.title());
         clip.setUrl(req.url());
+        clip.setVideoFp(VideoFingerprint.fingerprint(req.url()));
         clip.setTimestampSec(req.timestampSec());
+        // 编辑请求未携带时长时保留原值
+        clip.setVideoDuration(req.videoDuration() != null ? req.videoDuration() : clip.getVideoDuration());
         clip.setTag(appendTag ? appendTag(oldTag, req.tag()) : req.tag());
         clip.setNote(req.note() == null ? "" : req.note());
         clipMapper.updateById(clip);

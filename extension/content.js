@@ -10,6 +10,12 @@
     return videos.find(v => !v.paused) || videos[0];
   }
 
+  function currentVideoDuration() {
+    const v = findVideo();
+    if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return null;
+    return v.duration;
+  }
+
   async function getBackendBase() {
     const { videoTaggerPrefs } = await chrome.storage.sync.get('videoTaggerPrefs');
     return (videoTaggerPrefs && videoTaggerPrefs.backendBaseUrl) || VT_DEFAULT_BACKEND;
@@ -84,7 +90,7 @@
         type: 'api',
         method: 'POST',
         path: '/api/clips',
-        body: { ...info, tag, note: '' }
+        body: { ...info, tag, note: '', videoDuration: currentVideoDuration() }
       });
       if (resp && resp.ok && resp.data && resp.data.deduped) {
         showToast(`「${tag}」该片段刚已保存`);
@@ -362,7 +368,8 @@
         url: info.url,
         timestampSec: Number.isFinite(editedSec) ? editedSec : info.timestampSec,
         tag,
-        note: noteInput.value.trim()
+        note: noteInput.value.trim(),
+        videoDuration: currentVideoDuration()
       };
       const resp = await chrome.runtime.sendMessage({ type: 'save-clip', payload });
       if (!resp || !resp.ok) {

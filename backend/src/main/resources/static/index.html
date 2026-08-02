@@ -8,15 +8,41 @@
 </head>
 <body>
 <main class="container">
-    <h1 class="logo">Video Tagger</h1>
-    <form id="search-form" class="search-box">
-        <input id="search-input" type="text" placeholder="用自然语言描述你想找的片段，如「主角爆种的战斗场面」"
-               autocomplete="off" autofocus>
-        <button type="button" id="clear-btn" title="清空">&times;</button>
-    </form>
-    <div id="semantic-hint" class="semantic-hint" hidden>语义搜索未启用（未配置 Embedding API），当前为关键词搜索</div>
-    <div id="status" class="status"></div>
-    <section id="results" class="results"></section>
+    <nav class="nav">
+        <h1 class="logo">Video Tagger</h1>
+        <div class="nav-tabs">
+            <button type="button" class="tab active" data-view="search">搜索</button>
+            <button type="button" class="tab" data-view="videos">时间线</button>
+        </div>
+    </nav>
+
+    <!-- 搜索视图 -->
+    <section id="view-search">
+        <form id="search-form" class="search-box">
+            <input id="search-input" type="text" placeholder="用自然语言描述你想找的片段，如「主角爆种的战斗场面」"
+                   autocomplete="off" autofocus>
+            <button type="button" id="clear-btn" title="清空">&times;</button>
+        </form>
+        <div id="semantic-hint" class="semantic-hint" hidden>语义搜索未启用（未配置 Embedding API），当前为关键词搜索</div>
+        <div id="status" class="status"></div>
+        <section id="results" class="results"></section>
+    </section>
+
+    <!-- 视频列表视图 -->
+    <section id="view-videos" hidden>
+        <div id="video-status" class="status"></div>
+        <section id="video-list" class="results"></section>
+        <button type="button" id="load-more" class="load-more" hidden>加载更多</button>
+    </section>
+
+    <!-- 时间线视图 -->
+    <section id="view-timeline" hidden>
+        <button type="button" id="back-to-videos" class="back-btn">← 返回视频列表</button>
+        <h2 id="timeline-title" class="timeline-title"></h2>
+        <div id="timeline-axis" class="timeline-axis"></div>
+        <div id="timeline-status" class="status"></div>
+        <section id="timeline-clips" class="results"></section>
+    </section>
 </main>
 
 <div id="edit-modal" class="modal-overlay" hidden>
