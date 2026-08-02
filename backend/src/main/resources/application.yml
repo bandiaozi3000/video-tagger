@@ -1,5 +1,8 @@
 server:
   port: 8080
+  # 本地开发默认只监听回环地址；Docker 内通过 SERVER_ADDRESS=0.0.0.0 覆盖，
+  # 宿主侧再以 127.0.0.1:8080:8080 发布端口，避免暴露到局域网
+  address: ${SERVER_ADDRESS:127.0.0.1}
 
 spring:
   application:
@@ -10,7 +13,9 @@ spring:
     password: ${MYSQL_ROOT_PASSWORD:root123456}
   sql:
     init:
-      mode: always
+      mode: never
+  flyway:
+    enabled: true
 
 mybatis-plus:
   configuration:
@@ -21,7 +26,8 @@ videotagger:
     uri: ${MILVUS_URI:http://localhost:19530}
     collection: clip_embeddings
   embedding:
+    # 密钥只通过环境变量注入（.env），禁止在此硬编码兜底默认值
     base-url: ${EMBEDDING_BASE_URL:}
     api-key: ${EMBEDDING_API_KEY:}
-    model: ${EMBEDDING_MODEL:text-embedding-3-small}
+    model: ${EMBEDDING_MODEL:text-embedding-v4}
     dim: ${EMBEDDING_DIM:1024}

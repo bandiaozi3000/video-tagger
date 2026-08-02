@@ -53,13 +53,32 @@ services:
     depends_on:
       - etcd
       - minio
+    healthcheck:
+      # Milvus 暴露 metrics 端口 9091 的 /healthz；冷启动较慢，放宽 start_period
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  attu:
+    container_name: vt-attu
+    image: zilliz/attu:v2.4  # 和你的 Milvus 2.4.13 版本匹配
+    environment:
+      MILVUS_URL: milvus:19530  # 同 docker 网络直接用服务名，不用写 localhost
+    ports:
+      - "8000:3000"  # 浏览器访问宿主机的 8000 端口
+    depends_on:
+      - milvus
 
   app:
     build: ./backend
     container_name: vt-app
+    # 只发布到宿主回环地址，不暴露局域网；容器内 app 绑定 0.0.0.0（SERVER_ADDRESS）
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
+      SERVER_ADDRESS: 0.0.0.0
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/video_tagger?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
       MYSQL_ROOT_PASSWORD: root123456
       MILVUS_URI: http://milvus:19530
@@ -71,7 +90,7 @@ services:
       mysql:
         condition: service_healthy
       milvus:
-        condition: service_started
+        condition: service_healthy
 
 volumes:
   mysql_data:
