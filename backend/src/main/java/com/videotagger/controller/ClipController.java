@@ -5,7 +5,6 @@ import com.videotagger.service.ClipService;
 import com.videotagger.service.SaveClipRequest;
 import com.videotagger.service.SaveClipResult;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,10 +15,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
-import java.util.NoSuchElementException;
 
 @RestController
 @RequestMapping("/api/clips")
@@ -47,11 +44,7 @@ public class ClipController {
     public Clip update(@PathVariable Long id,
                        @RequestParam(defaultValue = "false") boolean appendTag,
                        @Valid @RequestBody SaveClipRequest req) {
-        try {
-            return clipService.update(id, req, appendTag);
-        } catch (NoSuchElementException e) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
-        }
+        return clipService.update(id, req, appendTag);
     }
 
     @DeleteMapping("/{id}")

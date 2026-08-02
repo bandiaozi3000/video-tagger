@@ -21,6 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
+import java.util.NoSuchElementException;
 
 @WebMvcTest(ClipController.class)
 class ClipControllerTest {
@@ -53,7 +54,33 @@ class ClipControllerTest {
                         .content("""
                                 {"title":"t","url":"https://a.com","timestampSec":1.0,"tag":""}
                                 """))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void saveRejectsNonHttpUrl() throws Exception {
+        mvc.perform(post("/api/clips")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"t","url":"ftp://a.com","timestampSec":1.0,"tag":"高燃"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void updateMissingReturns404() throws Exception {
+        Mockito.doThrow(new NoSuchElementException("clip not found: 99"))
+                .when(clipService).update(eq(99L), any(), eq(false));
+
+        mvc.perform(put("/api/clips/99")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"t","url":"https://a.com/v","timestampSec":1.0,"tag":"高燃"}
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(404));
     }
 
     @Test
