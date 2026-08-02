@@ -2,6 +2,8 @@ package com.videotagger.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.videotagger.entity.Clip;
+import com.videotagger.service.StatsResponse.SiteCount;
+import com.videotagger.service.StatsResponse.TrendPoint;
 import com.videotagger.service.TagSuggestion;
 import com.videotagger.service.VideoSummary;
 import org.apache.ibatis.annotations.Param;
@@ -46,4 +48,31 @@ public interface ClipMapper extends BaseMapper<Clip> {
 
     @Select("SELECT * FROM clips WHERE video_fp = #{fp} ORDER BY timestamp_sec ASC")
     List<Clip> listByFingerprint(@Param("fp") String fp);
+
+    @Select("<script>"
+            + "SELECT id FROM clips "
+            + "WHERE id != #{id} AND ("
+            + "<foreach collection='tokens' item='t' separator=' OR '>tag LIKE CONCAT('%', #{t}, '%')</foreach>"
+            + ") ORDER BY ("
+            + "<foreach collection='tokens' item='t' separator='+'>IF(tag LIKE CONCAT('%', #{t}, '%'), 1, 0)</foreach>"
+            + ") DESC, id DESC LIMIT #{limit}"
+            + "</script>")
+    List<Long> findSimilarByTag(@Param("id") Long id, @Param("tokens") List<String> tokens, @Param("limit") int limit);
+
+    @Select("SELECT COUNT(*) FROM clips")
+    long countClips();
+
+    @Select("SELECT COUNT(DISTINCT video_fp) FROM clips WHERE video_fp IS NOT NULL AND video_fp <> ''")
+    long countVideos();
+
+    @Select("SELECT COUNT(DISTINCT tag) FROM clips")
+    long countDistinctTags();
+
+    @Select("SELECT SUBSTRING_INDEX(SUBSTRING_INDEX(url, '/', 3), '//', -1) AS site, COUNT(*) AS count "
+            + "FROM clips GROUP BY site ORDER BY count DESC LIMIT #{limit}")
+    List<SiteCount> countBySite(@Param("limit") int limit);
+
+    @Select("SELECT DATE(FROM_UNIXTIME(created_at / 1000)) AS date, COUNT(*) AS count "
+            + "FROM clips WHERE created_at >= #{since} GROUP BY date ORDER BY date ASC")
+    List<TrendPoint> countTrend(@Param("since") long since);
 }

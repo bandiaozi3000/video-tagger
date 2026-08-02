@@ -7,9 +7,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -51,19 +53,61 @@ public class SearchService {
         if (topIds.isEmpty()) {
             return new SearchResponse(semantic, List.of());
         }
+        return new SearchResponse(semantic, toResults(topIds, fused));
+    }
 
+    /**
+     * 相似片段推荐：同标签候选（按命中标签词数排序）优先，向量近邻补充；
+     * RRF 融合后排除自身，返回前 limit 条。
+     */
+    public List<SearchResult> similar(Long id, int limit) {
+        Clip target = clipMapper.selectById(id);
+        if (target == null) {
+            throw new NoSuchElementException("clip not found: " + id);
+        }
+        List<String> tokens = Arrays.stream(target.getTag().trim().split("\\s+"))
+                .filter(t -> !t.isEmpty())
+                .toList();
+        List<Long> tagIds = tokens.isEmpty() ? List.of()
+                : clipMapper.findSimilarByTag(id, tokens, Math.max(limit * 3, 30));
+
+        List<Long> vectorIds = List.of();
+        if (embeddingClient.isConfigured() && !target.getTag().isBlank()) {
+            try {
+                // 用目标片段的文本重新嵌入作为查询向量（同文本≈已存向量），ANN 后排除自身
+                String text = target.getTag() + (target.getNote() == null || target.getNote().isBlank()
+                        ? "" : " " + target.getNote());
+                float[] q = embeddingClient.embed(text);
+                vectorIds = vectorStore.search(q, Math.max(limit * 3, 30)).stream()
+                        .map(VectorStore.VectorHit::clipId).toList();
+            } catch (Exception e) {
+                log.warn("相似推荐向量召回失败：{}", e.getMessage());
+            }
+        }
+
+        LinkedHashMap<Long, Double> fused = RrfFusion.fuse(RRF_K, List.of(tagIds, vectorIds));
+        List<Long> topIds = fused.keySet().stream()
+                .filter(cid -> !cid.equals(id))
+                .limit(limit)
+                .toList();
+        return toResults(topIds, fused);
+    }
+
+    private List<SearchResult> toResults(List<Long> topIds, Map<Long, Double> scores) {
+        if (topIds.isEmpty()) {
+            return List.of();
+        }
         Map<Long, Clip> byId = clipMapper.selectBatchIds(topIds).stream()
                 .collect(Collectors.toMap(Clip::getId, Function.identity()));
 
-        List<SearchResult> results = topIds.stream()
+        return topIds.stream()
                 .filter(byId::containsKey)
                 .map(id -> {
                     Clip c = byId.get(id);
                     return new SearchResult(c.getId(), c.getTitle(), c.getUrl(),
                             UrlTimeParams.build(c.getUrl(), c.getTimestampSec()),
-                            c.getTimestampSec(), c.getTag(), c.getNote(), fused.get(id));
+                            c.getTimestampSec(), c.getTag(), c.getNote(), scores.get(id));
                 })
                 .toList();
-        return new SearchResponse(semantic, results);
     }
 }

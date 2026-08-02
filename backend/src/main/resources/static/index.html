@@ -13,6 +13,7 @@
         <div class="nav-tabs">
             <button type="button" class="tab active" data-view="search">搜索</button>
             <button type="button" class="tab" data-view="videos">时间线</button>
+            <button type="button" class="tab" data-view="stats">统计</button>
         </div>
     </nav>
 
@@ -43,7 +44,35 @@
         <div id="timeline-status" class="status"></div>
         <section id="timeline-clips" class="results"></section>
     </section>
+
+    <!-- 统计视图 -->
+    <section id="view-stats" hidden>
+        <div class="stats-cards">
+            <div class="stat-card"><div class="stat-num" id="stat-clips">–</div><div class="stat-label">标签片段</div></div>
+            <div class="stat-card"><div class="stat-num" id="stat-videos">–</div><div class="stat-label">视频</div></div>
+            <div class="stat-card"><div class="stat-num" id="stat-tags">–</div><div class="stat-label">标签数</div></div>
+        </div>
+        <h3 class="stats-title">最常用标签</h3>
+        <div id="stats-tags" class="stats-tags"></div>
+        <h3 class="stats-title">按站点分布</h3>
+        <div id="stats-sites" class="stats-chart"></div>
+        <h3 class="stats-title">近 30 天标记趋势</h3>
+        <div id="stats-trend" class="stats-chart"></div>
+        <div id="stats-status" class="status"></div>
+    </section>
 </main>
+
+<!-- 相似片段弹窗 -->
+<div id="similar-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide">
+        <h2>相似片段</h2>
+        <div id="similar-status" class="status"></div>
+        <section id="similar-results" class="results"></section>
+        <div class="modal-actions">
+            <button id="similar-close" type="button">关闭</button>
+        </div>
+    </div>
+</div>
 
 <div id="edit-modal" class="modal-overlay" hidden>
     <div class="modal">

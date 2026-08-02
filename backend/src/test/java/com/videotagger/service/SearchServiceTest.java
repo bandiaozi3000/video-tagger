@@ -80,4 +80,30 @@ class SearchServiceTest {
         assertFalse(resp.semanticEnabled());
         assertEquals(1, resp.results().size());
     }
+
+    @Test
+    void similarReturnsSameTagClips() {
+        when(clipMapper.selectById(1L)).thenReturn(clip(1L, "高燃 战斗"));
+        when(clipMapper.findSimilarByTag(eq(1L), anyList(), anyInt())).thenReturn(List.of(2L, 3L));
+        when(clipMapper.selectBatchIds(anyCollection()))
+                .thenReturn(List.of(clip(2L, "高燃 战斗"), clip(3L, "高燃 名场面")));
+        when(embeddingClient.isConfigured()).thenReturn(false);
+
+        List<SearchResult> result = searchService.similar(1L, 10);
+
+        assertEquals(List.of(2L, 3L), result.stream().map(SearchResult::id).toList());
+    }
+
+    @Test
+    void similarExcludesSelf() {
+        when(clipMapper.selectById(1L)).thenReturn(clip(1L, "高燃"));
+        when(clipMapper.findSimilarByTag(eq(1L), anyList(), anyInt())).thenReturn(List.of(2L, 1L));
+        when(clipMapper.selectBatchIds(anyCollection()))
+                .thenReturn(List.of(clip(1L, "高燃"), clip(2L, "高燃")));
+        when(embeddingClient.isConfigured()).thenReturn(false);
+
+        List<SearchResult> result = searchService.similar(1L, 10);
+
+        assertEquals(List.of(2L), result.stream().map(SearchResult::id).toList());
+    }
 }

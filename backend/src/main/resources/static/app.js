@@ -1,7 +1,8 @@
 const views = {
   search: document.getElementById('view-search'),
   videos: document.getElementById('view-videos'),
-  timeline: document.getElementById('view-timeline')
+  timeline: document.getElementById('view-timeline'),
+  stats: document.getElementById('view-stats')
 };
 
 const form = document.getElementById('search-form');
@@ -26,6 +27,18 @@ const editTitle = document.getElementById('edit-title');
 const editTag = document.getElementById('edit-tag');
 const editNote = document.getElementById('edit-note');
 const editTime = document.getElementById('edit-time');
+
+const similarModal = document.getElementById('similar-modal');
+const similarStatusEl = document.getElementById('similar-status');
+const similarResultsEl = document.getElementById('similar-results');
+
+const statClipsEl = document.getElementById('stat-clips');
+const statVideosEl = document.getElementById('stat-videos');
+const statTagsEl = document.getElementById('stat-tags');
+const statsTagsEl = document.getElementById('stats-tags');
+const statsSitesEl = document.getElementById('stats-sites');
+const statsTrendEl = document.getElementById('stats-trend');
+const statsStatusEl = document.getElementById('stats-status');
 
 let currentQuery = '';
 let editingClip = null;
@@ -74,6 +87,7 @@ function showView(name) {
         el.hidden = k !== name;
     }
     if (name === 'videos') loadVideos(true);
+    if (name === 'stats') loadStats();
 }
 
 // ---------- 搜索 ----------
@@ -115,12 +129,17 @@ function appendClipCard(container, r, opts) {
         </div>
         ${scoreBar}
         <div class="card-actions">
+            <button class="btn-similar" type="button">相似</button>
             <button class="btn-edit" type="button">编辑</button>
             <button class="btn-delete" type="button">删除</button>
         </div>`;
     card.querySelector('.card-title').textContent = r.title;
     card.querySelector('.card-tag').textContent = r.tag + (r.note ? ` · ${r.note}` : '');
     card.addEventListener('click', () => jump(r));
+    card.querySelector('.btn-similar').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openSimilar(r);
+    });
     card.querySelector('.btn-edit').addEventListener('click', (e) => {
         e.stopPropagation();
         openEditModal(r);
@@ -296,6 +315,138 @@ function refreshCurrentView() {
     }
 }
 
+// ---------- 相似片段 ----------
+
+async function openSimilar(r) {
+    similarModal.hidden = false;
+    similarStatusEl.textContent = '加载中…';
+    similarResultsEl.innerHTML = '';
+    try {
+        const resp = await fetch(`/api/search/similar?id=${r.id}&limit=10`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const list = await resp.json();
+        similarStatusEl.textContent = '';
+        if (list.length === 0) {
+            similarStatusEl.textContent = '没有找到相似片段';
+            return;
+        }
+        for (const s of list) appendClipCard(similarResultsEl, s, {});
+    } catch (err) {
+        similarStatusEl.textContent = '加载失败：后端未响应';
+    }
+}
+
+// ---------- 统计 ----------
+
+async function loadStats() {
+    statsStatusEl.textContent = '加载中…';
+    try {
+        const resp = await fetch('/api/stats');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        statsStatusEl.textContent = '';
+        statClipsEl.textContent = data.totalClips;
+        statVideosEl.textContent = data.totalVideos;
+        statTagsEl.textContent = data.totalTags;
+
+        statsTagsEl.innerHTML = '';
+        if (!data.topTags || data.topTags.length === 0) {
+            statsTagsEl.textContent = '暂无标签';
+        } else {
+            for (const t of data.topTags) {
+                const chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'tag-chip';
+                chip.textContent = `${t.tag} · ${t.count}`;
+                chip.addEventListener('click', () => {
+                    showView('search');
+                    input.value = t.tag;
+                    runSearch(t.tag);
+                });
+                statsTagsEl.appendChild(chip);
+            }
+        }
+
+        renderBars(statsSitesEl, data.bySite || [], {
+            value: s => s.count,
+            label: s => s.site.replace(/^www\./, ''),
+            barW: 60
+        });
+        renderBars(statsTrendEl, fillTrend(data.trend30 || [], 30), {
+            value: p => p.count,
+            label: p => p.date.slice(5),
+            barW: 16,
+            labelEvery: 5,
+            emptyText: '近 30 天暂无标记'
+        });
+    } catch (err) {
+        statsStatusEl.textContent = '加载失败：后端未响应';
+    }
+}
+
+function fillTrend(points, days) {
+    const map = {};
+    for (const p of points) map[p.date] = p.count;
+    const result = [];
+    const today = new Date();
+    for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        result.push({ date: key, count: map[key] || 0 });
+    }
+    return result;
+}
+
+function renderBars(el, items, opts) {
+    el.innerHTML = '';
+    if (!items || items.length === 0) {
+        el.textContent = opts.emptyText || '暂无数据';
+        return;
+    }
+    const barW = opts.barW || 40;
+    const gap = barW >= 40 ? 8 : 3;
+    const max = Math.max(...items.map(opts.value), 1);
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '150');
+    svg.setAttribute('viewBox', `0 0 ${items.length * (barW + gap)} 150`);
+    items.forEach((item, i) => {
+        const h = Math.max(item.count > 0 ? opts.value(item) / max * 110 : 2, 2);
+        const x = i * (barW + gap);
+        const y = 128 - h;
+        const rect = document.createElementNS(svgNS, 'rect');
+        rect.setAttribute('x', x);
+        rect.setAttribute('y', y);
+        rect.setAttribute('width', barW - 2);
+        rect.setAttribute('height', h);
+        rect.setAttribute('rx', '3');
+        rect.setAttribute('fill', opts.value(item) === 0 ? '#45475a' : '#cba6f7');
+        svg.appendChild(rect);
+        const num = document.createElementNS(svgNS, 'text');
+        num.setAttribute('x', x + (barW - 2) / 2);
+        num.setAttribute('y', y - 5);
+        num.setAttribute('text-anchor', 'middle');
+        num.setAttribute('font-size', '10');
+        num.setAttribute('fill', '#a6adc8');
+        num.textContent = opts.value(item);
+        svg.appendChild(num);
+        const showLabel = !opts.labelEvery || i % opts.labelEvery === 0;
+        if (showLabel && opts.label) {
+            const name = document.createElementNS(svgNS, 'text');
+            name.setAttribute('x', x + (barW - 2) / 2);
+            name.setAttribute('y', 144);
+            name.setAttribute('text-anchor', 'middle');
+            name.setAttribute('font-size', '10');
+            name.setAttribute('fill', '#6c7086');
+            name.textContent = opts.label(item);
+            svg.appendChild(name);
+        }
+    });
+    el.appendChild(svg);
+}
+
 // ---------- 事件绑定 ----------
 
 form.addEventListener('submit', doSearch);
@@ -308,3 +459,5 @@ document.querySelectorAll('.nav .tab').forEach(tab => {
 editModal.addEventListener('click', (e) => { if (e.target === editModal) editModal.hidden = true; });
 document.getElementById('edit-cancel').addEventListener('click', () => { editModal.hidden = true; editingClip = null; });
 document.getElementById('edit-save').addEventListener('click', saveEdit);
+similarModal.addEventListener('click', (e) => { if (e.target === similarModal) similarModal.hidden = true; });
+document.getElementById('similar-close').addEventListener('click', () => { similarModal.hidden = true; });

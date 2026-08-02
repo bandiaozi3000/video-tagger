@@ -41,4 +41,17 @@ class SearchControllerTest {
                 .andExpect(jsonPath("$.results[0].jumpUrl").value("https://www.bilibili.com/video/BV1?t=754"))
                 .andExpect(jsonPath("$.results[0].tag").value("高燃战斗"));
     }
+
+    @Test
+    void similarReturnsResults() throws Exception {
+        SearchResult item = new SearchResult(2L, "某动画 第3集",
+                "https://www.bilibili.com/video/BV2", "https://www.bilibili.com/video/BV2?t=100",
+                100.0, "高燃", "", 0.05);
+        Mockito.when(searchService.similar(eq(1L), eq(10))).thenReturn(List.of(item));
+
+        mvc.perform(get("/api/search/similar").param("id", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(2))
+                .andExpect(jsonPath("$[0].tag").value("高燃"));
+    }
 }
