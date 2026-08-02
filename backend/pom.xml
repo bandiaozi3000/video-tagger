@@ -43,6 +43,15 @@
             <artifactId>milvus-sdk-java</artifactId>
             <version>2.4.5</version>
         </dependency>
+        <!-- schema 迁移：V1 基线 + 后续加列版本化 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

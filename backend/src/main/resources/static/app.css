@@ -95,6 +95,76 @@ body {
 .score-bar { margin-top: 10px; height: 3px; background: #45475a; border-radius: 2px; overflow: hidden; }
 .score-bar > div { height: 100%; background: #cba6f7; border-radius: 2px; }
 
+.card-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 10px;
+    opacity: 0;
+    transition: opacity .15s;
+}
+.card:hover .card-actions { opacity: 1; }
+
+.btn-edit, .btn-delete {
+    background: transparent;
+    border: 1px solid #45475a;
+    border-radius: 6px;
+    color: #a6adc8;
+    font-size: 12px;
+    padding: 3px 10px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.btn-edit:hover { background: #45475a; color: #cdd6f4; }
+.btn-delete { color: #f38ba8; border-color: rgba(243, 139, 168, .4); }
+.btn-delete:hover { background: rgba(243, 139, 168, .12); }
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+.modal {
+    background: #313244;
+    border: 1px solid #45475a;
+    border-radius: 14px;
+    padding: 20px;
+    width: 380px;
+    color: #cdd6f4;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .5);
+}
+.modal h2 { font-size: 16px; color: #cba6f7; margin-bottom: 14px; }
+.modal label { display: block; margin-bottom: 10px; font-size: 13px; color: #a6adc8; }
+.modal input {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 4px;
+    padding: 8px 10px;
+    background: #1e1e2e;
+    border: 1px solid #45475a;
+    border-radius: 8px;
+    color: #cdd6f4;
+    font-size: 14px;
+    outline: none;
+}
+.modal input:focus { border-color: #cba6f7; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.modal-actions button {
+    padding: 7px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+}
+#edit-cancel { background: transparent; border: 1px solid #45475a; color: #cdd6f4; }
+#edit-cancel:hover { background: #45475a; }
+#edit-save { background: #cba6f7; border: none; color: #1e1e2e; font-weight: 600; }
+#edit-save:hover { background: #b695e8; }
+
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }

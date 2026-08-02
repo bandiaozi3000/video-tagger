@@ -1,3 +1,4 @@
+-- V1 基线：与初版 schema.sql 等价（CREATE TABLE IF NOT EXISTS 兼容已有数据卷）
 CREATE TABLE IF NOT EXISTS clips (
     id            BIGINT PRIMARY KEY AUTO_INCREMENT,
     title         VARCHAR(512) NOT NULL,

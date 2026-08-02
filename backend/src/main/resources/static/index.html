@@ -18,6 +18,20 @@
     <div id="status" class="status"></div>
     <section id="results" class="results"></section>
 </main>
+
+<div id="edit-modal" class="modal-overlay" hidden>
+    <div class="modal">
+        <h2>编辑标签</h2>
+        <label>标题<input id="edit-title" autocomplete="off"></label>
+        <label>标签<input id="edit-tag" autocomplete="off"></label>
+        <label>备注<input id="edit-note" autocomplete="off"></label>
+        <label>时间戳（秒）<input id="edit-time" type="number" step="0.1" min="0"></label>
+        <div class="modal-actions">
+            <button id="edit-cancel" type="button">取消</button>
+            <button id="edit-save" type="button">保存</button>
+        </div>
+    </div>
+</div>
 <script src="app.js"></script>
 </body>
 </html>
