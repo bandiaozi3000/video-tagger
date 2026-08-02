@@ -4,17 +4,33 @@
   <meta charset="UTF-8">
   <title>Video Tagger 设置</title>
   <style>
-    body { font-family: "Microsoft YaHei UI", sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; }
+    body { font-family: "Microsoft YaHei UI", sans-serif; max-width: 520px; margin: 40px auto; padding: 0 16px; }
     label { display: block; margin-bottom: 8px; font-weight: 600; }
     input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; }
     button { margin-top: 16px; padding: 8px 20px; border: none; border-radius: 8px; background: #7c5cbf; color: #fff; cursor: pointer; }
     #status { margin-top: 12px; color: green; font-size: 13px; }
+    h3 { margin: 28px 0 6px; font-size: 15px; }
+    .hint { color: #888; font-size: 12px; margin: 0 0 12px; }
+    .slots { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .slot-label { font-size: 12px; color: #666; margin-bottom: 4px; }
+    .checkbox { display: flex; align-items: center; gap: 8px; margin-top: 18px; font-weight: 400; }
+    .checkbox input { width: auto; }
   </style>
 </head>
 <body>
   <h2>Video Tagger 设置</h2>
+
   <label for="backend">后端地址</label>
   <input id="backend" placeholder="http://localhost:8080">
+
+  <h3>快捷标签位（Ctrl+Shift+1~9）</h3>
+  <p class="hint">在视频页按下对应组合键，直接弹出预填该标签的浮层，回车即存。</p>
+  <div class="slots" id="slots"></div>
+
+  <label class="checkbox">
+    <input type="checkbox" id="quick-silent"> 快捷标签位静默直存（不弹浮层，立即保存）
+  </label>
+
   <button id="save">保存</button>
   <div id="status"></div>
   <script src="options.js"></script>

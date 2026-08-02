@@ -1,8 +1,8 @@
 const DEFAULT_BACKEND = 'http://localhost:8080';
 
 async function getBackendBase() {
-  const { backendBaseUrl } = await chrome.storage.sync.get('backendBaseUrl');
-  return backendBaseUrl || DEFAULT_BACKEND;
+  const { videoTaggerPrefs } = await chrome.storage.sync.get('videoTaggerPrefs');
+  return (videoTaggerPrefs && videoTaggerPrefs.backendBaseUrl) || DEFAULT_BACKEND;
 }
 
 function notify(message) {
@@ -41,13 +41,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           body: JSON.stringify(msg.payload)
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        sendResponse({ ok: true });
+        const data = await resp.json();
+        sendResponse({ ok: true, deduped: !!(data && data.deduped) });
       } catch (e) {
         notify('保存失败：后端未启动？请先执行 docker compose up -d');
         sendResponse({ ok: false, error: e.message });
       }
     })();
     return true; // 异步 sendResponse
+  }
+  // 通用后端调用：content script 走 background 才能绕开页面 origin 的 CORS
+  if (msg.type === 'api') {
+    (async () => {
+      const base = await getBackendBase();
+      try {
+        const init = { method: msg.method || 'GET', headers: { 'Content-Type': 'application/json' } };
+        if (msg.body) init.body = JSON.stringify(msg.body);
+        const resp = await fetch(`${base}${msg.path}`, init);
+        let data = null;
+        if (resp.status !== 204) {
+          data = await resp.json().catch(() => null);
+        }
+        sendResponse({ ok: resp.ok, status: resp.status, data });
+      } catch (e) {
+        sendResponse({ ok: false, status: 0, error: e.message });
+      }
+    })();
+    return true;
   }
   if (msg.type === 'notify') {
     notify(msg.message);
