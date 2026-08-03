@@ -9,7 +9,9 @@
 - **番剧三层打标**：番剧 → 集(含季) → 片段三层，均可打标；打标自动按标题归组番剧/集，浮层显示识别归属（A 做轻），列表「待确认」批量审核兜底（B 做全）。
 - **秒级打标**：`Alt+S` 弹浮层；`Ctrl+Shift+1~9` 快捷标签位（可静默直存）；连续打标模式时间戳实时跟随；标签输入自动补全。
 - **重复片段提示**：同一片段已存过时提示，可"追加标签"合并或"仍然新增"。
-- **番剧管理**：卡片墙 + 详情页，封面（og:image 自动抓取 + 手动上传）、追番状态、内容类型（动画/电影）、手动评分、作品标签、最近观看；创建 / 编辑 / 改名 / 合并 / 级联删除。
+- **番剧管理**：卡片墙 + 详情页，封面（og:image 自动抓取 + 手动上传 + 无封面自动用代表性片段帧兜底）、追番状态、内容类型（动画/电影）、手动评分、作品标签、最近观看；创建 / 编辑 / 改名 / 合并 / 级联删除（含封面文件）。
+- **帧封面（双图）**：片段打标时扩展一次截两档——320px 缩略图 + 详情大图；列表左侧缩略图横排，**鼠标悬浮弹出详情大图预览**；每集可从该集片段帧里自选高能画面作集封面（未选智能默认用被标记最多的片段帧）。
+- **集 / 片段详情页**：点片段卡片进片段详情（大图 + 元信息 + 集/番剧导航 + 去原视频/编辑/删除 + 同集其他片段 + 相似片段）；点集卡片进集详情（封面 + 标签管理 + 打标签/设封面/去原视频 + 该集片段列表）。两页逻辑一致，可链式跳转逐层返回。
 - **三层混合检索**：搜索维度可选（番剧 / 集 / 片段 / 混合），MySQL 关键词 + Milvus 向量召回 + RRF 融合；未配置 Embedding API 时自动降级纯关键词。
 - **视频时间线**：同一视频的所有标记点沿时间轴排布，点击即跳回；分 P 视频正确聚合。
 - **收藏夹与筛选器**：多对多自定义清单（整体浏览）；番剧按状态 / 类型 / 收藏夹 / 待确认筛选。
@@ -54,7 +56,7 @@ mvn -f backend/pom.xml test                    # 跑测试（需 Docker 运行�
 
 ## 架构
 
-- 后端：`POST /api/clips`（保存，自动归组番剧/集）、`PUT/DELETE /api/clips/{id}`（编辑/删除/追加）、`GET /api/search?dim=`（三层混合检索）、`GET /api/search/similar`（相似推荐）、`GET /api/anime` + `/{id}` + `/recent` + `/episodes`（番剧档案与最近观看）、`POST /api/anime/{id}/rename|merge|confirm|cover`、`GET/POST/DELETE /api/collections`（收藏夹）、`GET /api/videos` + `/{fp}/clips`（时间线）、`GET /api/stats`（统计）、`GET /api/tags`（补全）、`GET /api/clips/near`（邻近提示）、跳转队列。
-- 存储：MySQL（三层 schema + 标签词库与全文索引）+ Milvus（三层向量，单 collection 组合主键）+ Flyway 迁移。
+- 后端：`POST /api/clips`（保存，自动归组番剧/集，含截帧封面）、`GET/PUT/DELETE /api/clips/{id}`（详情/编辑/删除/追加）、`GET /api/search?dim=`（三层混合检索）、`GET /api/search/similar`（相似推荐）、`GET /api/anime` + `/{id}` + `/recent` + `/episodes`（番剧档案与最近观看）、`POST /api/anime/{id}/rename|merge|confirm|cover`、`GET/POST/DELETE /api/collections`（收藏夹）、`GET /api/videos` + `/{fp}/clips`（时间线）、`GET /api/stats`（统计）、`GET /api/tags`（补全）、`GET /api/clips/near`（邻近提示）、`GET /api/episodes/{id}`（集详情）+ `POST .../cover`（集封面上传）+ `/cover-from-clip/{clipId}`（自选片段帧）、跳转队列。
+- 存储：MySQL（三层 schema + 标签词库与全文索引）+ Milvus（三层向量，单 collection 组合主键）+ Flyway 迁移；封面本地落盘 `data/covers/{anime}.{ext}`、`clip/{id}.jpg`、`ep/{id}-{ver}.jpg`，`/covers/**` 静态映射，不上 minio。
 - 扩展：Manifest V3，Shadow DOM 浮层，background 转发后端请求，看完自动弹。
 - 文档：番剧三层打标设计见 `docs/superpowers/specs/2026-08-03-video-tagger-anime-tiered-design.md`，实施计划见 `docs/superpowers/plans/2026-08-03-video-tagger-anime-tiered-phase1~3-plan.md`。

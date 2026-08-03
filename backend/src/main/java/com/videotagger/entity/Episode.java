@@ -21,5 +21,7 @@ public class Episode {
     private String url;
     /** 归一化 URL 指纹（同一集唯一标识，替代原 clips.video_fp 的"集"语义） */
     private String videoFp;
+    /** 集封面静态路径（自选高能画面/上传），可空；空时查询端解析到代表性片段帧 */
+    private String coverPath;
     private Long createdAt;
 }

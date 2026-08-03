@@ -18,12 +18,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Set;
 
 /**
  * 封面下载与落盘。存储走本地目录 + Spring 静态映射（/covers/**），不上 minio。
- * 扩展打标携带 og:image 时异步下载（失败降级为无封面，不阻塞保存链路）；
- * Web UI 支持手动上传 / 粘贴图片 URL 兜底。
+ *
+ * 目录规划：
+ *   - 番剧：{coverDir}/{animeId}.{ext}（og:image / 手动上传，覆盖写）
+ *   - 集：  {coverDir}/ep/{epId}-{version}.jpg（自选高能画面/上传，版本戳防浏览器缓存旧图）
+ *   - 片段：{coverDir}/clip/{clipId}.jpg（扩展截帧，一经创建不覆盖）
+ *
+ * 原则：封面纯展示，绝不进入向量化/搜索；任何一步失败降级为无封面，不阻塞保存主链路。
  */
 @Service
 public class CoverService {
@@ -49,6 +55,8 @@ public class CoverService {
     public Path dir() {
         return coverDir;
     }
+
+    // ---------- 番剧封面（既有：og:image / 手动上传） ----------
 
     /** 扩展打标后异步下载 og:image；失败静默（个人工具封面不是关键路径）。 */
     @Async("coverExecutor")
@@ -92,7 +100,7 @@ public class CoverService {
         }
     }
 
-    /** Web UI 手动上传的字节落盘。 */
+    /** Web UI 手动上传的字节落盘（番剧封面）。 */
     public String saveFromBytes(Long animeId, byte[] body, String originalName) {
         if (body.length > MAX_BYTES) {
             throw new IllegalArgumentException("图片过大: " + body.length);
@@ -100,20 +108,104 @@ public class CoverService {
         return persist(animeId, body, extFromName(originalName));
     }
 
+    // ---------- 片段封面（扩展截帧） ----------
+
+    /** 片段截帧封面：稳定文件名 clip/{clipId}.jpg（创建后不覆盖）。 */
+    public String saveClipCover(long clipId, byte[] body) {
+        Path dir = coverDir.resolve("clip");
+        write(dir, clipId + ".jpg", body);
+        return "/covers/clip/" + clipId + ".jpg";
+    }
+
+    /** 片段详情大图：稳定文件名 clip/{clipId}-xl.jpg（悬浮预览/详情页 hero 用）。 */
+    public String saveClipDetailCover(long clipId, byte[] body) {
+        Path dir = coverDir.resolve("clip");
+        write(dir, clipId + "-xl.jpg", body);
+        return "/covers/clip/" + clipId + "-xl.jpg";
+    }
+
+    // ---------- 集封面（自选/上传） ----------
+
+    /** 集封面：带版本戳防浏览器缓存旧图，替换时先清旧文件再写新（nanoTime 保证同名毫秒不冲突）。 */
+    public String saveEpisodeCover(long episodeId, byte[] body) {
+        Path dir = coverDir.resolve("ep");
+        String fileName = episodeId + "-" + System.nanoTime() + ".jpg";
+        cleanup(dir, episodeId + "-", ".jpg");
+        write(dir, fileName, body);
+        return "/covers/ep/" + fileName;
+    }
+
+    /** 自选高能画面：把片段封面文件字节拷贝为集封面（片段无封面则报错）。 */
+    public String saveEpisodeCoverFromClip(long episodeId, long clipId) {
+        Path clipFile = coverDir.resolve("clip").resolve(clipId + ".jpg");
+        if (!Files.exists(clipFile)) {
+            throw new IllegalStateException("clip cover not found: " + clipId);
+        }
+        try {
+            return saveEpisodeCover(episodeId, Files.readAllBytes(clipFile));
+        } catch (IOException e) {
+            throw new IllegalStateException("读取片段封面失败: " + e.getMessage(), e);
+        }
+    }
+
+    // ---------- 删除 / base64 ----------
+
+    /** 按 /covers/** 路径删除封面文件；空值静默；越界路径拒绝（防目录穿越）。 */
+    public void deleteCover(String path) {
+        if (path == null || path.isBlank()) {
+            return;
+        }
+        try {
+            String normalized = path.replace('\\', '/');
+            if (!normalized.startsWith("/covers/")) {
+                log.warn("拒绝删除越界封面路径: {}", path);
+                return;
+            }
+            Path file = coverDir.resolve(normalized.substring("/covers/".length())).normalize();
+            if (!file.startsWith(coverDir)) {
+                log.warn("拒绝删除越界封面路径: {}", path);
+                return;
+            }
+            Files.deleteIfExists(file);
+        } catch (IOException e) {
+            log.warn("删除封面失败 {}: {}", path, e.getMessage());
+        }
+    }
+
+    /** 解析 data URL（data:image/...;base64,...）或裸 base64 为字节；非法抛 IllegalArgumentException。 */
+    public byte[] decodeDataUrl(String dataUrl) {
+        if (dataUrl == null || dataUrl.isBlank()) {
+            throw new IllegalArgumentException("cover data 为空");
+        }
+        String base64 = dataUrl.trim();
+        if (base64.startsWith("data:")) {
+            int comma = base64.indexOf(',');
+            if (comma < 0) {
+                throw new IllegalArgumentException("非法 data URL");
+            }
+            base64 = base64.substring(comma + 1);
+        }
+        try {
+            return Base64.getDecoder().decode(base64);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("base64 解码失败", e);
+        }
+    }
+
+    // ---------- 内部 ----------
+
     private String persist(Long animeId, byte[] body, String ext) {
         Path target = coverDir.resolve(animeId + "." + ext);
-        try {
-            Files.write(target, body);
-            // 清理旧扩展名封面，避免残留多个
-            try (DirectoryStream<Path> ds = Files.newDirectoryStream(coverDir, animeId + ".*")) {
-                for (Path p : ds) {
-                    if (!p.equals(target)) {
-                        Files.deleteIfExists(p);
-                    }
+        write(coverDir, animeId + "." + ext, body);
+        // 清理旧扩展名封面，避免残留多个
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(coverDir, animeId + ".*")) {
+            for (Path p : ds) {
+                if (!p.equals(target)) {
+                    Files.deleteIfExists(p);
                 }
             }
         } catch (IOException e) {
-            throw new IllegalStateException("写入封面失败: " + e.getMessage(), e);
+            log.warn("清理旧番剧封面失败: {}", e.getMessage());
         }
         String path = "/covers/" + target.getFileName();
         Anime a = animeMapper.selectById(animeId);
@@ -122,6 +214,31 @@ public class CoverService {
             animeMapper.updateById(a);
         }
         return path;
+    }
+
+    private void write(Path dir, String fileName, byte[] body) {
+        if (body == null || body.length == 0) {
+            throw new IllegalArgumentException("图片内容为空");
+        }
+        if (body.length > MAX_BYTES) {
+            throw new IllegalArgumentException("图片过大: " + body.length);
+        }
+        try {
+            Files.createDirectories(dir);
+            Files.write(dir.resolve(fileName), body);
+        } catch (IOException e) {
+            throw new IllegalStateException("写入封面失败: " + e.getMessage(), e);
+        }
+    }
+
+    /** 清理同前缀旧文件（集封面版本戳替换用）。 */
+    private void cleanup(Path dir, String prefix, String ext) {
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir, prefix + "*" + ext)) {
+            for (Path p : ds) {
+                Files.deleteIfExists(p);
+            }
+        } catch (IOException ignored) {
+        }
     }
 
     private static String extFor(String contentType) {

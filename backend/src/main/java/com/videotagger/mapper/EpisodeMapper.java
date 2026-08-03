@@ -19,10 +19,11 @@ public interface EpisodeMapper extends BaseMapper<Episode> {
     @Select("SELECT COUNT(*) FROM episode WHERE anime_id = #{animeId}")
     long countByAnime(@Param("animeId") long animeId);
 
-    /** 某番剧的集列表，带片段数与最新标记时间，按季/集号排序。 */
+    /** 某番剧的集列表，带片段数与最新标记时间，按季/集号排序。列顺序须与 EpisodeSummary 组件顺序一致（MyBatis 按位映射）。 */
     @Select("SELECT e.id, e.anime_id AS animeId, e.season, e.episode_no AS episodeNo, "
             + "e.title, e.url, e.video_fp AS videoFp, "
-            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt "
+            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
+            + "e.cover_path AS coverPath "
             + "FROM episode e LEFT JOIN clips c ON c.episode_id = e.id "
             + "WHERE e.anime_id = #{animeId} GROUP BY e.id "
             + "ORDER BY IFNULL(e.season, 0), IFNULL(e.episode_no, 0), e.id")

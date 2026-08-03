@@ -33,12 +33,13 @@ public class AnimeService {
     private final TagMapper tagMapper;
     private final AnimeCollectionMapper animeCollectionMapper;
     private final EmbeddingTaskService embeddingTaskService;
+    private final CoverService coverService;
 
     public AnimeService(AnimeMapper animeMapper, EpisodeMapper episodeMapper,
                         AnimeTagMapper animeTagMapper, EpisodeTagMapper episodeTagMapper,
                         ClipTagMapper clipTagMapper, ClipMapper clipMapper,
                         TagMapper tagMapper, AnimeCollectionMapper animeCollectionMapper,
-                        EmbeddingTaskService embeddingTaskService) {
+                        EmbeddingTaskService embeddingTaskService, CoverService coverService) {
         this.animeMapper = animeMapper;
         this.episodeMapper = episodeMapper;
         this.animeTagMapper = animeTagMapper;
@@ -48,6 +49,7 @@ public class AnimeService {
         this.tagMapper = tagMapper;
         this.animeCollectionMapper = animeCollectionMapper;
         this.embeddingTaskService = embeddingTaskService;
+        this.coverService = coverService;
     }
 
     /** 番剧卡片墙：支持状态/类型/待确认筛选。 */
@@ -64,10 +66,12 @@ public class AnimeService {
         Anime a = requireAnime(id);
         long clipCount = clipMapper.countByAnime(id);
         long episodeCount = episodeMapper.countByAnime(id);
+        String fallbackCoverPath = a.getCoverPath() == null
+                ? clipMapper.selectRepresentativeCoverByAnime(id) : null;
         return new AnimeDetail(a.getId(), a.getTitle(), a.getAliases(), a.getType(), a.getStatus(),
                 a.getRating(), a.getCoverPath(), a.getConfirmed(), a.getCreatedAt(),
                 clipCount, episodeCount, animeTagMapper.selectTags(id),
-                animeCollectionMapper.selectCollectionIdsByAnime(id));
+                animeCollectionMapper.selectCollectionIdsByAnime(id), fallbackCoverPath);
     }
 
     @Transactional
@@ -134,12 +138,15 @@ public class AnimeService {
         }
     }
 
-    /** 删除番剧：级联删除其下所有集、片段及其标签/向量/任务。 */
+    /** 删除番剧：级联删除其下所有集、片段及其标签/向量/任务，并清理全部封面文件。 */
     @Transactional
     public void delete(Long id) {
         Anime a = requireAnime(id);
         for (Episode ep : episodeMapper.listByAnime(id)) {
+            coverService.deleteCover(ep.getCoverPath());
             for (Clip c : clipMapper.listByEpisode(ep.getId())) {
+                coverService.deleteCover(c.getCoverPath());
+                coverService.deleteCover(c.getDetailCoverPath());
                 embeddingTaskService.deleteFor(EntityType.CLIP, c.getId());
                 clipTagMapper.deleteByClip(c.getId());
             }
@@ -148,18 +155,26 @@ public class AnimeService {
             embeddingTaskService.deleteFor(EntityType.EPISODE, ep.getId());
             episodeMapper.deleteById(ep.getId());
         }
+        coverService.deleteCover(a.getCoverPath());
         animeTagMapper.deleteByAnime(id);
         animeCollectionMapper.deleteByAnime(id);
         embeddingTaskService.deleteFor(EntityType.ANIME, a.getId());
         animeMapper.deleteById(a.getId());
     }
 
-    /** 某番剧的集列表（带片段数/集级标签）。 */
+    /** 某番剧的集列表（带片段数/集级标签）；封面解析：显式集封面为空时落到代表性片段帧。 */
     public List<EpisodeDetail> episodes(Long animeId) {
         requireAnime(animeId);
         return episodeMapper.listSummariesByAnime(animeId).stream()
-                .map(s -> EpisodeDetail.from(s, episodeTagMapper.selectTags(s.id())))
+                .map(s -> EpisodeDetail.from(s, episodeTagMapper.selectTags(s.id()), resolveEpisodeCover(s)))
                 .toList();
+    }
+
+    private String resolveEpisodeCover(EpisodeSummary s) {
+        if (s.coverPath() != null) {
+            return s.coverPath();
+        }
+        return clipMapper.selectRepresentativeCoverByEpisode(s.id());
     }
 
     public void addTag(Long animeId, String tagName) {

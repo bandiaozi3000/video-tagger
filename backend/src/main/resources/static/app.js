@@ -1,7 +1,9 @@
 const views = {
   search: document.getElementById('view-search'),
   anime: document.getElementById('view-anime'),
-  animeDetail: document.getElementById('view-anime-detail'),
+  'anime-detail': document.getElementById('view-anime-detail'),
+  'episode-detail': document.getElementById('view-episode-detail'),
+  'clip-detail': document.getElementById('view-clip-detail'),
   videos: document.getElementById('view-videos'),
   timeline: document.getElementById('view-timeline'),
   stats: document.getElementById('view-stats')
@@ -69,6 +71,20 @@ const mergeIntoSelect = document.getElementById('merge-into');
 const episodeTagModal = document.getElementById('episode-tag-modal');
 const episodeTagTargetEl = document.getElementById('episode-tag-target');
 const episodeTagInput = document.getElementById('episode-tag-input');
+const episodeCoverModal = document.getElementById('episode-cover-modal');
+const episodeCoverTargetEl = document.getElementById('episode-cover-target');
+const episodeCoverHintEl = document.getElementById('episode-cover-hint');
+const episodeCoverGridEl = document.getElementById('episode-cover-grid');
+const episodeCoverFileEl = document.getElementById('episode-cover-file');
+const episodeDetailHeadEl = document.getElementById('episode-detail-head');
+const episodeDetailTagsEl = document.getElementById('episode-detail-tags');
+const episodeDetailClipsEl = document.getElementById('episode-detail-clips');
+const episodeDetailStatusEl = document.getElementById('episode-detail-status');
+const clipDetailHeadEl = document.getElementById('clip-detail-head');
+const clipDetailSiblingsEl = document.getElementById('clip-detail-siblings');
+const clipDetailSimilarEl = document.getElementById('clip-detail-similar');
+const clipDetailStatusEl = document.getElementById('clip-detail-status');
+const hoverPreviewEl = document.getElementById('vt-hover-preview');
 
 const ANIME_TYPE_LABEL = { ANIME: '动画', MOVIE: '电影' };
 const ANIME_STATUS_LABEL = { WANT: '想看', WATCHING: '在看', DONE: '看完', PAUSED: '搁置', DROPPED: '弃番' };
@@ -84,7 +100,12 @@ let animeFilter = { status: '', type: '', collectionId: '', unconfirmed: false }
 let currentAnime = null;  // 番剧详情当前对象
 let editingAnimeId = null;
 let episodeTagEpisodeId = null;
+let coverEpisode = null;   // 集封面弹层当前集 { id, title, videoFp }
+let currentEpisode = null; // 集详情页当前对象 { id, ... }
+let currentClip = null;    // 片段详情页当前对象 { id, ... }
+let viewHistory = [];      // 详情页返回栈：记录上一活动视图名
 let fromAnimeDetail = false;
+let fromEpisodeDetail = false;
 
 // ---------- 通用 ----------
 
@@ -121,7 +142,11 @@ async function jump(r) {
     window.open(buildJumpUrl(r.url, r.timestampSec), '_blank');
 }
 
+let currentViewName = 'search';
+
 function showView(name) {
+    currentViewName = name;
+    if (hoverPreviewEl) hoverPreviewEl.hidden = true; // 切视图收起悬浮预览，防残留
     document.querySelectorAll('.nav .tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
     for (const [k, el] of Object.entries(views)) {
         el.hidden = k !== name;
@@ -129,6 +154,250 @@ function showView(name) {
     if (name === 'videos') loadVideos(true);
     if (name === 'stats') loadStats();
     if (name === 'anime') loadAnime();
+}
+
+// ---------- 视图历史栈（详情页逐层返回） ----------
+
+function activeView() {
+    return currentViewName;
+}
+
+/** 进入详情页：记住当前视图（含详情 id）并入栈，返回可回到原处。 */
+function pushView(name) {
+    let id = null;
+    if (activeView() === 'anime-detail' && currentAnime) id = currentAnime.id;
+    else if (activeView() === 'episode-detail' && currentEpisode) id = currentEpisode.id;
+    else if (activeView() === 'clip-detail' && currentClip) id = currentClip.id;
+    viewHistory.push({ view: activeView(), id });
+    showView(name);
+}
+
+function goBack() {
+    const prev = viewHistory.pop();
+    if (!prev) { showView('search'); return; }
+    showView(prev.view);
+    if (prev.view === 'search' && currentQuery) runSearch(currentQuery);
+    else if (prev.view === 'anime-detail' && prev.id != null) loadAnimeDetail(prev.id);
+    else if (prev.view === 'timeline' && currentVideo) openTimeline(currentVideo);
+    else if (prev.view === 'episode-detail' && prev.id != null) loadEpisodeDetail(prev.id);
+    else if (prev.view === 'clip-detail' && prev.id != null) renderClipDetail(prev.id);
+    // 'anime' / 'videos' / 'stats' 由 showView 自动重新加载
+}
+
+// ---------- 片段详情 ----------
+
+function openClipDetail(r) {
+    similarModal.hidden = true; // 从相似弹窗进入时先收起弹窗，避免覆盖详情
+    pushView('clip-detail');
+    renderClipDetail(r.id);
+}
+
+async function renderClipDetail(id) {
+    clipDetailHeadEl.innerHTML = '';
+    clipDetailSiblingsEl.innerHTML = '';
+    clipDetailSimilarEl.innerHTML = '';
+    clipDetailStatusEl.textContent = '加载中…';
+    try {
+        const clipResp = await fetch(`/api/clips/${id}`);
+        if (!clipResp.ok) throw new Error(`HTTP ${clipResp.status}`);
+        const clip = await clipResp.json();
+        currentClip = clip;
+
+        // 集 / 番剧导航信息
+        let ep = null, anime = null;
+        if (clip.episodeId) {
+            const epResp = await fetch(`/api/episodes/${clip.episodeId}`);
+            if (epResp.ok) {
+                ep = await epResp.json();
+                if (ep.animeId) {
+                    const animeResp = await fetch(`/api/anime/${ep.animeId}`);
+                    if (animeResp.ok) anime = await animeResp.json();
+                }
+            }
+        }
+        renderClipDetailHead(clip, ep, anime);
+        loadClipDetailExtras(clip);
+        clipDetailStatusEl.textContent = '';
+    } catch (err) {
+        clipDetailStatusEl.textContent = '加载失败：后端未响应';
+    }
+}
+
+function renderClipDetailHead(clip, ep, anime) {
+    const heroSrc = clip.detailCoverPath || clip.coverPath; // 详情页优先用大图
+    const cover = heroSrc
+        ? `<img src="${heroSrc}" alt="">`
+        : `<span class="cover-placeholder large">${esc(clip.tag || '片段').slice(0, 1)}</span>`;
+    const nav = [];
+    if (ep) {
+        const epNo = ep.episodeNo != null
+            ? (ep.season != null ? `S${ep.season}-Ep${ep.episodeNo}` : `第${ep.episodeNo}集`)
+            : (ep.season != null ? `S${ep.season}` : '本集');
+        nav.push(`<button class="nav-link" data-nav="episode">所属集：${esc(epNo)}</button>`);
+    }
+    if (anime) nav.push(`<button class="nav-link" data-nav="anime">所属番剧：《${esc(anime.title)}》</button>`);
+    clipDetailHeadEl.innerHTML = `
+        <div class="ad-cover">${cover}</div>
+        <div class="ad-info">
+            <h2 class="ad-title"></h2>
+            <div class="ad-meta"></div>
+            ${clip.note ? '<div class="cd-note"></div>' : ''}
+            ${nav.length ? `<div class="cd-nav">${nav.join('')}</div>` : ''}
+        </div>`;
+    clipDetailHeadEl.querySelector('.ad-title').textContent = clip.title || '(未命名)';
+    clipDetailHeadEl.querySelector('.ad-meta').textContent = `片段 · ${fmtTime(clip.timestampSec)} · ${clip.tag}`;
+    if (clip.note) clipDetailHeadEl.querySelector('.cd-note').textContent = `备注：${clip.note}`;
+    clipDetailHeadEl.querySelector('[data-nav="episode"]')?.addEventListener('click', () => openEpisodeDetail(ep.id));
+    clipDetailHeadEl.querySelector('[data-nav="anime"]')?.addEventListener('click', () => openAnimeDetail(anime.id));
+}
+
+async function loadClipDetailExtras(clip) {
+    // 同集其他片段（排除自身）
+    if (clip.videoFp) {
+        try {
+            const resp = await fetch(`/api/videos/${encodeURIComponent(clip.videoFp)}/clips`);
+            if (resp.ok) {
+                const clips = await resp.json();
+                const siblings = clips.filter(c => c.id !== clip.id);
+                if (siblings.length === 0) {
+                    clipDetailSiblingsEl.innerHTML = '<div class="status">该集暂无其他标记片段</div>';
+                } else {
+                    for (const c of siblings) appendClipCard(clipDetailSiblingsEl, c, {});
+                }
+            }
+        } catch (e) { /* 忽略 */ }
+    }
+    // 相似片段
+    try {
+        const resp = await fetch(`/api/search/similar?id=${clip.id}&limit=8`);
+        if (resp.ok) {
+            const list = await resp.json();
+            if (list.length === 0) {
+                clipDetailSimilarEl.innerHTML = '<div class="status">没有找到相似片段</div>';
+            } else {
+                for (const s of list) appendClipCard(clipDetailSimilarEl, s, {});
+            }
+        }
+    } catch (e) { /* 忽略 */ }
+}
+
+// ---------- 集详情 ----------
+
+function openEpisodeDetail(id) {
+    pushView('episode-detail');
+    loadEpisodeDetail(id);
+}
+
+async function loadEpisodeDetail(id) {
+    episodeDetailHeadEl.innerHTML = '';
+    episodeDetailTagsEl.innerHTML = '';
+    episodeDetailClipsEl.innerHTML = '';
+    episodeDetailStatusEl.textContent = '加载中…';
+    try {
+        const epResp = await fetch(`/api/episodes/${id}`);
+        if (!epResp.ok) throw new Error(`HTTP ${epResp.status}`);
+        const ep = await epResp.json();
+        currentEpisode = ep;
+
+        let anime = null;
+        if (ep.animeId) {
+            const animeResp = await fetch(`/api/anime/${ep.animeId}`);
+            if (animeResp.ok) anime = await animeResp.json();
+        }
+        renderEpisodeDetailHead(ep, anime);
+        renderEpisodeDetailTags(ep);
+
+        // 该集片段（左缩略图列表）
+        if (ep.videoFp) {
+            const clipsResp = await fetch(`/api/videos/${encodeURIComponent(ep.videoFp)}/clips`);
+            if (clipsResp.ok) {
+                const clips = await clipsResp.json();
+                if (clips.length === 0) {
+                    episodeDetailClipsEl.innerHTML = '<div class="status">该集还没有片段标记，去看片按 Alt+S 打一个</div>';
+                } else {
+                    for (const c of clips) appendClipCard(episodeDetailClipsEl, c, {});
+                }
+            }
+        }
+        episodeDetailStatusEl.textContent = '';
+    } catch (err) {
+        episodeDetailStatusEl.textContent = '加载失败：后端未响应';
+    }
+}
+
+function renderEpisodeDetailHead(ep, anime) {
+    const cover = ep.coverPath
+        ? `<img src="${ep.coverPath}" alt="">`
+        : `<span class="cover-placeholder large">${esc((ep.title || '?')).slice(0, 1)}</span>`;
+    const no = ep.episodeNo != null
+        ? (ep.season != null ? `S${ep.season}-Ep${ep.episodeNo}` : `第${ep.episodeNo}集`)
+        : (ep.season != null ? `S${ep.season}` : '本集');
+    const animeNav = anime
+        ? `<div class="cd-nav"><button class="nav-link" data-nav="anime">所属番剧：《${esc(anime.title)}》</button></div>`
+        : '';
+    episodeDetailHeadEl.innerHTML = `
+        <div class="ad-cover">${cover}</div>
+        <div class="ad-info">
+            <h2 class="ad-title"></h2>
+            <div class="ad-meta"></div>
+            ${animeNav}
+        </div>`;
+    episodeDetailHeadEl.querySelector('.ad-title').textContent = ep.title || '(未命名)';
+    const meta = [no, `${ep.clipCount || 0} 条片段`];
+    if (ep.latestAt) meta.push(`最近标记 ${fmtDateTime(ep.latestAt)}`);
+    episodeDetailHeadEl.querySelector('.ad-meta').textContent = meta.join(' · ');
+    episodeDetailHeadEl.querySelector('[data-nav="anime"]')?.addEventListener('click', () => openAnimeDetail(anime.id));
+}
+
+function renderEpisodeDetailTags(ep) {
+    episodeDetailTagsEl.innerHTML = '';
+    for (const t of (ep.tags || [])) {
+        const chip = document.createElement('span');
+        chip.className = 'tag-chip removable';
+        chip.textContent = t.name;
+        const rm = document.createElement('span');
+        rm.className = 'chip-remove';
+        rm.textContent = '×';
+        rm.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await fetch(`/api/episodes/${ep.id}/tags/${t.id}`, { method: 'DELETE' });
+            loadEpisodeDetail(ep.id);
+        });
+        chip.appendChild(rm);
+        episodeDetailTagsEl.appendChild(chip);
+    }
+    const wrap = document.createElement('span');
+    wrap.className = 'tag-add-wrap';
+    const input = document.createElement('input');
+    input.className = 'tag-add-input';
+    input.placeholder = '+ 添加集标签';
+    input.addEventListener('keydown', async (e) => {
+        if (e.key === 'Enter' && input.value.trim()) {
+            await fetch(`/api/episodes/${ep.id}/tags`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tag: input.value.trim() })
+            });
+            loadEpisodeDetail(ep.id);
+        }
+    });
+    wrap.appendChild(input);
+    episodeDetailTagsEl.appendChild(wrap);
+}
+
+/** 删除集：级联清理其下片段与封面；集详情页删除后返回，番剧详情行删除后刷新。 */
+async function deleteEpisode(ep) {
+    const no = ep.episodeNo != null ? `第${ep.episodeNo}集` : '本集';
+    if (!confirm(`删除${no}？其下所有片段、标签与封面将一并删除！`)) return;
+    try {
+        const resp = await fetch(`/api/episodes/${ep.id}`, { method: 'DELETE' });
+        if (!resp.ok && resp.status !== 204) throw new Error(`HTTP ${resp.status}`);
+        if (activeView() === 'episode-detail') { goBack(); return; }
+        if (activeView() === 'anime-detail' && currentAnime) loadAnimeDetail(currentAnime.id);
+    } catch (err) {
+        const st = activeView() === 'episode-detail' ? episodeDetailStatusEl : detailStatusEl;
+        st.textContent = '删除失败：后端未响应';
+    }
 }
 
 // ---------- 搜索 ----------
@@ -157,26 +426,34 @@ function doSearch(e) {
 
 function appendClipCard(container, r, opts) {
     const card = document.createElement('div');
-    card.className = 'card';
+    card.className = 'card card-clip';
     const maxScore = opts && opts.maxScore;
     const scoreBar = maxScore
         ? `<div class="score-bar"><div style="width:${Math.round(r.score / maxScore * 100)}%"></div></div>`
         : '';
+    const thumb = r.coverPath
+        ? `<div class="cc-thumb"><img src="${r.coverPath}" alt="" loading="lazy" onerror="this.parentElement.classList.add('broken')"></div>`
+        : '';
     card.innerHTML = `
-        <div class="card-title"></div>
-        <div>
-            <span class="badge-time">${fmtTime(r.timestampSec)}</span>
-            <span class="card-tag"></span>
-        </div>
-        ${scoreBar}
-        <div class="card-actions">
-            <button class="btn-similar" type="button">相似</button>
-            <button class="btn-edit" type="button">编辑</button>
-            <button class="btn-delete" type="button">删除</button>
+        ${thumb}
+        <div class="cc-body">
+            <div class="card-title"></div>
+            <div class="cc-meta">
+                <span class="badge-time">${fmtTime(r.timestampSec)}</span>
+                <span class="card-tag"></span>
+            </div>
+            ${scoreBar}
+            <div class="card-actions">
+                <button class="btn-similar" type="button">相似</button>
+                <button class="btn-edit" type="button">编辑</button>
+                <button class="btn-delete" type="button">删除</button>
+            </div>
         </div>`;
     card.querySelector('.card-title').textContent = r.title;
     card.querySelector('.card-tag').textContent = r.tag + (r.note ? ` · ${r.note}` : '');
-    card.addEventListener('click', () => jump(r));
+    const thumbEl = card.querySelector('.cc-thumb');
+    if (thumbEl) bindHoverPreview(thumbEl, r.detailCoverPath || r.coverPath); // 悬浮展示详情大图
+    card.addEventListener('click', () => openClipDetail(r)); // 点卡片进片段详情页
     card.querySelector('.btn-similar').addEventListener('click', (e) => {
         e.stopPropagation();
         openSimilar(r);
@@ -190,6 +467,26 @@ function appendClipCard(container, r, opts) {
         confirmDelete(r);
     });
     container.appendChild(card);
+}
+
+// ---------- 悬浮详情大图预览 ----------
+
+/** 缩略图 hover 展示详情大图；无详情图回退缩略图。 */
+function bindHoverPreview(thumbEl, src) {
+    thumbEl.addEventListener('mouseenter', () => {
+        const img = hoverPreviewEl.querySelector('img');
+        img.src = src;
+        hoverPreviewEl.hidden = false;
+        const rect = thumbEl.getBoundingClientRect();
+        let left = rect.right + 12;
+        let top = Math.max(8, rect.top);
+        if (left + 360 > window.innerWidth) left = Math.max(8, rect.left - 372);
+        hoverPreviewEl.style.left = left + 'px';
+        hoverPreviewEl.style.top = top + 'px';
+    });
+    thumbEl.addEventListener('mouseleave', () => {
+        hoverPreviewEl.hidden = true;
+    });
 }
 
 function renderResults(results) {
@@ -231,22 +528,42 @@ function appendSearchCard(container, r, opts) {
 
 function appendAnimeCard(container, r) {
     const card = document.createElement('div');
-    card.className = 'card search-entity-card';
-    card.innerHTML = `<div class="card-title"></div><div class="card-tag"></div>`;
+    card.className = 'card card-clip';
+    const thumb = r.coverPath
+        ? `<div class="cc-thumb"><img src="${r.coverPath}" alt="" loading="lazy" onerror="this.parentElement.classList.add('broken')"></div>`
+        : '';
+    card.innerHTML = `${thumb}
+        <div class="cc-body">
+            <div class="card-title"></div>
+            <div class="cc-meta"><span class="card-tag"></span></div>
+        </div>`;
     card.querySelector('.card-title').textContent = r.title || '(未命名)';
     card.querySelector('.card-tag').textContent = `番剧 · 匹配 ${Math.round((r.score || 0) * 100) / 100}`;
+    const thumbEl = card.querySelector('.cc-thumb');
+    if (thumbEl) bindHoverPreview(thumbEl, r.coverPath); // 番剧悬浮看封面大图
     card.addEventListener('click', () => openAnimeDetail(r.animeId));
     container.appendChild(card);
 }
 
 function appendEpisodeCard(container, r) {
     const card = document.createElement('div');
-    card.className = 'card search-entity-card';
-    card.innerHTML = `<div class="card-title"></div><div class="card-tag"></div>`;
+    card.className = 'card card-clip';
+    const thumb = r.coverPath
+        ? `<div class="cc-thumb"><img src="${r.coverPath}" alt="" loading="lazy" onerror="this.parentElement.classList.add('broken')"></div>`
+        : '';
+    card.innerHTML = `${thumb}
+        <div class="cc-body">
+            <div class="card-title"></div>
+            <div class="cc-meta"><span class="card-tag"></span></div>
+        </div>`;
     card.querySelector('.card-title').textContent = r.title || '(未命名)';
     card.querySelector('.card-tag').textContent = `集 · 匹配 ${Math.round((r.score || 0) * 100) / 100}`;
+    const thumbEl = card.querySelector('.cc-thumb');
+    if (thumbEl) bindHoverPreview(thumbEl, r.coverPath); // 集悬浮看封面大图
     card.addEventListener('click', () => {
-        if (r.videoFp) {
+        if (r.episodeId) {
+            openEpisodeDetail(r.episodeId); // 点集卡片进集详情
+        } else if (r.videoFp) {
             fromAnimeDetail = true;
             openTimeline({ fp: r.videoFp, title: r.title || '时间线' });
         } else if (r.animeId) {
@@ -392,10 +709,11 @@ async function saveEdit() {
 }
 
 async function confirmDelete(r) {
-    if (!confirm(`删除这条标签？\n${r.title} · ${fmtTime(r.timestampSec)} · ${r.tag}`)) return;
+    if (!confirm(`删除这条标签？\n${r.title} · ${r.timestampSec != null ? fmtTime(r.timestampSec) : ''} · ${r.tag || ''}`)) return;
     try {
         const resp = await fetch(`/api/clips/${r.id}`, { method: 'DELETE' });
         if (!resp.ok && resp.status !== 204) throw new Error(`HTTP ${resp.status}`);
+        if (activeView() === 'clip-detail') { goBack(); return; } // 详情页删除后返回
         refreshCurrentView();
     } catch (err) {
         statusEl.textContent = '删除失败：后端未响应';
@@ -403,7 +721,7 @@ async function confirmDelete(r) {
 }
 
 function refreshCurrentView() {
-    const active = document.querySelector('.nav .tab.active').dataset.view;
+    const active = activeView();
     if (active === 'search') {
         if (currentQuery) runSearch(currentQuery);
     } else if (active === 'timeline' && currentVideo) {
@@ -413,7 +731,11 @@ function refreshCurrentView() {
     } else if (active === 'anime') {
         loadAnime();
     } else if (active === 'anime-detail' && currentAnime) {
-        openAnimeDetail(currentAnime.id);
+        loadAnimeDetail(currentAnime.id);
+    } else if (active === 'episode-detail' && currentEpisode) {
+        loadEpisodeDetail(currentEpisode.id);
+    } else if (active === 'clip-detail' && currentClip) {
+        renderClipDetail(currentClip.id);
     }
 }
 
@@ -523,8 +845,8 @@ function renderAnimeGrid(list) {
     for (const a of list) {
         const card = document.createElement('div');
         card.className = 'anime-card';
-        const cover = a.coverPath
-            ? `<img src="${a.coverPath}" alt="">`
+        const cover = (a.coverPath || a.fallbackCoverPath)
+            ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" onerror="this.style.display='none'">`
             : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
         card.innerHTML = `
             <div class="anime-cover">${cover}</div>
@@ -552,10 +874,16 @@ function renderAnimeGrid(list) {
     }
 }
 
-async function openAnimeDetail(id) {
+/** 导航入口：入栈再加载番剧详情。 */
+function openAnimeDetail(id) {
+    pushView('anime-detail');
+    loadAnimeDetail(id);
+}
+
+/** 番剧详情渲染（刷新/返回复用，不入栈）。 */
+async function loadAnimeDetail(id) {
     currentAnime = { id };
     fromAnimeDetail = false;
-    showView('anime-detail');
     animeDetailHeadEl.innerHTML = '';
     episodeListEl.innerHTML = '';
     detailTagsEl.innerHTML = '';
@@ -577,8 +905,8 @@ async function openAnimeDetail(id) {
 }
 
 function renderAnimeDetail(d, eps) {
-    const cover = d.coverPath
-        ? `<img src="${d.coverPath}" alt="">`
+    const cover = (d.coverPath || d.fallbackCoverPath)
+        ? `<img src="${d.coverPath || d.fallbackCoverPath}" alt="">`
         : `<span class="cover-placeholder large">${esc(d.title).slice(0, 1)}</span>`;
     animeDetailHeadEl.innerHTML = `
         <div class="ad-cover">${cover}</div>
@@ -636,7 +964,7 @@ function renderDetailTags(d) {
 }
 
 function refreshAnimeDetail() {
-    if (currentAnime && currentAnime.id) openAnimeDetail(currentAnime.id);
+    if (currentAnime && currentAnime.id) loadAnimeDetail(currentAnime.id);
 }
 
 function renderEpisodeList(eps) {
@@ -651,16 +979,22 @@ function renderEpisodeList(eps) {
         const no = ep.episodeNo != null
             ? (ep.season != null ? `${ep.season}-${ep.episodeNo}` : `第${ep.episodeNo}集`)
             : (ep.season != null ? `S${ep.season}` : '?');
+        const coverHtml = ep.coverPath
+            ? `<div class="ep-cover"><img src="${ep.coverPath}" alt="" loading="lazy" onerror="this.parentElement.classList.add('broken')"></div>`
+            : `<div class="ep-cover ep-cover-empty">◇</div>`;
         row.innerHTML = `
             <div class="ep-no"></div>
+            ${coverHtml}
             <div class="ep-main">
                 <div class="ep-title"></div>
                 <div class="ep-meta"></div>
                 <div class="ep-tags"></div>
             </div>
             <div class="ep-actions">
+                <button type="button" class="btn-mini ep-cover-btn">封面</button>
                 <button type="button" class="btn-mini ep-tag-btn">打标签</button>
                 <button type="button" class="btn-mini ep-time-btn">时间线</button>
+                <button type="button" class="btn-mini danger ep-del-btn">删除</button>
             </div>`;
         row.querySelector('.ep-no').textContent = no;
         row.querySelector('.ep-title').textContent = ep.title || '(未命名)';
@@ -686,18 +1020,28 @@ function renderEpisodeList(eps) {
             e.stopPropagation();
             openEpisodeTagModal(ep);
         });
+        row.querySelector('.ep-cover-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            openEpisodeCoverModal(ep);
+        });
         row.querySelector('.ep-time-btn').addEventListener('click', (e) => {
             e.stopPropagation();
             fromAnimeDetail = true;
             openTimeline({ fp: ep.videoFp, title: (currentAnime.title || '') + (no !== '?' ? ` · ${no}` : '') });
         });
+        row.querySelector('.ep-del-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteEpisode(ep);
+        });
+        row.addEventListener('click', () => openEpisodeDetail(ep.id)); // 点集行进集详情
         episodeListEl.appendChild(row);
     }
 }
 
 function openEpisodeTagModal(ep) {
     episodeTagEpisodeId = ep.id;
-    episodeTagTargetEl.textContent = `《${currentAnime.title}》 · ${ep.episodeNo != null ? `第${ep.episodeNo}集` : '本集'}`;
+    const animeName = currentAnime && currentAnime.title ? `《${currentAnime.title}》 · ` : '';
+    episodeTagTargetEl.textContent = `${animeName}${ep.episodeNo != null ? `第${ep.episodeNo}集` : '本集'}`;
     episodeTagInput.value = '';
     episodeTagModal.hidden = false;
     episodeTagInput.focus();
@@ -712,7 +1056,65 @@ async function saveEpisodeTag() {
         body: JSON.stringify({ tag })
     });
     episodeTagModal.hidden = true;
-    refreshAnimeDetail();
+    refreshCurrentView(); // 集详情 / 番剧详情 各自刷新
+}
+
+// ---------- 集封面：自选片段帧 / 上传兜底 ----------
+
+function openEpisodeCoverModal(ep) {
+    coverEpisode = ep;
+    const animeName = currentAnime && currentAnime.title ? `《${currentAnime.title}》 · ` : '';
+    episodeCoverTargetEl.textContent = `${animeName}${ep.title || '本集'}`;
+    episodeCoverHintEl.textContent = '从本集片段帧里挑一个高能画面，或上传图片';
+    episodeCoverGridEl.innerHTML = '';
+    episodeCoverFileEl.value = '';
+    episodeCoverModal.hidden = false;
+    if (!ep.videoFp) {
+        episodeCoverGridEl.innerHTML = '<div class="status">该集没有关联视频，无法列出片段，请直接上传图片</div>';
+        return;
+    }
+    loadEpisodeCoverCandidates(ep);
+}
+
+async function loadEpisodeCoverCandidates(ep) {
+    episodeCoverGridEl.innerHTML = '<div class="status">加载片段中…</div>';
+    try {
+        const resp = await fetch(`/api/videos/${encodeURIComponent(ep.videoFp)}/clips`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const clips = await resp.json();
+        const withCover = clips.filter(c => c.coverPath);
+        episodeCoverGridEl.innerHTML = '';
+        if (withCover.length === 0) {
+            episodeCoverGridEl.innerHTML = '<div class="status">该集还没有带截帧的片段，看片打标后即可自选，或直接上传图片</div>';
+            return;
+        }
+        for (const c of withCover) {
+            const item = document.createElement('div');
+            item.className = 'cover-pick-item';
+            item.innerHTML = `<img src="${c.coverPath}" alt="" loading="lazy" onerror="this.parentElement.classList.add('broken')"><span>${fmtTime(c.timestampSec)}</span>`;
+            item.title = `设为集封面 · ${fmtTime(c.timestampSec)}`;
+            item.addEventListener('click', async () => {
+                await fetch(`/api/episodes/${ep.id}/cover-from-clip/${c.id}`, { method: 'POST' });
+                episodeCoverModal.hidden = true;
+                refreshCurrentView();
+            });
+            episodeCoverGridEl.appendChild(item);
+        }
+    } catch (err) {
+        episodeCoverGridEl.innerHTML = '<div class="status">加载片段失败：后端未响应</div>';
+    }
+}
+
+async function saveEpisodeCoverUpload() {
+    if (!coverEpisode) return;
+    const f = episodeCoverFileEl.files && episodeCoverFileEl.files[0];
+    if (!f) { episodeCoverHintEl.textContent = '请先选择图片文件'; return; }
+    const fd = new FormData();
+    fd.append('file', f);
+    const resp = await fetch(`/api/episodes/${coverEpisode.id}/cover`, { method: 'POST', body: fd });
+    if (!resp.ok) { episodeCoverHintEl.textContent = '上传失败：后端未响应或图片过大'; return; }
+    episodeCoverModal.hidden = true;
+    refreshCurrentView();
 }
 
 function openCreateAnime() {
@@ -982,15 +1384,21 @@ document.querySelectorAll('.dim-tabs .dtab').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.dim-tabs .dtab').forEach(b => b.classList.toggle('active', b === btn));
         currentDim = btn.dataset.dim;
-        if (currentQuery) runSearch(currentQuery);
+        // 用当前输入框内容判断，避免空框时重跑上一次的旧查询
+        const q = input.value.trim();
+        if (q) runSearch(q);
     });
 });
-clearBtn.addEventListener('click', () => { input.value = ''; resultsEl.innerHTML = ''; statusEl.textContent = ''; input.focus(); });
+clearBtn.addEventListener('click', () => { input.value = ''; currentQuery = ''; resultsEl.innerHTML = ''; statusEl.textContent = ''; input.focus(); });
 loadMoreBtn.addEventListener('click', () => loadVideos(false));
 backBtn.addEventListener('click', () => {
     if (fromAnimeDetail && currentAnime) {
         fromAnimeDetail = false;
         showView('anime-detail');
+    } else if (fromEpisodeDetail && currentEpisode) {
+        fromEpisodeDetail = false;
+        showView('episode-detail');
+        loadEpisodeDetail(currentEpisode.id);
     } else {
         showView('videos');
     }
@@ -1014,7 +1422,7 @@ document.querySelectorAll('.anime-tabs .atab').forEach(btn => {
     });
 });
 document.getElementById('anime-create').addEventListener('click', openCreateAnime);
-document.getElementById('back-to-anime').addEventListener('click', () => showView('anime'));
+document.getElementById('back-to-anime').addEventListener('click', goBack);
 document.getElementById('detail-edit').addEventListener('click', openEditAnime);
 document.getElementById('detail-rename').addEventListener('click', openRenameModal);
 document.getElementById('detail-cover').addEventListener('click', openCoverModal);
@@ -1042,3 +1450,27 @@ episodeTagModal.addEventListener('click', (e) => { if (e.target === episodeTagMo
 document.getElementById('episode-tag-cancel').addEventListener('click', () => { episodeTagModal.hidden = true; });
 document.getElementById('episode-tag-save').addEventListener('click', saveEpisodeTag);
 episodeTagInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveEpisodeTag(); } });
+episodeCoverModal.addEventListener('click', (e) => { if (e.target === episodeCoverModal) { episodeCoverModal.hidden = true; coverEpisode = null; } });
+document.getElementById('episode-cover-cancel').addEventListener('click', () => { episodeCoverModal.hidden = true; coverEpisode = null; });
+document.getElementById('episode-cover-save').addEventListener('click', saveEpisodeCoverUpload);
+
+// ---------- 片段详情操作 ----------
+document.getElementById('back-from-clip').addEventListener('click', goBack);
+document.getElementById('clip-detail-jump').addEventListener('click', () => { if (currentClip) jump(currentClip); });
+document.getElementById('clip-detail-edit').addEventListener('click', () => { if (currentClip) openEditModal(currentClip); });
+document.getElementById('clip-detail-delete').addEventListener('click', () => { if (currentClip) confirmDelete(currentClip); });
+document.getElementById('clip-detail-similar').addEventListener('click', () => clipDetailSimilarEl.scrollIntoView({ behavior: 'smooth' }));
+
+// ---------- 集详情操作 ----------
+document.getElementById('back-from-episode').addEventListener('click', goBack);
+document.getElementById('ep-detail-tag').addEventListener('click', () => { if (currentEpisode) openEpisodeTagModal(currentEpisode); });
+document.getElementById('ep-detail-cover').addEventListener('click', () => { if (currentEpisode) openEpisodeCoverModal(currentEpisode); });
+document.getElementById('ep-detail-timeline').addEventListener('click', () => {
+    if (!currentEpisode) return;
+    fromEpisodeDetail = true;
+    openTimeline({ fp: currentEpisode.videoFp, title: currentEpisode.title || '时间线' });
+});
+document.getElementById('ep-detail-jump').addEventListener('click', () => {
+    if (currentEpisode) jump({ url: currentEpisode.url, timestampSec: 0 });
+});
+document.getElementById('ep-detail-delete').addEventListener('click', () => { if (currentEpisode) deleteEpisode(currentEpisode); });

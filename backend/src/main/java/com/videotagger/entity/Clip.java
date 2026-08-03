@@ -21,5 +21,9 @@ public class Clip {
     private Double videoDuration;
     private String tag;
     private String note;
+    /** 片段截帧封面静态路径（扩展 canvas 截取当前帧落盘），可空 */
+    private String coverPath;
+    /** 片段详情大图静态路径（悬浮预览/详情页 hero，min(videoWidth,1280)），可空；无则回退缩略图 */
+    private String detailCoverPath;
     private Long createdAt;
 }

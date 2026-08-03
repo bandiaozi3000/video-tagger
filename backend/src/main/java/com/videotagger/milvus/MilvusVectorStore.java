@@ -40,6 +40,8 @@ public class MilvusVectorStore implements VectorStore {
 
     private static final Logger log = LoggerFactory.getLogger(MilvusVectorStore.class);
     private static final int CONNECT_RETRIES = 3;
+    // COSINE 指标下返回的 score 即余弦相似度（越高越相关）；低于此值视为噪声召回（乱搜/无关查询），直接丢弃
+    private static final float MIN_COSINE_SCORE = 0.2f;
 
     private final MilvusProperties milvusProps;
     private final EmbeddingProperties embeddingProps;
@@ -199,6 +201,9 @@ public class MilvusVectorStore implements VectorStore {
             List<List<SearchResp.SearchResult>> results = resp.getSearchResults();
             if (results != null && !results.isEmpty()) {
                 for (SearchResp.SearchResult r : results.get(0)) {
+                    if (r.getScore() < MIN_COSINE_SCORE) {
+                        continue;
+                    }
                     VectorHit hit = parseHit(r.getId().toString(), r.getScore());
                     if (hit != null) {
                         hits.add(hit);

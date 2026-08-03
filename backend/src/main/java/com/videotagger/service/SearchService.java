@@ -225,23 +225,29 @@ public class SearchService {
         return new SearchResult(c.getId(), c.getTitle(), c.getUrl(),
                 UrlTimeParams.build(c.getUrl(), c.getTimestampSec()),
                 c.getTimestampSec(), c.getTag(), c.getNote(), score,
-                "CLIP", null, c.getEpisodeId(), null);
+                "CLIP", null, c.getEpisodeId(), null, c.getCoverPath(), c.getDetailCoverPath());
     }
 
     private SearchResult toAnimeResult(Anime a, Double score) {
         if (a == null) {
             return null;
         }
+        // 封面兜底：无显式封面时落到代表性片段帧
+        String cover = a.getCoverPath() != null ? a.getCoverPath()
+                : clipMapper.selectRepresentativeCoverByAnime(a.getId());
         return new SearchResult(a.getId(), a.getTitle(), null, null, null,
-                null, null, score, "ANIME", a.getId(), null, null);
+                null, null, score, "ANIME", a.getId(), null, null, cover, null);
     }
 
     private SearchResult toEpisodeResult(Episode ep, Double score) {
         if (ep == null) {
             return null;
         }
+        // 封面解析：显式集封面为空时落到代表性片段帧（智能默认）
+        String cover = ep.getCoverPath() != null ? ep.getCoverPath()
+                : clipMapper.selectRepresentativeCoverByEpisode(ep.getId());
         return new SearchResult(ep.getId(), ep.getTitle(), ep.getUrl(), null, null,
-                null, null, score, "EPISODE", ep.getAnimeId(), ep.getId(), ep.getVideoFp());
+                null, null, score, "EPISODE", ep.getAnimeId(), ep.getId(), ep.getVideoFp(), cover, null);
     }
 
     private List<SearchResult> toClipResults(List<Long> topIds, Map<Long, Double> scores) {

@@ -1,16 +1,23 @@
 package com.videotagger.controller;
 
+import com.videotagger.service.EpisodeDetail;
 import com.videotagger.service.EpisodeService;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.Map;
 
-/** 集级打标入口（Web UI 手动，Phase 1 形态）。 */
+/** 集级打标入口（Web UI 手动）+ 集封面（帧封面）+ 集详情页。 */
 @RestController
 @RequestMapping("/api/episodes")
 public class EpisodeController {
@@ -19,6 +26,40 @@ public class EpisodeController {
 
     public EpisodeController(EpisodeService episodeService) {
         this.episodeService = episodeService;
+    }
+
+    /** 集详情页：解析封面 + 集级标签 + 片段数。 */
+    @GetMapping("/{id}")
+    public EpisodeDetail get(@PathVariable Long id) {
+        return episodeService.detail(id);
+    }
+
+    /** 删除集：级联清理其下片段、标签、封面与向量。 */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        episodeService.delete(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** 手动上传集封面（multipart，兜底）。 */
+    @PostMapping(value = "/{id}/cover", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<Void> uploadCover(@PathVariable Long id, @RequestPart("file") MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        try {
+            episodeService.setCover(id, file.getBytes());
+        } catch (IOException e) {
+            throw new IllegalArgumentException("读取上传文件失败: " + e.getMessage(), e);
+        }
+        return ResponseEntity.noContent().build();
+    }
+
+    /** 从该集某片段截帧自选高能画面作为集封面。 */
+    @PostMapping("/{id}/cover-from-clip/{clipId}")
+    public ResponseEntity<Void> setCoverFromClip(@PathVariable Long id, @PathVariable Long clipId) {
+        episodeService.setCoverFromClip(id, clipId);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/tags")

@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
+import java.util.NoSuchElementException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -88,6 +89,20 @@ class ClipServiceIT extends AbstractMySqlIT {
 
         assertEquals(2, nearby.size());
         assertEquals("高燃", nearby.get(0).getTag());
+    }
+
+    @Test
+    void getReturnsFullClipForDetailPage() {
+        SaveClipResult saved = clipService.save(new SaveClipRequest(
+                "某动画 第3集", "https://get.com/1", 42.0, "高燃", "名场面备注"));
+
+        Clip clip = clipService.get(saved.id());
+        assertEquals(42.0, clip.getTimestampSec());
+        assertEquals("高燃", clip.getTag());
+        assertEquals("名场面备注", clip.getNote());
+        assertNotNull(clip.getVideoFp());
+        assertNotNull(clip.getEpisodeId());
+        assertThrows(NoSuchElementException.class, () -> clipService.get(999999L));
     }
 
     @Test

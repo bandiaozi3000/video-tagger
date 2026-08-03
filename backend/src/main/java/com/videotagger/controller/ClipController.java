@@ -40,6 +40,12 @@ public class ClipController {
         return clipService.findNearby(url, timestampSec, window);
     }
 
+    /** 片段详情页：返回完整 Clip（含 videoFp / episodeId / coverPath）。 */
+    @GetMapping("/{id}")
+    public Clip get(@PathVariable Long id) {
+        return clipService.get(id);
+    }
+
     @PutMapping("/{id}")
     public Clip update(@PathVariable Long id,
                        @RequestParam(defaultValue = "false") boolean appendTag,

@@ -10,6 +10,12 @@ import java.util.List;
 
 public interface AnimeMapper extends BaseMapper<Anime> {
 
+    /** 代表性片段帧封面：番剧无显式封面时兜底（被标记最多、平分取最新）。 */
+    String FALLBACK_COVER = "(SELECT c.cover_path FROM clips c JOIN episode e ON e.id = c.episode_id "
+            + "WHERE e.anime_id = a.id AND c.cover_path IS NOT NULL "
+            + "ORDER BY (SELECT COUNT(*) FROM clip_tag WHERE clip_id = c.id) DESC, c.created_at DESC "
+            + "LIMIT 1) AS fallbackCoverPath";
+
     @Select("SELECT * FROM anime WHERE title = #{title} LIMIT 1")
     Anime selectByTitle(@Param("title") String title);
 
@@ -19,7 +25,8 @@ public interface AnimeMapper extends BaseMapper<Anime> {
 
     /** 番剧卡片墙：含片段数与最新标记时间，按创建倒序。 */
     @Select("SELECT a.id, a.title, a.type, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, "
-            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt "
+            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
+            + FALLBACK_COVER + " "
             + "FROM anime a "
             + "LEFT JOIN episode e ON e.anime_id = a.id "
             + "LEFT JOIN clips c ON c.episode_id = e.id "
@@ -28,7 +35,8 @@ public interface AnimeMapper extends BaseMapper<Anime> {
 
     /** 最近观看：打过标记即算，按最新标记时间倒序聚合番剧。 */
     @Select("SELECT a.id, a.title, a.type, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, "
-            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt "
+            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
+            + FALLBACK_COVER + " "
             + "FROM anime a "
             + "LEFT JOIN episode e ON e.anime_id = a.id "
             + "LEFT JOIN clips c ON c.episode_id = e.id "
@@ -41,7 +49,8 @@ public interface AnimeMapper extends BaseMapper<Anime> {
 
     /** 某收藏夹下的番剧列表。 */
     @Select("SELECT a.id, a.title, a.type, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, "
-            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt "
+            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
+            + FALLBACK_COVER + " "
             + "FROM anime a "
             + "JOIN anime_collection ac ON ac.anime_id = a.id AND ac.collection_id = #{collectionId} "
             + "LEFT JOIN episode e ON e.anime_id = a.id "
@@ -52,7 +61,8 @@ public interface AnimeMapper extends BaseMapper<Anime> {
     /** 番剧列表筛选：状态/类型/待确认 组合，sort=latest 按最近标记倒序。 */
     @Select("<script>"
             + "SELECT a.id, a.title, a.type, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, "
-            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt "
+            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
+            + FALLBACK_COVER + " "
             + "FROM anime a "
             + "LEFT JOIN episode e ON e.anime_id = a.id "
             + "LEFT JOIN clips c ON c.episode_id = e.id "

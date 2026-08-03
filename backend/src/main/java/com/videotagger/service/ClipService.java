@@ -11,6 +11,8 @@ import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.TagMapper;
 import com.videotagger.util.TitleParser;
 import com.videotagger.util.VideoFingerprint;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +27,7 @@ import java.util.Set;
 @Service
 public class ClipService {
 
+    private static final Logger log = LoggerFactory.getLogger(ClipService.class);
     private static final long DEDUP_WINDOW_MS = 3_000;
     /** 误触判定：同 URL 3 秒内 且 时间戳相距小于该值（秒）才算同一片段 */
     private static final double DEDUP_TIME_TOLERANCE_SEC = 3.0;
@@ -80,6 +83,30 @@ public class ClipService {
 
         linkClipTags(clip.getId(), req.tag(), now);
 
+        // 片段截帧封面：base64 内嵌保存，解码/落盘失败降级无封面（不反噬保存事务）
+        if (req.coverDataUrl() != null && !req.coverDataUrl().isBlank()) {
+            try {
+                byte[] cover = coverService.decodeDataUrl(req.coverDataUrl());
+                String path = coverService.saveClipCover(clip.getId(), cover);
+                clip.setCoverPath(path);
+                clipMapper.updateById(clip);
+            } catch (Exception e) {
+                log.warn("片段 {} 封面落盘失败（降级无封面）：{}", clip.getId(), e.getMessage());
+            }
+        }
+
+        // 片段详情大图：与缩略图同理，失败降级仅无大图（悬浮回退缩略图）
+        if (req.detailCoverDataUrl() != null && !req.detailCoverDataUrl().isBlank()) {
+            try {
+                byte[] detail = coverService.decodeDataUrl(req.detailCoverDataUrl());
+                String path = coverService.saveClipDetailCover(clip.getId(), detail);
+                clip.setDetailCoverPath(path);
+                clipMapper.updateById(clip);
+            } catch (Exception e) {
+                log.warn("片段 {} 详情大图落盘失败（降级仅缩略图）：{}", clip.getId(), e.getMessage());
+            }
+        }
+
         // 扩展携带 og:image 时异步下载番剧封面（失败降级无封面，不阻塞保存）
         if (req.ogImage() != null && !req.ogImage().isBlank()) {
             coverService.downloadAsync(anime.getId(), req.ogImage());
@@ -121,16 +148,27 @@ public class ClipService {
         return clip;
     }
 
-    /** 删除标签：同时清理向量任务与标签关联。 */
+    /** 删除标签：同时清理向量任务、标签关联与截帧封面文件。 */
     @Transactional
     public boolean delete(Long id) {
-        int rows = clipMapper.deleteById(id);
-        if (rows == 0) {
+        Clip clip = clipMapper.selectById(id);
+        if (clip == null) {
             return false;
         }
+        coverService.deleteCover(clip.getCoverPath());
+        coverService.deleteCover(clip.getDetailCoverPath());
         embeddingTaskService.deleteFor(EntityType.CLIP, id);
         clipTagMapper.deleteByClip(id);
-        return true;
+        return clipMapper.deleteById(id) > 0;
+    }
+
+    /** 片段详情页：按 id 取完整片段，不存在抛 404。 */
+    public Clip get(Long id) {
+        Clip clip = clipMapper.selectById(id);
+        if (clip == null) {
+            throw new NoSuchElementException("clip not found: " + id);
+        }
+        return clip;
     }
 
     /**

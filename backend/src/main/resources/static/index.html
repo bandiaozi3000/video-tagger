@@ -3,23 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Tagger</title>
+    <title>Video Tagger · 二次元打标库</title>
     <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<main class="container">
-    <nav class="nav">
-        <h1 class="logo">Video Tagger</h1>
-        <div class="nav-tabs">
-            <button type="button" class="tab active" data-view="search">搜索</button>
-            <button type="button" class="tab" data-view="anime">番剧</button>
-            <button type="button" class="tab" data-view="videos">时间线</button>
-            <button type="button" class="tab" data-view="stats">统计</button>
-        </div>
-    </nav>
+<!-- 背景特效层 -->
+<div class="bg-fx" aria-hidden="true">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    <div class="grid-lines"></div>
+    <div class="noise"></div>
+</div>
 
+<header class="site-header">
+    <div class="container header-inner">
+        <div class="logo-wrap">
+            <span class="logo-mark">✦</span>
+            <h1 class="logo">Video<span class="logo-accent">Tagger</span><span class="ver-chip">v0.6.0</span></h1>
+        </div>
+        <nav class="nav">
+            <div class="nav-tabs">
+                <button type="button" class="tab active" data-view="search">
+                    <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                    搜索
+                </button>
+                <button type="button" class="tab" data-view="anime">
+                    <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="6" width="20" height="13" rx="2.5"/><path d="M12 8.5l1.2 2.4 2.6.4-1.9 1.8.5 2.6-2.4-1.3-2.4 1.3.5-2.6-1.9-1.8 2.6-.4z"/></svg>
+                    番剧
+                </button>
+                <button type="button" class="tab" data-view="videos">
+                    <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                    时间线
+                </button>
+                <button type="button" class="tab" data-view="stats">
+                    <svg viewBox="0 0 24 24" fill="none"><path d="M4 20h16"/><path d="M6 20v-8"/><path d="M12 20V6"/><path d="M18 20v-11"/></svg>
+                    统计
+                </button>
+            </div>
+        </nav>
+    </div>
+</header>
+
+<main class="container">
     <!-- 番剧视图 -->
-    <section id="view-anime" hidden>
+    <section id="view-anime" class="view" hidden>
         <div class="anime-toolbar">
             <div class="anime-tabs">
                 <button type="button" class="atab active" data-anime-tab="recent">最近观看</button>
@@ -51,7 +79,7 @@
     </section>
 
     <!-- 番剧详情视图 -->
-    <section id="view-anime-detail" hidden>
+    <section id="view-anime-detail" class="view" hidden>
         <button type="button" id="back-to-anime" class="back-btn">← 返回番剧</button>
         <div id="anime-detail-head" class="anime-detail-head"></div>
         <div class="detail-actions">
@@ -70,9 +98,47 @@
         <div id="detail-status" class="status"></div>
     </section>
 
+    <!-- 集详情视图 -->
+    <section id="view-episode-detail" class="view" hidden>
+        <button type="button" id="back-from-episode" class="back-btn">← 返回</button>
+        <div id="episode-detail-head" class="episode-detail-head"></div>
+        <div class="detail-actions">
+            <button type="button" id="ep-detail-tag" class="btn-mini">打标签</button>
+            <button type="button" id="ep-detail-cover" class="btn-mini">设封面</button>
+            <button type="button" id="ep-detail-timeline" class="btn-mini">时间线</button>
+            <button type="button" id="ep-detail-jump" class="btn-mini">去原视频</button>
+            <button type="button" id="ep-detail-delete" class="btn-mini danger">删除该集</button>
+        </div>
+        <h3 class="stats-title">集标签</h3>
+        <div id="episode-detail-tags" class="detail-tags"></div>
+        <h3 class="stats-title">该集片段</h3>
+        <section id="episode-detail-clips" class="results"></section>
+        <div id="episode-detail-status" class="status"></div>
+    </section>
+
+    <!-- 片段详情视图 -->
+    <section id="view-clip-detail" class="view" hidden>
+        <button type="button" id="back-from-clip" class="back-btn">← 返回</button>
+        <div id="clip-detail-head" class="clip-detail-head"></div>
+        <div class="detail-actions">
+            <button type="button" id="clip-detail-jump" class="btn-mini">去原视频</button>
+            <button type="button" id="clip-detail-similar" class="btn-mini">相似</button>
+            <button type="button" id="clip-detail-edit" class="btn-mini">编辑</button>
+            <button type="button" id="clip-detail-delete" class="btn-mini danger">删除</button>
+        </div>
+        <h3 class="stats-title">同集片段</h3>
+        <section id="clip-detail-siblings" class="results"></section>
+        <h3 class="stats-title">相似片段</h3>
+        <section id="clip-detail-similar" class="results"></section>
+        <div id="clip-detail-status" class="status"></div>
+    </section>
+
     <!-- 搜索视图 -->
-    <section id="view-search">
+    <section id="view-search" class="view">
         <form id="search-form" class="search-box">
+            <span class="search-ico">
+                <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            </span>
             <input id="search-input" type="text" placeholder="用自然语言描述你想找的内容，如「主角爆种的战斗场面」"
                    autocomplete="off" autofocus>
             <button type="button" id="clear-btn" title="清空">&times;</button>
@@ -89,14 +155,14 @@
     </section>
 
     <!-- 视频列表视图 -->
-    <section id="view-videos" hidden>
+    <section id="view-videos" class="view" hidden>
         <div id="video-status" class="status"></div>
         <section id="video-list" class="results"></section>
         <button type="button" id="load-more" class="load-more" hidden>加载更多</button>
     </section>
 
     <!-- 时间线视图 -->
-    <section id="view-timeline" hidden>
+    <section id="view-timeline" class="view" hidden>
         <button type="button" id="back-to-videos" class="back-btn">← 返回视频列表</button>
         <h2 id="timeline-title" class="timeline-title"></h2>
         <div id="timeline-axis" class="timeline-axis"></div>
@@ -105,7 +171,7 @@
     </section>
 
     <!-- 统计视图 -->
-    <section id="view-stats" hidden>
+    <section id="view-stats" class="view" hidden>
         <div class="stats-cards">
             <div class="stat-card"><div class="stat-num" id="stat-clips">–</div><div class="stat-label">标签片段</div></div>
             <div class="stat-card"><div class="stat-num" id="stat-videos">–</div><div class="stat-label">视频</div></div>
@@ -120,6 +186,10 @@
         <div id="stats-status" class="status"></div>
     </section>
 </main>
+
+<footer class="site-footer">
+    <p>Video Tagger · <b>给每一帧热爱的二次元时光打上印记</b> ✦</p>
+</footer>
 
 <!-- 相似片段弹窗 -->
 <div id="similar-modal" class="modal-overlay" hidden>
@@ -214,6 +284,25 @@
             <button id="episode-tag-save" type="button">添加</button>
         </div>
     </div>
+</div>
+
+<!-- 集封面：自选片段帧 / 上传兜底 -->
+<div id="episode-cover-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide">
+        <h2>设置集封面</h2>
+        <div id="episode-cover-target" class="episode-tag-target"></div>
+        <div id="episode-cover-hint" class="status">从本集片段帧里挑一个高能画面，或上传图片</div>
+        <section id="episode-cover-grid" class="cover-pick-grid"></section>
+        <label>或上传图片<input id="episode-cover-file" type="file" accept="image/jpeg,image/png,image/webp"></label>
+        <div class="modal-actions">
+            <button id="episode-cover-cancel" type="button">取消</button>
+            <button id="episode-cover-save" type="button">上传</button>
+        </div>
+    </div>
+</div>
+<!-- 悬浮详情大图预览（列表缩略图 hover 用） -->
+<div id="vt-hover-preview" class="hover-preview" hidden>
+    <img src="" alt="">
 </div>
 <script src="app.js"></script>
 </body>

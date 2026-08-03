@@ -63,6 +63,20 @@ public interface ClipMapper extends BaseMapper<Clip> {
     @Select("SELECT * FROM clips WHERE episode_id = #{episodeId} ORDER BY timestamp_sec ASC")
     List<Clip> listByEpisode(@Param("episodeId") long episodeId);
 
+    /** 代表性片段封面：被 clip_tag 标记最多、平分取最新；供集封面智能默认。 */
+    @Select("SELECT cover_path FROM clips "
+            + "WHERE episode_id = #{episodeId} AND cover_path IS NOT NULL "
+            + "ORDER BY (SELECT COUNT(*) FROM clip_tag WHERE clip_id = clips.id) DESC, created_at DESC "
+            + "LIMIT 1")
+    String selectRepresentativeCoverByEpisode(@Param("episodeId") long episodeId);
+
+    /** 代表性片段封面：某番剧下被标记最多、平分取最新；供番剧封面兜底。 */
+    @Select("SELECT c.cover_path FROM clips c JOIN episode e ON e.id = c.episode_id "
+            + "WHERE e.anime_id = #{animeId} AND c.cover_path IS NOT NULL "
+            + "ORDER BY (SELECT COUNT(*) FROM clip_tag WHERE clip_id = c.id) DESC, c.created_at DESC "
+            + "LIMIT 1")
+    String selectRepresentativeCoverByAnime(@Param("animeId") long animeId);
+
     @Delete("DELETE FROM clips WHERE episode_id = #{episodeId}")
     void deleteByEpisode(@Param("episodeId") long episodeId);
 
