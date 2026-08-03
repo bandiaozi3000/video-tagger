@@ -36,7 +36,7 @@ videotagger:
     grouping-enabled: ${LLM_GROUPING_ENABLED:false}
   milvus:
     uri: ${MILVUS_URI:http://localhost:19530}
-    collection: clip_embeddings
+    collection: clip_embeddings_v2
   embedding:
     # 密钥只通过环境变量注入（.env），禁止在此硬编码兜底默认值
     base-url: ${EMBEDDING_BASE_URL:}

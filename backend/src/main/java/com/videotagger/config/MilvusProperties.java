@@ -7,5 +7,5 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties("videotagger.milvus")
 public class MilvusProperties {
     private String uri = "http://localhost:19530";
-    private String collection = "clip_embeddings";
+    private String collection = "clip_embeddings_v2";
 }

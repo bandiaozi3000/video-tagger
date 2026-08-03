@@ -9,8 +9,11 @@ import com.videotagger.service.VectorStore;
 import io.milvus.v2.client.ConnectConfig;
 import io.milvus.v2.client.MilvusClientV2;
 import io.milvus.v2.common.DataType;
+import io.milvus.v2.common.IndexParam;
+import io.milvus.v2.service.index.request.CreateIndexReq;
 import io.milvus.v2.service.collection.request.CreateCollectionReq;
 import io.milvus.v2.service.collection.request.HasCollectionReq;
+import io.milvus.v2.service.collection.request.LoadCollectionReq;
 import io.milvus.v2.service.vector.request.DeleteReq;
 import io.milvus.v2.service.vector.request.SearchReq;
 import io.milvus.v2.service.vector.request.UpsertReq;
@@ -118,6 +121,21 @@ public class MilvusVectorStore implements VectorStore {
                     .build());
             log.info("创建 Milvus collection {}（dim={}，组合主键 entity_type:id）", name, embeddingProps.getDim());
         }
+        // 建向量索引：load 前必需；对新建与既有 collection 统一幂等执行（同名索引重复创建会被 Milvus 忽略）
+        try {
+            c.createIndex(CreateIndexReq.builder()
+                    .collectionName(name)
+                    .indexParams(List.of(IndexParam.builder()
+                            .fieldName("vector")
+                            .indexType(IndexParam.IndexType.AUTOINDEX)
+                            .metricType(IndexParam.MetricType.COSINE)
+                            .build()))
+                    .build());
+        } catch (Exception e) {
+            log.warn("创建向量索引跳过（可能已存在）：{}", e.getMessage());
+        }
+        // 搜索 / 查询前必须 load；对既有与新建的 collection 统一执行，避免 cold start 后搜索报未加载
+        c.loadCollection(LoadCollectionReq.builder().collectionName(name).build());
     }
 
     private void closeQuietly(MilvusClientV2 c) {
