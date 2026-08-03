@@ -14,6 +14,8 @@ public class Clip {
     private String url;
     /** 归一化 URL 的指纹（同一视频聚合用），保存时由服务端计算 */
     private String videoFp;
+    /** 所属集（episode.id）。Phase 1 过渡期可空（历史数据），打标时自动创建并回填 */
+    private Long episodeId;
     private Double timestampSec;
     /** 视频总时长（秒，可选，扩展打标时上报） */
     private Double videoDuration;

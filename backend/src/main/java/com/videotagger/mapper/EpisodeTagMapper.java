@@ -1,0 +1,27 @@
+package com.videotagger.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.videotagger.entity.EpisodeTag;
+import com.videotagger.entity.Tag;
+import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+
+import java.util.List;
+
+public interface EpisodeTagMapper extends BaseMapper<EpisodeTag> {
+
+    @Insert("INSERT IGNORE INTO episode_tag(episode_id, tag_id) VALUES(#{episodeId}, #{tagId})")
+    void insertIgnore(@Param("episodeId") long episodeId, @Param("tagId") long tagId);
+
+    @Delete("DELETE FROM episode_tag WHERE episode_id = #{episodeId} AND tag_id = #{tagId}")
+    void deleteLink(@Param("episodeId") long episodeId, @Param("tagId") long tagId);
+
+    @Delete("DELETE FROM episode_tag WHERE episode_id = #{episodeId}")
+    void deleteByEpisode(@Param("episodeId") long episodeId);
+
+    @Select("SELECT t.* FROM tag t JOIN episode_tag et ON et.tag_id = t.id "
+            + "WHERE et.episode_id = #{episodeId} ORDER BY t.id")
+    List<Tag> selectTags(@Param("episodeId") long episodeId);
+}

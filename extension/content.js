@@ -16,6 +16,13 @@
     return v.duration;
   }
 
+  // 封面：读取页面 og:image（B站/YouTube 等主流站点均有），随保存上报供后端异步落盘
+  function currentOgImage() {
+    const meta = document.querySelector('meta[property="og:image"]')
+        || document.querySelector('meta[property="og:image:url"]');
+    return meta ? meta.content : null;
+  }
+
   async function getBackendBase() {
     const { videoTaggerPrefs } = await chrome.storage.sync.get('videoTaggerPrefs');
     return (videoTaggerPrefs && videoTaggerPrefs.backendBaseUrl) || VT_DEFAULT_BACKEND;
@@ -90,12 +97,14 @@
         type: 'api',
         method: 'POST',
         path: '/api/clips',
-        body: { ...info, tag, note: '', videoDuration: currentVideoDuration() }
+        body: { ...info, tag, note: '', videoDuration: currentVideoDuration(), ogImage: currentOgImage() }
       });
       if (resp && resp.ok && resp.data && resp.data.deduped) {
         showToast(`「${tag}」该片段刚已保存`);
       } else if (resp && resp.ok) {
-        showToast(`已保存「${tag}」`);
+        showToast(resp.data && resp.data.animeTitle
+          ? `已保存「${tag}」· 《${resp.data.animeTitle}》`
+          : `已保存「${tag}」`);
       } else {
         showToast('保存失败：后端未启动？');
       }
@@ -176,6 +185,11 @@
       opacity: 0; transition: opacity .2s;
     }
     .toast.show { opacity: 1; }
+    .anime-hint {
+      margin-top: 10px; padding: 7px 10px; border-radius: 8px;
+      background: rgba(203, 166, 247, .08); border: 1px solid rgba(203, 166, 247, .25);
+      font-size: 12px; color: #cba6f7;
+    }
   `;
 
   function fmtTime(sec) {
@@ -209,6 +223,7 @@
           <button class="toggle" id="vt-cont" title="连续打标：保存后浮层不关，时间戳跟随播放进度">连续</button>
           <button class="save" id="vt-save">保存 (Enter)</button>
         </div>
+        <div class="anime-hint" id="vt-anime" hidden></div>
         <div class="toast" id="vt-toast">已保存</div>
       </div>`;
 
@@ -219,6 +234,7 @@
     const acList = shadow.getElementById('vt-ac');
     const dupHint = shadow.getElementById('vt-dup');
     const toast = shadow.getElementById('vt-toast');
+    const animeHint = shadow.getElementById('vt-anime');
     const card = shadow.querySelector('.card');
     const contBtn = shadow.getElementById('vt-cont');
     const countEl = shadow.getElementById('vt-count');
@@ -369,7 +385,8 @@
         timestampSec: Number.isFinite(editedSec) ? editedSec : info.timestampSec,
         tag,
         note: noteInput.value.trim(),
-        videoDuration: currentVideoDuration()
+        videoDuration: currentVideoDuration(),
+        ogImage: currentOgImage()
       };
       const resp = await chrome.runtime.sendMessage({ type: 'save-clip', payload });
       if (!resp || !resp.ok) {
@@ -389,6 +406,10 @@
         countEl.textContent = `已连续保存 ${saveCount} 条`;
         toast.textContent = `已保存 · 第 ${saveCount} 条`;
         toast.classList.add('show');
+        if (saveCount === 1 && resp.animeTitle) {
+          animeHint.textContent = `识别到：${resp.animeTitle}${resp.episodeNo ? ` · 第${resp.episodeNo}集` : ''}`;
+          animeHint.hidden = false;
+        }
         noteInput.value = '';
         const v = findVideo();
         if (v) {
@@ -400,7 +421,14 @@
       } else {
         toast.textContent = '已保存';
         toast.classList.add('show');
-        setTimeout(close, 400);
+        if (resp.animeTitle) {
+          // A 做轻：保存后浮层显示归属小字，稍作停留便于瞥一眼，不阻塞后续操作
+          animeHint.textContent = `识别到：${resp.animeTitle}${resp.episodeNo ? ` · 第${resp.episodeNo}集` : ''}`;
+          animeHint.hidden = false;
+          setTimeout(close, 1600);
+        } else {
+          setTimeout(close, 400);
+        }
       }
     }
 

@@ -1,9 +1,17 @@
 package com.videotagger.service;
 
+import com.videotagger.entity.Anime;
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.EmbeddingTask;
+import com.videotagger.entity.Episode;
+import com.videotagger.entity.Tag;
+import com.videotagger.mapper.AnimeMapper;
 import com.videotagger.mapper.ClipMapper;
+import com.videotagger.mapper.ClipTagMapper;
 import com.videotagger.mapper.EmbeddingTaskMapper;
+import com.videotagger.mapper.EpisodeMapper;
+import com.videotagger.mapper.TagMapper;
+import com.videotagger.util.TitleParser;
 import com.videotagger.util.VideoFingerprint;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,11 +34,23 @@ public class ClipService {
     private final ClipMapper clipMapper;
     private final EmbeddingTaskMapper taskMapper;
     private final VectorStore vectorStore;
+    private final AnimeMapper animeMapper;
+    private final EpisodeMapper episodeMapper;
+    private final TagMapper tagMapper;
+    private final ClipTagMapper clipTagMapper;
+    private final CoverService coverService;
 
-    public ClipService(ClipMapper clipMapper, EmbeddingTaskMapper taskMapper, VectorStore vectorStore) {
+    public ClipService(ClipMapper clipMapper, EmbeddingTaskMapper taskMapper, VectorStore vectorStore,
+                       AnimeMapper animeMapper, EpisodeMapper episodeMapper,
+                       TagMapper tagMapper, ClipTagMapper clipTagMapper, CoverService coverService) {
         this.clipMapper = clipMapper;
         this.taskMapper = taskMapper;
         this.vectorStore = vectorStore;
+        this.animeMapper = animeMapper;
+        this.episodeMapper = episodeMapper;
+        this.tagMapper = tagMapper;
+        this.clipTagMapper = clipTagMapper;
+        this.coverService = coverService;
     }
 
     @Transactional
@@ -45,16 +65,29 @@ public class ClipService {
             return new SaveClipResult(recent.getId(), true);
         }
 
+        // 番剧归属：标题前缀 + 正则解析，纯本地快路径（打标主链路不碰 LLM）
+        TitleParser.ParsedTitle parsed = TitleParser.parse(req.title());
+        Anime anime = ensureAnime(parsed, now);
+        Episode episode = ensureEpisode(parsed, req, anime.getId(), now);
+
         Clip clip = new Clip();
         clip.setTitle(req.title());
         clip.setUrl(req.url());
         clip.setVideoFp(VideoFingerprint.fingerprint(req.url()));
+        clip.setEpisodeId(episode.getId());
         clip.setTimestampSec(req.timestampSec());
         clip.setVideoDuration(req.videoDuration());
         clip.setTag(req.tag());
         clip.setNote(req.note() == null ? "" : req.note());
         clip.setCreatedAt(now);
         clipMapper.insert(clip);
+
+        linkClipTags(clip.getId(), req.tag(), now);
+
+        // 扩展携带 og:image 时异步下载番剧封面（失败降级无封面，不阻塞保存）
+        if (req.ogImage() != null && !req.ogImage().isBlank()) {
+            coverService.downloadAsync(anime.getId(), req.ogImage());
+        }
 
         EmbeddingTask task = new EmbeddingTask();
         task.setClipId(clip.getId());
@@ -63,11 +96,11 @@ public class ClipService {
         task.setUpdatedAt(now);
         taskMapper.insert(task);
 
-        return new SaveClipResult(clip.getId(), false);
+        return new SaveClipResult(clip.getId(), false, anime.getId(), anime.getTitle(), episode.getEpisodeNo());
     }
 
     /**
-     * 编辑标签。tag/note 变化时删除旧向量并重置 embedding 任务为 PENDING（异步重生成）。
+     * 编辑标签。tag/note 变化时删除旧向量、重置 embedding 任务，并同步标签词库关联。
      * appendTag=true 时把新 tag 并入原 tag（按空白分词去重）。
      */
     @Transactional
@@ -91,11 +124,13 @@ public class ClipService {
 
         if (!oldTag.equals(clip.getTag()) || !oldNote.equals(clip.getNote())) {
             reembed(id);
+            clipTagMapper.deleteByClip(id);
+            linkClipTags(id, clip.getTag(), System.currentTimeMillis());
         }
         return clip;
     }
 
-    /** 删除标签：同时清理 embedding 任务与 Milvus 向量（向量删除失败容忍为孤儿）。 */
+    /** 删除标签：同时清理 embedding 任务、Milvus 向量与标签关联。 */
     @Transactional
     public boolean delete(Long id) {
         int rows = clipMapper.deleteById(id);
@@ -104,6 +139,7 @@ public class ClipService {
         }
         taskMapper.deleteById(id);
         vectorStore.delete(id);
+        clipTagMapper.deleteByClip(id);
         return true;
     }
 
@@ -171,5 +207,55 @@ public class ClipService {
             return String.join(" ", tokens);
         }
         return existing;
+    }
+
+    // ---------- 番剧三层归属 ----------
+
+    /** 按解析出的番剧名归组：前缀命中既有番剧则复用，否则新建（confirmed=0 待确认）。 */
+    private Anime ensureAnime(TitleParser.ParsedTitle parsed, long now) {
+        String name = parsed.animeTitle();
+        Anime anime = name.length() >= 2 ? animeMapper.selectByTitlePrefix(name) : null;
+        if (anime == null) {
+            anime = new Anime();
+            anime.setTitle(name);
+            anime.setType("ANIME");
+            anime.setStatus("WANT");
+            anime.setConfirmed(0);
+            anime.setCreatedAt(now);
+            animeMapper.insert(anime);
+        }
+        return anime;
+    }
+
+    /** 按 URL 指纹定位集：同一 video_fp 复用，否则创建并挂到番剧下。 */
+    private Episode ensureEpisode(TitleParser.ParsedTitle parsed, SaveClipRequest req, long animeId, long now) {
+        String fp = VideoFingerprint.fingerprint(req.url());
+        Episode ep = episodeMapper.selectByFp(fp);
+        if (ep == null) {
+            ep = new Episode();
+            ep.setAnimeId(animeId);
+            ep.setSeason(parsed.season());
+            ep.setEpisodeNo(parsed.episodeNo());
+            ep.setTitle(req.title());
+            ep.setUrl(req.url());
+            ep.setVideoFp(fp);
+            ep.setCreatedAt(now);
+            episodeMapper.insert(ep);
+        }
+        return ep;
+    }
+
+    /** 片段标签写入词库关联：无则建 tag 词条，有则复用。 */
+    private void linkClipTags(long clipId, String tagText, long now) {
+        for (String token : tagText.trim().split("\\s+")) {
+            if (token.isEmpty()) {
+                continue;
+            }
+            tagMapper.insertIgnore(token, now);
+            Tag tag = tagMapper.selectByName(token);
+            if (tag != null) {
+                clipTagMapper.insertIgnore(clipId, tag.getId());
+            }
+        }
     }
 }

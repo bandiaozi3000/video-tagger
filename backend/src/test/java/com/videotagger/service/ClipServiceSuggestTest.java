@@ -1,7 +1,11 @@
 package com.videotagger.service;
 
+import com.videotagger.mapper.AnimeMapper;
 import com.videotagger.mapper.ClipMapper;
+import com.videotagger.mapper.ClipTagMapper;
 import com.videotagger.mapper.EmbeddingTaskMapper;
+import com.videotagger.mapper.EpisodeMapper;
+import com.videotagger.mapper.TagMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -19,7 +23,9 @@ class ClipServiceSuggestTest {
     @BeforeEach
     void setUp() {
         clipMapper = mock(ClipMapper.class);
-        service = new ClipService(clipMapper, mock(EmbeddingTaskMapper.class), mock(VectorStore.class));
+        service = new ClipService(clipMapper, mock(EmbeddingTaskMapper.class), mock(VectorStore.class),
+                mock(AnimeMapper.class), mock(EpisodeMapper.class), mock(TagMapper.class),
+                mock(ClipTagMapper.class), mock(CoverService.class));
     }
 
     @Test

@@ -22,4 +22,14 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean("coverExecutor")
+    public Executor coverExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(2);
+        executor.setThreadNamePrefix("cover-");
+        executor.initialize();
+        return executor;
+    }
 }

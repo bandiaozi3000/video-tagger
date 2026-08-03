@@ -6,6 +6,7 @@ import com.videotagger.service.StatsResponse.SiteCount;
 import com.videotagger.service.StatsResponse.TrendPoint;
 import com.videotagger.service.TagSuggestion;
 import com.videotagger.service.VideoSummary;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
@@ -58,6 +59,16 @@ public interface ClipMapper extends BaseMapper<Clip> {
             + ") DESC, id DESC LIMIT #{limit}"
             + "</script>")
     List<Long> findSimilarByTag(@Param("id") Long id, @Param("tokens") List<String> tokens, @Param("limit") int limit);
+
+    @Select("SELECT * FROM clips WHERE episode_id = #{episodeId} ORDER BY timestamp_sec ASC")
+    List<Clip> listByEpisode(@Param("episodeId") long episodeId);
+
+    @Delete("DELETE FROM clips WHERE episode_id = #{episodeId}")
+    void deleteByEpisode(@Param("episodeId") long episodeId);
+
+    @Select("SELECT COUNT(*) FROM clips c JOIN episode e ON e.id = c.episode_id "
+            + "WHERE e.anime_id = #{animeId}")
+    long countByAnime(@Param("animeId") long animeId);
 
     @Select("SELECT COUNT(*) FROM clips")
     long countClips();

@@ -16,12 +16,18 @@ spring:
       mode: never
   flyway:
     enabled: true
+    baseline-on-migrate: true
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
 
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
 
 videotagger:
+  cover-dir: ${COVER_DIR:data/covers}
   milvus:
     uri: ${MILVUS_URI:http://localhost:19530}
     collection: clip_embeddings

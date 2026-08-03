@@ -42,7 +42,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
-        sendResponse({ ok: true, deduped: !!(data && data.deduped) });
+        sendResponse({
+          ok: true,
+          deduped: !!(data && data.deduped),
+          animeId: data && data.animeId,
+          animeTitle: data && data.animeTitle,
+          episodeNo: data && data.episodeNo
+        });
       } catch (e) {
         notify('保存失败：后端未启动？请先执行 docker compose up -d');
         sendResponse({ ok: false, error: e.message });

@@ -13,7 +13,8 @@ public record SaveClipRequest(
         @NotNull @DecimalMin("0.0") Double timestampSec,
         @NotBlank @Size(max = 100) String tag,
         @Size(max = 2000) String note,
-        Double videoDuration
+        Double videoDuration,
+        @Size(max = 2048) String ogImage
 ) {
     public SaveClipRequest {
         if (videoDuration != null && videoDuration < 0) {
@@ -22,6 +23,10 @@ public record SaveClipRequest(
     }
 
     public SaveClipRequest(String title, String url, Double timestampSec, String tag, String note) {
-        this(title, url, timestampSec, tag, note, null);
+        this(title, url, timestampSec, tag, note, null, null);
+    }
+
+    public SaveClipRequest(String title, String url, Double timestampSec, String tag, String note, Double videoDuration) {
+        this(title, url, timestampSec, tag, note, videoDuration, null);
     }
 }
