@@ -26,6 +26,12 @@ public class EpisodeController {
         episodeService.addTag(id, body.get("tag"));
     }
 
+    /** 扩展「看完自动弹」用：按播放 URL 定位集并打标签。 */
+    @PostMapping("/by-url/tags")
+    public void addTagByUrl(@RequestBody Map<String, String> body) {
+        episodeService.addTagByUrl(body.get("url"), body.get("tag"));
+    }
+
     @DeleteMapping("/{id}/tags/{tagId}")
     public void removeTag(@PathVariable Long id, @PathVariable Long tagId) {
         episodeService.removeTag(id, tagId);

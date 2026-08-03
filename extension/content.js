@@ -30,7 +30,8 @@
 
   async function getPrefs() {
     const { videoTaggerPrefs } = await chrome.storage.sync.get('videoTaggerPrefs');
-    return videoTaggerPrefs || { backendBaseUrl: VT_DEFAULT_BACKEND, quickTags: {}, quickSilent: false };
+    return videoTaggerPrefs
+      || { backendBaseUrl: VT_DEFAULT_BACKEND, quickTags: {}, quickSilent: false, watchEndPrompt: false };
   }
 
   // 轻提示（静默直存用，不阻塞看片）
@@ -497,4 +498,69 @@
   trySeek();
   setTimeout(trySeek, 2_000);
   setTimeout(trySeek, 5_000);
+
+  // ===== 看完自动弹（默认关，设置页开启）：进度 ≥95% 弹集级打标 =====
+
+  function showWatchEndPrompt() {
+    const video = findVideo();
+    if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    let prompted = false;
+    const onTime = () => {
+      if (prompted) return;
+      if (video.currentTime >= video.duration * 0.95) {
+        prompted = true;
+        video.removeEventListener('timeupdate', onTime);
+        openWatchEndCard(video);
+      }
+    };
+    video.addEventListener('timeupdate', onTime);
+  }
+
+  function openWatchEndCard(video) {
+    document.getElementById('vt-watch-end')?.remove();
+    const el = document.createElement('div');
+    el.id = 'vt-watch-end';
+    el.style.cssText = 'position:fixed;top:70px;right:24px;z-index:2147483646;' +
+      'background:rgba(30,30,46,.95);color:#cdd6f4;border:1px solid #45475a;border-radius:12px;' +
+      'padding:14px 16px;width:280px;font:13px "Microsoft YaHei UI",system-ui,sans-serif;' +
+      'box-shadow:0 12px 40px rgba(0,0,0,.55);';
+    el.innerHTML = `
+      <div style="font-weight:600;margin-bottom:8px;color:#cba6f7;">本集看完了</div>
+      <div style="color:#a6adc8;margin-bottom:10px;">给整集打个标签？如「神回」</div>
+      <input id="vt-we-input" style="width:100%;box-sizing:border-box;padding:8px 10px;background:#313244;border:1px solid #45475a;border-radius:8px;color:#cdd6f4;outline:none;font-family:inherit;" autocomplete="off">
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
+        <button id="vt-we-close" style="background:transparent;border:1px solid #45475a;color:#cdd6f4;border-radius:6px;padding:5px 12px;cursor:pointer;font-family:inherit;">跳过</button>
+        <button id="vt-we-save" style="background:#cba6f7;border:none;color:#1e1e2e;border-radius:6px;padding:5px 14px;cursor:pointer;font-weight:600;font-family:inherit;">保存</button>
+      </div>`;
+    document.body.appendChild(el);
+    const input = el.querySelector('#vt-we-input');
+    const doSave = async () => {
+      const tag = input.value.trim();
+      if (!tag) { input.focus(); return; }
+      const base = await getBackendBase();
+      try {
+        await fetch(`${base}/api/episodes/by-url/tags`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: location.href, tag })
+        });
+        showToast(`已给本集添加标签「${tag}」`);
+      } catch (e) {
+        showToast('保存失败：后端未启动？');
+      }
+      el.remove();
+    };
+    el.querySelector('#vt-we-save').addEventListener('click', doSave);
+    el.querySelector('#vt-we-close').addEventListener('click', () => el.remove());
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSave(); } });
+    input.focus();
+  }
+
+  getPrefs().then(prefs => {
+    if (prefs && prefs.watchEndPrompt) {
+      // 视频可能延迟出现：0s / 4s 各试一次绑定
+      showWatchEndPrompt();
+      setTimeout(showWatchEndPrompt, 4_000);
+    }
+  });
 })();

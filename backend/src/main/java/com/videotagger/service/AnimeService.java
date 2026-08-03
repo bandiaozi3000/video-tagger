@@ -4,6 +4,7 @@ import com.videotagger.entity.Anime;
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.Episode;
 import com.videotagger.entity.Tag;
+import com.videotagger.mapper.AnimeCollectionMapper;
 import com.videotagger.mapper.AnimeMapper;
 import com.videotagger.mapper.AnimeTagMapper;
 import com.videotagger.mapper.ClipMapper;
@@ -30,12 +31,14 @@ public class AnimeService {
     private final ClipTagMapper clipTagMapper;
     private final ClipMapper clipMapper;
     private final TagMapper tagMapper;
+    private final AnimeCollectionMapper animeCollectionMapper;
     private final EmbeddingTaskService embeddingTaskService;
 
     public AnimeService(AnimeMapper animeMapper, EpisodeMapper episodeMapper,
                         AnimeTagMapper animeTagMapper, EpisodeTagMapper episodeTagMapper,
                         ClipTagMapper clipTagMapper, ClipMapper clipMapper,
-                        TagMapper tagMapper, EmbeddingTaskService embeddingTaskService) {
+                        TagMapper tagMapper, AnimeCollectionMapper animeCollectionMapper,
+                        EmbeddingTaskService embeddingTaskService) {
         this.animeMapper = animeMapper;
         this.episodeMapper = episodeMapper;
         this.animeTagMapper = animeTagMapper;
@@ -43,12 +46,13 @@ public class AnimeService {
         this.clipTagMapper = clipTagMapper;
         this.clipMapper = clipMapper;
         this.tagMapper = tagMapper;
+        this.animeCollectionMapper = animeCollectionMapper;
         this.embeddingTaskService = embeddingTaskService;
     }
 
-    /** 番剧卡片墙（按创建倒序）。 */
-    public List<AnimeSummary> list(int limit) {
-        return animeMapper.listSummaries(Math.min(Math.max(limit, 1), 100));
+    /** 番剧卡片墙：支持状态/类型/待确认筛选。 */
+    public List<AnimeSummary> list(int limit, String status, String type, Integer confirmed, String sort) {
+        return animeMapper.listFiltered(status, type, confirmed, sort, Math.min(Math.max(limit, 1), 100));
     }
 
     /** 最近观看：打过标记即算，按最新标记时间倒序。 */
@@ -62,7 +66,8 @@ public class AnimeService {
         long episodeCount = episodeMapper.countByAnime(id);
         return new AnimeDetail(a.getId(), a.getTitle(), a.getAliases(), a.getType(), a.getStatus(),
                 a.getRating(), a.getCoverPath(), a.getConfirmed(), a.getCreatedAt(),
-                clipCount, episodeCount, animeTagMapper.selectTags(id));
+                clipCount, episodeCount, animeTagMapper.selectTags(id),
+                animeCollectionMapper.selectCollectionIdsByAnime(id));
     }
 
     @Transactional
@@ -97,6 +102,15 @@ public class AnimeService {
         return a;
     }
 
+    /** 手工确认：自动识别为低置信的番剧经审核后置 confirmed=1。 */
+    @Transactional
+    public Anime confirm(Long id) {
+        Anime a = requireAnime(id);
+        a.setConfirmed(1);
+        animeMapper.updateById(a);
+        return a;
+    }
+
     /** 合并：把 fromId 的集全部移到 intoId，标签合并去重，然后删除 fromId 档案。 */
     @Transactional
     public void merge(Long fromId, Long intoId) {
@@ -110,6 +124,7 @@ public class AnimeService {
             animeTagMapper.insertIgnore(intoId, t.getId());
         }
         animeTagMapper.deleteByAnime(fromId);
+        animeCollectionMapper.deleteByAnime(fromId);
         embeddingTaskService.deleteFor(EntityType.ANIME, from.getId());
         animeMapper.deleteById(from.getId());
         // 合并后目标番剧的文本变化，重嵌入
@@ -134,6 +149,7 @@ public class AnimeService {
             episodeMapper.deleteById(ep.getId());
         }
         animeTagMapper.deleteByAnime(id);
+        animeCollectionMapper.deleteByAnime(id);
         embeddingTaskService.deleteFor(EntityType.ANIME, a.getId());
         animeMapper.deleteById(a.getId());
     }

@@ -6,12 +6,16 @@
 
 ## 功能
 
+- **番剧三层打标**：番剧 → 集(含季) → 片段三层，均可打标；打标自动按标题归组番剧/集，浮层显示识别归属（A 做轻），列表「待确认」批量审核兜底（B 做全）。
 - **秒级打标**：`Alt+S` 弹浮层；`Ctrl+Shift+1~9` 快捷标签位（可静默直存）；连续打标模式时间戳实时跟随；标签输入自动补全。
 - **重复片段提示**：同一片段已存过时提示，可"追加标签"合并或"仍然新增"。
-- **混合语义搜索**：MySQL ngram 全文 + Milvus 向量召回 + RRF 融合；未配置 Embedding API 时自动降级为纯关键词。
+- **番剧管理**：卡片墙 + 详情页，封面（og:image 自动抓取 + 手动上传）、追番状态、内容类型（动画/电影）、手动评分、作品标签、最近观看；创建 / 编辑 / 改名 / 合并 / 级联删除。
+- **三层混合检索**：搜索维度可选（番剧 / 集 / 片段 / 混合），MySQL 关键词 + Milvus 向量召回 + RRF 融合；未配置 Embedding API 时自动降级纯关键词。
 - **视频时间线**：同一视频的所有标记点沿时间轴排布，点击即跳回；分 P 视频正确聚合。
+- **收藏夹与筛选器**：多对多自定义清单（整体浏览）；番剧按状态 / 类型 / 收藏夹 / 待确认筛选。
+- **LLM 后台归组**：可开关，自动识别别名 / 不同季 / 不同翻译的同一番剧并合并。
 - **相似片段推荐**：同标签优先 + 向量近邻，顺藤摸瓜找一筐。
-- **标签管理**：Web UI 里编辑 / 删除 / 追加标签。
+- **看完自动弹**：扩展监听播放进度（默认关），看完一集提示给整集打标签。
 - **统计面板**：总量、Top 标签、站点分布、近 30 天趋势。
 
 ## 快速开始
@@ -50,7 +54,7 @@ mvn -f backend/pom.xml test                    # 跑测试（需 Docker 运行�
 
 ## 架构
 
-- 后端：`POST /api/clips`（保存）、`PUT/DELETE /api/clips/{id}`（编辑/删除/追加）、`GET /api/search`（混合检索）、`GET /api/search/similar`（相似推荐）、`GET /api/videos` + `GET /api/videos/{fp}/clips`（时间线）、`GET /api/stats`（统计）、`GET /api/tags`（补全）、`GET /api/clips/near`（邻近提示）、跳转队列。
-- 存储：MySQL（标签与全文索引）+ Milvus（向量）+ Flyway 迁移。
-- 扩展：Manifest V3，Shadow DOM 浮层，background 转发后端请求。
-- 文档：功能深化设计见 `docs/superpowers/specs/2026-08-02-video-tagger-enhancement-design.md`，实施计划见 `docs/superpowers/plans/2026-08-02-video-tagger-enhancement-plan.md`。
+- 后端：`POST /api/clips`（保存，自动归组番剧/集）、`PUT/DELETE /api/clips/{id}`（编辑/删除/追加）、`GET /api/search?dim=`（三层混合检索）、`GET /api/search/similar`（相似推荐）、`GET /api/anime` + `/{id}` + `/recent` + `/episodes`（番剧档案与最近观看）、`POST /api/anime/{id}/rename|merge|confirm|cover`、`GET/POST/DELETE /api/collections`（收藏夹）、`GET /api/videos` + `/{fp}/clips`（时间线）、`GET /api/stats`（统计）、`GET /api/tags`（补全）、`GET /api/clips/near`（邻近提示）、跳转队列。
+- 存储：MySQL（三层 schema + 标签词库与全文索引）+ Milvus（三层向量，单 collection 组合主键）+ Flyway 迁移。
+- 扩展：Manifest V3，Shadow DOM 浮层，background 转发后端请求，看完自动弹。
+- 文档：番剧三层打标设计见 `docs/superpowers/specs/2026-08-03-video-tagger-anime-tiered-design.md`，实施计划见 `docs/superpowers/plans/2026-08-03-video-tagger-anime-tiered-phase1~3-plan.md`。

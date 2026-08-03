@@ -39,6 +39,39 @@ public interface AnimeMapper extends BaseMapper<Anime> {
     @Select("SELECT COUNT(*) FROM anime")
     long countAnime();
 
+    /** 某收藏夹下的番剧列表。 */
+    @Select("SELECT a.id, a.title, a.type, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, "
+            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt "
+            + "FROM anime a "
+            + "JOIN anime_collection ac ON ac.anime_id = a.id AND ac.collection_id = #{collectionId} "
+            + "LEFT JOIN episode e ON e.anime_id = a.id "
+            + "LEFT JOIN clips c ON c.episode_id = e.id "
+            + "GROUP BY a.id ORDER BY a.id DESC LIMIT #{limit}")
+    List<AnimeSummary> listByCollection(@Param("collectionId") long collectionId, @Param("limit") int limit);
+
+    /** 番剧列表筛选：状态/类型/待确认 组合，sort=latest 按最近标记倒序。 */
+    @Select("<script>"
+            + "SELECT a.id, a.title, a.type, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, "
+            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt "
+            + "FROM anime a "
+            + "LEFT JOIN episode e ON e.anime_id = a.id "
+            + "LEFT JOIN clips c ON c.episode_id = e.id "
+            + "<where>"
+            + "<if test='status != null'>a.status = #{status}</if>"
+            + "<if test='type != null'>AND a.type = #{type}</if>"
+            + "<if test='confirmed != null'>AND a.confirmed = #{confirmed}</if>"
+            + "</where>"
+            + "GROUP BY a.id "
+            + "<choose>"
+            + "<when test='sort != null and sort == \"latest\"'>ORDER BY latestAt DESC</when>"
+            + "<otherwise>ORDER BY a.id DESC</otherwise>"
+            + "</choose>"
+            + " LIMIT #{limit}"
+            + "</script>")
+    List<AnimeSummary> listFiltered(@Param("status") String status, @Param("type") String type,
+                                    @Param("confirmed") Integer confirmed, @Param("sort") String sort,
+                                    @Param("limit") int limit);
+
     /** 番剧关键词召回：标题/别名/作品标签命中。 */
     @Select("<script>"
             + "SELECT DISTINCT a.id, a.title, a.aliases, a.type, a.status, a.rating, "

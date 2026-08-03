@@ -42,8 +42,12 @@ public class AnimeController {
     }
 
     @GetMapping
-    public List<AnimeSummary> list(@RequestParam(defaultValue = "50") int limit) {
-        return animeService.list(limit);
+    public List<AnimeSummary> list(@RequestParam(defaultValue = "50") int limit,
+                                   @RequestParam(required = false) String status,
+                                   @RequestParam(required = false) String type,
+                                   @RequestParam(required = false) Integer confirmed,
+                                   @RequestParam(required = false) String sort) {
+        return animeService.list(limit, status, type, confirmed, sort);
     }
 
     @GetMapping("/recent")
@@ -75,6 +79,11 @@ public class AnimeController {
     @PostMapping("/{id}/rename")
     public Anime rename(@PathVariable Long id, @RequestBody Map<String, String> body) {
         return animeService.rename(id, body.get("title"));
+    }
+
+    @PostMapping("/{id}/confirm")
+    public Anime confirm(@PathVariable Long id) {
+        return animeService.confirm(id);
     }
 
     @PostMapping("/{id}/merge")

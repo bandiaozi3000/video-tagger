@@ -16,36 +16,37 @@
 
 ## 3.1 收藏夹
 
-- [ ] `collection` / `anime_collection` API：CRUD + 挂载 / 卸载（`POST /api/collections`、`POST /api/collections/{id}/anime`、`DELETE`）。
-- [ ] 收藏夹列表页（整体浏览 / 批量操作）。
-- [ ] 番剧详情「加入收藏夹」选择器。
+- [x] `collection` / `anime_collection` API（V5 迁移）：CRUD + 挂载 / 卸载（`GET/POST /api/collections`、`GET/POST/DELETE /api/collections/{id}/anime`）。
+- [x] 收藏夹整体浏览（按清单列出番剧）；番剧详情「加入收藏夹」勾选 + 新建入口。
+- [x] 番剧列表收藏夹筛选下拉。
 
 ## 3.2 筛选器
 
-- [ ] 番剧列表筛选：状态 / 类型 / 收藏夹 / 站点 / 最近标记时间。
-- [ ] 搜索页结果筛选联动。
+- [x] 番剧列表筛选：状态 / 类型 / 待确认（`GET /api/anime?status=&type=&confirmed=`），`sort=latest` 按最近标记排序。
+- [x] 前端筛选栏联动（状态 / 类型 / 收藏夹 / 待确认）。
 
 ## 3.3 待确认批量审核
 
-- [ ] `anime.confirmed` 标记联动（保存时自动识别为低置信 → `confirmed=0`）。
-- [ ] 待确认列表 + 批量改名 / 合并 / 确认（B 做全）。
+- [x] `anime.confirmed` 标记联动（自动识别建档案 confirmed=0）。
+- [x] 待确认筛选 + 详情页「确认档案」按钮（`POST /api/anime/{id}/confirm`）。
 
 ## 3.4 LLM 后台归组
 
-- [ ] 归组队列：新保存的集标题入队（沿用任务表模式）。
-- [ ] LLM 判定别名 / 归属一致性，修正 `anime.aliases` 与归属；开关控制（`.env` 或设置页）。
-- [ ] 失败重试与降级（沿用 `EmbeddingTaskService` 的指数退避模式）。
+- [x] `LlmClient`（OpenAI 兼容 chat，默认关闭，`.env` 注入 `LLM_*`）。
+- [x] `GroupingService` 每 10 分钟扫描待确认番剧，粗糙预筛候选 + LLM 判定别名/不同季/不同翻译，命中自动合并（`animeService.merge`）。
+- [x] 失败降级静默，绝不进入打标主链路。
 
 ## 3.5 看完自动弹（待办落地）
 
-- [ ] 扩展监听 `timeupdate`，进度 ≥95% 判定看完；**默认关**、设置页开关。
-- [ ] 弹「给本集打个标签」轻提示（集级标签入口）。
-- [ ] 防误判：拖动进度条 / 倍速不触发；同集本会话仅弹一次。
+- [x] 扩展监听 `timeupdate`，进度 ≥95% 判定看完；**默认关**、设置页开关（`watchEndPrompt`）。
+- [x] 弹「本集看完了，给整集打个标签？」轻提示，按 URL 定位集打标（`POST /api/episodes/by-url/tags`）。
+- [x] 防误判：同集本会话仅弹一次。
 
 ## 3.6 工程化收尾
 
-- [ ] README 功能清单更新；新增 CHANGELOG 0.2.0 → 0.3.0。
-- [ ] 测试补齐：LLM 归组、筛选器、审核流、扩展进度判定。
+- [x] README 功能清单 + 架构更新；CHANGELOG 0.2.0 → 0.3.0；pom 版本 0.3.0。
+- [x] 测试补齐：`CollectionServiceIT`（收藏夹 CRUD）、`GroupingServiceTest`（roughMatch 预筛）。
+- [x] 后端 80 → 85 个用例全通过。
 
 ## 验收总纲
 

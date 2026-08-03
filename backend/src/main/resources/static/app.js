@@ -47,7 +47,13 @@ const animeGridEl = document.getElementById('anime-grid');
 const animeDetailHeadEl = document.getElementById('anime-detail-head');
 const episodeListEl = document.getElementById('episode-list');
 const detailTagsEl = document.getElementById('detail-tags');
+const detailCollectionsEl = document.getElementById('detail-collections');
 const detailStatusEl = document.getElementById('detail-status');
+const filterStatusEl = document.getElementById('filter-status');
+const filterTypeEl = document.getElementById('filter-type');
+const filterCollectionEl = document.getElementById('filter-collection');
+const filterUnconfirmedEl = document.getElementById('filter-unconfirmed');
+const detailConfirmBtn = document.getElementById('detail-confirm');
 const animeModal = document.getElementById('anime-modal');
 const animeModalTitle = document.getElementById('anime-modal-title');
 const animeTitleInput = document.getElementById('anime-title');
@@ -74,6 +80,7 @@ let videoCursor = null;   // { latest, fp } 下一页游标
 let pageSize = 20;
 let currentVideo = null;  // { fp, title }
 let animeMode = 'recent';
+let animeFilter = { status: '', type: '', collectionId: '', unconfirmed: false };
 let currentAnime = null;  // 番剧详情当前对象
 let editingAnimeId = null;
 let episodeTagEpisodeId = null;
@@ -422,17 +429,94 @@ async function loadAnime() {
     animeStatusEl.textContent = '加载中…';
     animeGridEl.innerHTML = '';
     try {
-        const path = animeMode === 'recent' ? '/api/anime/recent?limit=50' : '/api/anime?limit=100';
-        const resp = await fetch(path);
+        let url;
+        if (animeFilter.collectionId && animeMode !== 'recent') {
+            url = `/api/collections/${animeFilter.collectionId}/anime`;
+        } else if (animeMode === 'recent') {
+            url = '/api/anime/recent?limit=50';
+        } else {
+            const params = new URLSearchParams({ limit: '100' });
+            if (animeFilter.status) params.set('status', animeFilter.status);
+            if (animeFilter.type) params.set('type', animeFilter.type);
+            if (animeFilter.unconfirmed) params.set('confirmed', '0');
+            url = `/api/anime?${params}`;
+        }
+        const resp = await fetch(url);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const list = await resp.json();
         animeStatusEl.textContent = list.length
             ? ''
-            : (animeMode === 'recent' ? '还没有打过标记的番剧，去看片按 Alt+S 打一个' : '还没有番剧，点右上角新建或看片打标');
+            : (animeMode === 'recent' ? '还没有打过标记的番剧，去看片按 Alt+S 打一个' : '没有符合条件的番剧');
         renderAnimeGrid(list);
     } catch (err) {
         animeStatusEl.textContent = '加载失败：后端未响应';
     }
+}
+
+async function fillFilterCollections() {
+    try {
+        const resp = await fetch('/api/collections');
+        if (!resp.ok) return;
+        const list = await resp.json();
+        const cur = filterCollectionEl.value;
+        filterCollectionEl.innerHTML = '<option value="">收藏夹</option>';
+        for (const c of list) {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = `${c.name}（${c.animeCount || 0}）`;
+            filterCollectionEl.appendChild(opt);
+        }
+        filterCollectionEl.value = cur;
+    } catch (e) { /* 忽略 */ }
+}
+
+async function renderDetailCollections(d) {
+    detailCollectionsEl.innerHTML = '';
+    let list = [];
+    try {
+        const resp = await fetch('/api/collections');
+        if (resp.ok) list = await resp.json();
+    } catch (e) { /* 忽略 */ }
+    const current = new Set(d.collectionIds || []);
+    for (const c of list) {
+        const label = document.createElement('label');
+        label.className = 'coll-check';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = current.has(c.id);
+        cb.addEventListener('change', async () => {
+            if (cb.checked) {
+                await fetch(`/api/collections/${c.id}/anime`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ animeId: d.id })
+                });
+            } else {
+                await fetch(`/api/collections/${c.id}/anime/${d.id}`, { method: 'DELETE' });
+            }
+        });
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(` ${c.name}`));
+        detailCollectionsEl.appendChild(label);
+    }
+    const wrap = document.createElement('span');
+    wrap.className = 'tag-add-wrap';
+    const input = document.createElement('input');
+    input.className = 'tag-add-input';
+    input.placeholder = '+ 新建收藏夹';
+    input.addEventListener('keydown', async (e) => {
+        if (e.key === 'Enter' && input.value.trim()) {
+            await fetch('/api/collections', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: input.value.trim() })
+            });
+            renderDetailCollections(d);
+            fillFilterCollections();
+        }
+    });
+    wrap.appendChild(input);
+    detailCollectionsEl.appendChild(wrap);
 }
 
 function renderAnimeGrid(list) {
@@ -510,7 +594,9 @@ function renderAnimeDetail(d, eps) {
     meta.push(`${d.episodeCount || 0} 集 · ${d.clipCount || 0} 条片段`);
     animeDetailHeadEl.querySelector('.ad-meta').textContent = meta.join(' · ');
     renderDetailTags(d);
+    renderDetailCollections(d);
     renderEpisodeList(eps);
+    detailConfirmBtn.hidden = d.confirmed !== 0;
 }
 
 function renderDetailTags(d) {
@@ -932,7 +1018,17 @@ document.getElementById('back-to-anime').addEventListener('click', () => showVie
 document.getElementById('detail-edit').addEventListener('click', openEditAnime);
 document.getElementById('detail-rename').addEventListener('click', openRenameModal);
 document.getElementById('detail-cover').addEventListener('click', openCoverModal);
+document.getElementById('detail-confirm').addEventListener('click', async () => {
+    if (!currentAnime) return;
+    await fetch(`/api/anime/${currentAnime.id}/confirm`, { method: 'POST' });
+    refreshAnimeDetail();
+});
 document.getElementById('detail-delete').addEventListener('click', deleteAnime);
+filterStatusEl.addEventListener('change', () => { animeFilter.status = filterStatusEl.value; loadAnime(); });
+filterTypeEl.addEventListener('change', () => { animeFilter.type = filterTypeEl.value; loadAnime(); });
+filterCollectionEl.addEventListener('change', () => { animeFilter.collectionId = filterCollectionEl.value; loadAnime(); });
+filterUnconfirmedEl.addEventListener('change', () => { animeFilter.unconfirmed = filterUnconfirmedEl.checked; loadAnime(); });
+fillFilterCollections();
 animeModal.addEventListener('click', (e) => { if (e.target === animeModal) animeModal.hidden = true; });
 document.getElementById('anime-modal-cancel').addEventListener('click', () => { animeModal.hidden = true; });
 document.getElementById('anime-modal-save').addEventListener('click', saveAnime);

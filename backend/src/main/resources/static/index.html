@@ -27,6 +27,25 @@
             </div>
             <button type="button" id="anime-create" class="btn-primary">＋ 新建番剧</button>
         </div>
+        <div class="anime-filters" id="anime-filters">
+            <select id="filter-status">
+                <option value="">状态</option>
+                <option value="WANT">想看</option>
+                <option value="WATCHING">在看</option>
+                <option value="DONE">看完</option>
+                <option value="PAUSED">搁置</option>
+                <option value="DROPPED">弃番</option>
+            </select>
+            <select id="filter-type">
+                <option value="">类型</option>
+                <option value="ANIME">动画</option>
+                <option value="MOVIE">电影</option>
+            </select>
+            <select id="filter-collection">
+                <option value="">收藏夹</option>
+            </select>
+            <label class="checkbox-inline"><input type="checkbox" id="filter-unconfirmed"> 待确认</label>
+        </div>
         <div id="anime-status" class="status"></div>
         <section id="anime-grid" class="anime-grid"></section>
     </section>
@@ -39,10 +58,13 @@
             <button type="button" id="detail-edit" class="btn-mini">编辑信息</button>
             <button type="button" id="detail-rename" class="btn-mini">改名/合并</button>
             <button type="button" id="detail-cover" class="btn-mini">设置封面</button>
+            <button type="button" id="detail-confirm" class="btn-mini" hidden>确认档案</button>
             <button type="button" id="detail-delete" class="btn-mini danger">删除</button>
         </div>
         <h3 class="stats-title">作品标签</h3>
         <div id="detail-tags" class="detail-tags"></div>
+        <h3 class="stats-title">收藏夹</h3>
+        <div id="detail-collections" class="detail-collections"></div>
         <h3 class="stats-title">集列表</h3>
         <section id="episode-list" class="episode-list"></section>
         <div id="detail-status" class="status"></div>
