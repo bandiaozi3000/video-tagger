@@ -18,3 +18,14 @@ Thumbs.db
 
 # 本地环境变量（含 API Key，禁止提交）
 .env
+
+# 运行时封面数据（og:image / 截帧 / 集封面，本地落盘，禁止提交）
+data/
+backend/data/
+
+# Claude Code / Superpowers 工具链本地产物（skill 副本 / SDD 简报 / 截图 / 本地设置，禁止提交）
+.agents/
+.superpowers/
+.claude/skills/
+.claude/settings.local.json
+skills-lock.json
