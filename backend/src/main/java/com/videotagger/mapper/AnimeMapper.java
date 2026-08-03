@@ -38,4 +38,18 @@ public interface AnimeMapper extends BaseMapper<Anime> {
 
     @Select("SELECT COUNT(*) FROM anime")
     long countAnime();
+
+    /** 番剧关键词召回：标题/别名/作品标签命中。 */
+    @Select("<script>"
+            + "SELECT DISTINCT a.id, a.title, a.aliases, a.type, a.status, a.rating, "
+            + "a.cover_path AS coverPath, a.confirmed, a.created_at "
+            + "FROM anime a "
+            + "LEFT JOIN anime_tag at ON at.anime_id = a.id "
+            + "LEFT JOIN tag t ON t.id = at.tag_id "
+            + "WHERE a.title LIKE CONCAT('%', #{q}, '%') "
+            + "   OR (a.aliases IS NOT NULL AND a.aliases LIKE CONCAT('%', #{q}, '%')) "
+            + "   OR t.name LIKE CONCAT('%', #{q}, '%') "
+            + "ORDER BY a.id DESC LIMIT #{limit}"
+            + "</script>")
+    List<com.videotagger.entity.Anime> searchByKeyword(@Param("q") String q, @Param("limit") int limit);
 }

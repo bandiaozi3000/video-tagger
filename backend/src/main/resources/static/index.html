@@ -51,10 +51,16 @@
     <!-- 搜索视图 -->
     <section id="view-search">
         <form id="search-form" class="search-box">
-            <input id="search-input" type="text" placeholder="用自然语言描述你想找的片段，如「主角爆种的战斗场面」"
+            <input id="search-input" type="text" placeholder="用自然语言描述你想找的内容，如「主角爆种的战斗场面」"
                    autocomplete="off" autofocus>
             <button type="button" id="clear-btn" title="清空">&times;</button>
         </form>
+        <div class="dim-tabs">
+            <button type="button" class="dtab active" data-dim="mixed">混合</button>
+            <button type="button" class="dtab" data-dim="anime">番剧</button>
+            <button type="button" class="dtab" data-dim="episode">集</button>
+            <button type="button" class="dtab" data-dim="clip">片段</button>
+        </div>
         <div id="semantic-hint" class="semantic-hint" hidden>语义搜索未启用（未配置 Embedding API），当前为关键词搜索</div>
         <div id="status" class="status"></div>
         <section id="results" class="results"></section>

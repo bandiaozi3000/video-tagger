@@ -4,9 +4,11 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.videotagger.config.EmbeddingProperties;
 import com.videotagger.config.MilvusProperties;
+import com.videotagger.service.EntityType;
 import com.videotagger.service.VectorStore;
 import io.milvus.v2.client.ConnectConfig;
 import io.milvus.v2.client.MilvusClientV2;
+import io.milvus.v2.common.DataType;
 import io.milvus.v2.service.collection.request.CreateCollectionReq;
 import io.milvus.v2.service.collection.request.HasCollectionReq;
 import io.milvus.v2.service.vector.request.DeleteReq;
@@ -24,6 +26,11 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Milvus 向量存储：单 collection + 组合主键 (entity_type, entity_id)。
+ * 主键为 VarChar 字符串（如 "A:1" / "E:2" / "C:3"），另加 entity_type 标量字段供按层过滤。
+ * 三层共享同一 embedding 模型与维度，混合搜索一次 ANN 跨层召回。
+ */
 @Primary
 @Component
 public class MilvusVectorStore implements VectorStore {
@@ -56,10 +63,7 @@ public class MilvusVectorStore implements VectorStore {
         log.error("Milvus 不可用，应用将以纯关键词模式运行，每 60 秒自动尝试重连");
     }
 
-    /**
-     * 冷启动竞态兜底：compose 中 Milvus 可能晚于 app 就绪，init 阶段连不上时
-     * enabled 保持 false；此后每 60 秒尝试重连一次，成功后语义搜索自动恢复，无需重启应用。
-     */
+    /** 冷启动竞态兜底：禁用态每 60 秒重连，成功后语义搜索自动恢复。 */
     @Scheduled(fixedDelay = 60_000)
     public void reconnectIfDisabled() {
         if (enabled) {
@@ -97,12 +101,22 @@ public class MilvusVectorStore implements VectorStore {
         String name = milvusProps.getCollection();
         boolean exists = c.hasCollection(HasCollectionReq.builder().collectionName(name).build());
         if (!exists) {
+            CreateCollectionReq.CollectionSchema schema = CreateCollectionReq.CollectionSchema.builder()
+                    .fieldSchemaList(List.of(
+                            CreateCollectionReq.FieldSchema.builder()
+                                    .name("id").dataType(DataType.VarChar).maxLength(64).isPrimaryKey(true).build(),
+                            CreateCollectionReq.FieldSchema.builder()
+                                    .name("entity_type").dataType(DataType.VarChar).maxLength(16).build(),
+                            CreateCollectionReq.FieldSchema.builder()
+                                    .name("vector").dataType(DataType.FloatVector)
+                                    .dimension(embeddingProps.getDim()).build()))
+                    .build();
             c.createCollection(CreateCollectionReq.builder()
                     .collectionName(name)
-                    .dimension(embeddingProps.getDim())
+                    .collectionSchema(schema)
                     .metricType("COSINE")
                     .build());
-            log.info("创建 Milvus collection {}（dim={}）", name, embeddingProps.getDim());
+            log.info("创建 Milvus collection {}（dim={}，组合主键 entity_type:id）", name, embeddingProps.getDim());
         }
     }
 
@@ -114,13 +128,14 @@ public class MilvusVectorStore implements VectorStore {
     }
 
     @Override
-    public void upsert(long clipId, float[] vector) {
+    public void upsert(EntityType type, long entityId, float[] vector) {
         if (!enabled) {
             return;
         }
         try {
             JsonObject row = new JsonObject();
-            row.addProperty("id", clipId);
+            row.addProperty("id", key(type, entityId));
+            row.addProperty("entity_type", type.name());
             JsonArray arr = new JsonArray();
             for (float f : vector) {
                 arr.add(f);
@@ -131,12 +146,21 @@ public class MilvusVectorStore implements VectorStore {
                     .data(List.of(row))
                     .build());
         } catch (Exception e) {
-            log.error("Milvus upsert 失败（clipId={}）：{}", clipId, e.getMessage());
+            log.error("Milvus upsert 失败（{}:{}）：{}", type, entityId, e.getMessage());
         }
     }
 
     @Override
     public List<VectorHit> search(float[] queryVector, int topK) {
+        return doSearch(queryVector, topK, null);
+    }
+
+    @Override
+    public List<VectorHit> search(EntityType type, float[] queryVector, int topK) {
+        return doSearch(queryVector, topK, type);
+    }
+
+    private List<VectorHit> doSearch(float[] queryVector, int topK, EntityType filter) {
         if (!enabled) {
             return List.of();
         }
@@ -145,16 +169,22 @@ public class MilvusVectorStore implements VectorStore {
             for (float f : queryVector) {
                 query.add(f);
             }
-            SearchResp resp = client.search(SearchReq.builder()
+            SearchReq.SearchReqBuilder<?, ?> builder = SearchReq.builder()
                     .collectionName(milvusProps.getCollection())
                     .data(List.of(new FloatVec(query)))
-                    .topK(topK)
-                    .build());
+                    .topK(topK);
+            if (filter != null) {
+                builder.filter("entity_type == \"" + filter.name() + "\"");
+            }
+            SearchResp resp = client.search(builder.build());
             List<VectorHit> hits = new ArrayList<>();
             List<List<SearchResp.SearchResult>> results = resp.getSearchResults();
             if (results != null && !results.isEmpty()) {
                 for (SearchResp.SearchResult r : results.get(0)) {
-                    hits.add(new VectorHit(Long.parseLong(r.getId().toString()), r.getScore()));
+                    VectorHit hit = parseHit(r.getId().toString(), r.getScore());
+                    if (hit != null) {
+                        hits.add(hit);
+                    }
                 }
             }
             return hits;
@@ -165,18 +195,40 @@ public class MilvusVectorStore implements VectorStore {
     }
 
     @Override
-    public void delete(long clipId) {
+    public void delete(EntityType type, long entityId) {
         if (!enabled) {
             return;
         }
         try {
             client.delete(DeleteReq.builder()
                     .collectionName(milvusProps.getCollection())
-                    .ids(List.of(clipId))
+                    .ids(List.of(key(type, entityId)))
                     .build());
         } catch (Exception e) {
-            log.error("Milvus delete 失败（clipId={}）：{}", clipId, e.getMessage());
+            log.error("Milvus delete 失败（{}:{}）：{}", type, entityId, e.getMessage());
         }
+    }
+
+    private static String key(EntityType type, long entityId) {
+        return type.name().charAt(0) + ":" + entityId;
+    }
+
+    private static VectorHit parseHit(String id, double score) {
+        int colon = id.indexOf(':');
+        if (colon <= 0) {
+            return null;
+        }
+        String prefix = id.substring(0, colon);
+        EntityType type;
+        switch (prefix) {
+            case "A" -> type = EntityType.ANIME;
+            case "E" -> type = EntityType.EPISODE;
+            case "C" -> type = EntityType.CLIP;
+            default -> {
+                return null;
+            }
+        }
+        return new VectorHit(type, Long.parseLong(id.substring(colon + 1)), score);
     }
 
     private void sleepQuietly(long ms) {

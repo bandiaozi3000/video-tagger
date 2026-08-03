@@ -16,11 +16,14 @@ public class EpisodeService {
     private final EpisodeMapper episodeMapper;
     private final EpisodeTagMapper episodeTagMapper;
     private final TagMapper tagMapper;
+    private final EmbeddingTaskService embeddingTaskService;
 
-    public EpisodeService(EpisodeMapper episodeMapper, EpisodeTagMapper episodeTagMapper, TagMapper tagMapper) {
+    public EpisodeService(EpisodeMapper episodeMapper, EpisodeTagMapper episodeTagMapper,
+                          TagMapper tagMapper, EmbeddingTaskService embeddingTaskService) {
         this.episodeMapper = episodeMapper;
         this.episodeTagMapper = episodeTagMapper;
         this.tagMapper = tagMapper;
+        this.embeddingTaskService = embeddingTaskService;
     }
 
     public void addTag(Long episodeId, String tagName) {
@@ -33,12 +36,14 @@ public class EpisodeService {
         Tag tag = tagMapper.selectByName(trimmed);
         if (tag != null) {
             episodeTagMapper.insertIgnore(episodeId, tag.getId());
+            embeddingTaskService.enqueue(EntityType.EPISODE, episodeId);
         }
     }
 
     public void removeTag(Long episodeId, Long tagId) {
         requireEpisode(episodeId);
         episodeTagMapper.deleteLink(episodeId, tagId);
+        embeddingTaskService.enqueue(EntityType.EPISODE, episodeId);
     }
 
     private Episode requireEpisode(Long id) {

@@ -2,8 +2,12 @@ package com.videotagger.service;
 
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.EmbeddingTask;
+import com.videotagger.mapper.AnimeMapper;
+import com.videotagger.mapper.AnimeTagMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.EmbeddingTaskMapper;
+import com.videotagger.mapper.EpisodeMapper;
+import com.videotagger.mapper.EpisodeTagMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -26,7 +30,9 @@ class EmbeddingTaskServiceTest {
         taskMapper = mock(EmbeddingTaskMapper.class);
         embeddingClient = mock(EmbeddingClient.class);
         vectorStore = mock(VectorStore.class);
-        service = new EmbeddingTaskService(clipMapper, taskMapper, embeddingClient, vectorStore);
+        service = new EmbeddingTaskService(clipMapper, mock(AnimeMapper.class), mock(EpisodeMapper.class),
+                mock(AnimeTagMapper.class), mock(EpisodeTagMapper.class),
+                taskMapper, embeddingClient, vectorStore);
     }
 
     private Clip clip(long id) {
@@ -37,9 +43,10 @@ class EmbeddingTaskServiceTest {
         return c;
     }
 
-    private EmbeddingTask pendingTask(long clipId, int retryCount, long updatedAt) {
+    private EmbeddingTask pendingTask(long entityId, int retryCount, long updatedAt) {
         EmbeddingTask t = new EmbeddingTask();
-        t.setClipId(clipId);
+        t.setEntityType("CLIP");
+        t.setEntityId(entityId);
         t.setStatus("PENDING");
         t.setRetryCount(retryCount);
         t.setUpdatedAt(updatedAt);
@@ -50,7 +57,7 @@ class EmbeddingTaskServiceTest {
     void processSkipsWhenNotConfigured() {
         when(embeddingClient.isConfigured()).thenReturn(false);
 
-        service.process(1L);
+        service.process(EntityType.CLIP, 1L);
 
         verifyNoInteractions(vectorStore);
         verify(taskMapper, never()).updateById(any(EmbeddingTask.class));
@@ -62,11 +69,11 @@ class EmbeddingTaskServiceTest {
         when(embeddingClient.embed("高燃战斗 主角觉醒")).thenReturn(new float[]{0.1f});
         when(clipMapper.selectById(1L)).thenReturn(clip(1L));
         EmbeddingTask task = pendingTask(1L, 0, System.currentTimeMillis());
-        when(taskMapper.selectById(1L)).thenReturn(task);
+        when(taskMapper.selectByEntity("CLIP", 1L)).thenReturn(task);
 
-        service.process(1L);
+        service.process(EntityType.CLIP, 1L);
 
-        verify(vectorStore).upsert(eq(1L), any(float[].class));
+        verify(vectorStore).upsert(eq(EntityType.CLIP), eq(1L), any(float[].class));
         assertEquals("DONE", task.getStatus());
         verify(taskMapper).updateById(task);
     }
@@ -77,9 +84,9 @@ class EmbeddingTaskServiceTest {
         when(embeddingClient.embed(anyString())).thenThrow(new RuntimeException("API 超时"));
         when(clipMapper.selectById(1L)).thenReturn(clip(1L));
         EmbeddingTask task = pendingTask(1L, 1, System.currentTimeMillis());
-        when(taskMapper.selectById(1L)).thenReturn(task);
+        when(taskMapper.selectByEntity("CLIP", 1L)).thenReturn(task);
 
-        service.process(1L);
+        service.process(EntityType.CLIP, 1L);
 
         assertEquals(2, task.getRetryCount());
         assertEquals("PENDING", task.getStatus());
@@ -91,9 +98,9 @@ class EmbeddingTaskServiceTest {
         when(embeddingClient.embed(anyString())).thenThrow(new RuntimeException("API 超时"));
         when(clipMapper.selectById(1L)).thenReturn(clip(1L));
         EmbeddingTask task = pendingTask(1L, 4, System.currentTimeMillis());
-        when(taskMapper.selectById(1L)).thenReturn(task);
+        when(taskMapper.selectByEntity("CLIP", 1L)).thenReturn(task);
 
-        service.process(1L);
+        service.process(EntityType.CLIP, 1L);
 
         assertEquals(5, task.getRetryCount());
         assertEquals("FAILED", task.getStatus());
@@ -105,11 +112,11 @@ class EmbeddingTaskServiceTest {
         EmbeddingTask due = pendingTask(1L, 1, now - 5_000);    // 退避 2^1*1000=2s，已到期
         EmbeddingTask notDue = pendingTask(2L, 3, now - 5_000); // 退避 2^3*1000=8s，未到期
         when(taskMapper.selectPending()).thenReturn(List.of(due, notDue));
-        when(embeddingClient.isConfigured()).thenReturn(true); // process 推进到 selectById 后因 clip 为 null 早退，便于观察调用
+        when(embeddingClient.isConfigured()).thenReturn(true); // process 推进到 selectByEntity 后因 task/clip 为 null 早退
 
         service.sweep();
 
-        verify(taskMapper).selectById(1L);
-        verify(taskMapper, never()).selectById(2L);
+        verify(taskMapper).selectByEntity("CLIP", 1L);
+        verify(taskMapper, never()).selectByEntity("CLIP", 2L);
     }
 }

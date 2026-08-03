@@ -2,13 +2,11 @@ package com.videotagger.service;
 
 import com.videotagger.entity.Anime;
 import com.videotagger.entity.Clip;
-import com.videotagger.entity.EmbeddingTask;
 import com.videotagger.entity.Episode;
 import com.videotagger.entity.Tag;
 import com.videotagger.mapper.AnimeMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.ClipTagMapper;
-import com.videotagger.mapper.EmbeddingTaskMapper;
 import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.TagMapper;
 import com.videotagger.util.TitleParser;
@@ -32,25 +30,23 @@ public class ClipService {
     private static final double DEDUP_TIME_TOLERANCE_SEC = 3.0;
 
     private final ClipMapper clipMapper;
-    private final EmbeddingTaskMapper taskMapper;
-    private final VectorStore vectorStore;
     private final AnimeMapper animeMapper;
     private final EpisodeMapper episodeMapper;
     private final TagMapper tagMapper;
     private final ClipTagMapper clipTagMapper;
     private final CoverService coverService;
+    private final EmbeddingTaskService embeddingTaskService;
 
-    public ClipService(ClipMapper clipMapper, EmbeddingTaskMapper taskMapper, VectorStore vectorStore,
-                       AnimeMapper animeMapper, EpisodeMapper episodeMapper,
-                       TagMapper tagMapper, ClipTagMapper clipTagMapper, CoverService coverService) {
+    public ClipService(ClipMapper clipMapper, AnimeMapper animeMapper, EpisodeMapper episodeMapper,
+                       TagMapper tagMapper, ClipTagMapper clipTagMapper,
+                       CoverService coverService, EmbeddingTaskService embeddingTaskService) {
         this.clipMapper = clipMapper;
-        this.taskMapper = taskMapper;
-        this.vectorStore = vectorStore;
         this.animeMapper = animeMapper;
         this.episodeMapper = episodeMapper;
         this.tagMapper = tagMapper;
         this.clipTagMapper = clipTagMapper;
         this.coverService = coverService;
+        this.embeddingTaskService = embeddingTaskService;
     }
 
     @Transactional
@@ -89,18 +85,13 @@ public class ClipService {
             coverService.downloadAsync(anime.getId(), req.ogImage());
         }
 
-        EmbeddingTask task = new EmbeddingTask();
-        task.setClipId(clip.getId());
-        task.setStatus("PENDING");
-        task.setRetryCount(0);
-        task.setUpdatedAt(now);
-        taskMapper.insert(task);
+        embeddingTaskService.enqueue(EntityType.CLIP, clip.getId());
 
         return new SaveClipResult(clip.getId(), false, anime.getId(), anime.getTitle(), episode.getEpisodeNo());
     }
 
     /**
-     * 编辑标签。tag/note 变化时删除旧向量、重置 embedding 任务，并同步标签词库关联。
+     * 编辑标签。tag/note 变化时删除旧向量并重置 embedding 任务（异步重生成）。
      * appendTag=true 时把新 tag 并入原 tag（按空白分词去重）。
      */
     @Transactional
@@ -123,43 +114,23 @@ public class ClipService {
         clipMapper.updateById(clip);
 
         if (!oldTag.equals(clip.getTag()) || !oldNote.equals(clip.getNote())) {
-            reembed(id);
             clipTagMapper.deleteByClip(id);
             linkClipTags(id, clip.getTag(), System.currentTimeMillis());
+            embeddingTaskService.enqueue(EntityType.CLIP, id);
         }
         return clip;
     }
 
-    /** 删除标签：同时清理 embedding 任务、Milvus 向量与标签关联。 */
+    /** 删除标签：同时清理向量任务与标签关联。 */
     @Transactional
     public boolean delete(Long id) {
         int rows = clipMapper.deleteById(id);
         if (rows == 0) {
             return false;
         }
-        taskMapper.deleteById(id);
-        vectorStore.delete(id);
+        embeddingTaskService.deleteFor(EntityType.CLIP, id);
         clipTagMapper.deleteByClip(id);
         return true;
-    }
-
-    private void reembed(long clipId) {
-        vectorStore.delete(clipId);
-        long now = System.currentTimeMillis();
-        EmbeddingTask task = taskMapper.selectById(clipId);
-        if (task == null) {
-            task = new EmbeddingTask();
-            task.setClipId(clipId);
-            task.setStatus("PENDING");
-            task.setRetryCount(0);
-            task.setUpdatedAt(now);
-            taskMapper.insert(task);
-        } else {
-            task.setStatus("PENDING");
-            task.setRetryCount(0);
-            task.setUpdatedAt(now);
-            taskMapper.updateById(task);
-        }
     }
 
     /**

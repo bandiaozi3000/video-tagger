@@ -1,7 +1,9 @@
 package com.videotagger.service;
 
 import com.videotagger.entity.Clip;
+import com.videotagger.mapper.AnimeMapper;
 import com.videotagger.mapper.ClipMapper;
+import com.videotagger.mapper.EpisodeMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -14,6 +16,8 @@ import static org.mockito.Mockito.*;
 class SearchServiceTest {
 
     ClipMapper clipMapper;
+    AnimeMapper animeMapper;
+    EpisodeMapper episodeMapper;
     EmbeddingClient embeddingClient;
     InMemoryVectorStore vectorStore;
     SearchService searchService;
@@ -21,9 +25,11 @@ class SearchServiceTest {
     @BeforeEach
     void setUp() {
         clipMapper = mock(ClipMapper.class);
+        animeMapper = mock(AnimeMapper.class);
+        episodeMapper = mock(EpisodeMapper.class);
         embeddingClient = mock(EmbeddingClient.class);
         vectorStore = new InMemoryVectorStore();
-        searchService = new SearchService(clipMapper, embeddingClient, vectorStore);
+        searchService = new SearchService(clipMapper, animeMapper, episodeMapper, embeddingClient, vectorStore);
     }
 
     private Clip clip(long id, String tag) {
@@ -38,7 +44,7 @@ class SearchServiceTest {
     }
 
     @Test
-    void hybridFusesKeywordAndVector() {
+    void clipDimFusesKeywordAndVector() {
         // 关键词召回 [1,2]；向量召回 [2,3] → 融合后 2 第一
         when(clipMapper.fullTextSearch(eq("战斗"), anyInt()))
                 .thenReturn(List.of(clip(1L, "战斗A"), clip(2L, "战斗B")));
@@ -46,13 +52,14 @@ class SearchServiceTest {
                 .thenReturn(List.of(clip(1L, "战斗A"), clip(2L, "战斗B"), clip(3L, "战斗C")));
         when(embeddingClient.isConfigured()).thenReturn(true);
         when(embeddingClient.embed("战斗")).thenReturn(new float[]{1f, 0f});
-        vectorStore.upsert(2L, new float[]{1f, 0f});
-        vectorStore.upsert(3L, new float[]{0.9f, 0.1f});
+        vectorStore.upsert(EntityType.CLIP, 2L, new float[]{1f, 0f});
+        vectorStore.upsert(EntityType.CLIP, 3L, new float[]{0.9f, 0.1f});
 
-        SearchResponse resp = searchService.search("战斗", 10);
+        SearchResponse resp = searchService.search("战斗", 10, "clip");
 
         assertTrue(resp.semanticEnabled());
         assertEquals(2L, resp.results().get(0).id());
+        assertEquals("CLIP", resp.results().get(0).entityType());
         assertEquals(3, resp.results().size());
     }
 
@@ -62,7 +69,7 @@ class SearchServiceTest {
         when(clipMapper.selectBatchIds(anyCollection())).thenReturn(List.of(clip(1L, "战斗A")));
         when(embeddingClient.isConfigured()).thenReturn(false);
 
-        SearchResponse resp = searchService.search("战斗", 10);
+        SearchResponse resp = searchService.search("战斗", 10, "clip");
 
         assertFalse(resp.semanticEnabled());
         assertEquals(1, resp.results().size());
@@ -75,10 +82,27 @@ class SearchServiceTest {
         when(embeddingClient.isConfigured()).thenReturn(true);
         when(embeddingClient.embed(anyString())).thenThrow(new RuntimeException("API 超时"));
 
-        SearchResponse resp = searchService.search("战斗", 10);
+        SearchResponse resp = searchService.search("战斗", 10, "clip");
 
         assertFalse(resp.semanticEnabled());
         assertEquals(1, resp.results().size());
+    }
+
+    @Test
+    void animeDimReturnsAnimeResults() {
+        com.videotagger.entity.Anime a = new com.videotagger.entity.Anime();
+        a.setId(7L);
+        a.setTitle("热血番");
+        when(animeMapper.searchByKeyword(eq("热血"), anyInt())).thenReturn(List.of(a));
+        when(animeMapper.selectBatchIds(anyCollection())).thenReturn(List.of(a));
+
+        SearchResponse resp = searchService.search("热血", 10, "anime");
+
+        assertEquals(1, resp.results().size());
+        SearchResult r = resp.results().get(0);
+        assertEquals("ANIME", r.entityType());
+        assertEquals(7L, r.animeId());
+        assertEquals("热血番", r.title());
     }
 
     @Test

@@ -8,7 +8,6 @@ import com.videotagger.mapper.AnimeMapper;
 import com.videotagger.mapper.AnimeTagMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.ClipTagMapper;
-import com.videotagger.mapper.EmbeddingTaskMapper;
 import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.EpisodeTagMapper;
 import com.videotagger.mapper.TagMapper;
@@ -30,23 +29,21 @@ public class AnimeService {
     private final EpisodeTagMapper episodeTagMapper;
     private final ClipTagMapper clipTagMapper;
     private final ClipMapper clipMapper;
-    private final EmbeddingTaskMapper taskMapper;
     private final TagMapper tagMapper;
-    private final VectorStore vectorStore;
+    private final EmbeddingTaskService embeddingTaskService;
 
     public AnimeService(AnimeMapper animeMapper, EpisodeMapper episodeMapper,
                         AnimeTagMapper animeTagMapper, EpisodeTagMapper episodeTagMapper,
                         ClipTagMapper clipTagMapper, ClipMapper clipMapper,
-                        EmbeddingTaskMapper taskMapper, TagMapper tagMapper, VectorStore vectorStore) {
+                        TagMapper tagMapper, EmbeddingTaskService embeddingTaskService) {
         this.animeMapper = animeMapper;
         this.episodeMapper = episodeMapper;
         this.animeTagMapper = animeTagMapper;
         this.episodeTagMapper = episodeTagMapper;
         this.clipTagMapper = clipTagMapper;
         this.clipMapper = clipMapper;
-        this.taskMapper = taskMapper;
         this.tagMapper = tagMapper;
-        this.vectorStore = vectorStore;
+        this.embeddingTaskService = embeddingTaskService;
     }
 
     /** 番剧卡片墙（按创建倒序）。 */
@@ -75,6 +72,7 @@ public class AnimeService {
         a.setConfirmed(1); // 手动创建即已确认
         a.setCreatedAt(System.currentTimeMillis());
         animeMapper.insert(a);
+        embeddingTaskService.enqueue(EntityType.ANIME, a.getId());
         return a;
     }
 
@@ -83,6 +81,7 @@ public class AnimeService {
         Anime a = requireAnime(id);
         apply(a, req);
         animeMapper.updateById(a);
+        embeddingTaskService.enqueue(EntityType.ANIME, id);
         return a;
     }
 
@@ -94,6 +93,7 @@ public class AnimeService {
         }
         a.setTitle(title.trim());
         animeMapper.updateById(a);
+        embeddingTaskService.enqueue(EntityType.ANIME, id);
         return a;
     }
 
@@ -110,7 +110,13 @@ public class AnimeService {
             animeTagMapper.insertIgnore(intoId, t.getId());
         }
         animeTagMapper.deleteByAnime(fromId);
+        embeddingTaskService.deleteFor(EntityType.ANIME, from.getId());
         animeMapper.deleteById(from.getId());
+        // 合并后目标番剧的文本变化，重嵌入
+        embeddingTaskService.enqueue(EntityType.ANIME, intoId);
+        for (Episode ep : episodeMapper.listByAnime(intoId)) {
+            embeddingTaskService.enqueue(EntityType.EPISODE, ep.getId());
+        }
     }
 
     /** 删除番剧：级联删除其下所有集、片段及其标签/向量/任务。 */
@@ -119,15 +125,16 @@ public class AnimeService {
         Anime a = requireAnime(id);
         for (Episode ep : episodeMapper.listByAnime(id)) {
             for (Clip c : clipMapper.listByEpisode(ep.getId())) {
-                taskMapper.deleteById(c.getId());
-                vectorStore.delete(c.getId());
+                embeddingTaskService.deleteFor(EntityType.CLIP, c.getId());
                 clipTagMapper.deleteByClip(c.getId());
             }
             clipMapper.deleteByEpisode(ep.getId());
             episodeTagMapper.deleteByEpisode(ep.getId());
+            embeddingTaskService.deleteFor(EntityType.EPISODE, ep.getId());
             episodeMapper.deleteById(ep.getId());
         }
         animeTagMapper.deleteByAnime(id);
+        embeddingTaskService.deleteFor(EntityType.ANIME, a.getId());
         animeMapper.deleteById(a.getId());
     }
 
@@ -144,12 +151,14 @@ public class AnimeService {
         Tag tag = ensureTag(tagName);
         if (tag != null) {
             animeTagMapper.insertIgnore(animeId, tag.getId());
+            embeddingTaskService.enqueue(EntityType.ANIME, animeId);
         }
     }
 
     public void removeTag(Long animeId, Long tagId) {
         requireAnime(animeId);
         animeTagMapper.deleteLink(animeId, tagId);
+        embeddingTaskService.enqueue(EntityType.ANIME, animeId);
     }
 
     private Anime requireAnime(Long id) {

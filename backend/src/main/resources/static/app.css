@@ -454,6 +454,31 @@ body {
     font-size: 13px; color: #a6adc8; margin-bottom: 12px;
 }
 
+/* ============ 搜索维度切换与混合分栏 ============ */
+
+.dim-tabs {
+    display: inline-flex; gap: 6px;
+    background: #313244; border-radius: 10px; padding: 4px;
+    margin-top: 12px;
+}
+.dtab {
+    background: transparent; border: none; color: #a6adc8;
+    font-size: 12px; padding: 4px 14px; border-radius: 7px;
+    cursor: pointer; font-family: inherit;
+}
+.dtab:hover { color: #cdd6f4; }
+.dtab.active { background: #cba6f7; color: #1e1e2e; font-weight: 600; }
+
+.mixed-section { margin-bottom: 18px; }
+.mixed-title {
+    font-size: 13px; color: #a6adc8; margin-bottom: 8px; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+}
+.mixed-title::after { content: ''; flex: 1; height: 1px; background: #45475a; }
+.mixed-body { display: flex; flex-direction: column; gap: 10px; }
+
+.search-entity-card .card-tag { color: #89dceb; font-size: 12px; }
+
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }

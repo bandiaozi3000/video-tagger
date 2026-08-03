@@ -68,6 +68,7 @@ const ANIME_TYPE_LABEL = { ANIME: '动画', MOVIE: '电影' };
 const ANIME_STATUS_LABEL = { WANT: '想看', WATCHING: '在看', DONE: '看完', PAUSED: '搁置', DROPPED: '弃番' };
 
 let currentQuery = '';
+let currentDim = 'mixed';
 let editingClip = null;
 let videoCursor = null;   // { latest, fp } 下一页游标
 let pageSize = 20;
@@ -130,11 +131,11 @@ async function runSearch(q) {
     statusEl.textContent = '搜索中…';
     resultsEl.innerHTML = '';
     try {
-        const resp = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+        const resp = await fetch(`/api/search?q=${encodeURIComponent(q)}&dim=${encodeURIComponent(currentDim)}`);
         const data = await resp.json();
         semanticHint.hidden = data.semanticEnabled;
         renderResults(data.results);
-        statusEl.textContent = data.results.length ? `共 ${data.results.length} 条结果` : '没有找到相关片段';
+        statusEl.textContent = data.results.length ? `共 ${data.results.length} 条结果` : '没有找到相关内容';
     } catch (err) {
         statusEl.textContent = '搜索失败：后端未响应，请确认服务已启动';
     }
@@ -185,10 +186,67 @@ function appendClipCard(container, r, opts) {
 }
 
 function renderResults(results) {
-    const maxScore = Math.max(...results.map(r => r.score), 0.0001);
-    for (const r of results) {
-        appendClipCard(resultsEl, r, { maxScore });
+    resultsEl.innerHTML = '';
+    if (!results || results.length === 0) return;
+    if (currentDim === 'mixed') {
+        renderMixed(results);
+    } else {
+        for (const r of results) appendSearchCard(resultsEl, r, {});
     }
+}
+
+// 混合模式：三层结果分栏展示（番剧 / 集 / 片段）
+function renderMixed(results) {
+    const groups = { ANIME: [], EPISODE: [], CLIP: [] };
+    for (const r of results) (groups[r.entityType] || groups.CLIP).push(r);
+    const labels = { ANIME: '番剧', EPISODE: '集', CLIP: '片段' };
+    for (const [type, items] of Object.entries(groups)) {
+        if (items.length === 0) continue;
+        const sec = document.createElement('section');
+        sec.className = 'mixed-section';
+        const h = document.createElement('h3');
+        h.className = 'mixed-title';
+        h.textContent = `${labels[type]}（${items.length}）`;
+        const body = document.createElement('div');
+        body.className = 'mixed-body';
+        for (const r of items) appendSearchCard(body, r, {});
+        sec.appendChild(h);
+        sec.appendChild(body);
+        resultsEl.appendChild(sec);
+    }
+}
+
+function appendSearchCard(container, r, opts) {
+    if (r.entityType === 'ANIME') return appendAnimeCard(container, r);
+    if (r.entityType === 'EPISODE') return appendEpisodeCard(container, r);
+    appendClipCard(container, r, opts);
+}
+
+function appendAnimeCard(container, r) {
+    const card = document.createElement('div');
+    card.className = 'card search-entity-card';
+    card.innerHTML = `<div class="card-title"></div><div class="card-tag"></div>`;
+    card.querySelector('.card-title').textContent = r.title || '(未命名)';
+    card.querySelector('.card-tag').textContent = `番剧 · 匹配 ${Math.round((r.score || 0) * 100) / 100}`;
+    card.addEventListener('click', () => openAnimeDetail(r.animeId));
+    container.appendChild(card);
+}
+
+function appendEpisodeCard(container, r) {
+    const card = document.createElement('div');
+    card.className = 'card search-entity-card';
+    card.innerHTML = `<div class="card-title"></div><div class="card-tag"></div>`;
+    card.querySelector('.card-title').textContent = r.title || '(未命名)';
+    card.querySelector('.card-tag').textContent = `集 · 匹配 ${Math.round((r.score || 0) * 100) / 100}`;
+    card.addEventListener('click', () => {
+        if (r.videoFp) {
+            fromAnimeDetail = true;
+            openTimeline({ fp: r.videoFp, title: r.title || '时间线' });
+        } else if (r.animeId) {
+            openAnimeDetail(r.animeId);
+        }
+    });
+    container.appendChild(card);
 }
 
 // ---------- 视频列表 ----------
@@ -834,6 +892,13 @@ function renderBars(el, items, opts) {
 // ---------- 事件绑定 ----------
 
 form.addEventListener('submit', doSearch);
+document.querySelectorAll('.dim-tabs .dtab').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.dim-tabs .dtab').forEach(b => b.classList.toggle('active', b === btn));
+        currentDim = btn.dataset.dim;
+        if (currentQuery) runSearch(currentQuery);
+    });
+});
 clearBtn.addEventListener('click', () => { input.value = ''; resultsEl.innerHTML = ''; statusEl.textContent = ''; input.focus(); });
 loadMoreBtn.addEventListener('click', () => loadVideos(false));
 backBtn.addEventListener('click', () => {
