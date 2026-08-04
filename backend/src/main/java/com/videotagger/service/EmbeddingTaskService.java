@@ -1,12 +1,12 @@
 package com.videotagger.service;
 
-import com.videotagger.entity.Anime;
+import com.videotagger.entity.Media;
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.EmbeddingTask;
 import com.videotagger.entity.Episode;
 import com.videotagger.entity.Tag;
-import com.videotagger.mapper.AnimeMapper;
-import com.videotagger.mapper.AnimeTagMapper;
+import com.videotagger.mapper.MediaMapper;
+import com.videotagger.mapper.MediaTagMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.EmbeddingTaskMapper;
 import com.videotagger.mapper.EpisodeMapper;
@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * 三层向量生成任务（ANIME/EPISODE/CLIP）。
+ * 三层向量生成任务（MEDIA/EPISODE/CLIP）。
  * 打标 / 标签变更只入队（enqueue），不阻塞主链路；生成由 sweep 定时扫描 + 指数退避完成；
  * 应用启动时补做 PENDING/FAILED，覆盖宕机与 API 临时不可用场景。
  */
@@ -33,22 +33,22 @@ public class EmbeddingTaskService implements ApplicationRunner {
     private static final int MAX_RETRY = 5;
 
     private final ClipMapper clipMapper;
-    private final AnimeMapper animeMapper;
+    private final MediaMapper mediaMapper;
     private final EpisodeMapper episodeMapper;
-    private final AnimeTagMapper animeTagMapper;
+    private final MediaTagMapper mediaTagMapper;
     private final EpisodeTagMapper episodeTagMapper;
     private final EmbeddingTaskMapper taskMapper;
     private final EmbeddingClient embeddingClient;
     private final VectorStore vectorStore;
 
-    public EmbeddingTaskService(ClipMapper clipMapper, AnimeMapper animeMapper, EpisodeMapper episodeMapper,
-                                AnimeTagMapper animeTagMapper, EpisodeTagMapper episodeTagMapper,
+    public EmbeddingTaskService(ClipMapper clipMapper, MediaMapper mediaMapper, EpisodeMapper episodeMapper,
+                                MediaTagMapper mediaTagMapper, EpisodeTagMapper episodeTagMapper,
                                 EmbeddingTaskMapper taskMapper, EmbeddingClient embeddingClient,
                                 VectorStore vectorStore) {
         this.clipMapper = clipMapper;
-        this.animeMapper = animeMapper;
+        this.mediaMapper = mediaMapper;
         this.episodeMapper = episodeMapper;
-        this.animeTagMapper = animeTagMapper;
+        this.mediaTagMapper = mediaTagMapper;
         this.episodeTagMapper = episodeTagMapper;
         this.taskMapper = taskMapper;
         this.embeddingClient = embeddingClient;
@@ -125,12 +125,12 @@ public class EmbeddingTaskService implements ApplicationRunner {
 
     private String buildText(EntityType type, long entityId) {
         return switch (type) {
-            case ANIME -> {
-                Anime a = animeMapper.selectById(entityId);
+            case MEDIA -> {
+                Media a = mediaMapper.selectById(entityId);
                 yield a == null ? null : join(
                         a.getTitle(),
                         a.getAliases(),
-                        joinTags(animeTagMapper.selectTags(entityId)));
+                        joinTags(mediaTagMapper.selectTags(entityId)));
             }
             case EPISODE -> {
                 Episode ep = episodeMapper.selectById(entityId);

@@ -243,8 +243,9 @@ public class MilvusVectorStore implements VectorStore {
         }
         String prefix = id.substring(0, colon);
         EntityType type;
+        // 媒体层前缀沿用历史 "A"（曾代表 ANIME），改名 MEDIA 后保留以免迁移既有向量数据
         switch (prefix) {
-            case "A" -> type = EntityType.ANIME;
+            case "A" -> type = EntityType.MEDIA;
             case "E" -> type = EntityType.EPISODE;
             case "C" -> type = EntityType.CLIP;
             default -> {

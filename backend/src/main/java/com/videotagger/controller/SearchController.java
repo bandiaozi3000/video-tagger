@@ -23,8 +23,10 @@ public class SearchController {
     @GetMapping
     public SearchResponse search(@RequestParam("q") String query,
                                  @RequestParam(value = "limit", defaultValue = "20") int limit,
-                                 @RequestParam(value = "dim", defaultValue = "mixed") String dim) {
-        return searchService.search(query, limit, dim);
+                                 @RequestParam(value = "dim", defaultValue = "mixed") String dim,
+                                 @RequestParam(value = "format", required = false) String format,
+                                 @RequestParam(value = "subcategory", required = false) String subcategory) {
+        return searchService.search(query, limit, dim, format, subcategory);
     }
 
     @GetMapping("/similar")

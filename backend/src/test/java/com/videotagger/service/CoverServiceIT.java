@@ -1,10 +1,10 @@
 package com.videotagger.service;
 
 import com.videotagger.AbstractMySqlIT;
-import com.videotagger.entity.Anime;
+import com.videotagger.entity.Media;
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.Episode;
-import com.videotagger.mapper.AnimeMapper;
+import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.util.VideoFingerprint;
@@ -32,7 +32,7 @@ class CoverServiceIT extends AbstractMySqlIT {
     @Autowired
     ClipService clipService;
     @Autowired
-    AnimeService animeService;
+    MediaService mediaService;
     @Autowired
     EpisodeService episodeService;
     @Autowired
@@ -40,7 +40,7 @@ class CoverServiceIT extends AbstractMySqlIT {
     @Autowired
     EpisodeMapper episodeMapper;
     @Autowired
-    AnimeMapper animeMapper;
+    MediaMapper mediaMapper;
 
     private static byte[] frameBytes() {
         return new byte[]{1, 2, 3, 4, 5};
@@ -171,21 +171,21 @@ class CoverServiceIT extends AbstractMySqlIT {
     }
 
     @Test
-    void animeFallbackCoverResolvesAndDeletesCascade() {
+    void mediaFallbackCoverResolvesAndDeletesCascade() {
         SaveClipResult c = clipService.save(new SaveClipRequest(
                 "某动画C 第3集", "https://cover.com/3", 10.0, "高燃", "",
                 null, null, dataUrl(), null));
-        Anime a = animeMapper.selectByTitlePrefix("某动画C");
+        Media a = mediaMapper.selectByTitlePrefix("某动画C");
         assertNotNull(a);
         assertNull(a.getCoverPath()); // 无 og:image 场景
 
         // 番剧详情返回代表性片段帧兜底
-        AnimeDetail detail = animeService.get(a.getId());
+        MediaDetail detail = mediaService.get(a.getId());
         assertNotNull(detail.fallbackCoverPath());
         assertEquals("/covers/clip/" + c.id() + ".jpg", detail.fallbackCoverPath());
 
-        // 番剧卡片墙（AnimeSummary SQL 按位映射）同样返回兜底封面
-        AnimeSummary row = animeService.list(10, null, null, null, null).stream()
+        // 番剧卡片墙（MediaSummary SQL 按位映射）同样返回兜底封面
+        MediaSummary row = mediaService.list(10, null, null, null, null, null).stream()
                 .filter(s -> s.id().equals(a.getId())).findFirst().orElse(null);
         assertNotNull(row);
         assertEquals("/covers/clip/" + c.id() + ".jpg", row.fallbackCoverPath());
@@ -194,7 +194,7 @@ class CoverServiceIT extends AbstractMySqlIT {
         Clip clip = clipMapper.selectById(c.id());
         Path clipFile = fileOf(clip.getCoverPath());
         assertTrue(Files.exists(clipFile));
-        animeService.delete(a.getId());
+        mediaService.delete(a.getId());
         assertFalse(Files.exists(clipFile));
     }
 
@@ -203,17 +203,17 @@ class CoverServiceIT extends AbstractMySqlIT {
         SaveClipResult c = clipService.save(new SaveClipRequest(
                 "某动画D 第4集", "https://cover.com/4", 10.0, "高燃", "",
                 null, null, dataUrl(), null));
-        Anime a = animeMapper.selectByTitlePrefix("某动画D");
+        Media a = mediaMapper.selectByTitlePrefix("某动画D");
         assertNotNull(a);
 
-        List<EpisodeDetail> eps = animeService.episodes(a.getId());
+        List<EpisodeDetail> eps = mediaService.episodes(a.getId());
         assertEquals(1, eps.size());
         // 未显式设置集封面时，智能默认落到代表性片段帧
         assertEquals("/covers/clip/" + c.id() + ".jpg", eps.get(0).coverPath());
 
         // 自选某片段帧为集封面后，episode.cover_path 生效
         episodeService.setCoverFromClip(eps.get(0).id(), c.id());
-        EpisodeDetail after = animeService.episodes(a.getId()).get(0);
+        EpisodeDetail after = mediaService.episodes(a.getId()).get(0);
         assertTrue(after.coverPath().startsWith("/covers/ep/"));
     }
 

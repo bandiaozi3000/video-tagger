@@ -1,6 +1,6 @@
 package com.videotagger.service;
 
-/** 搜索结果：三层通用。entityType 区分 ANIME / EPISODE / CLIP，跳转目标各异。 */
+/** 搜索结果：三层通用。entityType 区分 MEDIA / EPISODE / CLIP，跳转目标各异。 */
 public record SearchResult(
         Long id,
         String title,
@@ -11,7 +11,7 @@ public record SearchResult(
         String note,
         Double score,
         String entityType,
-        Long animeId,
+        Long mediaId,
         Long episodeId,
         String videoFp,
         String coverPath,

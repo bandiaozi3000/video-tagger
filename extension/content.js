@@ -132,8 +132,8 @@
       if (resp && resp.ok && resp.data && resp.data.deduped) {
         showToast(`「${tag}」该片段刚已保存`);
       } else if (resp && resp.ok) {
-        showToast(resp.data && resp.data.animeTitle
-          ? `已保存「${tag}」· 《${resp.data.animeTitle}》`
+        showToast(resp.data && resp.data.mediaTitle
+          ? `已保存「${tag}」· 《${resp.data.mediaTitle}》`
           : `已保存「${tag}」`);
       } else {
         showToast('保存失败：后端未启动？');
@@ -241,7 +241,7 @@
     .save:active { transform: translateY(0) scale(.98); }
     .toast { margin-top: 10px; font-size: 12px; color: #4ade80; text-align: right; opacity: 0; transition: opacity .2s; font-weight: 600; }
     .toast.show { opacity: 1; }
-    .anime-hint {
+    .media-hint {
       margin-top: 10px; padding: 8px 12px; border-radius: 10px;
       background: rgba(167, 139, 250, .1); border: 1px solid rgba(167, 139, 250, .3);
       font-size: 12px; color: #b7a1f7;
@@ -280,7 +280,7 @@
           <button class="toggle" id="vt-cont" title="连续打标：保存后浮层不关，时间戳跟随播放进度">连续</button>
           <button class="save" id="vt-save">保存 (Enter)</button>
         </div>
-        <div class="anime-hint" id="vt-anime" hidden></div>
+        <div class="media-hint" id="vt-media" hidden></div>
         <div class="toast" id="vt-toast">已保存</div>
       </div>`;
 
@@ -291,7 +291,7 @@
     const acList = shadow.getElementById('vt-ac');
     const dupHint = shadow.getElementById('vt-dup');
     const toast = shadow.getElementById('vt-toast');
-    const animeHint = shadow.getElementById('vt-anime');
+    const mediaHint = shadow.getElementById('vt-media');
     const card = shadow.querySelector('.card');
     const contBtn = shadow.getElementById('vt-cont');
     const countEl = shadow.getElementById('vt-count');
@@ -476,9 +476,9 @@
         countEl.textContent = `已连续保存 ${saveCount} 条`;
         toast.textContent = `已保存 · 第 ${saveCount} 条`;
         toast.classList.add('show');
-        if (saveCount === 1 && resp.animeTitle) {
-          animeHint.textContent = `识别到：${resp.animeTitle}${resp.episodeNo ? ` · 第${resp.episodeNo}集` : ''}`;
-          animeHint.hidden = false;
+        if (saveCount === 1 && resp.mediaTitle) {
+          mediaHint.textContent = `识别到：${resp.mediaTitle}${resp.episodeNo ? ` · 第${resp.episodeNo}集` : ''}`;
+          mediaHint.hidden = false;
         }
         noteInput.value = '';
         const v = findVideo();
@@ -491,10 +491,10 @@
       } else {
         toast.textContent = '已保存';
         toast.classList.add('show');
-        if (resp.animeTitle) {
+        if (resp.mediaTitle) {
           // A 做轻：保存后浮层显示归属小字，稍作停留便于瞥一眼，不阻塞后续操作
-          animeHint.textContent = `识别到：${resp.animeTitle}${resp.episodeNo ? ` · 第${resp.episodeNo}集` : ''}`;
-          animeHint.hidden = false;
+          mediaHint.textContent = `识别到：${resp.mediaTitle}${resp.episodeNo ? ` · 第${resp.episodeNo}集` : ''}`;
+          mediaHint.hidden = false;
           setTimeout(close, 1600);
         } else {
           setTimeout(close, 400);

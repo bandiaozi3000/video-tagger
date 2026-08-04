@@ -14,8 +14,9 @@ public final class TitleParser {
     private TitleParser() {
     }
 
-    /** 解析结果。animeTitle 保证非空（解析失败时回退为去站点后缀的原始标题）。 */
-    public record ParsedTitle(String animeTitle, Integer season, Integer episodeNo) {
+    /** 解析结果。mediaTitle 保证非空（解析失败时回退为去站点后缀的原始标题）；
+     *  subcategory 为标题关键词探测的子分类（如「第X集」→番剧），可空，探测属 Phase B。 */
+    public record ParsedTitle(String mediaTitle, Integer season, Integer episodeNo, String subcategory) {
     }
 
     private static final String[] SITE_SUFFIXES = {
@@ -36,21 +37,31 @@ public final class TitleParser {
 
     public static ParsedTitle parse(String rawTitle) {
         if (rawTitle == null) {
-            return new ParsedTitle("", null, null);
+            return new ParsedTitle("", null, null, null);
         }
         String t = stripSiteSuffix(rawTitle.trim());
 
         Integer season = firstInt(t, SEASON_CN, SEASON_EN, SEASON_SN);
         Integer episode = firstInt(t, EP_CN, EP_EN, EP_SN, EP_BARE_E);
 
-        String anime = cleanName(stripMarks(t));
-        if (anime.isEmpty()) {
-            anime = cleanName(t);
+        String media = cleanName(stripMarks(t));
+        if (media.isEmpty()) {
+            media = cleanName(t);
         }
-        if (anime.isEmpty()) {
-            anime = t;
+        if (media.isEmpty()) {
+            media = t;
         }
-        return new ParsedTitle(anime, season, episode);
+        return new ParsedTitle(media, season, episode, detectSubcategory(t));
+    }
+
+    /** 标题关键词 → 子分类探测：命中「第X集/第X话/SXE」等剧集标记视为连续剧类（番剧），可空。 */
+    private static String detectSubcategory(String t) {
+        if (SEASON_CN.matcher(t).find() || SEASON_EN.matcher(t).find() || SEASON_SN.matcher(t).find()
+                || EP_CN.matcher(t).find() || EP_EN.matcher(t).find() || EP_SN.matcher(t).find()
+                || EP_BARE_E.matcher(t).find()) {
+            return "番剧";
+        }
+        return null;
     }
 
     private static String stripSiteSuffix(String t) {

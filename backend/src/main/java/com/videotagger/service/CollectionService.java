@@ -1,8 +1,8 @@
 package com.videotagger.service;
 
 import com.videotagger.entity.Collection;
-import com.videotagger.mapper.AnimeCollectionMapper;
-import com.videotagger.mapper.AnimeMapper;
+import com.videotagger.mapper.MediaCollectionMapper;
+import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.CollectionMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,14 +15,14 @@ import java.util.NoSuchElementException;
 public class CollectionService {
 
     private final CollectionMapper collectionMapper;
-    private final AnimeCollectionMapper animeCollectionMapper;
-    private final AnimeMapper animeMapper;
+    private final MediaCollectionMapper mediaCollectionMapper;
+    private final MediaMapper mediaMapper;
 
-    public CollectionService(CollectionMapper collectionMapper, AnimeCollectionMapper animeCollectionMapper,
-                             AnimeMapper animeMapper) {
+    public CollectionService(CollectionMapper collectionMapper, MediaCollectionMapper mediaCollectionMapper,
+                             MediaMapper mediaMapper) {
         this.collectionMapper = collectionMapper;
-        this.animeCollectionMapper = animeCollectionMapper;
-        this.animeMapper = animeMapper;
+        this.mediaCollectionMapper = mediaCollectionMapper;
+        this.mediaMapper = mediaMapper;
     }
 
     public List<CollectionSummary> list() {
@@ -43,24 +43,24 @@ public class CollectionService {
     @Transactional
     public void delete(Long id) {
         requireCollection(id);
-        animeCollectionMapper.deleteByCollection(id);
+        mediaCollectionMapper.deleteByCollection(id);
         collectionMapper.deleteById(id);
     }
 
-    public void addAnime(Long collectionId, Long animeId) {
+    public void addMedia(Long collectionId, Long mediaId) {
         requireCollection(collectionId);
-        animeCollectionMapper.insertIgnore(animeId, collectionId);
+        mediaCollectionMapper.insertIgnore(mediaId, collectionId);
     }
 
-    public void removeAnime(Long collectionId, Long animeId) {
+    public void removeMedia(Long collectionId, Long mediaId) {
         requireCollection(collectionId);
-        animeCollectionMapper.deleteLink(animeId, collectionId);
+        mediaCollectionMapper.deleteLink(mediaId, collectionId);
     }
 
     /** 收藏夹内容（整体浏览）。 */
-    public List<AnimeSummary> anime(Long collectionId) {
+    public List<MediaSummary> media(Long collectionId) {
         requireCollection(collectionId);
-        return animeMapper.listByCollection(collectionId, 100);
+        return mediaMapper.listByCollection(collectionId, 100);
     }
 
     private Collection requireCollection(Long id) {

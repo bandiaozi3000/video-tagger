@@ -2,8 +2,8 @@ package com.videotagger.service;
 
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.EmbeddingTask;
-import com.videotagger.mapper.AnimeMapper;
-import com.videotagger.mapper.AnimeTagMapper;
+import com.videotagger.mapper.MediaMapper;
+import com.videotagger.mapper.MediaTagMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.EmbeddingTaskMapper;
 import com.videotagger.mapper.EpisodeMapper;
@@ -30,8 +30,8 @@ class EmbeddingTaskServiceTest {
         taskMapper = mock(EmbeddingTaskMapper.class);
         embeddingClient = mock(EmbeddingClient.class);
         vectorStore = mock(VectorStore.class);
-        service = new EmbeddingTaskService(clipMapper, mock(AnimeMapper.class), mock(EpisodeMapper.class),
-                mock(AnimeTagMapper.class), mock(EpisodeTagMapper.class),
+        service = new EmbeddingTaskService(clipMapper, mock(MediaMapper.class), mock(EpisodeMapper.class),
+                mock(MediaTagMapper.class), mock(EpisodeTagMapper.class),
                 taskMapper, embeddingClient, vectorStore);
     }
 

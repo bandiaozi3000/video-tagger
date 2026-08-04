@@ -1,6 +1,6 @@
 package com.videotagger.service;
 
-import com.videotagger.mapper.AnimeMapper;
+import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.ClipTagMapper;
 import com.videotagger.mapper.EpisodeMapper;
@@ -22,7 +22,7 @@ class ClipServiceSuggestTest {
     @BeforeEach
     void setUp() {
         clipMapper = mock(ClipMapper.class);
-        service = new ClipService(clipMapper, mock(AnimeMapper.class), mock(EpisodeMapper.class),
+        service = new ClipService(clipMapper, mock(MediaMapper.class), mock(EpisodeMapper.class),
                 mock(TagMapper.class), mock(ClipTagMapper.class),
                 mock(CoverService.class), mock(EmbeddingTaskService.class));
     }

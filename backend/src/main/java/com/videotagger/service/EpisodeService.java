@@ -100,7 +100,7 @@ public class EpisodeService {
         long latestAt = clips.stream().mapToLong(Clip::getCreatedAt).max().orElse(0L);
         String cover = ep.getCoverPath() != null ? ep.getCoverPath()
                 : clipMapper.selectRepresentativeCoverByEpisode(id);
-        return new EpisodeDetail(id, ep.getAnimeId(), ep.getSeason(), ep.getEpisodeNo(),
+        return new EpisodeDetail(id, ep.getMediaId(), ep.getSeason(), ep.getEpisodeNo(),
                 ep.getTitle(), ep.getUrl(), ep.getVideoFp(), clipCount, latestAt,
                 episodeTagMapper.selectTags(id), cover);
     }

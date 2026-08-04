@@ -20,7 +20,7 @@
     <div class="container header-inner">
         <div class="logo-wrap">
             <span class="logo-mark">✦</span>
-            <h1 class="logo">Video<span class="logo-accent">Tagger</span><span class="ver-chip">v0.6.0</span></h1>
+            <h1 class="logo">Video<span class="logo-accent">Tagger</span><span class="ver-chip">v0.7.0</span></h1>
         </div>
         <nav class="nav">
             <div class="nav-tabs">
@@ -28,9 +28,9 @@
                     <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
                     搜索
                 </button>
-                <button type="button" class="tab" data-view="anime">
+                <button type="button" class="tab" data-view="media">
                     <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="6" width="20" height="13" rx="2.5"/><path d="M12 8.5l1.2 2.4 2.6.4-1.9 1.8.5 2.6-2.4-1.3-2.4 1.3.5-2.6-1.9-1.8 2.6-.4z"/></svg>
-                    番剧
+                    媒体
                 </button>
                 <button type="button" class="tab" data-view="videos">
                     <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
@@ -46,16 +46,23 @@
 </header>
 
 <main class="container">
-    <!-- 番剧视图 -->
-    <section id="view-anime" class="view" hidden>
-        <div class="anime-toolbar">
-            <div class="anime-tabs">
-                <button type="button" class="atab active" data-anime-tab="recent">最近观看</button>
-                <button type="button" class="atab" data-anime-tab="all">全部番剧</button>
+    <!-- 媒体视图 -->
+    <section id="view-media" class="view" hidden>
+        <div class="media-toolbar">
+            <div class="media-tabs">
+                <button type="button" class="atab active" data-media-tab="recent">最近观看</button>
+                <button type="button" class="atab" data-media-tab="all">全部媒体</button>
             </div>
-            <button type="button" id="anime-create" class="btn-primary">＋ 新建番剧</button>
+            <div class="toolbar-actions">
+                <button type="button" id="media-format-manage" class="btn-mini">⚙ 管理格式</button>
+                <button type="button" id="media-create" class="btn-primary">＋ 新建媒体</button>
+            </div>
         </div>
-        <div class="anime-filters" id="anime-filters">
+        <div class="format-tabs" id="format-tabs"></div>
+        <div class="media-filters" id="media-filters">
+            <select id="filter-subcategory">
+                <option value="">子分类</option>
+            </select>
             <select id="filter-status">
                 <option value="">状态</option>
                 <option value="WANT">想看</option>
@@ -64,24 +71,19 @@
                 <option value="PAUSED">搁置</option>
                 <option value="DROPPED">弃番</option>
             </select>
-            <select id="filter-type">
-                <option value="">类型</option>
-                <option value="ANIME">动画</option>
-                <option value="MOVIE">电影</option>
-            </select>
             <select id="filter-collection">
                 <option value="">收藏夹</option>
             </select>
             <label class="checkbox-inline"><input type="checkbox" id="filter-unconfirmed"> 待确认</label>
         </div>
-        <div id="anime-status" class="status"></div>
-        <section id="anime-grid" class="anime-grid"></section>
+        <div id="media-status" class="status"></div>
+        <section id="media-grid" class="media-grid"></section>
     </section>
 
-    <!-- 番剧详情视图 -->
-    <section id="view-anime-detail" class="view" hidden>
-        <button type="button" id="back-to-anime" class="back-btn">← 返回番剧</button>
-        <div id="anime-detail-head" class="anime-detail-head"></div>
+    <!-- 媒体详情视图 -->
+    <section id="view-media-detail" class="view" hidden>
+        <button type="button" id="back-to-media" class="back-btn">← 返回媒体</button>
+        <div id="media-detail-head" class="media-detail-head"></div>
         <div class="detail-actions">
             <button type="button" id="detail-edit" class="btn-mini">编辑信息</button>
             <button type="button" id="detail-rename" class="btn-mini">改名/合并</button>
@@ -93,7 +95,7 @@
         <div id="detail-tags" class="detail-tags"></div>
         <h3 class="stats-title">收藏夹</h3>
         <div id="detail-collections" class="detail-collections"></div>
-        <h3 class="stats-title">集列表</h3>
+        <h3 class="stats-title" id="episode-list-title">集列表</h3>
         <section id="episode-list" class="episode-list"></section>
         <div id="detail-status" class="status"></div>
     </section>
@@ -145,9 +147,13 @@
         </form>
         <div class="dim-tabs">
             <button type="button" class="dtab active" data-dim="mixed">混合</button>
-            <button type="button" class="dtab" data-dim="anime">番剧</button>
+            <button type="button" class="dtab" data-dim="media">媒体</button>
             <button type="button" class="dtab" data-dim="episode">集</button>
             <button type="button" class="dtab" data-dim="clip">片段</button>
+        </div>
+        <div class="search-filters">
+            <select id="search-format"><option value="">格式</option></select>
+            <select id="search-subcategory"><option value="">子分类</option></select>
         </div>
         <div id="semantic-hint" class="semantic-hint" hidden>语义搜索未启用（未配置 Embedding API），当前为关键词搜索</div>
         <div id="status" class="status"></div>
@@ -179,6 +185,10 @@
         </div>
         <h3 class="stats-title">最常用标签</h3>
         <div id="stats-tags" class="stats-tags"></div>
+        <h3 class="stats-title">按媒体格式分布</h3>
+        <div id="stats-formats" class="stats-chart"></div>
+        <h3 class="stats-title">按子分类分布</h3>
+        <div id="stats-subcategories" class="stats-chart"></div>
         <h3 class="stats-title">按站点分布</h3>
         <div id="stats-sites" class="stats-chart"></div>
         <h3 class="stats-title">近 30 天标记趋势</h3>
@@ -217,19 +227,24 @@
     </div>
 </div>
 
-<!-- 新建 / 编辑番剧 -->
-<div id="anime-modal" class="modal-overlay" hidden>
+<!-- 新建 / 编辑媒体 -->
+<div id="media-modal" class="modal-overlay" hidden>
     <div class="modal">
-        <h2 id="anime-modal-title">新建番剧</h2>
-        <label>标题<input id="anime-title" autocomplete="off"></label>
-        <label>类型
-            <select id="anime-type">
-                <option value="ANIME">动画</option>
-                <option value="MOVIE">电影</option>
-            </select>
+        <h2 id="media-modal-title">新建媒体</h2>
+        <label>标题<input id="media-title" autocomplete="off"></label>
+        <label>格式
+            <select id="media-format"><option value="">— 请选择 —</option></select>
+        </label>
+        <label>子分类
+            <select id="media-subcategory"><option value="">— 未分类 —</option></select>
+            <span class="inline-add">
+                <input id="media-new-sub" autocomplete="off" placeholder="新子分类名" hidden>
+                <button type="button" id="media-add-sub-btn" class="btn-mini" hidden>添加</button>
+                <button type="button" id="media-inline-add" class="btn-mini">＋ 新建</button>
+            </span>
         </label>
         <label>状态
-            <select id="anime-status">
+            <select id="media-status">
                 <option value="WANT">想看</option>
                 <option value="WATCHING">在看</option>
                 <option value="DONE">看完</option>
@@ -237,10 +252,40 @@
                 <option value="DROPPED">弃番</option>
             </select>
         </label>
-        <label>评分（0~10）<input id="anime-rating" type="number" min="0" max="10" step="0.5" autocomplete="off"></label>
+        <label>评分（0~10）<input id="media-rating" type="number" min="0" max="10" step="0.5" autocomplete="off"></label>
         <div class="modal-actions">
-            <button id="anime-modal-cancel" type="button">取消</button>
-            <button id="anime-modal-save" type="button">保存</button>
+            <button id="media-modal-cancel" type="button">取消</button>
+            <button id="media-modal-save" type="button">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 管理格式 / 子分类 -->
+<div id="media-format-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide">
+        <h2>管理格式 / 子分类</h2>
+        <div class="format-manage-layout">
+            <div class="fm-formats" id="fm-formats"></div>
+            <div class="fm-subs">
+                <div class="fm-subs-head">
+                    <span id="fm-current-format">选择左侧格式</span>
+                    <span class="fm-add-sub">
+                        <input id="fm-new-sub" autocomplete="off" placeholder="新子分类名">
+                        <button type="button" id="fm-add-sub-btn" class="btn-mini">添加</button>
+                    </span>
+                </div>
+                <div id="fm-sub-list"></div>
+            </div>
+        </div>
+        <div class="fm-add-format">
+            <input id="fm-new-code" autocomplete="off" placeholder="格式编码 如 AUDIO">
+            <input id="fm-new-name" autocomplete="off" placeholder="显示名 如 音频">
+            <label class="checkbox-inline"><input type="checkbox" id="fm-new-has-children"> 有集/片段子层</label>
+            <button type="button" id="fm-add-format-btn" class="btn-mini">新增格式</button>
+        </div>
+        <div id="fm-status" class="status"></div>
+        <div class="modal-actions">
+            <button id="media-format-close" type="button">关闭</button>
         </div>
     </div>
 </div>

@@ -24,7 +24,7 @@ class InMemoryVectorStoreTest {
     void searchByTypeFiltersOutOtherLayers() {
         InMemoryVectorStore store = new InMemoryVectorStore();
         store.upsert(EntityType.CLIP, 1L, new float[]{1f, 0f});
-        store.upsert(EntityType.ANIME, 1L, new float[]{0.9f, 0.1f}); // 同 id 不同层，应被过滤
+        store.upsert(EntityType.MEDIA, 1L, new float[]{0.9f, 0.1f}); // 同 id 不同层，应被过滤
 
         List<VectorStore.VectorHit> hits = store.search(EntityType.CLIP, new float[]{1f, 0f}, 10);
 

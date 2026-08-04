@@ -7,18 +7,20 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 
-/** 番剧（作品级实体）。电影 = type=MOVIE 的单集番剧。 */
+/** 媒体（作品级实体，原「番剧」泛化）。格式=视频时可有集/片段子层；图片/文字单层。 */
 @Data
-@TableName("anime")
-public class Anime {
+@TableName("media")
+public class Media {
     @TableId(type = IdType.AUTO)
     private Long id;
     private String title;
     /** 别名（LLM 后台归组修正，可空） */
     private String aliases;
-    /** 内容类型：ANIME / MOVIE */
-    private String type;
-    /** 追番状态：WANT / WATCHING / DONE / PAUSED / DROPPED */
+    /** 媒体格式：VIDEO / IMAGE / TEXT（media_format 字典） */
+    private String mediaFormat;
+    /** 子分类（media_subcategory 字典，格式内可选），可空=未分类 */
+    private String subcategory;
+    /** 状态：WANT / WATCHING / DONE / PAUSED / DROPPED（全格式共用） */
     private String status;
     /** 手动评分（十分制，可空） */
     private BigDecimal rating;

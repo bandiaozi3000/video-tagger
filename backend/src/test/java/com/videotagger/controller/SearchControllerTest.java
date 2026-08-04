@@ -31,7 +31,7 @@ class SearchControllerTest {
         SearchResult item = new SearchResult(1L, "某动画 第3集",
                 "https://www.bilibili.com/video/BV1", "https://www.bilibili.com/video/BV1?t=754",
                 754.5, "高燃战斗", "主角觉醒", 0.032);
-        Mockito.when(searchService.search(eq("战斗"), eq(20), eq("mixed")))
+        Mockito.when(searchService.search(eq("战斗"), eq(20), eq("mixed"), eq(null), eq(null)))
                 .thenReturn(new SearchResponse(true, List.of(item)));
 
         mvc.perform(get("/api/search").param("q", "战斗"))

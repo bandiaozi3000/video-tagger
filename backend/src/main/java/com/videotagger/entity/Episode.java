@@ -11,7 +11,7 @@ import lombok.Data;
 public class Episode {
     @TableId(type = IdType.AUTO)
     private Long id;
-    private Long animeId;
+    private Long mediaId;
     /** 季号（标题无法解析时为空） */
     private Integer season;
     /** 集号（标题无法解析时为空） */

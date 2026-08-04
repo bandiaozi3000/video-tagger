@@ -31,7 +31,9 @@ class StatsControllerTest {
                 List.of(new TagSuggestion("高燃", 4L)),
                 List.of(new StatsResponse.SiteCount("www.bilibili.com", 6L)),
                 List.of(new StatsResponse.TrendPoint("2026-07-30", 2L)),
-                List.of(new StatsResponse.TrendPoint("2026-07-30", 2L)));
+                List.of(new StatsResponse.TrendPoint("2026-07-30", 2L)),
+                List.of(new StatsResponse.MediaFormatStat("VIDEO", "视频", 8L)),
+                List.of(new StatsResponse.SubcategoryStat("番剧", 6L)));
         when(statsService.stats()).thenReturn(stats);
 
         mvc.perform(get("/api/stats"))

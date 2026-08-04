@@ -1,7 +1,7 @@
 package com.videotagger.controller;
 
 import com.videotagger.entity.Collection;
-import com.videotagger.service.AnimeSummary;
+import com.videotagger.service.MediaSummary;
 import com.videotagger.service.CollectionService;
 import com.videotagger.service.CollectionSummary;
 import org.springframework.http.ResponseEntity;
@@ -42,20 +42,20 @@ public class CollectionController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("/{id}/anime")
-    public List<AnimeSummary> anime(@PathVariable Long id) {
-        return collectionService.anime(id);
+    @GetMapping("/{id}/media")
+    public List<MediaSummary> media(@PathVariable Long id) {
+        return collectionService.media(id);
     }
 
-    @PostMapping("/{id}/anime")
-    public ResponseEntity<Void> addAnime(@PathVariable Long id, @RequestBody Map<String, Long> body) {
-        collectionService.addAnime(id, body.get("animeId"));
+    @PostMapping("/{id}/media")
+    public ResponseEntity<Void> addMedia(@PathVariable Long id, @RequestBody Map<String, Long> body) {
+        collectionService.addMedia(id, body.get("mediaId"));
         return ResponseEntity.noContent().build();
     }
 
-    @DeleteMapping("/{id}/anime/{animeId}")
-    public ResponseEntity<Void> removeAnime(@PathVariable Long id, @PathVariable Long animeId) {
-        collectionService.removeAnime(id, animeId);
+    @DeleteMapping("/{id}/media/{mediaId}")
+    public ResponseEntity<Void> removeMedia(@PathVariable Long id, @PathVariable Long mediaId) {
+        collectionService.removeMedia(id, mediaId);
         return ResponseEntity.noContent().build();
     }
 }

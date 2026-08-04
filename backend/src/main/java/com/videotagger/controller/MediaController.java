@@ -1,10 +1,10 @@
 package com.videotagger.controller;
 
-import com.videotagger.entity.Anime;
-import com.videotagger.service.AnimeDetail;
-import com.videotagger.service.AnimeRequest;
-import com.videotagger.service.AnimeService;
-import com.videotagger.service.AnimeSummary;
+import com.videotagger.entity.Media;
+import com.videotagger.service.MediaDetail;
+import com.videotagger.service.MediaRequest;
+import com.videotagger.service.MediaService;
+import com.videotagger.service.MediaSummary;
 import com.videotagger.service.CoverService;
 import com.videotagger.service.EpisodeDetail;
 import com.videotagger.service.EpisodeService;
@@ -28,83 +28,84 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/anime")
-public class AnimeController {
+@RequestMapping("/api/media")
+public class MediaController {
 
-    private final AnimeService animeService;
+    private final MediaService mediaService;
     private final EpisodeService episodeService;
     private final CoverService coverService;
 
-    public AnimeController(AnimeService animeService, EpisodeService episodeService, CoverService coverService) {
-        this.animeService = animeService;
+    public MediaController(MediaService mediaService, EpisodeService episodeService, CoverService coverService) {
+        this.mediaService = mediaService;
         this.episodeService = episodeService;
         this.coverService = coverService;
     }
 
     @GetMapping
-    public List<AnimeSummary> list(@RequestParam(defaultValue = "50") int limit,
+    public List<MediaSummary> list(@RequestParam(defaultValue = "50") int limit,
                                    @RequestParam(required = false) String status,
-                                   @RequestParam(required = false) String type,
+                                   @RequestParam(required = false) String format,
+                                   @RequestParam(required = false) String subcategory,
                                    @RequestParam(required = false) Integer confirmed,
                                    @RequestParam(required = false) String sort) {
-        return animeService.list(limit, status, type, confirmed, sort);
+        return mediaService.list(limit, status, format, subcategory, confirmed, sort);
     }
 
     @GetMapping("/recent")
-    public List<AnimeSummary> recent(@RequestParam(defaultValue = "20") int limit) {
-        return animeService.recent(limit);
+    public List<MediaSummary> recent(@RequestParam(defaultValue = "20") int limit) {
+        return mediaService.recent(limit);
     }
 
     @GetMapping("/{id}")
-    public AnimeDetail get(@PathVariable Long id) {
-        return animeService.get(id);
+    public MediaDetail get(@PathVariable Long id) {
+        return mediaService.get(id);
     }
 
     @PostMapping
-    public Anime create(@Valid @RequestBody AnimeRequest req) {
-        return animeService.create(req);
+    public Media create(@Valid @RequestBody MediaRequest req) {
+        return mediaService.create(req);
     }
 
     @PutMapping("/{id}")
-    public Anime update(@PathVariable Long id, @Valid @RequestBody AnimeRequest req) {
-        return animeService.update(id, req);
+    public Media update(@PathVariable Long id, @Valid @RequestBody MediaRequest req) {
+        return mediaService.update(id, req);
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
-        animeService.delete(id);
+        mediaService.delete(id);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/rename")
-    public Anime rename(@PathVariable Long id, @RequestBody Map<String, String> body) {
-        return animeService.rename(id, body.get("title"));
+    public Media rename(@PathVariable Long id, @RequestBody Map<String, String> body) {
+        return mediaService.rename(id, body.get("title"));
     }
 
     @PostMapping("/{id}/confirm")
-    public Anime confirm(@PathVariable Long id) {
-        return animeService.confirm(id);
+    public Media confirm(@PathVariable Long id) {
+        return mediaService.confirm(id);
     }
 
     @PostMapping("/{id}/merge")
     public ResponseEntity<Void> merge(@PathVariable Long id, @RequestParam Long into) {
-        animeService.merge(id, into);
+        mediaService.merge(id, into);
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{id}/episodes")
     public List<EpisodeDetail> episodes(@PathVariable Long id) {
-        return animeService.episodes(id);
+        return mediaService.episodes(id);
     }
 
     @PostMapping("/{id}/tags")
     public void addTag(@PathVariable Long id, @RequestBody Map<String, String> body) {
-        animeService.addTag(id, body.get("tag"));
+        mediaService.addTag(id, body.get("tag"));
     }
 
     @DeleteMapping("/{id}/tags/{tagId}")
     public void removeTag(@PathVariable Long id, @PathVariable Long tagId) {
-        animeService.removeTag(id, tagId);
+        mediaService.removeTag(id, tagId);
     }
 
     /** 手动上传封面文件（multipart）。 */

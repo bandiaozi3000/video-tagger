@@ -1,7 +1,7 @@
 package com.videotagger.service;
 
-import com.videotagger.entity.Anime;
-import com.videotagger.mapper.AnimeMapper;
+import com.videotagger.entity.Media;
+import com.videotagger.mapper.MediaMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,13 +23,13 @@ public class GroupingService {
             + "若匹配，只回答候选列表中该作品的标题原文；若不匹配，只回答：无";
 
     private final LlmClient llmClient;
-    private final AnimeMapper animeMapper;
-    private final AnimeService animeService;
+    private final MediaMapper mediaMapper;
+    private final MediaService mediaService;
 
-    public GroupingService(LlmClient llmClient, AnimeMapper animeMapper, AnimeService animeService) {
+    public GroupingService(LlmClient llmClient, MediaMapper mediaMapper, MediaService mediaService) {
         this.llmClient = llmClient;
-        this.animeMapper = animeMapper;
-        this.animeService = animeService;
+        this.mediaMapper = mediaMapper;
+        this.mediaService = mediaService;
     }
 
     @Scheduled(fixedDelay = 600_000)
@@ -37,20 +37,20 @@ public class GroupingService {
         if (!llmClient.isConfigured()) {
             return;
         }
-        List<Anime> all;
+        List<Media> all;
         try {
-            all = animeMapper.selectList(null);
+            all = mediaMapper.selectList(null);
         } catch (Exception e) {
             log.warn("LLM 归组扫描失败：{}", e.getMessage());
             return;
         }
-        List<Anime> unconfirmed = all.stream()
+        List<Media> unconfirmed = all.stream()
                 .filter(a -> a.getConfirmed() != null && a.getConfirmed() == 0)
                 .toList();
         if (unconfirmed.isEmpty()) {
             return;
         }
-        for (Anime a : unconfirmed) {
+        for (Media a : unconfirmed) {
             try {
                 resolve(a, all);
             } catch (Exception e) {
@@ -59,9 +59,9 @@ public class GroupingService {
         }
     }
 
-    private void resolve(Anime a, List<Anime> all) {
+    private void resolve(Media a, List<Media> all) {
         // 粗糙预筛候选：标题含相同子串，避免给 LLM 全量列表（个人库数量级不大）
-        List<Anime> candidates = all.stream()
+        List<Media> candidates = all.stream()
                 .filter(k -> !k.getId().equals(a.getId()))
                 .filter(k -> roughMatch(a.getTitle(), k.getTitle()))
                 .limit(8)
@@ -79,10 +79,10 @@ public class GroupingService {
         if (resp == null || resp.isBlank() || resp.contains("无")) {
             return;
         }
-        for (Anime c : candidates) {
+        for (Media c : candidates) {
             if (c.getTitle().length() >= 2 && resp.contains(c.getTitle())) {
                 log.info("LLM 归组：{}(id={}) 合并到 {}(id={})", a.getTitle(), a.getId(), c.getTitle(), c.getId());
-                animeService.merge(a.getId(), c.getId());
+                mediaService.merge(a.getId(), c.getId());
                 return;
             }
         }

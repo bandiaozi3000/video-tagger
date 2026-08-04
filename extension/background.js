@@ -45,8 +45,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({
           ok: true,
           deduped: !!(data && data.deduped),
-          animeId: data && data.animeId,
-          animeTitle: data && data.animeTitle,
+          mediaId: data && data.mediaId,
+          mediaTitle: data && data.mediaTitle,
           episodeNo: data && data.episodeNo
         });
       } catch (e) {

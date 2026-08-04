@@ -1,10 +1,10 @@
 package com.videotagger.service;
 
-import com.videotagger.entity.Anime;
+import com.videotagger.entity.Media;
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.Episode;
 import com.videotagger.entity.Tag;
-import com.videotagger.mapper.AnimeMapper;
+import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.ClipTagMapper;
 import com.videotagger.mapper.EpisodeMapper;
@@ -33,18 +33,18 @@ public class ClipService {
     private static final double DEDUP_TIME_TOLERANCE_SEC = 3.0;
 
     private final ClipMapper clipMapper;
-    private final AnimeMapper animeMapper;
+    private final MediaMapper mediaMapper;
     private final EpisodeMapper episodeMapper;
     private final TagMapper tagMapper;
     private final ClipTagMapper clipTagMapper;
     private final CoverService coverService;
     private final EmbeddingTaskService embeddingTaskService;
 
-    public ClipService(ClipMapper clipMapper, AnimeMapper animeMapper, EpisodeMapper episodeMapper,
+    public ClipService(ClipMapper clipMapper, MediaMapper mediaMapper, EpisodeMapper episodeMapper,
                        TagMapper tagMapper, ClipTagMapper clipTagMapper,
                        CoverService coverService, EmbeddingTaskService embeddingTaskService) {
         this.clipMapper = clipMapper;
-        this.animeMapper = animeMapper;
+        this.mediaMapper = mediaMapper;
         this.episodeMapper = episodeMapper;
         this.tagMapper = tagMapper;
         this.clipTagMapper = clipTagMapper;
@@ -64,10 +64,10 @@ public class ClipService {
             return new SaveClipResult(recent.getId(), true);
         }
 
-        // 番剧归属：标题前缀 + 正则解析，纯本地快路径（打标主链路不碰 LLM）
+        // 媒体归属：标题前缀 + 正则解析 + URL 域名粗判格式，纯本地快路径（打标主链路不碰 LLM）
         TitleParser.ParsedTitle parsed = TitleParser.parse(req.title());
-        Anime anime = ensureAnime(parsed, now);
-        Episode episode = ensureEpisode(parsed, req, anime.getId(), now);
+        Media media = ensureMedia(parsed, detectFormat(req.url()), now);
+        Episode episode = ensureEpisode(parsed, req, media.getId(), now);
 
         Clip clip = new Clip();
         clip.setTitle(req.title());
@@ -109,12 +109,12 @@ public class ClipService {
 
         // 扩展携带 og:image 时异步下载番剧封面（失败降级无封面，不阻塞保存）
         if (req.ogImage() != null && !req.ogImage().isBlank()) {
-            coverService.downloadAsync(anime.getId(), req.ogImage());
+            coverService.downloadAsync(media.getId(), req.ogImage());
         }
 
         embeddingTaskService.enqueue(EntityType.CLIP, clip.getId());
 
-        return new SaveClipResult(clip.getId(), false, anime.getId(), anime.getTitle(), episode.getEpisodeNo());
+        return new SaveClipResult(clip.getId(), false, media.getId(), media.getTitle(), episode.getEpisodeNo());
     }
 
     /**
@@ -220,29 +220,42 @@ public class ClipService {
 
     // ---------- 番剧三层归属 ----------
 
-    /** 按解析出的番剧名归组：前缀命中既有番剧则复用，否则新建（confirmed=0 待确认）。 */
-    private Anime ensureAnime(TitleParser.ParsedTitle parsed, long now) {
-        String name = parsed.animeTitle();
-        Anime anime = name.length() >= 2 ? animeMapper.selectByTitlePrefix(name) : null;
-        if (anime == null) {
-            anime = new Anime();
-            anime.setTitle(name);
-            anime.setType("ANIME");
-            anime.setStatus("WANT");
-            anime.setConfirmed(0);
-            anime.setCreatedAt(now);
-            animeMapper.insert(anime);
+    /** 按解析出的媒体名归组：前缀命中既有媒体则复用，否则新建（confirmed=0 待确认）。 */
+    private Media ensureMedia(TitleParser.ParsedTitle parsed, String format, long now) {
+        String name = parsed.mediaTitle();
+        Media media = name.length() >= 2 ? mediaMapper.selectByTitlePrefix(name) : null;
+        if (media == null) {
+            media = new Media();
+            media.setTitle(name);
+            media.setMediaFormat(format);
+            // 扩展打标默认视频/番剧；探测到其他子分类时用探测值
+            String sub = parsed.subcategory();
+            media.setSubcategory(sub != null && !sub.isEmpty() ? sub : "番剧");
+            media.setStatus("WANT");
+            media.setConfirmed(0);
+            media.setCreatedAt(now);
+            mediaMapper.insert(media);
         }
-        return anime;
+        return media;
+    }
+
+    /** URL 域名 → 媒体格式粗判：图片站→IMAGE，其余默认 VIDEO（扩展主要跑视频站）。 */
+    private static String detectFormat(String url) {
+        String u = url == null ? "" : url.toLowerCase();
+        if (u.contains("pixiv.net") || u.contains("artstation.com") || u.contains("danbooru")
+                || u.contains("safebooru") || u.contains("pinterest.com") || u.contains("unsplash.com")) {
+            return "IMAGE";
+        }
+        return "VIDEO";
     }
 
     /** 按 URL 指纹定位集：同一 video_fp 复用，否则创建并挂到番剧下。 */
-    private Episode ensureEpisode(TitleParser.ParsedTitle parsed, SaveClipRequest req, long animeId, long now) {
+    private Episode ensureEpisode(TitleParser.ParsedTitle parsed, SaveClipRequest req, long mediaId, long now) {
         String fp = VideoFingerprint.fingerprint(req.url());
         Episode ep = episodeMapper.selectByFp(fp);
         if (ep == null) {
             ep = new Episode();
-            ep.setAnimeId(animeId);
+            ep.setMediaId(mediaId);
             ep.setSeason(parsed.season());
             ep.setEpisodeNo(parsed.episodeNo());
             ep.setTitle(req.title());

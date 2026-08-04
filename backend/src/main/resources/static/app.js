@@ -1,7 +1,7 @@
 const views = {
   search: document.getElementById('view-search'),
-  anime: document.getElementById('view-anime'),
-  'anime-detail': document.getElementById('view-anime-detail'),
+  media: document.getElementById('view-media'),
+  'media-detail': document.getElementById('view-media-detail'),
   'episode-detail': document.getElementById('view-episode-detail'),
   'clip-detail': document.getElementById('view-clip-detail'),
   videos: document.getElementById('view-videos'),
@@ -44,24 +44,30 @@ const statsSitesEl = document.getElementById('stats-sites');
 const statsTrendEl = document.getElementById('stats-trend');
 const statsStatusEl = document.getElementById('stats-status');
 
-const animeStatusEl = document.getElementById('anime-status');
-const animeGridEl = document.getElementById('anime-grid');
-const animeDetailHeadEl = document.getElementById('anime-detail-head');
+const mediaStatusEl = document.getElementById('media-status');
+const mediaGridEl = document.getElementById('media-grid');
+const mediaDetailHeadEl = document.getElementById('media-detail-head');
 const episodeListEl = document.getElementById('episode-list');
 const detailTagsEl = document.getElementById('detail-tags');
 const detailCollectionsEl = document.getElementById('detail-collections');
 const detailStatusEl = document.getElementById('detail-status');
 const filterStatusEl = document.getElementById('filter-status');
-const filterTypeEl = document.getElementById('filter-type');
+const filterSubcategoryEl = document.getElementById('filter-subcategory');
 const filterCollectionEl = document.getElementById('filter-collection');
 const filterUnconfirmedEl = document.getElementById('filter-unconfirmed');
+const formatTabsEl = document.getElementById('format-tabs');
+const mediaFormatManageBtn = document.getElementById('media-format-manage');
 const detailConfirmBtn = document.getElementById('detail-confirm');
-const animeModal = document.getElementById('anime-modal');
-const animeModalTitle = document.getElementById('anime-modal-title');
-const animeTitleInput = document.getElementById('anime-title');
-const animeTypeSelect = document.getElementById('anime-type');
-const animeStatusSelect = document.getElementById('anime-status');
-const animeRatingInput = document.getElementById('anime-rating');
+const mediaModal = document.getElementById('media-modal');
+const mediaModalTitle = document.getElementById('media-modal-title');
+const mediaTitleInput = document.getElementById('media-title');
+const mediaFormatSelect = document.getElementById('media-format');
+const mediaSubcategorySelect = document.getElementById('media-subcategory');
+const mediaNewSubInput = document.getElementById('media-new-sub');
+const mediaAddSubBtn = document.getElementById('media-add-sub-btn');
+const mediaInlineAddBtn = document.getElementById('media-inline-add');
+const mediaStatusSelect = document.getElementById('media-status');
+const mediaRatingInput = document.getElementById('media-rating');
 const coverModal = document.getElementById('cover-modal');
 const coverUrlInput = document.getElementById('cover-url');
 const coverFileInput = document.getElementById('cover-file');
@@ -86,8 +92,27 @@ const clipDetailSimilarEl = document.getElementById('clip-detail-similar');
 const clipDetailStatusEl = document.getElementById('clip-detail-status');
 const hoverPreviewEl = document.getElementById('vt-hover-preview');
 
-const ANIME_TYPE_LABEL = { ANIME: '动画', MOVIE: '电影' };
-const ANIME_STATUS_LABEL = { WANT: '想看', WATCHING: '在看', DONE: '看完', PAUSED: '搁置', DROPPED: '弃番' };
+const MEDIA_STATUS_LABEL = { WANT: '想看', WATCHING: '在看', DONE: '看完', PAUSED: '搁置', DROPPED: '弃番' };
+const SEARCH_FORMAT_SELECT = document.getElementById('search-format');
+const SEARCH_SUBCATEGORY_SELECT = document.getElementById('search-subcategory');
+const statsFormatsEl = document.getElementById('stats-formats');
+const statsSubcategoriesEl = document.getElementById('stats-subcategories');
+const mediaFormatModal = document.getElementById('media-format-modal');
+const fmFormatsEl = document.getElementById('fm-formats');
+const fmSubListEl = document.getElementById('fm-sub-list');
+const fmCurrentFormatEl = document.getElementById('fm-current-format');
+const fmNewSubInput = document.getElementById('fm-new-sub');
+const fmAddSubBtn = document.getElementById('fm-add-sub-btn');
+const fmNewCodeInput = document.getElementById('fm-new-code');
+const fmNewNameInput = document.getElementById('fm-new-name');
+const fmNewHasChildren = document.getElementById('fm-new-has-children');
+const fmAddFormatBtn = document.getElementById('fm-add-format-btn');
+const fmStatusEl = document.getElementById('fm-status');
+
+/** 格式树缓存：{ id, code, name, hasChildren, subcategories: [{id,name,mediaCount}] } */
+let formatsCache = [];
+let activeFormatTab = '';
+let fmSelectedFormatId = null;
 
 let currentQuery = '';
 let currentDim = 'mixed';
@@ -95,16 +120,16 @@ let editingClip = null;
 let videoCursor = null;   // { latest, fp } 下一页游标
 let pageSize = 20;
 let currentVideo = null;  // { fp, title }
-let animeMode = 'recent';
-let animeFilter = { status: '', type: '', collectionId: '', unconfirmed: false };
-let currentAnime = null;  // 番剧详情当前对象
-let editingAnimeId = null;
+let mediaMode = 'recent';
+let mediaFilter = { status: '', format: '', subcategory: '', collectionId: '', unconfirmed: false };
+let currentMedia = null;  // 媒体详情当前对象
+let editingMediaId = null;
 let episodeTagEpisodeId = null;
 let coverEpisode = null;   // 集封面弹层当前集 { id, title, videoFp }
 let currentEpisode = null; // 集详情页当前对象 { id, ... }
 let currentClip = null;    // 片段详情页当前对象 { id, ... }
 let viewHistory = [];      // 详情页返回栈：记录上一活动视图名
-let fromAnimeDetail = false;
+let fromMediaDetail = false;
 let fromEpisodeDetail = false;
 
 // ---------- 通用 ----------
@@ -153,7 +178,7 @@ function showView(name) {
     }
     if (name === 'videos') loadVideos(true);
     if (name === 'stats') loadStats();
-    if (name === 'anime') loadAnime();
+    if (name === 'media') loadMedia();
 }
 
 // ---------- 视图历史栈（详情页逐层返回） ----------
@@ -165,7 +190,7 @@ function activeView() {
 /** 进入详情页：记住当前视图（含详情 id）并入栈，返回可回到原处。 */
 function pushView(name) {
     let id = null;
-    if (activeView() === 'anime-detail' && currentAnime) id = currentAnime.id;
+    if (activeView() === 'media-detail' && currentMedia) id = currentMedia.id;
     else if (activeView() === 'episode-detail' && currentEpisode) id = currentEpisode.id;
     else if (activeView() === 'clip-detail' && currentClip) id = currentClip.id;
     viewHistory.push({ view: activeView(), id });
@@ -177,11 +202,11 @@ function goBack() {
     if (!prev) { showView('search'); return; }
     showView(prev.view);
     if (prev.view === 'search' && currentQuery) runSearch(currentQuery);
-    else if (prev.view === 'anime-detail' && prev.id != null) loadAnimeDetail(prev.id);
+    else if (prev.view === 'media-detail' && prev.id != null) loadMediaDetail(prev.id);
     else if (prev.view === 'timeline' && currentVideo) openTimeline(currentVideo);
     else if (prev.view === 'episode-detail' && prev.id != null) loadEpisodeDetail(prev.id);
     else if (prev.view === 'clip-detail' && prev.id != null) renderClipDetail(prev.id);
-    // 'anime' / 'videos' / 'stats' 由 showView 自动重新加载
+    // 'media' / 'videos' / 'stats' 由 showView 自动重新加载
 }
 
 // ---------- 片段详情 ----------
@@ -203,19 +228,19 @@ async function renderClipDetail(id) {
         const clip = await clipResp.json();
         currentClip = clip;
 
-        // 集 / 番剧导航信息
-        let ep = null, anime = null;
+        // 集 / 媒体导航信息
+        let ep = null, media = null;
         if (clip.episodeId) {
             const epResp = await fetch(`/api/episodes/${clip.episodeId}`);
             if (epResp.ok) {
                 ep = await epResp.json();
-                if (ep.animeId) {
-                    const animeResp = await fetch(`/api/anime/${ep.animeId}`);
-                    if (animeResp.ok) anime = await animeResp.json();
+                if (ep.mediaId) {
+                    const mediaResp = await fetch(`/api/media/${ep.mediaId}`);
+                    if (mediaResp.ok) media = await mediaResp.json();
                 }
             }
         }
-        renderClipDetailHead(clip, ep, anime);
+        renderClipDetailHead(clip, ep, media);
         loadClipDetailExtras(clip);
         clipDetailStatusEl.textContent = '';
     } catch (err) {
@@ -223,7 +248,7 @@ async function renderClipDetail(id) {
     }
 }
 
-function renderClipDetailHead(clip, ep, anime) {
+function renderClipDetailHead(clip, ep, media) {
     const heroSrc = clip.detailCoverPath || clip.coverPath; // 详情页优先用大图
     const cover = heroSrc
         ? `<img src="${heroSrc}" alt="">`
@@ -235,7 +260,7 @@ function renderClipDetailHead(clip, ep, anime) {
             : (ep.season != null ? `S${ep.season}` : '本集');
         nav.push(`<button class="nav-link" data-nav="episode">所属集：${esc(epNo)}</button>`);
     }
-    if (anime) nav.push(`<button class="nav-link" data-nav="anime">所属番剧：《${esc(anime.title)}》</button>`);
+    if (media) nav.push(`<button class="nav-link" data-nav="media">所属媒体：《${esc(media.title)}》</button>`);
     clipDetailHeadEl.innerHTML = `
         <div class="ad-cover">${cover}</div>
         <div class="ad-info">
@@ -248,7 +273,7 @@ function renderClipDetailHead(clip, ep, anime) {
     clipDetailHeadEl.querySelector('.ad-meta').textContent = `片段 · ${fmtTime(clip.timestampSec)} · ${clip.tag}`;
     if (clip.note) clipDetailHeadEl.querySelector('.cd-note').textContent = `备注：${clip.note}`;
     clipDetailHeadEl.querySelector('[data-nav="episode"]')?.addEventListener('click', () => openEpisodeDetail(ep.id));
-    clipDetailHeadEl.querySelector('[data-nav="anime"]')?.addEventListener('click', () => openAnimeDetail(anime.id));
+    clipDetailHeadEl.querySelector('[data-nav="media"]')?.addEventListener('click', () => openMediaDetail(media.id));
 }
 
 async function loadClipDetailExtras(clip) {
@@ -299,12 +324,12 @@ async function loadEpisodeDetail(id) {
         const ep = await epResp.json();
         currentEpisode = ep;
 
-        let anime = null;
-        if (ep.animeId) {
-            const animeResp = await fetch(`/api/anime/${ep.animeId}`);
-            if (animeResp.ok) anime = await animeResp.json();
+        let media = null;
+        if (ep.mediaId) {
+            const mediaResp = await fetch(`/api/media/${ep.mediaId}`);
+            if (mediaResp.ok) media = await mediaResp.json();
         }
-        renderEpisodeDetailHead(ep, anime);
+        renderEpisodeDetailHead(ep, media);
         renderEpisodeDetailTags(ep);
 
         // 该集片段（左缩略图列表）
@@ -325,28 +350,28 @@ async function loadEpisodeDetail(id) {
     }
 }
 
-function renderEpisodeDetailHead(ep, anime) {
+function renderEpisodeDetailHead(ep, media) {
     const cover = ep.coverPath
         ? `<img src="${ep.coverPath}" alt="">`
         : `<span class="cover-placeholder large">${esc((ep.title || '?')).slice(0, 1)}</span>`;
     const no = ep.episodeNo != null
         ? (ep.season != null ? `S${ep.season}-Ep${ep.episodeNo}` : `第${ep.episodeNo}集`)
         : (ep.season != null ? `S${ep.season}` : '本集');
-    const animeNav = anime
-        ? `<div class="cd-nav"><button class="nav-link" data-nav="anime">所属番剧：《${esc(anime.title)}》</button></div>`
+    const mediaNav = media
+        ? `<div class="cd-nav"><button class="nav-link" data-nav="media">所属媒体：《${esc(media.title)}》</button></div>`
         : '';
     episodeDetailHeadEl.innerHTML = `
         <div class="ad-cover">${cover}</div>
         <div class="ad-info">
             <h2 class="ad-title"></h2>
             <div class="ad-meta"></div>
-            ${animeNav}
+            ${mediaNav}
         </div>`;
     episodeDetailHeadEl.querySelector('.ad-title').textContent = ep.title || '(未命名)';
     const meta = [no, `${ep.clipCount || 0} 条片段`];
     if (ep.latestAt) meta.push(`最近标记 ${fmtDateTime(ep.latestAt)}`);
     episodeDetailHeadEl.querySelector('.ad-meta').textContent = meta.join(' · ');
-    episodeDetailHeadEl.querySelector('[data-nav="anime"]')?.addEventListener('click', () => openAnimeDetail(anime.id));
+    episodeDetailHeadEl.querySelector('[data-nav="media"]')?.addEventListener('click', () => openMediaDetail(media.id));
 }
 
 function renderEpisodeDetailTags(ep) {
@@ -385,7 +410,7 @@ function renderEpisodeDetailTags(ep) {
     episodeDetailTagsEl.appendChild(wrap);
 }
 
-/** 删除集：级联清理其下片段与封面；集详情页删除后返回，番剧详情行删除后刷新。 */
+/** 删除集：级联清理其下片段与封面；集详情页删除后返回，媒体详情行删除后刷新。 */
 async function deleteEpisode(ep) {
     const no = ep.episodeNo != null ? `第${ep.episodeNo}集` : '本集';
     if (!confirm(`删除${no}？其下所有片段、标签与封面将一并删除！`)) return;
@@ -393,7 +418,7 @@ async function deleteEpisode(ep) {
         const resp = await fetch(`/api/episodes/${ep.id}`, { method: 'DELETE' });
         if (!resp.ok && resp.status !== 204) throw new Error(`HTTP ${resp.status}`);
         if (activeView() === 'episode-detail') { goBack(); return; }
-        if (activeView() === 'anime-detail' && currentAnime) loadAnimeDetail(currentAnime.id);
+        if (activeView() === 'media-detail' && currentMedia) loadMediaDetail(currentMedia.id);
     } catch (err) {
         const st = activeView() === 'episode-detail' ? episodeDetailStatusEl : detailStatusEl;
         st.textContent = '删除失败：后端未响应';
@@ -407,7 +432,10 @@ async function runSearch(q) {
     statusEl.textContent = '搜索中…';
     resultsEl.innerHTML = '';
     try {
-        const resp = await fetch(`/api/search?q=${encodeURIComponent(q)}&dim=${encodeURIComponent(currentDim)}`);
+        const sp = new URLSearchParams({ q, dim: currentDim });
+        if (SEARCH_FORMAT_SELECT && SEARCH_FORMAT_SELECT.value) sp.set('format', SEARCH_FORMAT_SELECT.value);
+        if (SEARCH_SUBCATEGORY_SELECT && SEARCH_SUBCATEGORY_SELECT.value) sp.set('subcategory', SEARCH_SUBCATEGORY_SELECT.value);
+        const resp = await fetch(`/api/search?${sp.toString()}`);
         const data = await resp.json();
         semanticHint.hidden = data.semanticEnabled;
         renderResults(data.results);
@@ -499,11 +527,11 @@ function renderResults(results) {
     }
 }
 
-// 混合模式：三层结果分栏展示（番剧 / 集 / 片段）
+// 混合模式：三层结果分栏展示（媒体 / 集 / 片段）
 function renderMixed(results) {
-    const groups = { ANIME: [], EPISODE: [], CLIP: [] };
+    const groups = { MEDIA: [], EPISODE: [], CLIP: [] };
     for (const r of results) (groups[r.entityType] || groups.CLIP).push(r);
-    const labels = { ANIME: '番剧', EPISODE: '集', CLIP: '片段' };
+    const labels = { MEDIA: '媒体', EPISODE: '集', CLIP: '片段' };
     for (const [type, items] of Object.entries(groups)) {
         if (items.length === 0) continue;
         const sec = document.createElement('section');
@@ -521,12 +549,12 @@ function renderMixed(results) {
 }
 
 function appendSearchCard(container, r, opts) {
-    if (r.entityType === 'ANIME') return appendAnimeCard(container, r);
+    if (r.entityType === 'MEDIA') return appendMediaCard(container, r);
     if (r.entityType === 'EPISODE') return appendEpisodeCard(container, r);
     appendClipCard(container, r, opts);
 }
 
-function appendAnimeCard(container, r) {
+function appendMediaCard(container, r) {
     const card = document.createElement('div');
     card.className = 'card card-clip';
     const thumb = r.coverPath
@@ -538,10 +566,10 @@ function appendAnimeCard(container, r) {
             <div class="cc-meta"><span class="card-tag"></span></div>
         </div>`;
     card.querySelector('.card-title').textContent = r.title || '(未命名)';
-    card.querySelector('.card-tag').textContent = `番剧 · 匹配 ${Math.round((r.score || 0) * 100) / 100}`;
+    card.querySelector('.card-tag').textContent = `媒体 · 匹配 ${Math.round((r.score || 0) * 100) / 100}`;
     const thumbEl = card.querySelector('.cc-thumb');
-    if (thumbEl) bindHoverPreview(thumbEl, r.coverPath); // 番剧悬浮看封面大图
-    card.addEventListener('click', () => openAnimeDetail(r.animeId));
+    if (thumbEl) bindHoverPreview(thumbEl, r.coverPath); // 媒体悬浮看封面大图
+    card.addEventListener('click', () => openMediaDetail(r.mediaId));
     container.appendChild(card);
 }
 
@@ -564,10 +592,10 @@ function appendEpisodeCard(container, r) {
         if (r.episodeId) {
             openEpisodeDetail(r.episodeId); // 点集卡片进集详情
         } else if (r.videoFp) {
-            fromAnimeDetail = true;
+            fromMediaDetail = true;
             openTimeline({ fp: r.videoFp, title: r.title || '时间线' });
-        } else if (r.animeId) {
-            openAnimeDetail(r.animeId);
+        } else if (r.mediaId) {
+            openMediaDetail(r.mediaId);
         }
     });
     container.appendChild(card);
@@ -728,10 +756,10 @@ function refreshCurrentView() {
         openTimeline(currentVideo);
     } else if (active === 'videos') {
         loadVideos(true);
-    } else if (active === 'anime') {
-        loadAnime();
-    } else if (active === 'anime-detail' && currentAnime) {
-        loadAnimeDetail(currentAnime.id);
+    } else if (active === 'media') {
+        loadMedia();
+    } else if (active === 'media-detail' && currentMedia) {
+        loadMediaDetail(currentMedia.id);
     } else if (active === 'episode-detail' && currentEpisode) {
         loadEpisodeDetail(currentEpisode.id);
     } else if (active === 'clip-detail' && currentClip) {
@@ -739,7 +767,7 @@ function refreshCurrentView() {
     }
 }
 
-// ---------- 番剧 ----------
+// ---------- 媒体 ----------
 
 function esc(s) {
     const div = document.createElement('div');
@@ -747,31 +775,32 @@ function esc(s) {
     return div.innerHTML;
 }
 
-async function loadAnime() {
-    animeStatusEl.textContent = '加载中…';
-    animeGridEl.innerHTML = '';
+async function loadMedia() {
+    mediaStatusEl.textContent = '加载中…';
+    mediaGridEl.innerHTML = '';
     try {
         let url;
-        if (animeFilter.collectionId && animeMode !== 'recent') {
-            url = `/api/collections/${animeFilter.collectionId}/anime`;
-        } else if (animeMode === 'recent') {
-            url = '/api/anime/recent?limit=50';
+        if (mediaFilter.collectionId && mediaMode !== 'recent') {
+            url = `/api/collections/${mediaFilter.collectionId}/media`;
+        } else if (mediaMode === 'recent') {
+            url = '/api/media/recent?limit=50';
         } else {
             const params = new URLSearchParams({ limit: '100' });
-            if (animeFilter.status) params.set('status', animeFilter.status);
-            if (animeFilter.type) params.set('type', animeFilter.type);
-            if (animeFilter.unconfirmed) params.set('confirmed', '0');
-            url = `/api/anime?${params}`;
+            if (mediaFilter.status) params.set('status', mediaFilter.status);
+            if (mediaFilter.format) params.set('format', mediaFilter.format);
+            if (mediaFilter.subcategory) params.set('subcategory', mediaFilter.subcategory);
+            if (mediaFilter.unconfirmed) params.set('confirmed', '0');
+            url = `/api/media?${params}`;
         }
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const list = await resp.json();
-        animeStatusEl.textContent = list.length
+        mediaStatusEl.textContent = list.length
             ? ''
-            : (animeMode === 'recent' ? '还没有打过标记的番剧，去看片按 Alt+S 打一个' : '没有符合条件的番剧');
-        renderAnimeGrid(list);
+            : (mediaMode === 'recent' ? '还没有打过标记的媒体，去看片按 Alt+S 打一个' : '没有符合条件的媒体');
+        renderMediaGrid(list);
     } catch (err) {
-        animeStatusEl.textContent = '加载失败：后端未响应';
+        mediaStatusEl.textContent = '加载失败：后端未响应';
     }
 }
 
@@ -785,7 +814,7 @@ async function fillFilterCollections() {
         for (const c of list) {
             const opt = document.createElement('option');
             opt.value = c.id;
-            opt.textContent = `${c.name}（${c.animeCount || 0}）`;
+            opt.textContent = `${c.name}（${c.mediaCount || 0}）`;
             filterCollectionEl.appendChild(opt);
         }
         filterCollectionEl.value = cur;
@@ -808,13 +837,13 @@ async function renderDetailCollections(d) {
         cb.checked = current.has(c.id);
         cb.addEventListener('change', async () => {
             if (cb.checked) {
-                await fetch(`/api/collections/${c.id}/anime`, {
+                await fetch(`/api/collections/${c.id}/media`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ animeId: d.id })
+                    body: JSON.stringify({ mediaId: d.id })
                 });
             } else {
-                await fetch(`/api/collections/${c.id}/anime/${d.id}`, { method: 'DELETE' });
+                await fetch(`/api/collections/${c.id}/media/${d.id}`, { method: 'DELETE' });
             }
         });
         label.appendChild(cb);
@@ -841,88 +870,95 @@ async function renderDetailCollections(d) {
     detailCollectionsEl.appendChild(wrap);
 }
 
-function renderAnimeGrid(list) {
+function renderMediaGrid(list) {
     for (const a of list) {
         const card = document.createElement('div');
-        card.className = 'anime-card';
+        card.className = 'media-card';
         const cover = (a.coverPath || a.fallbackCoverPath)
             ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" onerror="this.style.display='none'">`
             : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
         card.innerHTML = `
-            <div class="anime-cover">${cover}</div>
-            <div class="anime-card-body">
-                <div class="anime-card-title"></div>
-                <div class="anime-card-meta"></div>
-                <div class="anime-card-badges"></div>
+            <div class="media-cover">${cover}</div>
+            <div class="media-card-body">
+                <div class="media-card-title"></div>
+                <div class="media-card-meta"></div>
+                <div class="media-card-badges"></div>
             </div>`;
-        card.querySelector('.anime-card-title').textContent = a.title;
+        card.querySelector('.media-card-title').textContent = a.title;
         const meta = [];
-        if (a.status) meta.push(ANIME_STATUS_LABEL[a.status] || a.status);
-        if (a.type) meta.push(ANIME_TYPE_LABEL[a.type] || a.type);
+        if (a.mediaFormat) meta.push(formatName(a.mediaFormat));
+        if (a.subcategory) meta.push(a.subcategory);
+        if (a.status) meta.push(MEDIA_STATUS_LABEL[a.status] || a.status);
         if (a.rating != null) meta.push(`★ ${a.rating}`);
         meta.push(`${a.clipCount || 0} 条片段`);
-        card.querySelector('.anime-card-meta').textContent = meta.join(' · ');
-        const badges = card.querySelector('.anime-card-badges');
+        card.querySelector('.media-card-meta').textContent = meta.join(' · ');
+        const badges = card.querySelector('.media-card-badges');
         if (a.confirmed === 0) {
             const b = document.createElement('span');
             b.className = 'badge-warn';
             b.textContent = '待确认';
             badges.appendChild(b);
         }
-        card.addEventListener('click', () => openAnimeDetail(a.id));
-        animeGridEl.appendChild(card);
+        card.addEventListener('click', () => openMediaDetail(a.id));
+        mediaGridEl.appendChild(card);
     }
 }
 
-/** 导航入口：入栈再加载番剧详情。 */
-function openAnimeDetail(id) {
-    pushView('anime-detail');
-    loadAnimeDetail(id);
+/** 导航入口：入栈再加载媒体详情。 */
+function openMediaDetail(id) {
+    pushView('media-detail');
+    loadMediaDetail(id);
 }
 
-/** 番剧详情渲染（刷新/返回复用，不入栈）。 */
-async function loadAnimeDetail(id) {
-    currentAnime = { id };
-    fromAnimeDetail = false;
-    animeDetailHeadEl.innerHTML = '';
+/** 媒体详情渲染（刷新/返回复用，不入栈）。 */
+async function loadMediaDetail(id) {
+    currentMedia = { id };
+    fromMediaDetail = false;
+    mediaDetailHeadEl.innerHTML = '';
     episodeListEl.innerHTML = '';
     detailTagsEl.innerHTML = '';
     detailStatusEl.textContent = '加载中…';
     try {
         const [detailResp, epResp] = await Promise.all([
-            fetch(`/api/anime/${id}`),
-            fetch(`/api/anime/${id}/episodes`)
+            fetch(`/api/media/${id}`),
+            fetch(`/api/media/${id}/episodes`)
         ]);
         if (!detailResp.ok) throw new Error(`HTTP ${detailResp.status}`);
         const detail = await detailResp.json();
         const eps = epResp.ok ? await epResp.json() : [];
-        currentAnime = detail;
-        renderAnimeDetail(detail, eps);
+        currentMedia = detail;
+        renderMediaDetail(detail, eps);
         detailStatusEl.textContent = '';
     } catch (err) {
         detailStatusEl.textContent = '加载失败：后端未响应';
     }
 }
 
-function renderAnimeDetail(d, eps) {
+function renderMediaDetail(d, eps) {
     const cover = (d.coverPath || d.fallbackCoverPath)
         ? `<img src="${d.coverPath || d.fallbackCoverPath}" alt="">`
         : `<span class="cover-placeholder large">${esc(d.title).slice(0, 1)}</span>`;
-    animeDetailHeadEl.innerHTML = `
+    mediaDetailHeadEl.innerHTML = `
         <div class="ad-cover">${cover}</div>
         <div class="ad-info">
             <h2 class="ad-title"></h2>
             <div class="ad-meta"></div>
         </div>`;
-    animeDetailHeadEl.querySelector('.ad-title').textContent = d.title;
+    mediaDetailHeadEl.querySelector('.ad-title').textContent = d.title;
     const meta = [];
-    if (d.status) meta.push(ANIME_STATUS_LABEL[d.status] || d.status);
-    if (d.type) meta.push(ANIME_TYPE_LABEL[d.type] || d.type);
+    if (d.mediaFormat) meta.push(formatName(d.mediaFormat));
+    if (d.subcategory) meta.push(d.subcategory);
+    if (d.status) meta.push(MEDIA_STATUS_LABEL[d.status] || d.status);
     if (d.rating != null) meta.push(`★ ${d.rating}`);
-    meta.push(`${d.episodeCount || 0} 集 · ${d.clipCount || 0} 条片段`);
-    animeDetailHeadEl.querySelector('.ad-meta').textContent = meta.join(' · ');
+    const isVideo = d.mediaFormat === 'VIDEO';
+    meta.push(isVideo ? `${d.episodeCount || 0} 集 · ${d.clipCount || 0} 条片段` : `${d.clipCount || 0} 条`);
+    mediaDetailHeadEl.querySelector('.ad-meta').textContent = meta.join(' · ');
     renderDetailTags(d);
     renderDetailCollections(d);
+    // 仅视频格式展示「集列表」；图片/文字为单层媒体
+    const epListTitle = document.getElementById('episode-list-title');
+    episodeListEl.hidden = !isVideo;
+    if (epListTitle) epListTitle.hidden = !isVideo;
     renderEpisodeList(eps);
     detailConfirmBtn.hidden = d.confirmed !== 0;
 }
@@ -938,8 +974,8 @@ function renderDetailTags(d) {
         rm.textContent = '×';
         rm.addEventListener('click', async (e) => {
             e.stopPropagation();
-            await fetch(`/api/anime/${d.id}/tags/${t.id}`, { method: 'DELETE' });
-            refreshAnimeDetail();
+            await fetch(`/api/media/${d.id}/tags/${t.id}`, { method: 'DELETE' });
+            refreshMediaDetail();
         });
         chip.appendChild(rm);
         detailTagsEl.appendChild(chip);
@@ -951,26 +987,263 @@ function renderDetailTags(d) {
     input.placeholder = '+ 添加标签';
     input.addEventListener('keydown', async (e) => {
         if (e.key === 'Enter' && input.value.trim()) {
-            await fetch(`/api/anime/${d.id}/tags`, {
+            await fetch(`/api/media/${d.id}/tags`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ tag: input.value.trim() })
             });
-            refreshAnimeDetail();
+            refreshMediaDetail();
         }
     });
     wrap.appendChild(input);
     detailTagsEl.appendChild(wrap);
 }
 
-function refreshAnimeDetail() {
-    if (currentAnime && currentAnime.id) loadAnimeDetail(currentAnime.id);
+function refreshMediaDetail() {
+    if (currentMedia && currentMedia.id) loadMediaDetail(currentMedia.id);
+}
+
+// ---------- 媒体格式 / 子分类 ----------
+
+function formatName(code) {
+    if (!code) return '';
+    const f = formatsCache.find(x => x.code === code);
+    return f ? f.name : code;
+}
+
+/** 拉取格式树并刷新各下拉/格式 tab（页面加载、维护操作后调用）。 */
+async function loadFormats() {
+    try {
+        const resp = await fetch('/api/media-formats');
+        if (!resp.ok) return;
+        formatsCache = await resp.json();
+    } catch (e) {
+        formatsCache = [];
+    }
+    renderFormatTabs();
+    fillSubcategoryFilter();
+    fillSearchFilters();
+}
+
+function renderFormatTabs() {
+    if (!formatTabsEl) return;
+    formatTabsEl.innerHTML = '';
+    const mk = (code, label) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ftab' + (activeFormatTab === code ? ' active' : '');
+        b.textContent = label;
+        b.addEventListener('click', () => selectFormatTab(code));
+        return b;
+    };
+    formatTabsEl.appendChild(mk('', '全部'));
+    for (const f of formatsCache) formatTabsEl.appendChild(mk(f.code, f.name));
+}
+
+function selectFormatTab(code) {
+    activeFormatTab = code;
+    mediaFilter.format = code;
+    // 格式切换后子分类过滤可能不再属于该格式，清空
+    mediaFilter.subcategory = '';
+    fillSubcategoryFilter();
+    renderFormatTabs();
+    loadMedia();
+}
+
+function fillSubcategoryFilter() {
+    if (!filterSubcategoryEl) return;
+    filterSubcategoryEl.innerHTML = '<option value="">子分类</option>';
+    const f = formatsCache.find(x => x.code === activeFormatTab);
+    for (const s of (f ? f.subcategories : [])) {
+        const opt = document.createElement('option');
+        opt.value = s.name;
+        opt.textContent = s.name;
+        filterSubcategoryEl.appendChild(opt);
+    }
+    filterSubcategoryEl.value = mediaFilter.subcategory || '';
+}
+
+function fillSearchFilters() {
+    if (!SEARCH_FORMAT_SELECT) return;
+    SEARCH_FORMAT_SELECT.innerHTML = '<option value="">格式</option>';
+    for (const f of formatsCache) {
+        const opt = document.createElement('option');
+        opt.value = f.code;
+        opt.textContent = f.name;
+        SEARCH_FORMAT_SELECT.appendChild(opt);
+    }
+    fillSearchSubcategory();
+}
+
+function fillSearchSubcategory() {
+    if (!SEARCH_SUBCATEGORY_SELECT) return;
+    SEARCH_SUBCATEGORY_SELECT.innerHTML = '<option value="">子分类</option>';
+    const code = SEARCH_FORMAT_SELECT.value;
+    const f = formatsCache.find(x => x.code === code);
+    for (const s of (f ? f.subcategories : [])) {
+        const opt = document.createElement('option');
+        opt.value = s.name;
+        opt.textContent = s.name;
+        SEARCH_SUBCATEGORY_SELECT.appendChild(opt);
+    }
+}
+
+function fillMediaFormatSelect(selected) {
+    const cur = selected || '';
+    mediaFormatSelect.innerHTML = '<option value="">— 请选择 —</option>';
+    for (const f of formatsCache) {
+        const opt = document.createElement('option');
+        opt.value = f.code;
+        opt.textContent = f.name;
+        mediaFormatSelect.appendChild(opt);
+    }
+    mediaFormatSelect.value = cur;
+}
+
+function fillMediaSubcategorySelect(selected) {
+    const f = formatsCache.find(x => x.code === mediaFormatSelect.value);
+    const cur = selected || '';
+    mediaSubcategorySelect.innerHTML = '<option value="">— 未分类 —</option>';
+    for (const s of (f ? f.subcategories : [])) {
+        const opt = document.createElement('option');
+        opt.value = s.name;
+        opt.textContent = s.name;
+        mediaSubcategorySelect.appendChild(opt);
+    }
+    mediaSubcategorySelect.value = cur;
+}
+
+function hideInlineAdd() {
+    mediaNewSubInput.hidden = true;
+    mediaNewSubInput.value = '';
+    mediaAddSubBtn.hidden = true;
+    mediaInlineAddBtn.hidden = false;
+}
+
+/** 新建媒体弹窗内联新增子分类。 */
+async function addMediaSubcategoryInline() {
+    const name = mediaNewSubInput.value.trim();
+    const f = formatsCache.find(x => x.code === mediaFormatSelect.value);
+    if (!name || !f) return;
+    try {
+        const resp = await fetch(`/api/media-formats/${f.id}/subcategories`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        if (!resp.ok) return;
+        await loadFormats();
+        fillMediaFormatSelect(f.code);
+        fillMediaSubcategorySelect(name);
+        hideInlineAdd();
+    } catch (e) { /* 忽略 */ }
+}
+
+// ---------- 管理格式 / 子分类弹层 ----------
+
+async function openMediaFormatModal() {
+    mediaFormatModal.hidden = false;
+    fmStatusEl.textContent = '';
+    await loadFormats();
+    fmSelectedFormatId = formatsCache.length ? formatsCache[0].id : null;
+    renderFormatManager();
+}
+
+function renderFormatManager() {
+    fmFormatsEl.innerHTML = '';
+    for (const f of formatsCache) {
+        const item = document.createElement('div');
+        item.className = 'fm-format' + (f.id === fmSelectedFormatId ? ' active' : '');
+        item.innerHTML = `<span class="fm-format-name"></span>`
+            + `<button type="button" class="fm-del" title="删除格式">×</button>`;
+        item.querySelector('.fm-format-name').textContent = `${f.name}（${f.code}）`;
+        item.addEventListener('click', (e) => {
+            if (e.target.classList.contains('fm-del')) return;
+            fmSelectedFormatId = f.id;
+            renderFormatManager();
+        });
+        item.querySelector('.fm-del').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (!confirm(`删除格式「${f.name}」？其子分类一并删除，格式下有媒体时会被拒绝。`)) return;
+            try {
+                const resp = await fetch(`/api/media-formats/${f.id}`, { method: 'DELETE' });
+                if (!resp.ok) { fmStatusEl.textContent = '删除失败：格式下存在媒体'; return; }
+                await loadFormats();
+                fmSelectedFormatId = formatsCache.length ? formatsCache[0].id : null;
+                renderFormatManager();
+            } catch (err) { fmStatusEl.textContent = '删除失败'; }
+        });
+        fmFormatsEl.appendChild(item);
+    }
+    renderFmSubs();
+}
+
+function renderFmSubs() {
+    const f = formatsCache.find(x => x.id === fmSelectedFormatId);
+    fmCurrentFormatEl.textContent = f ? `${f.name} · 子分类` : '选择左侧格式';
+    fmSubListEl.innerHTML = '';
+    fmNewSubInput.value = '';
+    if (!f) return;
+    for (const s of f.subcategories) {
+        const row = document.createElement('div');
+        row.className = 'fm-sub';
+        row.innerHTML = `<span></span><span class="fm-sub-count"></span>`
+            + `<button type="button" class="fm-del" title="删除子分类">×</button>`;
+        row.querySelector('span').textContent = s.name;
+        row.querySelector('.fm-sub-count').textContent = `${s.mediaCount || 0} 个媒体`;
+        row.querySelector('.fm-del').addEventListener('click', async () => {
+            if (!confirm(`删除子分类「${s.name}」？`)) return;
+            try {
+                const resp = await fetch(`/api/media-formats/subcategories/${s.id}`, { method: 'DELETE' });
+                if (!resp.ok) { fmStatusEl.textContent = '删除失败：该子分类下存在媒体'; return; }
+                await loadFormats();
+                renderFormatManager();
+            } catch (err) { fmStatusEl.textContent = '删除失败'; }
+        });
+        fmSubListEl.appendChild(row);
+    }
+}
+
+async function fmAddSubcategory() {
+    const name = fmNewSubInput.value.trim();
+    if (!fmSelectedFormatId || !name) return;
+    try {
+        const resp = await fetch(`/api/media-formats/${fmSelectedFormatId}/subcategories`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        if (!resp.ok) { fmStatusEl.textContent = '添加失败（可能已存在）'; return; }
+        await loadFormats();
+        renderFormatManager();
+    } catch (err) { fmStatusEl.textContent = '添加失败'; }
+}
+
+async function fmAddFormat() {
+    const code = fmNewCodeInput.value.trim().toUpperCase();
+    const name = fmNewNameInput.value.trim();
+    if (!code || !name) { fmStatusEl.textContent = '编码与显示名不能为空'; return; }
+    try {
+        const resp = await fetch('/api/media-formats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, name, hasChildren: fmNewHasChildren.checked ? 1 : 0 })
+        });
+        if (!resp.ok) { fmStatusEl.textContent = '新增失败（编码已存在？）'; return; }
+        const created = await resp.json();
+        fmNewCodeInput.value = '';
+        fmNewNameInput.value = '';
+        fmNewHasChildren.checked = false;
+        await loadFormats();
+        fmSelectedFormatId = created.id;
+        renderFormatManager();
+    } catch (err) { fmStatusEl.textContent = '新增失败'; }
 }
 
 function renderEpisodeList(eps) {
     episodeListEl.innerHTML = '';
     if (eps.length === 0) {
-        episodeListEl.innerHTML = '<div class="status">该番剧还没有集，去看片按 Alt+S 打标记会自动创建</div>';
+        episodeListEl.innerHTML = '<div class="status">该媒体还没有集，去看片按 Alt+S 打标记会自动创建</div>';
         return;
     }
     for (const ep of eps) {
@@ -1011,7 +1284,7 @@ function renderEpisodeList(eps) {
             rm.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 await fetch(`/api/episodes/${ep.id}/tags/${t.id}`, { method: 'DELETE' });
-                refreshAnimeDetail();
+                refreshMediaDetail();
             });
             chip.appendChild(rm);
             tagsEl.appendChild(chip);
@@ -1026,8 +1299,8 @@ function renderEpisodeList(eps) {
         });
         row.querySelector('.ep-time-btn').addEventListener('click', (e) => {
             e.stopPropagation();
-            fromAnimeDetail = true;
-            openTimeline({ fp: ep.videoFp, title: (currentAnime.title || '') + (no !== '?' ? ` · ${no}` : '') });
+            fromMediaDetail = true;
+            openTimeline({ fp: ep.videoFp, title: (currentMedia.title || '') + (no !== '?' ? ` · ${no}` : '') });
         });
         row.querySelector('.ep-del-btn').addEventListener('click', (e) => {
             e.stopPropagation();
@@ -1040,8 +1313,8 @@ function renderEpisodeList(eps) {
 
 function openEpisodeTagModal(ep) {
     episodeTagEpisodeId = ep.id;
-    const animeName = currentAnime && currentAnime.title ? `《${currentAnime.title}》 · ` : '';
-    episodeTagTargetEl.textContent = `${animeName}${ep.episodeNo != null ? `第${ep.episodeNo}集` : '本集'}`;
+    const mediaName = currentMedia && currentMedia.title ? `《${currentMedia.title}》 · ` : '';
+    episodeTagTargetEl.textContent = `${mediaName}${ep.episodeNo != null ? `第${ep.episodeNo}集` : '本集'}`;
     episodeTagInput.value = '';
     episodeTagModal.hidden = false;
     episodeTagInput.focus();
@@ -1056,15 +1329,15 @@ async function saveEpisodeTag() {
         body: JSON.stringify({ tag })
     });
     episodeTagModal.hidden = true;
-    refreshCurrentView(); // 集详情 / 番剧详情 各自刷新
+    refreshCurrentView(); // 集详情 / 媒体详情 各自刷新
 }
 
 // ---------- 集封面：自选片段帧 / 上传兜底 ----------
 
 function openEpisodeCoverModal(ep) {
     coverEpisode = ep;
-    const animeName = currentAnime && currentAnime.title ? `《${currentAnime.title}》 · ` : '';
-    episodeCoverTargetEl.textContent = `${animeName}${ep.title || '本集'}`;
+    const mediaName = currentMedia && currentMedia.title ? `《${currentMedia.title}》 · ` : '';
+    episodeCoverTargetEl.textContent = `${mediaName}${ep.title || '本集'}`;
     episodeCoverHintEl.textContent = '从本集片段帧里挑一个高能画面，或上传图片';
     episodeCoverGridEl.innerHTML = '';
     episodeCoverFileEl.value = '';
@@ -1117,58 +1390,63 @@ async function saveEpisodeCoverUpload() {
     refreshCurrentView();
 }
 
-function openCreateAnime() {
-    editingAnimeId = null;
-    animeModalTitle.textContent = '新建番剧';
-    animeTitleInput.value = '';
-    animeTypeSelect.value = 'ANIME';
-    animeStatusSelect.value = 'WANT';
-    animeRatingInput.value = '';
-    animeModal.hidden = false;
-    animeTitleInput.focus();
+function openCreateMedia() {
+    editingMediaId = null;
+    mediaModalTitle.textContent = '新建媒体';
+    mediaTitleInput.value = '';
+    hideInlineAdd();
+    fillMediaFormatSelect();
+    fillMediaSubcategorySelect(null);
+    mediaStatusSelect.value = 'WANT';
+    mediaRatingInput.value = '';
+    mediaModal.hidden = false;
+    mediaTitleInput.focus();
 }
 
-function openEditAnime() {
-    const d = currentAnime;
+function openEditMedia() {
+    const d = currentMedia;
     if (!d) return;
-    editingAnimeId = d.id;
-    animeModalTitle.textContent = '编辑番剧';
-    animeTitleInput.value = d.title;
-    animeTypeSelect.value = d.type || 'ANIME';
-    animeStatusSelect.value = d.status || 'WANT';
-    animeRatingInput.value = d.rating != null ? d.rating : '';
-    animeModal.hidden = false;
-    animeTitleInput.focus();
+    editingMediaId = d.id;
+    mediaModalTitle.textContent = '编辑媒体';
+    mediaTitleInput.value = d.title;
+    hideInlineAdd();
+    fillMediaFormatSelect(d.mediaFormat);
+    fillMediaSubcategorySelect(d.subcategory);
+    mediaStatusSelect.value = d.status || 'WANT';
+    mediaRatingInput.value = d.rating != null ? d.rating : '';
+    mediaModal.hidden = false;
+    mediaTitleInput.focus();
 }
 
-async function saveAnime() {
-    const title = animeTitleInput.value.trim();
+async function saveMedia() {
+    const title = mediaTitleInput.value.trim();
     if (!title) return;
     const payload = {
         title,
-        type: animeTypeSelect.value,
-        status: animeStatusSelect.value,
-        rating: animeRatingInput.value === '' ? null : parseFloat(animeRatingInput.value)
+        mediaFormat: mediaFormatSelect.value,
+        subcategory: mediaSubcategorySelect.value,
+        status: mediaStatusSelect.value,
+        rating: mediaRatingInput.value === '' ? null : parseFloat(mediaRatingInput.value)
     };
-    if (editingAnimeId == null) {
-        const resp = await fetch('/api/anime', {
+    if (editingMediaId == null) {
+        const resp = await fetch('/api/media', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
         if (resp.ok) {
             const created = await resp.json();
-            animeModal.hidden = true;
-            openAnimeDetail(created.id);
+            mediaModal.hidden = true;
+            openMediaDetail(created.id);
         }
     } else {
-        await fetch(`/api/anime/${editingAnimeId}`, {
+        await fetch(`/api/media/${editingMediaId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        animeModal.hidden = true;
-        refreshAnimeDetail();
+        mediaModal.hidden = true;
+        refreshMediaDetail();
     }
 }
 
@@ -1180,10 +1458,10 @@ function openCoverModal() {
 }
 
 async function saveCover() {
-    if (!currentAnime) return;
+    if (!currentMedia) return;
     const url = coverUrlInput.value.trim();
     if (url) {
-        await fetch(`/api/anime/${currentAnime.id}/cover-url`, {
+        await fetch(`/api/media/${currentMedia.id}/cover-url`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url })
@@ -1191,21 +1469,21 @@ async function saveCover() {
     } else if (coverFileInput.files && coverFileInput.files[0]) {
         const fd = new FormData();
         fd.append('file', coverFileInput.files[0]);
-        await fetch(`/api/anime/${currentAnime.id}/cover`, { method: 'POST', body: fd });
+        await fetch(`/api/media/${currentMedia.id}/cover`, { method: 'POST', body: fd });
     }
     coverModal.hidden = true;
-    refreshAnimeDetail();
+    refreshMediaDetail();
 }
 
 async function openRenameModal() {
     renameTitleInput.value = '';
     mergeIntoSelect.innerHTML = '<option value="">— 不合并 —</option>';
     try {
-        const resp = await fetch('/api/anime?limit=100');
+        const resp = await fetch('/api/media?limit=100');
         if (resp.ok) {
             const list = await resp.json();
             for (const a of list) {
-                if (a.id === currentAnime.id) continue;
+                if (a.id === currentMedia.id) continue;
                 const opt = document.createElement('option');
                 opt.value = a.id;
                 opt.textContent = a.title;
@@ -1218,31 +1496,31 @@ async function openRenameModal() {
 }
 
 async function saveRename() {
-    if (!currentAnime) return;
+    if (!currentMedia) return;
     const into = mergeIntoSelect.value;
     const title = renameTitleInput.value.trim();
     if (into) {
-        await fetch(`/api/anime/${currentAnime.id}/merge?into=${into}`, { method: 'POST' });
+        await fetch(`/api/media/${currentMedia.id}/merge?into=${into}`, { method: 'POST' });
         renameModal.hidden = true;
-        showView('anime');
+        showView('media');
     } else if (title) {
-        await fetch(`/api/anime/${currentAnime.id}/rename`, {
+        await fetch(`/api/media/${currentMedia.id}/rename`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ title })
         });
         renameModal.hidden = true;
-        refreshAnimeDetail();
+        refreshMediaDetail();
     } else {
         renameModal.hidden = true;
     }
 }
 
-async function deleteAnime() {
-    if (!currentAnime) return;
-    if (!confirm(`删除番剧「${currentAnime.title}」？其下所有集与片段标签将一并删除！`)) return;
-    await fetch(`/api/anime/${currentAnime.id}`, { method: 'DELETE' });
-    showView('anime');
+async function deleteMedia() {
+    if (!currentMedia) return;
+    if (!confirm(`删除媒体「${currentMedia.title}」？其下所有集与片段标签将一并删除！`)) return;
+    await fetch(`/api/media/${currentMedia.id}`, { method: 'DELETE' });
+    showView('media');
 }
 
 // ---------- 相似片段 ----------
@@ -1297,6 +1575,17 @@ async function loadStats() {
             }
         }
 
+        renderBars(statsFormatsEl, data.byMediaFormat || [], {
+            value: s => s.count,
+            label: s => s.name,
+            barW: 60
+        });
+        renderBars(statsSubcategoriesEl, data.bySubcategory || [], {
+            value: s => s.count,
+            label: s => s.subcategory,
+            barW: 60,
+            emptyText: '暂无子分类数据'
+        });
         renderBars(statsSitesEl, data.bySite || [], {
             value: s => s.count,
             label: s => s.site.replace(/^www\./, ''),
@@ -1392,9 +1681,9 @@ document.querySelectorAll('.dim-tabs .dtab').forEach(btn => {
 clearBtn.addEventListener('click', () => { input.value = ''; currentQuery = ''; resultsEl.innerHTML = ''; statusEl.textContent = ''; input.focus(); });
 loadMoreBtn.addEventListener('click', () => loadVideos(false));
 backBtn.addEventListener('click', () => {
-    if (fromAnimeDetail && currentAnime) {
-        fromAnimeDetail = false;
-        showView('anime-detail');
+    if (fromMediaDetail && currentMedia) {
+        fromMediaDetail = false;
+        showView('media-detail');
     } else if (fromEpisodeDetail && currentEpisode) {
         fromEpisodeDetail = false;
         showView('episode-detail');
@@ -1412,34 +1701,62 @@ document.getElementById('edit-save').addEventListener('click', saveEdit);
 similarModal.addEventListener('click', (e) => { if (e.target === similarModal) similarModal.hidden = true; });
 document.getElementById('similar-close').addEventListener('click', () => { similarModal.hidden = true; });
 
-// ---------- 番剧事件 ----------
+// ---------- 媒体事件 ----------
 
-document.querySelectorAll('.anime-tabs .atab').forEach(btn => {
+document.querySelectorAll('.media-tabs .atab').forEach(btn => {
     btn.addEventListener('click', () => {
-        document.querySelectorAll('.anime-tabs .atab').forEach(b => b.classList.toggle('active', b === btn));
-        animeMode = btn.dataset.animeTab;
-        loadAnime();
+        document.querySelectorAll('.media-tabs .atab').forEach(b => b.classList.toggle('active', b === btn));
+        mediaMode = btn.dataset.mediaTab;
+        loadMedia();
     });
 });
-document.getElementById('anime-create').addEventListener('click', openCreateAnime);
-document.getElementById('back-to-anime').addEventListener('click', goBack);
-document.getElementById('detail-edit').addEventListener('click', openEditAnime);
+document.getElementById('media-create').addEventListener('click', openCreateMedia);
+mediaFormatManageBtn.addEventListener('click', openMediaFormatModal);
+document.getElementById('back-to-media').addEventListener('click', goBack);
+document.getElementById('detail-edit').addEventListener('click', openEditMedia);
 document.getElementById('detail-rename').addEventListener('click', openRenameModal);
 document.getElementById('detail-cover').addEventListener('click', openCoverModal);
 document.getElementById('detail-confirm').addEventListener('click', async () => {
-    if (!currentAnime) return;
-    await fetch(`/api/anime/${currentAnime.id}/confirm`, { method: 'POST' });
-    refreshAnimeDetail();
+    if (!currentMedia) return;
+    await fetch(`/api/media/${currentMedia.id}/confirm`, { method: 'POST' });
+    refreshMediaDetail();
 });
-document.getElementById('detail-delete').addEventListener('click', deleteAnime);
-filterStatusEl.addEventListener('change', () => { animeFilter.status = filterStatusEl.value; loadAnime(); });
-filterTypeEl.addEventListener('change', () => { animeFilter.type = filterTypeEl.value; loadAnime(); });
-filterCollectionEl.addEventListener('change', () => { animeFilter.collectionId = filterCollectionEl.value; loadAnime(); });
-filterUnconfirmedEl.addEventListener('change', () => { animeFilter.unconfirmed = filterUnconfirmedEl.checked; loadAnime(); });
+document.getElementById('detail-delete').addEventListener('click', deleteMedia);
+filterStatusEl.addEventListener('change', () => { mediaFilter.status = filterStatusEl.value; loadMedia(); });
+filterSubcategoryEl.addEventListener('change', () => { mediaFilter.subcategory = filterSubcategoryEl.value; loadMedia(); });
+filterCollectionEl.addEventListener('change', () => { mediaFilter.collectionId = filterCollectionEl.value; loadMedia(); });
+filterUnconfirmedEl.addEventListener('change', () => { mediaFilter.unconfirmed = filterUnconfirmedEl.checked; loadMedia(); });
 fillFilterCollections();
-animeModal.addEventListener('click', (e) => { if (e.target === animeModal) animeModal.hidden = true; });
-document.getElementById('anime-modal-cancel').addEventListener('click', () => { animeModal.hidden = true; });
-document.getElementById('anime-modal-save').addEventListener('click', saveAnime);
+mediaModal.addEventListener('click', (e) => { if (e.target === mediaModal) mediaModal.hidden = true; });
+document.getElementById('media-modal-cancel').addEventListener('click', () => { mediaModal.hidden = true; });
+document.getElementById('media-modal-save').addEventListener('click', saveMedia);
+mediaFormatSelect.addEventListener('change', () => fillMediaSubcategorySelect(null));
+mediaInlineAddBtn.addEventListener('click', () => {
+    mediaInlineAddBtn.hidden = true;
+    mediaNewSubInput.hidden = false;
+    mediaAddSubBtn.hidden = false;
+    mediaNewSubInput.focus();
+});
+mediaAddSubBtn.addEventListener('click', addMediaSubcategoryInline);
+mediaNewSubInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addMediaSubcategoryInline(); } });
+// 管理格式弹层
+mediaFormatModal.addEventListener('click', (e) => { if (e.target === mediaFormatModal) mediaFormatModal.hidden = true; });
+document.getElementById('media-format-close').addEventListener('click', () => { mediaFormatModal.hidden = true; });
+fmAddSubBtn.addEventListener('click', fmAddSubcategory);
+fmNewSubInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fmAddSubcategory(); } });
+fmAddFormatBtn.addEventListener('click', fmAddFormat);
+// 搜索格式/子分类筛选
+if (SEARCH_FORMAT_SELECT) {
+    SEARCH_FORMAT_SELECT.addEventListener('change', () => {
+        fillSearchSubcategory();
+        if (input.value.trim()) runSearch(input.value.trim());
+    });
+}
+if (SEARCH_SUBCATEGORY_SELECT) {
+    SEARCH_SUBCATEGORY_SELECT.addEventListener('change', () => {
+        if (input.value.trim()) runSearch(input.value.trim());
+    });
+}
 coverModal.addEventListener('click', (e) => { if (e.target === coverModal) coverModal.hidden = true; });
 document.getElementById('cover-modal-cancel').addEventListener('click', () => { coverModal.hidden = true; });
 document.getElementById('cover-modal-save').addEventListener('click', saveCover);
@@ -1474,3 +1791,6 @@ document.getElementById('ep-detail-jump').addEventListener('click', () => {
     if (currentEpisode) jump({ url: currentEpisode.url, timestampSec: 0 });
 });
 document.getElementById('ep-detail-delete').addEventListener('click', () => { if (currentEpisode) deleteEpisode(currentEpisode); });
+
+// 启动加载格式字典（格式 tab / 各筛选下拉）
+loadFormats();

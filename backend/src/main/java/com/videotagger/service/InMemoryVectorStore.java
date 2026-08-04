@@ -50,7 +50,7 @@ public class InMemoryVectorStore implements VectorStore {
         String prefix = key.substring(0, colon);
         EntityType type;
         switch (prefix) {
-            case "A" -> type = EntityType.ANIME;
+            case "A" -> type = EntityType.MEDIA;
             case "E" -> type = EntityType.EPISODE;
             default -> type = EntityType.CLIP;
         }

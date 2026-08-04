@@ -5,8 +5,8 @@ import lombok.Data;
 
 /** 番剧 ↔ 收藏夹关联（复合主键，经 Mapper 自定义 SQL 操作）。 */
 @Data
-@TableName("anime_collection")
-public class AnimeCollection {
-    private Long animeId;
+@TableName("media_collection")
+public class MediaCollection {
+    private Long mediaId;
     private Long collectionId;
 }

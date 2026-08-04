@@ -1,7 +1,7 @@
 package com.videotagger.service;
 
-import com.videotagger.entity.Anime;
-import com.videotagger.mapper.AnimeMapper;
+import com.videotagger.entity.Media;
+import com.videotagger.mapper.MediaMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,7 +25,7 @@ import java.util.Set;
  * 封面下载与落盘。存储走本地目录 + Spring 静态映射（/covers/**），不上 minio。
  *
  * 目录规划：
- *   - 番剧：{coverDir}/{animeId}.{ext}（og:image / 手动上传，覆盖写）
+ *   - 番剧：{coverDir}/{mediaId}.{ext}（og:image / 手动上传，覆盖写）
  *   - 集：  {coverDir}/ep/{epId}-{version}.jpg（自选高能画面/上传，版本戳防浏览器缓存旧图）
  *   - 片段：{coverDir}/clip/{clipId}.jpg（扩展截帧，一经创建不覆盖）
  *
@@ -38,12 +38,12 @@ public class CoverService {
     private static final long MAX_BYTES = 10L * 1024 * 1024;
     private static final Set<String> IMAGE_EXT = Set.of("jpg", "png", "webp");
 
-    private final AnimeMapper animeMapper;
+    private final MediaMapper mediaMapper;
     private final Path coverDir;
 
-    public CoverService(AnimeMapper animeMapper,
+    public CoverService(MediaMapper mediaMapper,
                         @Value("${videotagger.cover-dir:data/covers}") String coverDir) {
-        this.animeMapper = animeMapper;
+        this.mediaMapper = mediaMapper;
         this.coverDir = Paths.get(coverDir).toAbsolutePath();
         try {
             Files.createDirectories(this.coverDir);
@@ -60,16 +60,16 @@ public class CoverService {
 
     /** 扩展打标后异步下载 og:image；失败静默（个人工具封面不是关键路径）。 */
     @Async("coverExecutor")
-    public void downloadAsync(Long animeId, String imageUrl) {
+    public void downloadAsync(Long mediaId, String imageUrl) {
         try {
-            saveFromUrl(animeId, imageUrl);
+            saveFromUrl(mediaId, imageUrl);
         } catch (Exception e) {
-            log.warn("番剧 {} 封面下载失败（降级为无封面）：{}", animeId, e.getMessage());
+            log.warn("番剧 {} 封面下载失败（降级为无封面）：{}", mediaId, e.getMessage());
         }
     }
 
     /** 从 URL 下载封面并落盘，返回 /covers/** 相对路径。 */
-    public String saveFromUrl(Long animeId, String imageUrl) {
+    public String saveFromUrl(Long mediaId, String imageUrl) {
         if (imageUrl == null || imageUrl.isBlank()) {
             throw new IllegalArgumentException("image url 为空");
         }
@@ -91,7 +91,7 @@ public class CoverService {
                 throw new IllegalStateException("图片过大: " + body.length);
             }
             String contentType = resp.headers().firstValue("Content-Type").orElse("");
-            return persist(animeId, body, extFor(contentType));
+            return persist(mediaId, body, extFor(contentType));
         } catch (IOException e) {
             throw new IllegalStateException("下载失败: " + e.getMessage(), e);
         } catch (InterruptedException e) {
@@ -101,11 +101,11 @@ public class CoverService {
     }
 
     /** Web UI 手动上传的字节落盘（番剧封面）。 */
-    public String saveFromBytes(Long animeId, byte[] body, String originalName) {
+    public String saveFromBytes(Long mediaId, byte[] body, String originalName) {
         if (body.length > MAX_BYTES) {
             throw new IllegalArgumentException("图片过大: " + body.length);
         }
-        return persist(animeId, body, extFromName(originalName));
+        return persist(mediaId, body, extFromName(originalName));
     }
 
     // ---------- 片段封面（扩展截帧） ----------
@@ -194,11 +194,11 @@ public class CoverService {
 
     // ---------- 内部 ----------
 
-    private String persist(Long animeId, byte[] body, String ext) {
-        Path target = coverDir.resolve(animeId + "." + ext);
-        write(coverDir, animeId + "." + ext, body);
+    private String persist(Long mediaId, byte[] body, String ext) {
+        Path target = coverDir.resolve(mediaId + "." + ext);
+        write(coverDir, mediaId + "." + ext, body);
         // 清理旧扩展名封面，避免残留多个
-        try (DirectoryStream<Path> ds = Files.newDirectoryStream(coverDir, animeId + ".*")) {
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(coverDir, mediaId + ".*")) {
             for (Path p : ds) {
                 if (!p.equals(target)) {
                     Files.deleteIfExists(p);
@@ -208,10 +208,10 @@ public class CoverService {
             log.warn("清理旧番剧封面失败: {}", e.getMessage());
         }
         String path = "/covers/" + target.getFileName();
-        Anime a = animeMapper.selectById(animeId);
+        Media a = mediaMapper.selectById(mediaId);
         if (a != null) {
             a.setCoverPath(path);
-            animeMapper.updateById(a);
+            mediaMapper.updateById(a);
         }
         return path;
     }

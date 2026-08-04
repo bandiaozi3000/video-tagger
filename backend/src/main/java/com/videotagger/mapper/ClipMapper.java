@@ -72,17 +72,17 @@ public interface ClipMapper extends BaseMapper<Clip> {
 
     /** 代表性片段封面：某番剧下被标记最多、平分取最新；供番剧封面兜底。 */
     @Select("SELECT c.cover_path FROM clips c JOIN episode e ON e.id = c.episode_id "
-            + "WHERE e.anime_id = #{animeId} AND c.cover_path IS NOT NULL "
+            + "WHERE e.media_id = #{mediaId} AND c.cover_path IS NOT NULL "
             + "ORDER BY (SELECT COUNT(*) FROM clip_tag WHERE clip_id = c.id) DESC, c.created_at DESC "
             + "LIMIT 1")
-    String selectRepresentativeCoverByAnime(@Param("animeId") long animeId);
+    String selectRepresentativeCoverByMedia(@Param("mediaId") long mediaId);
 
     @Delete("DELETE FROM clips WHERE episode_id = #{episodeId}")
     void deleteByEpisode(@Param("episodeId") long episodeId);
 
     @Select("SELECT COUNT(*) FROM clips c JOIN episode e ON e.id = c.episode_id "
-            + "WHERE e.anime_id = #{animeId}")
-    long countByAnime(@Param("animeId") long animeId);
+            + "WHERE e.media_id = #{mediaId}")
+    long countByMedia(@Param("mediaId") long mediaId);
 
     @Select("SELECT COUNT(*) FROM clips")
     long countClips();

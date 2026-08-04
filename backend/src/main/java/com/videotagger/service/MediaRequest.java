@@ -7,10 +7,11 @@ import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 
-/** 番剧创建/编辑请求。type/status 非法值时由 service 兜底默认（ANIME / WANT）。 */
-public record AnimeRequest(
+/** 媒体创建/编辑请求。mediaFormat/subcategory/status 非法值时由 service 兜底默认。 */
+public record MediaRequest(
         @NotBlank @Size(max = 512) String title,
-        @Size(max = 16) String type,
+        @Size(max = 16) String mediaFormat,
+        @Size(max = 32) String subcategory,
         @Size(max = 16) String status,
         @DecimalMin("0.0") @DecimalMax("10.0") BigDecimal rating
 ) {
