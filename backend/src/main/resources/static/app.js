@@ -783,7 +783,7 @@ async function loadMedia() {
         if (mediaFilter.collectionId && mediaMode !== 'recent') {
             url = `/api/collections/${mediaFilter.collectionId}/media`;
         } else if (mediaMode === 'recent') {
-            url = '/api/media/recent?limit=50';
+            url = '/api/media/recent?limit=100';
         } else {
             const params = new URLSearchParams({ limit: '100' });
             if (mediaFilter.status) params.set('status', mediaFilter.status);
@@ -794,7 +794,13 @@ async function loadMedia() {
         }
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const list = await resp.json();
+        let list = await resp.json();
+        // 格式/子分类过滤兜底：recent 与收藏夹分支不走后端过滤参数，客户端统一过滤（数据量小）
+        if (mediaFilter.format || mediaFilter.subcategory) {
+            list = list.filter(m =>
+                (!mediaFilter.format || (m.mediaFormat || '') === mediaFilter.format) &&
+                (!mediaFilter.subcategory || (m.subcategory || '') === mediaFilter.subcategory));
+        }
         mediaStatusEl.textContent = list.length
             ? ''
             : (mediaMode === 'recent' ? '还没有打过标记的媒体，去看片按 Alt+S 打一个' : '没有符合条件的媒体');
@@ -877,8 +883,11 @@ function renderMediaGrid(list) {
         const cover = (a.coverPath || a.fallbackCoverPath)
             ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" onerror="this.style.display='none'">`
             : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
+        const fmtBadge = a.mediaFormat
+            ? `<span class="media-format-badge fmt-${esc(a.mediaFormat)}">${esc(formatName(a.mediaFormat))}</span>`
+            : '';
         card.innerHTML = `
-            <div class="media-cover">${cover}</div>
+            <div class="media-cover">${fmtBadge}${cover}</div>
             <div class="media-card-body">
                 <div class="media-card-title"></div>
                 <div class="media-card-meta"></div>
@@ -886,7 +895,6 @@ function renderMediaGrid(list) {
             </div>`;
         card.querySelector('.media-card-title').textContent = a.title;
         const meta = [];
-        if (a.mediaFormat) meta.push(formatName(a.mediaFormat));
         if (a.subcategory) meta.push(a.subcategory);
         if (a.status) meta.push(MEDIA_STATUS_LABEL[a.status] || a.status);
         if (a.rating != null) meta.push(`★ ${a.rating}`);
