@@ -2,6 +2,20 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.8.0] - 2026-08-06
+
+### 新增
+- **媒体/集层备注**：`media` 与 `episode` 表新增 `note` 字段（V9 迁移）——媒体备注在「新建/编辑媒体」弹窗录入、媒体详情页展示；集备注在集详情页头部内联编辑（新增 `PUT /api/episodes/{id}` 端点）。备注参与**关键词检索**（媒体/集搜索 SQL 加 `note LIKE`）与**向量语义检索**（MEDIA/EPISODE embedding 文本拼备注，变更自动重嵌）。
+- **搜索全字段高亮**：搜索结果命中词在所有可见文本（标题/备注/标签）高亮显示（`<mark>`），一眼看出命中来源。
+- **搜索按媒体聚合**：搜索工具栏「按媒体聚合」开关（默认开）——结果按所属媒体分组展示（媒体头 + 命中片段），点击媒体头进详情，方便顺着一部部收集话题素材。
+- **打标时间范围筛选**：搜索工具栏「时间」下拉——不限/近 7/30/90 天/自定义区间（`GET /api/search` 新增 `from`/`to` 参数，按实体创建时间后置过滤）；结果卡片显示打标时间。
+- **搜索结果角标**：卡片显示格式/子分类/站点小角标（格式配色沿用媒体卡片，站点由 URL 前端解析 hostname）。
+- `SearchResult` 携带 `mediaTitle`/`mediaFormat`/`subcategory`/`createdAt`，片段结果补齐所属 `mediaId`（enrich：CLIP→episode→media 批量解析）。
+
+### 工程化
+- Flyway `V9__media_episode_note`（media/episode 加 note 列）。
+- `SearchServiceTest` 新增 enrich 媒体信息、时间范围过滤、媒体备注命中 3 个用例（72 → 75 个单测）；既有 SearchService/SearchController 测试同步 7 参签名。
+
 ## [0.7.0] - 2026-08-04
 
 ### 新增

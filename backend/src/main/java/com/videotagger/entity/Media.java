@@ -16,6 +16,8 @@ public class Media {
     private String title;
     /** 别名（LLM 后台归组修正，可空） */
     private String aliases;
+    /** 媒体备注（作品观感/待办等，供搜索），可空 */
+    private String note;
     /** 媒体格式：VIDEO / IMAGE / TEXT（media_format 字典） */
     private String mediaFormat;
     /** 子分类（media_subcategory 字典，格式内可选），可空=未分类 */

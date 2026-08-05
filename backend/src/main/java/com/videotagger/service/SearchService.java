@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,18 +48,44 @@ public class SearchService {
         this.vectorStore = vectorStore;
     }
 
-    /** dim 为空或 mixed 时跨层混合搜索（前端分栏展示）。format/subcategory 为结果后置过滤（可空）。 */
-    public SearchResponse search(String query, int limit, String dim, String format, String subcategory) {
-        boolean filtered = (format != null && !format.isBlank()) || (subcategory != null && !subcategory.isBlank());
+    /**
+     * dim 为空或 mixed 时跨层混合搜索（前端分栏展示）。format/subcategory 为结果后置过滤；
+     * from/to 为打标时间范围（实体 created_at）后置过滤，均可空。
+     */
+    public SearchResponse search(String query, int limit, String dim, String format, String subcategory,
+                                 Long from, Long to) {
+        boolean filtered = (format != null && !format.isBlank())
+                || (subcategory != null && !subcategory.isBlank())
+                || from != null || to != null;
         // 有过滤时内层多取一些，保证过滤后仍能凑够 limit
         int fetchLimit = filtered ? Math.min(limit * 4, 200) : limit;
         SearchResponse resp = doSearch(query, fetchLimit, dim);
         if (!filtered) {
             return resp;
         }
-        List<SearchResult> kept = filterByFormat(resp.results(), format, subcategory).stream()
+        List<SearchResult> kept = resp.results().stream()
+                .filter(r -> inTimeRange(r.createdAt(), from, to))
+                .filter(r -> matchFormatSubcategory(r.mediaFormat(), r.subcategory(), format, subcategory))
                 .limit(limit).toList();
         return new SearchResponse(resp.semanticEnabled(), kept);
+    }
+
+    private static boolean inTimeRange(Long createdAt, Long from, Long to) {
+        if (createdAt == null) {
+            return from == null && to == null;
+        }
+        return (from == null || createdAt >= from) && (to == null || createdAt <= to);
+    }
+
+    private static boolean matchFormatSubcategory(String mediaFormat, String subcategory,
+                                                  String format, String sub) {
+        if (format != null && !format.isBlank() && !format.equalsIgnoreCase(mediaFormat)) {
+            return false;
+        }
+        if (sub != null && !sub.isBlank() && !Objects.equals(sub, subcategory)) {
+            return false;
+        }
+        return true;
     }
 
     private SearchResponse doSearch(String query, int limit, String dim) {
@@ -84,43 +111,6 @@ public class SearchService {
         };
     }
 
-    /**
-     * 结果按媒体格式/子分类后置过滤：MEDIA 直接查媒体；EPISODE/CLIP 经父集/父媒体解析。
-     * 数据量小，post-filter 足够（不给向量库加标量字段）。
-     */
-    private List<SearchResult> filterByFormat(List<SearchResult> results, String format, String subcategory) {
-        Set<Long> clipEpisodeIds = results.stream()
-                .filter(r -> r.entityType().equals("CLIP"))
-                .map(SearchResult::episodeId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-        Map<Long, Long> episodeToMedia = clipEpisodeIds.isEmpty() ? Map.of()
-                : episodeMapper.selectBatchIds(clipEpisodeIds).stream()
-                        .collect(Collectors.toMap(Episode::getId, Episode::getMediaId));
-        Set<Long> mediaIds = results.stream()
-                .map(r -> r.entityType().equals("CLIP") ? episodeToMedia.get(r.episodeId()) : r.mediaId())
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-        Map<Long, Media> medias = mediaIds.isEmpty() ? Map.of()
-                : mediaMapper.selectBatchIds(mediaIds).stream()
-                        .collect(Collectors.toMap(Media::getId, Function.identity()));
-        return results.stream().filter(r -> {
-            Long mediaId = r.entityType().equals("CLIP") ? episodeToMedia.get(r.episodeId()) : r.mediaId();
-            Media m = mediaId == null ? null : medias.get(mediaId);
-            if (m == null) {
-                return false;
-            }
-            if (format != null && !format.isBlank() && !format.equalsIgnoreCase(m.getMediaFormat())) {
-                return false;
-            }
-            if (subcategory != null && !subcategory.isBlank()
-                    && !Objects.equals(subcategory, m.getSubcategory())) {
-                return false;
-            }
-            return true;
-        }).toList();
-    }
-
     private SearchResponse searchClip(String query, float[] queryVector, int limit, boolean semantic) {
         List<Long> keywordIds = clipMapper.fullTextSearch(query, limit).stream()
                 .map(Clip::getId).toList();
@@ -128,7 +118,7 @@ public class SearchService {
                 .map(VectorStore.VectorHit::entityId).toList();
         LinkedHashMap<Long, Double> fused = RrfFusion.fuse(RRF_K, List.of(keywordIds, vectorIds));
         List<Long> topIds = fused.keySet().stream().limit(limit).toList();
-        return new SearchResponse(semantic, toClipResults(topIds, fused));
+        return new SearchResponse(semantic, enrich(toClipResults(topIds, fused)));
     }
 
     private SearchResponse searchMedia(String query, float[] queryVector, int limit, boolean semantic) {
@@ -148,7 +138,7 @@ public class SearchService {
                 .map(id -> toMediaResult(byId.get(id), fused.get(id)))
                 .filter(r -> r != null)
                 .toList();
-        return new SearchResponse(semantic, results);
+        return new SearchResponse(semantic, enrich(results));
     }
 
     private SearchResponse searchEpisode(String query, float[] queryVector, int limit, boolean semantic) {
@@ -168,7 +158,7 @@ public class SearchService {
                 .map(id -> toEpisodeResult(byId.get(id), fused.get(id)))
                 .filter(r -> r != null)
                 .toList();
-        return new SearchResponse(semantic, results);
+        return new SearchResponse(semantic, enrich(results));
     }
 
     /** 混合搜索：三层各自"关键词+向量+RRF"得内排序，再跨层 RRF 融合。 */
@@ -179,7 +169,7 @@ public class SearchService {
         LinkedHashMap<RrfFusion.RankKey, Double> fused =
                 RrfFusion.fuseKeys(RRF_K, List.of(clipKeys, mediaKeys, episodeKeys));
         List<RrfFusion.RankKey> top = fused.keySet().stream().limit(limit).toList();
-        return new SearchResponse(semantic, toMixedResults(top, fused));
+        return new SearchResponse(semantic, enrich(toMixedResults(top, fused)));
     }
 
     private List<RrfFusion.RankKey> innerFuse(EntityType type, String query, float[] queryVector, int limit) {
@@ -231,7 +221,7 @@ public class SearchService {
                 .filter(cid -> !cid.equals(id))
                 .limit(limit)
                 .toList();
-        return toClipResults(topIds, fused);
+        return enrich(toClipResults(topIds, fused));
     }
 
     private List<VectorStore.VectorHit> vectorSearch(EntityType type, float[] queryVector, int limit) {
@@ -277,7 +267,8 @@ public class SearchService {
         return new SearchResult(c.getId(), c.getTitle(), c.getUrl(),
                 UrlTimeParams.build(c.getUrl(), c.getTimestampSec()),
                 c.getTimestampSec(), c.getTag(), c.getNote(), score,
-                "CLIP", null, c.getEpisodeId(), null, c.getCoverPath(), c.getDetailCoverPath());
+                "CLIP", null, c.getEpisodeId(), null, c.getCoverPath(), c.getDetailCoverPath(),
+                null, null, null, c.getCreatedAt());
     }
 
     private SearchResult toMediaResult(Media a, Double score) {
@@ -288,7 +279,8 @@ public class SearchService {
         String cover = a.getCoverPath() != null ? a.getCoverPath()
                 : clipMapper.selectRepresentativeCoverByMedia(a.getId());
         return new SearchResult(a.getId(), a.getTitle(), null, null, null,
-                null, null, score, EntityType.MEDIA.name(), a.getId(), null, null, cover, null);
+                null, a.getNote(), score, EntityType.MEDIA.name(), a.getId(), null, null, cover, null,
+                null, null, null, a.getCreatedAt());
     }
 
     private SearchResult toEpisodeResult(Episode ep, Double score) {
@@ -299,7 +291,53 @@ public class SearchService {
         String cover = ep.getCoverPath() != null ? ep.getCoverPath()
                 : clipMapper.selectRepresentativeCoverByEpisode(ep.getId());
         return new SearchResult(ep.getId(), ep.getTitle(), ep.getUrl(), null, null,
-                null, null, score, "EPISODE", ep.getMediaId(), ep.getId(), ep.getVideoFp(), cover, null);
+                null, ep.getNote(), score, "EPISODE", ep.getMediaId(), ep.getId(), ep.getVideoFp(), cover, null,
+                null, null, null, ep.getCreatedAt());
+    }
+
+    /**
+     * 为结果补齐「所属媒体」元信息（按媒体聚合/角标/时间展示用）：
+     * CLIP 结果先经 episode 解析 mediaId，再批量查 media 补 mediaTitle/mediaFormat/subcategory。
+     * note/createdAt 已在构建时填好，此处仅重建携带，不改值。
+     */
+    private List<SearchResult> enrich(List<SearchResult> results) {
+        if (results.isEmpty()) {
+            return results;
+        }
+        Set<Long> clipEpisodeIds = results.stream()
+                .filter(r -> r.entityType().equals("CLIP") && r.episodeId() != null)
+                .map(SearchResult::episodeId)
+                .collect(Collectors.toSet());
+        // 注意：用 Collections.emptyMap()（get(null) 返回 null），Map.of() 对 null key 抛 NPE
+        Map<Long, Long> episodeToMedia = clipEpisodeIds.isEmpty() ? Collections.emptyMap()
+                : episodeMapper.selectBatchIds(clipEpisodeIds).stream()
+                        .collect(Collectors.toMap(Episode::getId, Episode::getMediaId));
+        Set<Long> mediaIds = results.stream()
+                .map(r -> switch (r.entityType()) {
+                    case "MEDIA" -> r.id();
+                    case "EPISODE" -> r.mediaId();
+                    default -> episodeToMedia.get(r.episodeId());
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, Media> medias = mediaIds.isEmpty() ? Collections.emptyMap()
+                : mediaMapper.selectBatchIds(mediaIds).stream()
+                        .collect(Collectors.toMap(Media::getId, Function.identity()));
+        return results.stream().map(r -> {
+            Long mediaId = switch (r.entityType()) {
+                case "MEDIA" -> r.id();
+                case "EPISODE" -> r.mediaId();
+                default -> episodeToMedia.get(r.episodeId());
+            };
+            Media m = mediaId == null ? null : medias.get(mediaId);
+            return new SearchResult(r.id(), r.title(), r.url(), r.jumpUrl(), r.timestampSec(),
+                    r.tag(), r.note(), r.score(), r.entityType(), mediaId, r.episodeId(),
+                    r.videoFp(), r.coverPath(), r.detailCoverPath(),
+                    r.entityType().equals("MEDIA") ? null : (m == null ? null : m.getTitle()),
+                    m == null ? null : m.getMediaFormat(),
+                    m == null ? null : m.getSubcategory(),
+                    r.createdAt());
+        }).toList();
     }
 
     private List<SearchResult> toClipResults(List<Long> topIds, Map<Long, Double> scores) {

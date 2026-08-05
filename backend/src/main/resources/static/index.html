@@ -104,6 +104,7 @@
     <section id="view-episode-detail" class="view" hidden>
         <button type="button" id="back-from-episode" class="back-btn">← 返回</button>
         <div id="episode-detail-head" class="episode-detail-head"></div>
+        <div id="episode-detail-note" class="detail-note" hidden></div>
         <div class="detail-actions">
             <button type="button" id="ep-detail-tag" class="btn-mini">打标签</button>
             <button type="button" id="ep-detail-cover" class="btn-mini">设封面</button>
@@ -154,6 +155,21 @@
         <div class="search-filters">
             <select id="search-format"><option value="">格式</option></select>
             <select id="search-subcategory"><option value="">子分类</option></select>
+            <select id="search-time" title="按打标时间筛选">
+                <option value="">时间：不限</option>
+                <option value="7">近 7 天</option>
+                <option value="30">近 30 天</option>
+                <option value="90">近 90 天</option>
+                <option value="custom">自定义区间</option>
+            </select>
+            <span id="search-time-custom" hidden>
+                <input type="date" id="search-time-from">
+                <span class="time-dash">~</span>
+                <input type="date" id="search-time-to">
+            </span>
+            <label class="search-group-toggle" title="结果按所属媒体分组，方便顺着作品收集素材">
+                <input type="checkbox" id="search-group" checked> 按媒体聚合
+            </label>
         </div>
         <div id="semantic-hint" class="semantic-hint" hidden>语义搜索未启用（未配置 Embedding API），当前为关键词搜索</div>
         <div id="status" class="status"></div>
@@ -253,6 +269,7 @@
             </select>
         </label>
         <label>评分（0~10）<input id="media-rating" type="number" min="0" max="10" step="0.5" autocomplete="off"></label>
+        <label class="field-note">备注<textarea id="media-note" rows="3" placeholder="作品备注（观感/待办等），参与搜索"></textarea></label>
         <div class="modal-actions">
             <button id="media-modal-cancel" type="button">取消</button>
             <button id="media-modal-save" type="button">保存</button>

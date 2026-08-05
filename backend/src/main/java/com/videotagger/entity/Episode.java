@@ -18,6 +18,8 @@ public class Episode {
     private Integer episodeNo;
     /** 集标题（原始页面标题，含站点后缀） */
     private String title;
+    /** 集备注（该集看点/重点等，供搜索），可空 */
+    private String note;
     private String url;
     /** 归一化 URL 指纹（同一集唯一标识，替代原 clips.video_fp 的"集"语义） */
     private String videoFp;

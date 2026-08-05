@@ -79,7 +79,7 @@ public class MediaService {
         String fallbackCoverPath = a.getCoverPath() == null
                 ? clipMapper.selectRepresentativeCoverByMedia(id) : null;
         return new MediaDetail(a.getId(), a.getTitle(), a.getAliases(), a.getMediaFormat(), a.getSubcategory(),
-                a.getStatus(), a.getRating(), a.getCoverPath(), a.getConfirmed(), a.getCreatedAt(),
+                a.getNote(), a.getStatus(), a.getRating(), a.getCoverPath(), a.getConfirmed(), a.getCreatedAt(),
                 clipCount, episodeCount, mediaTagMapper.selectTags(id),
                 mediaCollectionMapper.selectCollectionIdsByMedia(id), fallbackCoverPath);
     }
@@ -240,6 +240,7 @@ public class MediaService {
         }
         a.setStatus(STATUSES.contains(req.status()) ? req.status() : "WANT");
         a.setRating(req.rating());
+        a.setNote(req.note() == null ? "" : req.note().trim());
     }
 
     private long mediaFormatIdOf(String code) {

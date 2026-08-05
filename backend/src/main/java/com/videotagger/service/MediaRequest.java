@@ -13,6 +13,7 @@ public record MediaRequest(
         @Size(max = 16) String mediaFormat,
         @Size(max = 32) String subcategory,
         @Size(max = 16) String status,
-        @DecimalMin("0.0") @DecimalMax("10.0") BigDecimal rating
+        @DecimalMin("0.0") @DecimalMax("10.0") BigDecimal rating,
+        @Size(max = 2000) String note
 ) {
 }

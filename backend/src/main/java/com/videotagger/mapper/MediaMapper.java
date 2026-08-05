@@ -84,15 +84,16 @@ public interface MediaMapper extends BaseMapper<Media> {
                                     @Param("confirmed") Integer confirmed, @Param("sort") String sort,
                                     @Param("limit") int limit);
 
-    /** 媒体关键词召回：标题/别名/作品标签命中。 */
+    /** 媒体关键词召回：标题/别名/备注/作品标签命中。 */
     @Select("<script>"
-            + "SELECT DISTINCT a.id, a.title, a.aliases, a.media_format AS mediaFormat, a.subcategory, "
+            + "SELECT DISTINCT a.id, a.title, a.aliases, a.note, a.media_format AS mediaFormat, a.subcategory, "
             + "a.status, a.rating, a.cover_path AS coverPath, a.confirmed, a.created_at "
             + "FROM media a "
             + "LEFT JOIN media_tag at ON at.media_id = a.id "
             + "LEFT JOIN tag t ON t.id = at.tag_id "
             + "WHERE a.title LIKE CONCAT('%', #{q}, '%') "
             + "   OR (a.aliases IS NOT NULL AND a.aliases LIKE CONCAT('%', #{q}, '%')) "
+            + "   OR (a.note IS NOT NULL AND a.note LIKE CONCAT('%', #{q}, '%')) "
             + "   OR t.name LIKE CONCAT('%', #{q}, '%') "
             + "ORDER BY a.id DESC LIMIT #{limit}"
             + "</script>")

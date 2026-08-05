@@ -39,6 +39,19 @@ public class EpisodeService {
         this.clipTagMapper = clipTagMapper;
     }
 
+    /** 更新集备注：变更后入队重嵌（备注参与向量检索）。 */
+    @Transactional
+    public void updateNote(Long id, String note) {
+        Episode ep = requireEpisode(id);
+        String trimmed = note == null ? "" : note.trim();
+        if (trimmed.equals(ep.getNote() == null ? "" : ep.getNote())) {
+            return; // 无变更不落库、不入队
+        }
+        ep.setNote(trimmed);
+        episodeMapper.updateById(ep);
+        embeddingTaskService.enqueue(EntityType.EPISODE, id);
+    }
+
     public void addTag(Long episodeId, String tagName) {
         requireEpisode(episodeId);
         String trimmed = tagName == null ? "" : tagName.trim();
@@ -101,7 +114,7 @@ public class EpisodeService {
         String cover = ep.getCoverPath() != null ? ep.getCoverPath()
                 : clipMapper.selectRepresentativeCoverByEpisode(id);
         return new EpisodeDetail(id, ep.getMediaId(), ep.getSeason(), ep.getEpisodeNo(),
-                ep.getTitle(), ep.getUrl(), ep.getVideoFp(), clipCount, latestAt,
+                ep.getTitle(), ep.getNote(), ep.getUrl(), ep.getVideoFp(), clipCount, latestAt,
                 episodeTagMapper.selectTags(id), cover);
     }
 

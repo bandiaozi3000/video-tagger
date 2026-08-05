@@ -130,11 +130,13 @@ public class EmbeddingTaskService implements ApplicationRunner {
                 yield a == null ? null : join(
                         a.getTitle(),
                         a.getAliases(),
+                        a.getNote(),
                         joinTags(mediaTagMapper.selectTags(entityId)));
             }
             case EPISODE -> {
                 Episode ep = episodeMapper.selectById(entityId);
-                yield ep == null ? null : join(ep.getTitle(), joinTags(episodeTagMapper.selectTags(entityId)));
+                yield ep == null ? null : join(ep.getTitle(), ep.getNote(),
+                        joinTags(episodeTagMapper.selectTags(entityId)));
             }
             case CLIP -> {
                 Clip c = clipMapper.selectById(entityId);

@@ -29,14 +29,15 @@ public interface EpisodeMapper extends BaseMapper<Episode> {
             + "ORDER BY IFNULL(e.season, 0), IFNULL(e.episode_no, 0), e.id")
     List<com.videotagger.service.EpisodeSummary> listSummariesByMedia(@Param("mediaId") long mediaId);
 
-    /** 集关键词召回：集标题 / 集级标签命中。 */
+    /** 集关键词召回：集标题 / 集备注 / 集级标签命中。 */
     @Select("<script>"
             + "SELECT DISTINCT e.id, e.media_id AS mediaId, e.season, e.episode_no AS episodeNo, "
-            + "e.title, e.url, e.video_fp AS videoFp, e.created_at "
+            + "e.title, e.note, e.url, e.video_fp AS videoFp, e.created_at "
             + "FROM episode e "
             + "LEFT JOIN episode_tag et ON et.episode_id = e.id "
             + "LEFT JOIN tag t ON t.id = et.tag_id "
             + "WHERE e.title LIKE CONCAT('%', #{q}, '%') "
+            + "   OR (e.note IS NOT NULL AND e.note LIKE CONCAT('%', #{q}, '%')) "
             + "   OR t.name LIKE CONCAT('%', #{q}, '%') "
             + "ORDER BY e.id DESC LIMIT #{limit}"
             + "</script>")
