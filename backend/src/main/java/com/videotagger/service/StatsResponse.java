@@ -24,7 +24,7 @@ public record StatsResponse(
     public record MediaFormatStat(String format, String name, long count) {
     }
 
-    /** 按子分类分布。 */
-    public record SubcategoryStat(String subcategory, long count) {
+    /** 按子分类分布（label=从根到该节点的路径，重名分支可区分）。 */
+    public record SubcategoryStat(Long id, String label, long count) {
     }
 }

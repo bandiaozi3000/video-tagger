@@ -21,12 +21,13 @@ public record SearchResult(
         String mediaTitle,
         String mediaFormat,
         String subcategory,
+        Long subcategoryId,
         Long createdAt
 ) {
     /** 片段结果（向后兼容构造器）。 */
     public SearchResult(Long id, String title, String url, String jumpUrl, Double timestampSec,
                         String tag, String note, Double score) {
         this(id, title, url, jumpUrl, timestampSec, tag, note, score, "CLIP", null, null, null, null, null,
-                null, null, null, null);
+                null, null, null, null, null);
     }
 }

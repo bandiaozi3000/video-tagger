@@ -11,8 +11,10 @@ import lombok.Data;
 public class MediaSubcategory {
     @TableId(type = IdType.AUTO)
     private Long id;
-    /** 所属媒体格式 id */
+    /** 所属媒体格式 id（= 根节点所属格式，插入时从父继承校验） */
     private Long formatId;
+    /** 父节点 id，0=根 */
+    private Long parentId;
     private String name;
     private Integer sort;
     private Long createdAt;

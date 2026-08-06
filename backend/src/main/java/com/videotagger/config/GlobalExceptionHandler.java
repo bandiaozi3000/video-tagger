@@ -35,6 +35,13 @@ public class GlobalExceptionHandler {
         return new ErrorBody(404, e.getMessage() == null ? "not found" : e.getMessage());
     }
 
+    /** 业务校验错误（撞名/被引用等）→ 400，避免落到 Exception 兜底变 500。 */
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorBody handleIllegalArgument(IllegalArgumentException e) {
+        return new ErrorBody(400, e.getMessage() == null ? "bad request" : e.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ErrorBody handleOther(Exception e) {

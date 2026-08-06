@@ -136,6 +136,30 @@ class SearchServiceTest {
     }
 
     @Test
+    void subcategoryFilterKeepsSubtreeMembers() {
+        // 子分类过滤按子树收敛：选中中间节点 7，其子树 [7,8]；挂 8 的媒体保留、挂 9 的丢弃
+        com.videotagger.entity.Media a8 = new com.videotagger.entity.Media();
+        a8.setId(8L);
+        a8.setTitle("热血番");
+        a8.setMediaFormat("VIDEO");
+        a8.setSubcategoryId(8L);
+        com.videotagger.entity.Media a9 = new com.videotagger.entity.Media();
+        a9.setId(9L);
+        a9.setTitle("恋爱番");
+        a9.setMediaFormat("VIDEO");
+        a9.setSubcategoryId(9L);
+        when(mediaMapper.searchByKeyword(eq("番"), anyInt())).thenReturn(List.of(a8, a9));
+        when(mediaMapper.selectBatchIds(anyCollection())).thenReturn(List.of(a8, a9));
+        when(mediaMapper.subtreeIds(7L)).thenReturn(List.of(7L, 8L));
+        when(embeddingClient.isConfigured()).thenReturn(false);
+
+        SearchResponse resp = searchService.search("番", 10, "media", null, 7L, null, null);
+
+        assertEquals(1, resp.results().size());
+        assertEquals(8L, resp.results().get(0).id());
+    }
+
+    @Test
     void timeRangeFiltersResultsByCreatedAt() {
         Clip c1 = clip(1L, "高燃");
         c1.setCreatedAt(1000L);

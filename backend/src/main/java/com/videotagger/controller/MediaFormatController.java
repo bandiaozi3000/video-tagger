@@ -48,8 +48,11 @@ public class MediaFormatController {
     }
 
     @PostMapping("/{id}/subcategories")
-    public MediaSubcategory addSubcategory(@PathVariable Long id, @RequestBody Map<String, String> body) {
-        return mediaFormatService.addSubcategory(id, body.get("name"));
+    public MediaSubcategory addSubcategory(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+        Object parentId = body.get("parentId");
+        return mediaFormatService.addSubcategory(id,
+                parentId == null ? null : Long.valueOf(parentId.toString()),
+                (String) body.get("name"));
     }
 
     @DeleteMapping("/subcategories/{subId}")

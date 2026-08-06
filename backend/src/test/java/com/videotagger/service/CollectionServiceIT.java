@@ -27,7 +27,7 @@ class CollectionServiceIT extends AbstractMySqlIT {
         assertNotNull(c.getId());
         assertEquals("补番清单", c.getName());
 
-        Media a = mediaService.create(new MediaRequest("测试番", "VIDEO", "番剧", "WANT", null, null));
+        Media a = mediaService.create(new MediaRequest("测试番", "VIDEO", null, "番剧", "WANT", null, null));
 
         collectionService.addMedia(c.getId(), a.getId());
         assertEquals(1, collectionService.media(c.getId(), null, null).size());

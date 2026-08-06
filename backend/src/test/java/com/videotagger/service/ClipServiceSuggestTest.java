@@ -1,6 +1,8 @@
 package com.videotagger.service;
 
 import com.videotagger.mapper.MediaMapper;
+import com.videotagger.mapper.MediaFormatMapper;
+import com.videotagger.mapper.MediaSubcategoryMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.ClipTagMapper;
 import com.videotagger.mapper.EpisodeMapper;
@@ -16,42 +18,61 @@ import static org.mockito.Mockito.when;
 
 class ClipServiceSuggestTest {
 
-    ClipMapper clipMapper;
+    TagMapper tagMapper;
     ClipService service;
 
     @BeforeEach
     void setUp() {
-        clipMapper = mock(ClipMapper.class);
-        service = new ClipService(clipMapper, mock(MediaMapper.class), mock(EpisodeMapper.class),
-                mock(TagMapper.class), mock(ClipTagMapper.class),
+        tagMapper = mock(TagMapper.class);
+        service = new ClipService(mock(ClipMapper.class), mock(MediaMapper.class),
+                mock(MediaFormatMapper.class), mock(MediaSubcategoryMapper.class),
+                mock(EpisodeMapper.class), tagMapper, mock(ClipTagMapper.class),
                 mock(CoverService.class), mock(EmbeddingTaskService.class));
     }
 
     @Test
-    void suggestTagsSplitsMultiWordTagsAndFiltersByPrefix() {
-        when(clipMapper.countTags(500)).thenReturn(List.of(
-                new TagSuggestion("高燃 战斗", 2L),
-                new TagSuggestion("高燃", 1L),
-                new TagSuggestion("泪目", 3L)));
+    void suggestGlobalFiltersPrefixAndRanksByTotal() {
+        when(tagMapper.countGlobal()).thenReturn(List.of(
+                new TagUsage(1L, "高燃", 1L, 0, 1, 5, 0),
+                new TagUsage(2L, "战斗", 1L, 0, 0, 2, 0),
+                new TagUsage(3L, "泪目", 1L, 0, 0, 3, 0)));
 
-        List<TagSuggestion> hits = service.suggestTags("高", 10);
+        List<TagSuggestion> hits = service.suggestTags("高", 10, null);
 
-        assertEquals(List.of(new TagSuggestion("高燃", 3L)), hits);
+        // 只保留含"高"的；次数 = 三级引用合计
+        assertEquals(List.of(new TagSuggestion("高燃", 6L)), hits);
     }
 
     @Test
-    void suggestTagsEmptyPrefixRanksByCount() {
-        when(clipMapper.countTags(500)).thenReturn(List.of(
-                new TagSuggestion("高燃 战斗", 2L),
-                new TagSuggestion("泪目", 3L)));
+    void suggestMediaContextPrioritizesMediaTagsThenGlobalFallback() {
+        when(tagMapper.countByMedia(42L)).thenReturn(List.of(
+                new TagUsage(1L, "乱马专有", 1L, 0, 0, 0, 2)));
+        when(tagMapper.countGlobal()).thenReturn(List.of(
+                new TagUsage(1L, "乱马专有", 1L, 0, 0, 0, 2),
+                new TagUsage(2L, "高燃", 1L, 0, 0, 0, 9)));
 
-        List<TagSuggestion> hits = service.suggestTags("", 10);
+        List<TagSuggestion> hits = service.suggestTags("", 10, 42L);
 
-        // 泪目(3) > 战斗(2) = 高燃(2)；同级按名称升序（战斗 U+6218 < 高燃 U+9AD8）
+        // 媒体已用标签排前（即便全局次数更低），全局高频兜底去重
         assertEquals(List.of(
-                new TagSuggestion("泪目", 3L),
-                new TagSuggestion("战斗", 2L),
-                new TagSuggestion("高燃", 2L)), hits);
+                new TagSuggestion("乱马专有", 2L),
+                new TagSuggestion("高燃", 9L)), hits);
+    }
+
+    @Test
+    void suggestExactPrefixOutranksSubstringEvenWithLowerCount() {
+        when(tagMapper.countGlobal()).thenReturn(List.of(
+                new TagUsage(1L, "高燃", 1L, 0, 0, 5, 0),
+                new TagUsage(2L, "高燃剪辑", 1L, 0, 0, 3, 0),
+                new TagUsage(3L, "略高燃", 1L, 0, 0, 9, 0)));
+
+        List<TagSuggestion> hits = service.suggestTags("高燃", 10, null);
+
+        // 精确命中(高燃) > 前缀(高燃剪辑) > 包含(略高燃)，次数不压权重
+        assertEquals(List.of(
+                new TagSuggestion("高燃", 5L),
+                new TagSuggestion("高燃剪辑", 3L),
+                new TagSuggestion("略高燃", 9L)), hits);
     }
 
     @Test

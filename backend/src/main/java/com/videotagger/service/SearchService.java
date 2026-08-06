@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,13 +50,13 @@ public class SearchService {
     }
 
     /**
-     * dim 为空或 mixed 时跨层混合搜索（前端分栏展示）。format/subcategory 为结果后置过滤；
-     * from/to 为打标时间范围（实体 created_at）后置过滤，均可空。
+     * dim 为空或 mixed 时跨层混合搜索（前端分栏展示）。format/subcategoryId 为结果后置过滤
+     * （子分类按子树收敛：选中节点的全部后代媒体结果都保留）；from/to 为打标时间范围后置过滤，均可空。
      */
-    public SearchResponse search(String query, int limit, String dim, String format, String subcategory,
+    public SearchResponse search(String query, int limit, String dim, String format, Long subcategoryId,
                                  Long from, Long to) {
         boolean filtered = (format != null && !format.isBlank())
-                || (subcategory != null && !subcategory.isBlank())
+                || subcategoryId != null
                 || from != null || to != null;
         // 有过滤时内层多取一些，保证过滤后仍能凑够 limit
         int fetchLimit = filtered ? Math.min(limit * 4, 200) : limit;
@@ -63,9 +64,10 @@ public class SearchService {
         if (!filtered) {
             return resp;
         }
+        Set<Long> subtree = subcategoryId == null ? null : new HashSet<>(mediaMapper.subtreeIds(subcategoryId));
         List<SearchResult> kept = resp.results().stream()
                 .filter(r -> inTimeRange(r.createdAt(), from, to))
-                .filter(r -> matchFormatSubcategory(r.mediaFormat(), r.subcategory(), format, subcategory))
+                .filter(r -> matchFormatSubcategory(r.mediaFormat(), r.subcategoryId(), format, subtree))
                 .limit(limit).toList();
         return new SearchResponse(resp.semanticEnabled(), kept);
     }
@@ -77,12 +79,13 @@ public class SearchService {
         return (from == null || createdAt >= from) && (to == null || createdAt <= to);
     }
 
-    private static boolean matchFormatSubcategory(String mediaFormat, String subcategory,
-                                                  String format, String sub) {
+    /** 格式匹配 + 子树成员匹配（subtree=null 时不做子分类过滤）。 */
+    private static boolean matchFormatSubcategory(String mediaFormat, Long resultSubId,
+                                                  String format, Set<Long> subtree) {
         if (format != null && !format.isBlank() && !format.equalsIgnoreCase(mediaFormat)) {
             return false;
         }
-        if (sub != null && !sub.isBlank() && !Objects.equals(sub, subcategory)) {
+        if (subtree != null && !subtree.contains(resultSubId)) {
             return false;
         }
         return true;
@@ -268,7 +271,7 @@ public class SearchService {
                 UrlTimeParams.build(c.getUrl(), c.getTimestampSec()),
                 c.getTimestampSec(), c.getTag(), c.getNote(), score,
                 "CLIP", null, c.getEpisodeId(), null, c.getCoverPath(), c.getDetailCoverPath(),
-                null, null, null, c.getCreatedAt());
+                null, null, null, null, c.getCreatedAt());
     }
 
     private SearchResult toMediaResult(Media a, Double score) {
@@ -280,7 +283,7 @@ public class SearchService {
                 : clipMapper.selectRepresentativeCoverByMedia(a.getId());
         return new SearchResult(a.getId(), a.getTitle(), null, null, null,
                 null, a.getNote(), score, EntityType.MEDIA.name(), a.getId(), null, null, cover, null,
-                null, null, null, a.getCreatedAt());
+                null, null, null, a.getSubcategoryId(), a.getCreatedAt());
     }
 
     private SearchResult toEpisodeResult(Episode ep, Double score) {
@@ -292,7 +295,7 @@ public class SearchService {
                 : clipMapper.selectRepresentativeCoverByEpisode(ep.getId());
         return new SearchResult(ep.getId(), ep.getTitle(), ep.getUrl(), null, null,
                 null, ep.getNote(), score, "EPISODE", ep.getMediaId(), ep.getId(), ep.getVideoFp(), cover, null,
-                null, null, null, ep.getCreatedAt());
+                null, null, null, null, ep.getCreatedAt());
     }
 
     /**
@@ -336,6 +339,7 @@ public class SearchService {
                     r.entityType().equals("MEDIA") ? null : (m == null ? null : m.getTitle()),
                     m == null ? null : m.getMediaFormat(),
                     m == null ? null : m.getSubcategory(),
+                    m == null ? null : m.getSubcategoryId(),
                     r.createdAt());
         }).toList();
     }

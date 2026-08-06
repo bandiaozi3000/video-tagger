@@ -24,4 +24,11 @@ public interface EpisodeTagMapper extends BaseMapper<EpisodeTag> {
     @Select("SELECT t.* FROM tag t JOIN episode_tag et ON et.tag_id = t.id "
             + "WHERE et.episode_id = #{episodeId} ORDER BY t.id")
     List<Tag> selectTags(@Param("episodeId") long episodeId);
+
+    /** 标签合并：源引用迁移到目标（INSERT IGNORE 防重复）。 */
+    @Insert("INSERT IGNORE INTO episode_tag(episode_id, tag_id) SELECT episode_id, #{toId} FROM episode_tag WHERE tag_id = #{fromId}")
+    void moveRefs(@Param("fromId") long fromId, @Param("toId") long toId);
+
+    @Delete("DELETE FROM episode_tag WHERE tag_id = #{fromId}")
+    void deleteRefs(@Param("fromId") long fromId);
 }

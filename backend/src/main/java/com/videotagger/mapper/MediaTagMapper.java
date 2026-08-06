@@ -24,4 +24,11 @@ public interface MediaTagMapper extends BaseMapper<MediaTag> {
     @Select("SELECT t.* FROM tag t JOIN media_tag at ON at.tag_id = t.id "
             + "WHERE at.media_id = #{mediaId} ORDER BY t.id")
     List<Tag> selectTags(@Param("mediaId") long mediaId);
+
+    /** 标签合并：源引用迁移到目标（INSERT IGNORE 防重复）。 */
+    @Insert("INSERT IGNORE INTO media_tag(media_id, tag_id) SELECT media_id, #{toId} FROM media_tag WHERE tag_id = #{fromId}")
+    void moveRefs(@Param("fromId") long fromId, @Param("toId") long toId);
+
+    @Delete("DELETE FROM media_tag WHERE tag_id = #{fromId}")
+    void deleteRefs(@Param("fromId") long fromId);
 }

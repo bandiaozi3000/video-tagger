@@ -45,10 +45,10 @@ public class MediaController {
     public List<MediaSummary> list(@RequestParam(defaultValue = "50") int limit,
                                    @RequestParam(required = false) String status,
                                    @RequestParam(required = false) String format,
-                                   @RequestParam(required = false) String subcategory,
+                                   @RequestParam(required = false) Long subcategoryId,
                                    @RequestParam(required = false) Integer confirmed,
                                    @RequestParam(required = false) String sort) {
-        return mediaService.list(limit, status, format, subcategory, confirmed, sort);
+        return mediaService.list(limit, status, format, subcategoryId, confirmed, sort);
     }
 
     @GetMapping("/recent")

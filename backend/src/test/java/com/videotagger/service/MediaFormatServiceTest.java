@@ -66,42 +66,111 @@ class MediaFormatServiceTest {
         MediaFormat f = new MediaFormat();
         f.setId(1L);
         when(formatMapper.selectById(1L)).thenReturn(f);
-        assertThrows(IllegalArgumentException.class, () -> service.addSubcategory(1L, "  "));
+        assertThrows(IllegalArgumentException.class, () -> service.addSubcategory(1L, null, "  "));
         when(subMapper.selectCount(any(QueryWrapper.class))).thenReturn(1L);
-        assertThrows(IllegalArgumentException.class, () -> service.addSubcategory(1L, "美剧"));
+        assertThrows(IllegalArgumentException.class, () -> service.addSubcategory(1L, null, "美剧"));
     }
 
     @Test
-    void deleteSubcategory_rejectsWhenMediaReferenced() {
+    void addSubcategory_inheritsFormatFromParent() {
+        MediaFormat f = new MediaFormat();
+        f.setId(1L);
+        when(formatMapper.selectById(1L)).thenReturn(f);
+        MediaSubcategory parent = new MediaSubcategory();
+        parent.setId(2L);
+        parent.setFormatId(1L);
+        when(subMapper.selectById(2L)).thenReturn(parent);
+        when(subMapper.selectCount(any(QueryWrapper.class))).thenReturn(0L);
+
+        MediaSubcategory created = service.addSubcategory(1L, 2L, "热血");
+
+        assertEquals(1L, created.getFormatId());
+        assertEquals(2L, created.getParentId());
+        verify(subMapper).insert(created);
+    }
+
+    @Test
+    void addSubcategory_rejectsParentFromOtherFormat() {
+        MediaFormat f = new MediaFormat();
+        f.setId(1L);
+        when(formatMapper.selectById(1L)).thenReturn(f);
+        MediaSubcategory parent = new MediaSubcategory();
+        parent.setId(9L);
+        parent.setFormatId(99L);
+        when(subMapper.selectById(9L)).thenReturn(parent);
+        assertThrows(IllegalArgumentException.class, () -> service.addSubcategory(1L, 9L, "新分类"));
+    }
+
+    @Test
+    void deleteSubcategory_rejectsWhenHasChildren() {
         MediaSubcategory s = new MediaSubcategory();
         s.setId(5L);
         s.setName("番剧");
         when(subMapper.selectById(5L)).thenReturn(s);
-        when(mediaMapper.countBySubcategory("番剧")).thenReturn(2L);
+        when(subMapper.selectCount(any(QueryWrapper.class))).thenReturn(1L);
         assertThrows(IllegalArgumentException.class, () -> service.deleteSubcategory(5L));
         verify(subMapper, never()).deleteById(5L);
     }
 
     @Test
-    void listFormats_returnsTreeWithMediaCounts() {
+    void deleteSubcategory_rejectsWhenMediaReferencedInSubtree() {
+        MediaSubcategory s = new MediaSubcategory();
+        s.setId(5L);
+        s.setName("番剧");
+        when(subMapper.selectById(5L)).thenReturn(s);
+        when(subMapper.selectCount(any(QueryWrapper.class))).thenReturn(0L);
+        when(mediaMapper.countBySubcategoryId(5L)).thenReturn(2L);
+        assertThrows(IllegalArgumentException.class, () -> service.deleteSubcategory(5L));
+        verify(subMapper, never()).deleteById(5L);
+    }
+
+    @Test
+    void deleteSubcategory_deletesWhenEmptyLeaf() {
+        MediaSubcategory s = new MediaSubcategory();
+        s.setId(5L);
+        s.setName("番剧");
+        when(subMapper.selectById(5L)).thenReturn(s);
+        when(subMapper.selectCount(any(QueryWrapper.class))).thenReturn(0L);
+        when(mediaMapper.countBySubcategoryId(5L)).thenReturn(0L);
+        service.deleteSubcategory(5L);
+        verify(subMapper).deleteById(5L);
+    }
+
+    @Test
+    void listFormats_returnsTreeWithSubtreeMediaCounts() {
         MediaFormat video = new MediaFormat();
         video.setId(1L);
         video.setCode("VIDEO");
         video.setName("视频");
         video.setHasChildren(1);
         when(formatMapper.selectList(any(QueryWrapper.class))).thenReturn(List.of(video));
-        MediaSubcategory sub = new MediaSubcategory();
-        sub.setId(2L);
-        sub.setFormatId(1L);
-        sub.setName("番剧");
-        when(subMapper.listByFormat(1L)).thenReturn(List.of(sub));
-        when(mediaMapper.countBySubcategory("番剧")).thenReturn(6L);
+        MediaSubcategory root = new MediaSubcategory();
+        root.setId(2L);
+        root.setFormatId(1L);
+        root.setParentId(0L);
+        root.setName("番剧");
+        MediaSubcategory child = new MediaSubcategory();
+        child.setId(3L);
+        child.setFormatId(1L);
+        child.setParentId(2L);
+        child.setName("热血");
+        when(subMapper.listByFormat(1L)).thenReturn(List.of(root, child));
+        // 直接计数：根挂 4 个媒体，叶子挂 2 个 → 根子树累计 6
+        when(mediaMapper.countDirectByFormat(1L))
+                .thenReturn(List.of(new MediaMapper.SubcategoryDirectCount(2L, 4L),
+                        new MediaMapper.SubcategoryDirectCount(3L, 2L)));
 
         List<MediaFormatView> views = service.listFormats();
         assertEquals(1, views.size());
         assertEquals("视频", views.get(0).name());
-        assertEquals(1, views.get(0).subcategories().size());
-        assertEquals("番剧", views.get(0).subcategories().get(0).name());
-        assertEquals(6L, views.get(0).subcategories().get(0).mediaCount());
+        assertEquals(2, views.get(0).subcategories().size());
+        MediaFormatView.SubcategoryView rootView = views.get(0).subcategories().get(0);
+        assertEquals("番剧", rootView.name());
+        assertEquals(0L, rootView.parentId());
+        assertEquals(6L, rootView.mediaCount());
+        MediaFormatView.SubcategoryView childView = views.get(0).subcategories().get(1);
+        assertEquals("热血", childView.name());
+        assertEquals(2L, childView.parentId());
+        assertEquals(2L, childView.mediaCount());
     }
 }

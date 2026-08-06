@@ -3,12 +3,17 @@ package com.videotagger.service;
 import com.videotagger.entity.Media;
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.Episode;
+import com.videotagger.entity.MediaFormat;
+import com.videotagger.entity.MediaSubcategory;
 import com.videotagger.entity.Tag;
 import com.videotagger.mapper.MediaMapper;
+import com.videotagger.mapper.MediaFormatMapper;
+import com.videotagger.mapper.MediaSubcategoryMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.ClipTagMapper;
 import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.TagMapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.videotagger.util.TitleParser;
 import com.videotagger.util.VideoFingerprint;
 import org.slf4j.Logger;
@@ -16,8 +21,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -34,17 +41,22 @@ public class ClipService {
 
     private final ClipMapper clipMapper;
     private final MediaMapper mediaMapper;
+    private final MediaFormatMapper mediaFormatMapper;
+    private final MediaSubcategoryMapper mediaSubcategoryMapper;
     private final EpisodeMapper episodeMapper;
     private final TagMapper tagMapper;
     private final ClipTagMapper clipTagMapper;
     private final CoverService coverService;
     private final EmbeddingTaskService embeddingTaskService;
 
-    public ClipService(ClipMapper clipMapper, MediaMapper mediaMapper, EpisodeMapper episodeMapper,
-                       TagMapper tagMapper, ClipTagMapper clipTagMapper,
+    public ClipService(ClipMapper clipMapper, MediaMapper mediaMapper,
+                       MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
+                       EpisodeMapper episodeMapper, TagMapper tagMapper, ClipTagMapper clipTagMapper,
                        CoverService coverService, EmbeddingTaskService embeddingTaskService) {
         this.clipMapper = clipMapper;
         this.mediaMapper = mediaMapper;
+        this.mediaFormatMapper = mediaFormatMapper;
+        this.mediaSubcategoryMapper = mediaSubcategoryMapper;
         this.episodeMapper = episodeMapper;
         this.tagMapper = tagMapper;
         this.clipTagMapper = clipTagMapper;
@@ -172,27 +184,56 @@ public class ClipService {
     }
 
     /**
-     * 标签补全建议：把高频 tag 字符串按空白拆成单个标签词聚合计数，
-     * 过滤含前缀的，按出现次数降序返回前 limit 个。用于扩展浮层输入补全。
+     * 标签补全建议：从词库按三级引用聚合计数（媒体/集/片段全覆盖）。
+     * mediaId != null 时该媒体已用标签优先（媒体上下文），再补全局高频兜底。
+     * 排序：精确命中 > 前缀 > 包含；同级次数降序、名称升序。用于扩展浮层/Web 打标输入补全。
      */
-    public List<TagSuggestion> suggestTags(String prefix, int limit) {
-        Map<String, Long> tally = new HashMap<>();
-        for (TagSuggestion ts : clipMapper.countTags(500)) {
-            for (String token : ts.tag().trim().split("\\s+")) {
-                if (token.isEmpty()) {
-                    continue;
+    public List<TagSuggestion> suggestTags(String prefix, int limit, Long mediaId) {
+        String p = prefix == null ? "" : prefix.trim().toLowerCase();
+        List<TagSuggestion> out = new ArrayList<>();
+        Set<String> mediaSourced = new HashSet<>();
+        if (mediaId != null) {
+            for (TagUsage u : tagMapper.countByMedia(mediaId)) {
+                if (matchPrefix(u.name(), p)) {
+                    out.add(new TagSuggestion(u.name(), u.total()));
+                    mediaSourced.add(u.name());
                 }
-                tally.merge(token, ts.count(), Long::sum);
             }
         }
-        String p = prefix == null ? "" : prefix.trim().toLowerCase();
-        return tally.entrySet().stream()
-                .filter(e -> p.isEmpty() || e.getKey().toLowerCase().contains(p))
-                .sorted(Map.Entry.<String, Long>comparingByValue().reversed()
-                        .thenComparing(Comparator.comparing(Map.Entry::getKey)))
+        for (TagUsage u : tagMapper.countGlobal()) {
+            if (!mediaSourced.contains(u.name()) && matchPrefix(u.name(), p)) {
+                out.add(new TagSuggestion(u.name(), u.total()));
+            }
+        }
+        return out.stream()
+                .sorted(Comparator
+                        .comparingInt((TagSuggestion s) -> mediaSourced.contains(s.tag()) ? 1 : 0)
+                        .reversed()
+                        .thenComparing(Comparator.comparingInt(
+                                (TagSuggestion s) -> prefixRank(s.tag(), p)).reversed())
+                        .thenComparing(TagSuggestion::count, Comparator.reverseOrder())
+                        .thenComparing(TagSuggestion::tag))
                 .limit(limit)
-                .map(e -> new TagSuggestion(e.getKey(), e.getValue()))
                 .toList();
+    }
+
+    private static boolean matchPrefix(String name, String p) {
+        return p.isEmpty() || name.toLowerCase().contains(p);
+    }
+
+    /** 补全排序权重：精确命中 3 > 前缀 2 > 包含 1。 */
+    private static int prefixRank(String name, String p) {
+        if (p.isEmpty()) {
+            return 0;
+        }
+        String n = name.toLowerCase();
+        if (n.equals(p)) {
+            return 3;
+        }
+        if (n.startsWith(p)) {
+            return 2;
+        }
+        return 1;
     }
 
     /** 查询同一视频中时间戳邻近（±window 秒）的既有标记，供扩展做重复片段提示。 */
@@ -228,15 +269,31 @@ public class ClipService {
             media = new Media();
             media.setTitle(name);
             media.setMediaFormat(format);
-            // 扩展打标默认视频/番剧；探测到其他子分类时用探测值
-            String sub = parsed.subcategory();
-            media.setSubcategory(sub != null && !sub.isEmpty() ? sub : "番剧");
+            // 扩展打标默认视频/番剧；探测到其他子分类时用探测值；格式树下找不到节点保持未分类
+            String sub = parsed.subcategory() != null && !parsed.subcategory().isEmpty()
+                    ? parsed.subcategory() : "番剧";
+            applyDetectedSubcategory(media, format, sub);
             media.setStatus("WANT");
             media.setConfirmed(0);
             media.setCreatedAt(now);
             mediaMapper.insert(media);
         }
         return media;
+    }
+
+    /** 按探测到的子分类名在格式树下找节点，写 id + 名字快照；找不到保持未分类。 */
+    private void applyDetectedSubcategory(Media media, String format, String sub) {
+        MediaFormat mf = mediaFormatMapper.selectOne(new QueryWrapper<MediaFormat>().eq("code", format));
+        if (mf == null) {
+            return;
+        }
+        MediaSubcategory node = mediaSubcategoryMapper.selectOne(
+                new QueryWrapper<MediaSubcategory>().eq("format_id", mf.getId()).eq("name", sub)
+                        .last("LIMIT 1"));
+        if (node != null) {
+            media.setSubcategoryId(node.getId());
+            media.setSubcategory(node.getName());
+        }
     }
 
     /** URL 域名 → 媒体格式粗判：图片站→IMAGE，其余默认 VIDEO（扩展主要跑视频站）。 */

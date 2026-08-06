@@ -4,6 +4,9 @@
 
   const VT_DEFAULT_BACKEND = 'http://localhost:8080';
 
+  // 最近一次保存命中的媒体 id：同一页面连续打标时补全带媒体上下文（新页面首次打标前为 null → 全局兜底）
+  let lastMediaId = null;
+
   function findVideo() {
     const videos = Array.from(document.querySelectorAll('video'));
     if (videos.length === 0) return null;
@@ -388,7 +391,7 @@
         const resp = await chrome.runtime.sendMessage({
           type: 'api',
           method: 'GET',
-          path: `/api/tags?prefix=${encodeURIComponent(v)}&limit=8`
+          path: `/api/tags?prefix=${encodeURIComponent(v)}&limit=8${lastMediaId ? `&mediaId=${lastMediaId}` : ''}`
         });
         const tags = (resp && resp.ok && Array.isArray(resp.data)) ? resp.data : [];
         showAc(tags);
@@ -471,6 +474,7 @@
         setTimeout(() => toast.classList.remove('show'), 2000);
         return;
       }
+      if (resp.mediaId) lastMediaId = resp.mediaId;   // 记住媒体，后续补全优先该媒体已用标签
       if (continuous) {
         saveCount++;
         countEl.textContent = `已连续保存 ${saveCount} 条`;

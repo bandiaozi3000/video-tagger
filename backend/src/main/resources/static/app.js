@@ -6,7 +6,8 @@ const views = {
   'clip-detail': document.getElementById('view-clip-detail'),
   videos: document.getElementById('view-videos'),
   timeline: document.getElementById('view-timeline'),
-  stats: document.getElementById('view-stats')
+  stats: document.getElementById('view-stats'),
+  tags: document.getElementById('view-tags')
 };
 
 const form = document.getElementById('search-form');
@@ -95,6 +96,31 @@ const clipDetailSiblingsEl = document.getElementById('clip-detail-siblings');
 const clipDetailSimilarEl = document.getElementById('clip-detail-similar');
 const clipDetailStatusEl = document.getElementById('clip-detail-status');
 const hoverPreviewEl = document.getElementById('vt-hover-preview');
+const tagListEl = document.getElementById('tag-list');
+const tagStatusEl = document.getElementById('tag-status');
+const tagFilterEl = document.getElementById('tag-filter');
+const tagMediaSelectEl = document.getElementById('tag-media-select');
+const tagRenameModal = document.getElementById('tag-rename-modal');
+const tagRenameTargetEl = document.getElementById('tag-rename-target');
+const tagRenameInput = document.getElementById('tag-rename-input');
+const tagRenameStatusEl = document.getElementById('tag-rename-status');
+const tagAddBtn = document.getElementById('tag-add-btn');
+const tagAddModal = document.getElementById('tag-add-modal');
+const tagAddInput = document.getElementById('tag-add-input');
+const tagAddPreviewEl = document.getElementById('tag-add-preview');
+const tagAddStatusEl = document.getElementById('tag-add-status');
+const tagBatchDelBtn = document.getElementById('tag-batch-del');
+const tagCheckAll = document.getElementById('tag-check-all');
+const tagCheckAllWrap = document.getElementById('tag-check-all-wrap');
+const tagPager = document.getElementById('tag-pager');
+const tagPageInfo = document.getElementById('tag-page-info');
+const tagPagePrev = document.getElementById('tag-page-prev');
+const tagPageNext = document.getElementById('tag-page-next');
+const tagPageSizeSel = document.getElementById('tag-page-size');
+const tagMergeModal = document.getElementById('tag-merge-modal');
+const tagMergeTargetEl = document.getElementById('tag-merge-target');
+const tagMergeIntoEl = document.getElementById('tag-merge-into');
+const tagMergeStatusEl = document.getElementById('tag-merge-status');
 
 const MEDIA_STATUS_LABEL = { WANT: '想看', WATCHING: '在看', DONE: '看完', PAUSED: '搁置', DROPPED: '弃番' };
 const SEARCH_FORMAT_SELECT = document.getElementById('search-format');
@@ -112,6 +138,8 @@ const fmSubListEl = document.getElementById('fm-sub-list');
 const fmCurrentFormatEl = document.getElementById('fm-current-format');
 const fmNewSubInput = document.getElementById('fm-new-sub');
 const fmAddSubBtn = document.getElementById('fm-add-sub-btn');
+const fmAddRootBtn = document.getElementById('fm-add-root-btn');
+const fmSubTarget = document.getElementById('fm-sub-target');
 const fmNewCodeInput = document.getElementById('fm-new-code');
 const fmNewNameInput = document.getElementById('fm-new-name');
 const fmNewHasChildren = document.getElementById('fm-new-has-children');
@@ -122,6 +150,7 @@ const fmStatusEl = document.getElementById('fm-status');
 let formatsCache = [];
 let activeFormatTab = '';
 let fmSelectedFormatId = null;
+let fmSubParentId = 0;            // fm 弹层新增子分类的父节点 id（0=根），点行内 ＋ 切换
 
 let currentQuery = '';
 let currentDim = 'mixed';
@@ -137,6 +166,18 @@ const batchDelModal = document.getElementById('batch-del-modal');
 let batchDelIds = [];              // 当前待确认删除的媒体 id 列表
 const confirmModal = document.getElementById('confirm-modal');
 let confirmModalAction = null;     // 确认后要执行的回调
+let tagMode = 'global';            // 标签页视图：global 通用池 / media 按媒体
+let tagMediaId = null;             // 标签页媒体维度当前媒体 id
+let tagListCache = [];             // 当前已加载词条（合并目标候选、删除后刷新用）
+let tagFilterTimer = null;         // 过滤输入防抖
+let tagPage = 1;                   // 通用池分页：当前页
+let tagPageSize = 50;              // 通用池分页：每页条数
+let tagTotal = 0;                  // 通用池分页：过滤后总条数
+const tagSelected = new Set();     // 批量删除勾选的词条 id
+let tagRenameId = null;            // 改名弹窗当前词条 id
+let tagMergeId = null;             // 合并弹窗源词条 id
+let tagPoolByName = new Map();     // 全量词库 name→id（新增实时去重用，惰性加载）
+let tagAddTimer = null;            // 新增输入防抖
 
 /** 通用确认弹窗：替代原生 confirm()，风格与页面一致。 */
 function showConfirm({ title = '确认', msg = '', okText = '确定', danger = true, onOk }) {
@@ -156,7 +197,7 @@ function closeConfirmModal() {
     confirmModal.hidden = true;
     confirmModalAction = null;
 }
-let mediaFilter = { status: '', format: '', subcategory: '', collectionId: '', unconfirmed: false };
+let mediaFilter = { status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false };
 let currentMedia = null;  // 媒体详情当前对象
 let editingMediaId = null;
 let episodeTagEpisodeId = null;
@@ -214,6 +255,7 @@ function showView(name) {
     if (name === 'videos') loadVideos(true);
     if (name === 'stats') loadStats();
     if (name === 'media') loadMedia();
+    if (name === 'tags') loadTags();
 }
 
 // ---------- 视图历史栈（详情页逐层返回） ----------
@@ -582,7 +624,7 @@ async function runSearch(q) {
     try {
         const sp = new URLSearchParams({ q, dim: currentDim });
         if (SEARCH_FORMAT_SELECT && SEARCH_FORMAT_SELECT.value) sp.set('format', SEARCH_FORMAT_SELECT.value);
-        if (SEARCH_SUBCATEGORY_SELECT && SEARCH_SUBCATEGORY_SELECT.value) sp.set('subcategory', SEARCH_SUBCATEGORY_SELECT.value);
+        if (SEARCH_SUBCATEGORY_SELECT && SEARCH_SUBCATEGORY_SELECT.value) sp.set('subcategoryId', SEARCH_SUBCATEGORY_SELECT.value);
         const { from, to } = searchTimeRange();
         if (from != null) sp.set('from', String(from));
         if (to != null) sp.set('to', String(to));
@@ -1049,18 +1091,21 @@ async function loadMedia() {
             const params = new URLSearchParams({ limit: '100' });
             if (mediaFilter.status) params.set('status', mediaFilter.status);
             if (mediaFilter.format) params.set('format', mediaFilter.format);
-            if (mediaFilter.subcategory) params.set('subcategory', mediaFilter.subcategory);
+            if (mediaFilter.subcategoryId) params.set('subcategoryId', mediaFilter.subcategoryId);
             if (mediaFilter.unconfirmed) params.set('confirmed', '0');
             url = `/api/media?${params.toString()}`;
         }
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         let list = await resp.json();
-        // 格式/子分类过滤兜底：recent 与收藏夹分支后端只过滤 status/confirmed，format/subcategory 客户端统一过滤（数据量小）
-        if (mediaFilter.format || mediaFilter.subcategory) {
+        // 格式/子分类过滤兜底：recent 与收藏夹分支后端只过滤 status/confirmed，format/subcategoryId 客户端统一过滤（数据量小）
+        if (mediaFilter.format || mediaFilter.subcategoryId) {
+            const f = formatsCache.find(x => x.code === activeFormatTab);
+            const subTree = mediaFilter.subcategoryId && f
+                ? subcategoryTreeIds(f, mediaFilter.subcategoryId) : null;
             list = list.filter(m =>
                 (!mediaFilter.format || (m.mediaFormat || '') === mediaFilter.format) &&
-                (!mediaFilter.subcategory || (m.subcategory || '') === mediaFilter.subcategory));
+                (!mediaFilter.subcategoryId || subTree.has(String(m.subcategoryId))));
         }
         mediaStatusEl.textContent = list.length
             ? ''
@@ -1381,6 +1426,7 @@ function renderDetailTags(d) {
     });
     wrap.appendChild(input);
     detailTagsEl.appendChild(wrap);
+    attachTagSuggest(input, () => (currentMedia && currentMedia.id) || null);
 }
 
 function refreshMediaDetail() {
@@ -1428,23 +1474,67 @@ function selectFormatTab(code) {
     activeFormatTab = code;
     mediaFilter.format = code;
     // 格式切换后子分类过滤可能不再属于该格式，清空
-    mediaFilter.subcategory = '';
+    mediaFilter.subcategoryId = '';
     fillSubcategoryFilter();
     renderFormatTabs();
     loadMedia();
 }
 
+/** 子分类树各节点路径（根到当前，如「番剧 / 异世界」）。下拉选项用路径而非空格缩进，
+ *  原生 option 里空格缩进渲染不可靠，路径能一眼看出上级。 */
+function subPathMap(f) {
+    const path = new Map();
+    const byParent = new Map();
+    for (const s of f.subcategories) {
+        const k = String(s.parentId || 0);
+        if (!byParent.has(k)) byParent.set(k, []);
+        byParent.get(k).push(s);
+    }
+    const walk = (pid, prefix) => {
+        for (const s of (byParent.get(String(pid)) || [])) {
+            const full = prefix ? `${prefix} / ${s.name}` : s.name;
+            path.set(String(s.id), full);
+            walk(s.id, full);
+        }
+    };
+    walk(0, '');
+    return path;
+}
+
+/** 节点及其全部子孙 id 集合（子树收敛；客户端过滤兜底用）。 */
+function subcategoryTreeIds(f, nodeId) {
+    const set = new Set([String(nodeId)]);
+    const byParent = new Map();
+    for (const s of f.subcategories) {
+        const k = String(s.parentId || 0);
+        if (!byParent.has(k)) byParent.set(k, []);
+        byParent.get(k).push(s);
+    }
+    const stack = [String(nodeId)];
+    while (stack.length) {
+        const p = stack.pop();
+        for (const s of (byParent.get(p) || [])) {
+            set.add(String(s.id));
+            stack.push(String(s.id));
+        }
+    }
+    return set;
+}
+
 function fillSubcategoryFilter() {
     if (!filterSubcategoryEl) return;
-    filterSubcategoryEl.innerHTML = '<option value="">子分类</option>';
     const f = formatsCache.find(x => x.code === activeFormatTab);
-    for (const s of (f ? f.subcategories : [])) {
-        const opt = document.createElement('option');
-        opt.value = s.name;
-        opt.textContent = s.name;
-        filterSubcategoryEl.appendChild(opt);
+    filterSubcategoryEl.innerHTML = `<option value="">${f ? '子分类' : '（先选格式）'}</option>`;
+    if (f) {
+        const path = subPathMap(f);
+        for (const s of f.subcategories) {
+            const opt = document.createElement('option');
+            opt.value = String(s.id);
+            opt.textContent = path.get(String(s.id)) || s.name;
+            filterSubcategoryEl.appendChild(opt);
+        }
     }
-    filterSubcategoryEl.value = mediaFilter.subcategory || '';
+    filterSubcategoryEl.value = mediaFilter.subcategoryId || '';
 }
 
 function fillSearchFilters() {
@@ -1461,14 +1551,17 @@ function fillSearchFilters() {
 
 function fillSearchSubcategory() {
     if (!SEARCH_SUBCATEGORY_SELECT) return;
-    SEARCH_SUBCATEGORY_SELECT.innerHTML = '<option value="">子分类</option>';
     const code = SEARCH_FORMAT_SELECT.value;
     const f = formatsCache.find(x => x.code === code);
-    for (const s of (f ? f.subcategories : [])) {
-        const opt = document.createElement('option');
-        opt.value = s.name;
-        opt.textContent = s.name;
-        SEARCH_SUBCATEGORY_SELECT.appendChild(opt);
+    SEARCH_SUBCATEGORY_SELECT.innerHTML = `<option value="">${f ? '子分类' : '（先选格式）'}</option>`;
+    if (f) {
+        const path = subPathMap(f);
+        for (const s of f.subcategories) {
+            const opt = document.createElement('option');
+            opt.value = String(s.id);
+            opt.textContent = path.get(String(s.id)) || s.name;
+            SEARCH_SUBCATEGORY_SELECT.appendChild(opt);
+        }
     }
 }
 
@@ -1486,13 +1579,16 @@ function fillMediaFormatSelect(selected) {
 
 function fillMediaSubcategorySelect(selected) {
     const f = formatsCache.find(x => x.code === mediaFormatSelect.value);
-    const cur = selected || '';
-    mediaSubcategorySelect.innerHTML = '<option value="">— 未分类 —</option>';
-    for (const s of (f ? f.subcategories : [])) {
-        const opt = document.createElement('option');
-        opt.value = s.name;
-        opt.textContent = s.name;
-        mediaSubcategorySelect.appendChild(opt);
+    const cur = selected != null ? String(selected) : '';
+    mediaSubcategorySelect.innerHTML = `<option value="">${f ? '— 未分类 —' : '（先选格式）'}</option>`;
+    if (f) {
+        const path = subPathMap(f);
+        for (const s of f.subcategories) {
+            const opt = document.createElement('option');
+            opt.value = String(s.id);
+            opt.textContent = path.get(String(s.id)) || s.name;
+            mediaSubcategorySelect.appendChild(opt);
+        }
     }
     mediaSubcategorySelect.value = cur;
 }
@@ -1504,21 +1600,23 @@ function hideInlineAdd() {
     mediaInlineAddBtn.hidden = false;
 }
 
-/** 新建媒体弹窗内联新增子分类。 */
+/** 新建媒体弹窗内联新增子分类：挂到当前选中的分类下（未选中=根级）。 */
 async function addMediaSubcategoryInline() {
     const name = mediaNewSubInput.value.trim();
     const f = formatsCache.find(x => x.code === mediaFormatSelect.value);
     if (!name || !f) return;
+    const parentId = mediaSubcategorySelect.value ? Number(mediaSubcategorySelect.value) : 0;
     try {
         const resp = await fetch(`/api/media-formats/${f.id}/subcategories`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
+            body: JSON.stringify({ name, parentId })
         });
         if (!resp.ok) return;
+        const created = await resp.json();
         await loadFormats();
         fillMediaFormatSelect(f.code);
-        fillMediaSubcategorySelect(name);
+        fillMediaSubcategorySelect(created.id);
         hideInlineAdd();
     } catch (e) { /* 忽略 */ }
 }
@@ -1528,6 +1626,7 @@ async function addMediaSubcategoryInline() {
 async function openMediaFormatModal() {
     mediaFormatModal.hidden = false;
     fmStatusEl.textContent = '';
+    fmSubParentId = 0;                    // 每次打开都从所选格式的根级开始
     await loadFormats();
     fmSelectedFormatId = formatsCache.length ? formatsCache[0].id : null;
     renderFormatManager();
@@ -1544,6 +1643,7 @@ function renderFormatManager() {
         item.addEventListener('click', (e) => {
             if (e.target.classList.contains('fm-del')) return;
             fmSelectedFormatId = f.id;
+            fmSubParentId = 0;            // 切格式后新增目标回到该格式的根级
             renderFormatManager();
         });
         item.querySelector('.fm-del').addEventListener('click', (e) => {
@@ -1558,6 +1658,7 @@ function renderFormatManager() {
                         if (!resp.ok) { fmStatusEl.textContent = '删除失败：格式下存在媒体'; return; }
                         await loadFormats();
                         fmSelectedFormatId = formatsCache.length ? formatsCache[0].id : null;
+                        fmSubParentId = 0;
                         renderFormatManager();
                     } catch (err) { fmStatusEl.textContent = '删除失败'; }
                 }
@@ -1568,38 +1669,72 @@ function renderFormatManager() {
     renderFmSubs();
 }
 
-function renderFmSubs() {
+/** 新增目标指示：实时显示「新增到「视频」下（根级）」或「新增到「热血」下」。 */
+function updateFmTarget() {
+    if (!fmSubTarget) return;
     const f = formatsCache.find(x => x.id === fmSelectedFormatId);
-    fmCurrentFormatEl.textContent = f ? `${f.name} · 子分类` : '选择左侧格式';
-    fmSubListEl.innerHTML = '';
-    fmNewSubInput.value = '';
-    if (!f) return;
-    for (const s of f.subcategories) {
-        const row = document.createElement('div');
-        row.className = 'fm-sub';
-        row.innerHTML = `<span></span><span class="fm-sub-count"></span>`
-            + `<button type="button" class="fm-del" title="删除子分类">×</button>`;
-        row.querySelector('span').textContent = s.name;
-        row.querySelector('.fm-sub-count').textContent = `${s.mediaCount || 0} 个媒体`;
-        row.querySelector('.fm-del').addEventListener('click', () => {
-            showConfirm({
-                title: `删除子分类「${s.name}」`,
-                msg: `删除子分类「${s.name}」？`,
-                okText: '删除',
-                onOk: async () => {
-                    try {
-                        const resp = await fetch(`/api/media-formats/subcategories/${s.id}`, { method: 'DELETE' });
-                        if (!resp.ok) { fmStatusEl.textContent = '删除失败：该子分类下存在媒体'; return; }
-                        await loadFormats();
-                        renderFormatManager();
-                    } catch (err) { fmStatusEl.textContent = '删除失败'; }
-                }
-            });
-        });
-        fmSubListEl.appendChild(row);
+    if (!f) { fmSubTarget.textContent = ''; return; }
+    if (fmSubParentId) {
+        const parent = (f.subcategories || []).find(s => s.id === fmSubParentId);
+        fmSubTarget.textContent = parent ? `新增到「${parent.name}」下` : '新增到根级';
+    } else {
+        fmSubTarget.textContent = `新增到「${f.name}」下（根级）`;
     }
 }
 
+/** 子分类树渲染：按 parentId 递归，行内缩进 + 每节点「＋新增下级 / ×删除」；＋ 目标高亮。 */
+function renderFmSubs() {
+    const f = formatsCache.find(x => x.id === fmSelectedFormatId);
+    fmCurrentFormatEl.textContent = f ? `${f.name} · 子分类` : '选择左侧格式';
+    updateFmTarget();
+    fmSubListEl.innerHTML = '';
+    fmNewSubInput.value = '';
+    if (!f) return;
+    const byParent = new Map();
+    for (const s of f.subcategories) {
+        const k = String(s.parentId || 0);
+        if (!byParent.has(k)) byParent.set(k, []);
+        byParent.get(k).push(s);
+    }
+    const render = (pid, level) => {
+        for (const s of (byParent.get(String(pid)) || [])) {
+            const row = document.createElement('div');
+            row.className = 'fm-sub' + (s.id === fmSubParentId ? ' add-target' : '');
+            row.style.marginLeft = (level * 18) + 'px';
+            row.innerHTML = `<span></span><span class="fm-sub-count"></span>`
+                + `<button type="button" class="fm-add-child" title="在此分类下新增下级">＋</button>`
+                + `<button type="button" class="fm-del" title="删除子分类">×</button>`;
+            row.querySelector('span').textContent = s.name;
+            row.querySelector('.fm-sub-count').textContent = `${s.mediaCount || 0} 个媒体`;
+            row.querySelector('.fm-add-child').addEventListener('click', () => {
+                fmSubParentId = s.id;
+                fmNewSubInput.focus();
+                renderFmSubs();
+            });
+            row.querySelector('.fm-del').addEventListener('click', () => {
+                showConfirm({
+                    title: `删除子分类「${s.name}」`,
+                    msg: `删除子分类「${s.name}」？其下有下级或媒体时会被拒绝。`,
+                    okText: '删除',
+                    onOk: async () => {
+                        try {
+                            const resp = await fetch(`/api/media-formats/subcategories/${s.id}`, { method: 'DELETE' });
+                            if (!resp.ok) { fmStatusEl.textContent = '删除失败：该分类下存在下级或媒体'; return; }
+                            if (fmSubParentId === s.id) fmSubParentId = 0;
+                            await loadFormats();
+                            renderFormatManager();
+                        } catch (err) { fmStatusEl.textContent = '删除失败'; }
+                    }
+                });
+            });
+            fmSubListEl.appendChild(row);
+            render(s.id, level + 1);
+        }
+    };
+    render(0, 0);
+}
+
+/** 新增子分类：挂到 fmSubParentId（默认根级，点行内 ＋ 切换）。 */
 async function fmAddSubcategory() {
     const name = fmNewSubInput.value.trim();
     if (!fmSelectedFormatId || !name) return;
@@ -1607,12 +1742,19 @@ async function fmAddSubcategory() {
         const resp = await fetch(`/api/media-formats/${fmSelectedFormatId}/subcategories`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
+            body: JSON.stringify({ name, parentId: fmSubParentId })
         });
-        if (!resp.ok) { fmStatusEl.textContent = '添加失败（可能已存在）'; return; }
+        if (!resp.ok) { fmStatusEl.textContent = '添加失败（同级已存在）'; return; }
         await loadFormats();
         renderFormatManager();
     } catch (err) { fmStatusEl.textContent = '添加失败'; }
+}
+
+/** 新增位置切回所选格式的根级。 */
+function fmAddRoot() {
+    fmSubParentId = 0;
+    fmNewSubInput.focus();
+    renderFmSubs();
 }
 
 async function fmAddFormat() {
@@ -1844,7 +1986,7 @@ function openEditMedia() {
     mediaTitleInput.value = d.title;
     hideInlineAdd();
     fillMediaFormatSelect(d.mediaFormat);
-    fillMediaSubcategorySelect(d.subcategory);
+    fillMediaSubcategorySelect(d.subcategoryId);
     mediaStatusSelect.value = d.status || 'WANT';
     mediaRatingInput.value = d.rating != null ? d.rating : '';
     mediaNoteInput.value = d.note || '';
@@ -1858,7 +2000,7 @@ async function saveMedia() {
     const payload = {
         title,
         mediaFormat: mediaFormatSelect.value,
-        subcategory: mediaSubcategorySelect.value,
+        subcategoryId: mediaSubcategorySelect.value ? Number(mediaSubcategorySelect.value) : null,
         status: mediaStatusSelect.value,
         rating: mediaRatingInput.value === '' ? null : parseFloat(mediaRatingInput.value),
         note: mediaNoteInput.value.trim()
@@ -2023,7 +2165,7 @@ async function loadStats() {
         });
         renderBars(statsSubcategoriesEl, data.bySubcategory || [], {
             value: s => s.count,
-            label: s => s.subcategory,
+            label: s => s.label,
             barW: 60,
             emptyText: '暂无子分类数据'
         });
@@ -2105,6 +2247,419 @@ function renderBars(el, items, opts) {
         }
     });
     el.appendChild(svg);
+}
+
+// ---------- 标签管理 ----------
+
+/** 加载标签列表：global=全词库三级计数（分页）；media=某媒体维度引用数（不分页）。 */
+async function loadTags() {
+    tagSelected.clear();
+    updateTagBatchBtn();
+    if (tagCheckAll) tagCheckAll.checked = false;
+    if (tagMode === 'media' && !tagMediaId) {
+        tagStatusEl.textContent = '';
+        tagListEl.textContent = '请先在右上角选择媒体';
+        updateTagPager();
+        return;
+    }
+    tagStatusEl.textContent = '加载中…';
+    try {
+        const q = tagFilterEl.value.trim();
+        const params = new URLSearchParams();
+        if (q) params.set('q', q);
+        if (tagMode === 'media' && tagMediaId) {
+            params.set('mediaId', tagMediaId);
+        } else {
+            params.set('page', tagPage);
+            params.set('size', tagPageSize);
+        }
+        const resp = await fetch(`/api/tags/manage?${params.toString()}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        tagListCache = data.items || [];
+        tagTotal = data.total || 0;
+        tagStatusEl.textContent = '';
+        renderTagList();
+        updateTagPager();
+    } catch (err) {
+        tagStatusEl.textContent = '加载失败：后端未响应';
+    }
+}
+
+/** 分页控件状态：仅通用池显示；按媒体隐藏。 */
+function updateTagPager() {
+    const isGlobal = tagMode === 'global';
+    if (tagPager) tagPager.hidden = !isGlobal;
+    if (tagCheckAllWrap) tagCheckAllWrap.hidden = !isGlobal;
+    if (!isGlobal || !tagPageInfo) return;
+    const pages = Math.max(1, Math.ceil(tagTotal / tagPageSize));
+    tagPageInfo.textContent = `第 ${Math.min(tagPage, pages)} / ${pages} 页 · 共 ${tagTotal} 个`;
+    tagPagePrev.disabled = tagPage <= 1;
+    tagPageNext.disabled = tagPage >= pages;
+}
+
+function renderTagList() {
+    tagListEl.innerHTML = '';
+    if (tagListCache.length === 0) {
+        tagListEl.textContent = tagMode === 'media' ? '该媒体暂无标签' : '暂无标签，打标后自动收录';
+        return;
+    }
+    for (const t of tagListCache) {
+        const row = document.createElement('div');
+        row.className = 'tag-row';
+
+        if (tagMode === 'global') {
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'tag-check';
+            cb.title = '勾选后批量删除（仅孤儿词条）';
+            cb.addEventListener('change', () => {
+                if (cb.checked) tagSelected.add(t.id); else tagSelected.delete(t.id);
+                updateTagBatchBtn();
+            });
+            row.prepend(cb);
+        }
+
+        const name = document.createElement('span');
+        name.className = 'tag-name';
+        name.textContent = t.name;
+
+        const counts = document.createElement('span');
+        counts.className = 'tag-counts';
+        if (tagMode === 'media') {
+            const c = document.createElement('span');
+            c.textContent = `本媒体引用 ${t.refCount} 次`;
+            counts.appendChild(c);
+        } else {
+            const m = document.createElement('span'); m.textContent = `媒体 ${t.mediaCount}`;
+            const e = document.createElement('span'); e.textContent = `集 ${t.episodeCount}`;
+            const c = document.createElement('span'); c.textContent = `片段 ${t.clipCount}`;
+            counts.append(m, e, c);
+        }
+
+        const actions = document.createElement('span');
+        actions.className = 'tag-actions';
+        const btnRename = document.createElement('button');
+        btnRename.type = 'button'; btnRename.className = 'btn-mini'; btnRename.textContent = '改名';
+        btnRename.addEventListener('click', () => openTagRename(t));
+        const btnMerge = document.createElement('button');
+        btnMerge.type = 'button'; btnMerge.className = 'btn-mini'; btnMerge.textContent = '合并';
+        btnMerge.addEventListener('click', () => openTagMerge(t));
+        const btnDel = document.createElement('button');
+        btnDel.type = 'button'; btnDel.className = 'btn-mini danger'; btnDel.textContent = '删除';
+        btnDel.addEventListener('click', () => confirmTagDelete(t));
+        actions.append(btnRename, btnMerge, btnDel);
+
+        row.append(name, counts, actions);
+        tagListEl.appendChild(row);
+    }
+}
+
+function openTagRename(t) {
+    tagRenameId = t.id;
+    tagRenameTargetEl.textContent = `当前名称：${t.name}`;
+    tagRenameInput.value = t.name;
+    tagRenameStatusEl.textContent = '';
+    tagRenameModal.hidden = false;
+    tagRenameInput.focus();
+}
+
+async function saveTagRename() {
+    const name = tagRenameInput.value.trim();
+    if (!name) { tagRenameStatusEl.textContent = '名称不能为空'; return; }
+    try {
+        const resp = await fetch(`/api/tags/${tagRenameId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            tagRenameStatusEl.textContent = (err && err.message) || '改名失败';
+            return;
+        }
+        tagRenameModal.hidden = true;
+        tagRenameId = null;
+        invalidateTagPool();
+        loadTags();
+    } catch (err) {
+        tagRenameStatusEl.textContent = '请求失败';
+    }
+}
+
+async function openTagMerge(t) {
+    tagMergeId = t.id;
+    tagMergeTargetEl.textContent = `源标签：${t.name}`;
+    tagMergeStatusEl.textContent = '';
+    tagMergeIntoEl.innerHTML = '<option value="">— 选择目标标签 —</option>';
+    // 合并候选需全量词条（列表已分页，候选单独拉一次，size 足够大）
+    try {
+        const resp = await fetch('/api/tags/manage?size=10000');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        for (const other of (data.items || [])) {
+            if (other.id === t.id) continue;
+            const opt = document.createElement('option');
+            opt.value = other.id;
+            opt.textContent = other.name;
+            tagMergeIntoEl.appendChild(opt);
+        }
+    } catch (err) { /* 候选加载失败仅保留空选项 */ }
+    tagMergeModal.hidden = false;
+}
+
+async function saveTagMerge() {
+    const toId = Number(tagMergeIntoEl.value);
+    if (!toId) { tagMergeStatusEl.textContent = '请选择目标标签'; return; }
+    try {
+        const resp = await fetch('/api/tags/merge', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fromId: tagMergeId, toId })
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            tagMergeStatusEl.textContent = (err && err.message) || '合并失败';
+            return;
+        }
+        tagMergeModal.hidden = true;
+        tagMergeId = null;
+        invalidateTagPool();
+        loadTags();
+    } catch (err) {
+        tagMergeStatusEl.textContent = '请求失败';
+    }
+}
+
+function confirmTagDelete(t) {
+    showConfirm({
+        title: '删除标签',
+        msg: `确定删除标签「${t.name}」？仅无任何引用的孤儿词条可删。`,
+        okText: '删除',
+        onOk: async () => {
+            const resp = await fetch(`/api/tags/${t.id}`, { method: 'DELETE' });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                tagStatusEl.textContent = (err && err.message) || '删除失败';
+            }
+            invalidateTagPool();
+            loadTags();
+        }
+    });
+}
+
+/** 词库缓存失效：词条改名/合并/删除后调用，下次打开新增弹层重拉。 */
+function invalidateTagPool() {
+    tagPoolByName = new Map();
+}
+
+/** 懒加载全量词库 name→id（新增实时去重用；词条变化后清空重拉）。 */
+async function ensureTagPool() {
+    if (tagPoolByName.size > 0) return;
+    try {
+        const resp = await fetch('/api/tags/manage?size=10000');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const m = new Map();
+        for (const t of (data.items || [])) m.set(t.name, t.id);
+        tagPoolByName = m;
+    } catch (err) { /* 拉取失败则去重静默降级为空词库 */ }
+}
+
+/** 打开新增弹层：清空表单、聚焦输入、拉全量词库。 */
+function openTagAdd() {
+    tagAddInput.value = '';
+    tagAddStatusEl.textContent = '';
+    tagAddPreviewEl.innerHTML = '';
+    tagAddModal.hidden = false;
+    tagAddInput.focus();
+    ensureTagPool().then(refreshTagAddPreview);
+}
+
+/** 按空格 / 逗号（中英文）拆输入，去重后返回候选词。 */
+function splitTagInput(raw) {
+    const seen = new Set();
+    const out = [];
+    for (const tok of String(raw || '').split(/[\s,，]+/)) {
+        const t = tok.trim();
+        if (!t) continue;
+        if (seen.has(t)) continue;
+        seen.add(t);
+        out.push(t);
+    }
+    return out;
+}
+
+/** 实时去重预览：命中已有词条给「跳去合并」，未命中显示将新增。 */
+function refreshTagAddPreview() {
+    const names = splitTagInput(tagAddInput.value);
+    tagAddPreviewEl.innerHTML = '';
+    if (names.length === 0) return;
+    const fresh = names.filter(n => !tagPoolByName.has(n));
+    const dups = names.filter(n => tagPoolByName.has(n));
+    const chips = [];
+    if (fresh.length > 0) {
+        chips.push(`<span class="chip chip-ok">✓ 将新增 ${fresh.length} 个：${fresh.map(esc).join(' ')}</span>`);
+    }
+    if (dups.length > 0) {
+        const links = dups.map(n => {
+            const id = tagPoolByName.get(n);
+            return `<a href="#" data-tag-id="${id}" data-tag-name="${esc(n)}">「${esc(n)}」</a>`;
+        }).join(' ');
+        chips.push(`<span class="chip chip-warn">⚠ 已存在 ${dups.length} 个：${links}（点标签可跳去合并）</span>`);
+    }
+    tagAddPreviewEl.innerHTML = chips.join('');
+    tagAddPreviewEl.querySelectorAll('a[data-tag-id]').forEach(a => {
+        a.addEventListener('click', (e) => {
+            e.preventDefault();
+            const id = Number(a.dataset.tagId);
+            const name = a.dataset.tagName;
+            tagAddModal.hidden = true;
+            openTagMerge({ id, name });
+        });
+    });
+}
+
+/** 提交新增：逐个 POST，重复跳过，结果回填到预览区。 */
+async function submitTagAdd() {
+    const names = splitTagInput(tagAddInput.value);
+    if (names.length === 0) {
+        tagAddStatusEl.textContent = '请输入要新增的标签';
+        tagAddInput.focus();
+        return;
+    }
+    const fresh = names.filter(n => !tagPoolByName.has(n));
+    if (fresh.length === 0) {
+        tagAddStatusEl.textContent = '输入的内容都已存在，无需新增';
+        return;
+    }
+    tagAddStatusEl.textContent = '新增中…';
+    const results = [];
+    let failed = false;
+    for (const name of fresh) {
+        try {
+            const resp = await fetch('/api/tags', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            if (resp.ok) {
+                results.push(`<span class="chip chip-ok">${esc(name)} ✓</span>`);
+                const created = await resp.json().catch(() => ({}));
+                if (created && created.id) tagPoolByName.set(name, created.id); // 已入库：后续预览当它存在
+            } else {
+                const err = await resp.json().catch(() => ({}));
+                results.push(`<span class="chip chip-warn">${esc(name)} ✕ ${esc((err && err.message) || '失败')}</span>`);
+                failed = true;
+            }
+        } catch (err) {
+            results.push(`<span class="chip chip-warn">${esc(name)} ✕ 请求失败</span>`);
+            failed = true;
+        }
+    }
+    tagAddPreviewEl.innerHTML = results.join('');
+    if (!failed) {
+        tagAddStatusEl.textContent = `已新增 ${fresh.length} 个标签`;
+        tagAddInput.value = '';
+        loadTags();
+        setTimeout(() => tagAddInput.focus(), 0);
+    } else {
+        tagAddStatusEl.textContent = '部分标签新增失败，请重试';
+    }
+}
+
+/** 批量删除按钮状态：按勾选数显示。 */
+function updateTagBatchBtn() {
+    if (!tagBatchDelBtn) return;
+    tagBatchDelBtn.hidden = tagSelected.size === 0;
+    tagBatchDelBtn.textContent = `批量删除(${tagSelected.size})`;
+}
+
+/** 批量删除：选中词条删除，含被引用词条整体拒绝。 */
+function confirmTagBatchDelete() {
+    if (tagSelected.size === 0) return;
+    showConfirm({
+        title: `批量删除 ${tagSelected.size} 个标签`,
+        msg: `删除选中的 ${tagSelected.size} 个标签？仅无任何引用的孤儿词条可删，含被引用词条会整体拒绝。`,
+        okText: '删除',
+        onOk: async () => {
+            const ids = [...tagSelected].join(',');
+            const resp = await fetch(`/api/tags?ids=${ids}`, { method: 'DELETE' });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                tagStatusEl.textContent = (err && err.message) || '删除失败';
+            } else {
+                tagStatusEl.textContent = '';
+            }
+            tagSelected.clear();
+            invalidateTagPool();
+            loadTags();
+        }
+    });
+}
+
+/** 按媒体视图：填充媒体下拉（与媒体页共用 /api/media）。 */
+async function fillTagMediaSelect() {
+    tagMediaSelectEl.innerHTML = '<option value="">— 选择媒体 —</option>';
+    try {
+        const resp = await fetch('/api/media?limit=500');
+        if (!resp.ok) return;
+        const list = await resp.json();
+        for (const m of list) {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = m.title || `#${m.id}`;
+            tagMediaSelectEl.appendChild(opt);
+        }
+    } catch (err) { /* 下拉填充失败不阻塞视图 */ }
+}
+
+// ---------- 打标输入补全（媒体上下文） ----------
+
+const tagSuggestList = document.getElementById('tag-suggest-list');
+const mediaIdByEpisode = new Map();   // episodeId → mediaId（惰性解析缓存，避免每次补全都查集）
+
+async function resolveEpisodeMediaId(episodeId) {
+    if (!episodeId) return null;
+    if (mediaIdByEpisode.has(episodeId)) return mediaIdByEpisode.get(episodeId);
+    try {
+        const resp = await fetch(`/api/episodes/${episodeId}`);
+        if (!resp.ok) return null;
+        const ep = await resp.json();
+        const m = ep.mediaId || null;
+        mediaIdByEpisode.set(episodeId, m);
+        return m;
+    } catch (err) {
+        return null;
+    }
+}
+
+/** 给打标输入挂共享补全：mediaId 由 resolveMediaId() 惰性取（可为 async）。 */
+function attachTagSuggest(inputEl, resolveMediaId) {
+    inputEl.setAttribute('list', 'tag-suggest-list');
+    let timer = null;
+    inputEl.addEventListener('input', () => {
+        clearTimeout(timer);
+        const v = inputEl.value.trim();
+        if (!v) return;
+        timer = setTimeout(async () => {
+            let mediaId = null;
+            try { mediaId = await resolveMediaId(); } catch (err) { mediaId = null; }
+            const params = new URLSearchParams({ prefix: v, limit: '8' });
+            if (mediaId) params.set('mediaId', mediaId);
+            try {
+                const resp = await fetch(`/api/tags?${params.toString()}`);
+                if (!resp.ok) return;
+                const tags = await resp.json();
+                tagSuggestList.innerHTML = '';
+                for (const t of tags) {
+                    const opt = document.createElement('option');
+                    opt.value = t.tag;
+                    tagSuggestList.appendChild(opt);
+                }
+            } catch (err) { /* 补全失败静默 */ }
+        }, 180);
+    });
 }
 
 // ---------- 事件绑定 ----------
@@ -2191,7 +2746,7 @@ document.getElementById('detail-confirm').addEventListener('click', async () => 
 });
 document.getElementById('detail-delete').addEventListener('click', deleteMedia);
 filterStatusEl.addEventListener('change', () => { mediaFilter.status = filterStatusEl.value; loadMedia(); });
-filterSubcategoryEl.addEventListener('change', () => { mediaFilter.subcategory = filterSubcategoryEl.value; loadMedia(); });
+filterSubcategoryEl.addEventListener('change', () => { mediaFilter.subcategoryId = filterSubcategoryEl.value; loadMedia(); });
 filterCollectionEl.addEventListener('change', () => { mediaFilter.collectionId = filterCollectionEl.value; loadMedia(); });
 filterUnconfirmedEl.addEventListener('change', () => { mediaFilter.unconfirmed = filterUnconfirmedEl.checked; loadMedia(); });
 fillFilterCollections();
@@ -2212,6 +2767,7 @@ mediaFormatModal.addEventListener('click', (e) => { if (e.target === mediaFormat
 document.getElementById('media-format-close').addEventListener('click', () => { mediaFormatModal.hidden = true; });
 fmAddSubBtn.addEventListener('click', fmAddSubcategory);
 fmNewSubInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fmAddSubcategory(); } });
+if (fmAddRootBtn) fmAddRootBtn.addEventListener('click', fmAddRoot);
 fmAddFormatBtn.addEventListener('click', fmAddFormat);
 // 搜索格式/子分类筛选
 if (SEARCH_FORMAT_SELECT) {
@@ -2259,6 +2815,61 @@ document.getElementById('ep-detail-jump').addEventListener('click', () => {
     if (currentEpisode) jump({ url: currentEpisode.url, timestampSec: 0 });
 });
 document.getElementById('ep-detail-delete').addEventListener('click', () => { if (currentEpisode) deleteEpisode(currentEpisode); });
+
+// ---------- 标签管理事件 ----------
+document.querySelectorAll('[data-tag-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-tag-tab]').forEach(b => b.classList.toggle('active', b === btn));
+        tagMode = btn.dataset.tagTab;
+        tagMediaSelectEl.hidden = tagMode !== 'media';
+        tagPage = 1;
+        if (tagMode === 'media' && tagMediaSelectEl.children.length <= 1) fillTagMediaSelect();
+        loadTags();
+    });
+});
+tagPagePrev.addEventListener('click', () => { if (tagPage > 1) { tagPage--; loadTags(); } });
+tagPageNext.addEventListener('click', () => { tagPage++; loadTags(); });
+tagPageSizeSel.addEventListener('change', () => { tagPageSize = Number(tagPageSizeSel.value); tagPage = 1; loadTags(); });
+tagCheckAll.addEventListener('change', () => {
+    if (tagCheckAll.checked) {
+        for (const t of tagListCache) tagSelected.add(t.id);
+    } else {
+        for (const t of tagListCache) tagSelected.delete(t.id);
+    }
+    updateTagBatchBtn();
+});
+tagFilterEl.addEventListener('input', () => {
+    clearTimeout(tagFilterTimer);
+    tagPage = 1;
+    tagFilterTimer = setTimeout(loadTags, 300);
+});
+tagMediaSelectEl.addEventListener('change', () => {
+    tagMediaId = tagMediaSelectEl.value ? Number(tagMediaSelectEl.value) : null;
+    loadTags();
+});
+tagAddBtn.addEventListener('click', openTagAdd);
+tagAddModal.addEventListener('click', (e) => { if (e.target === tagAddModal) tagAddModal.hidden = true; });
+document.getElementById('tag-add-cancel').addEventListener('click', () => { tagAddModal.hidden = true; });
+document.getElementById('tag-add-save').addEventListener('click', submitTagAdd);
+tagAddInput.addEventListener('input', () => {
+    clearTimeout(tagAddTimer);
+    tagAddTimer = setTimeout(refreshTagAddPreview, 250);
+});
+tagAddInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitTagAdd(); } });
+tagBatchDelBtn.addEventListener('click', confirmTagBatchDelete);
+tagRenameModal.addEventListener('click', (e) => { if (e.target === tagRenameModal) { tagRenameModal.hidden = true; tagRenameId = null; } });
+document.getElementById('tag-rename-cancel').addEventListener('click', () => { tagRenameModal.hidden = true; tagRenameId = null; });
+document.getElementById('tag-rename-save').addEventListener('click', saveTagRename);
+tagRenameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveTagRename(); } });
+tagMergeModal.addEventListener('click', (e) => { if (e.target === tagMergeModal) { tagMergeModal.hidden = true; tagMergeId = null; } });
+document.getElementById('tag-merge-cancel').addEventListener('click', () => { tagMergeModal.hidden = true; tagMergeId = null; });
+document.getElementById('tag-merge-save').addEventListener('click', saveTagMerge);
+
+// ---------- 打标输入补全接线 ----------
+// 片段编辑：mediaId 经 episode 惰性解析（clip 不含 mediaId，缓存复用）
+attachTagSuggest(editTag, () => editingClip ? resolveEpisodeMediaId(editingClip.episodeId) : Promise.resolve(null));
+// 集打标：当前集自带 mediaId
+attachTagSuggest(episodeTagInput, () => (currentEpisode && currentEpisode.mediaId) || null);
 
 // 启动加载格式字典（格式 tab / 各筛选下拉）
 loadFormats();

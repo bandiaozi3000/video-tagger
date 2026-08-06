@@ -22,6 +22,8 @@ public class Media {
     private String mediaFormat;
     /** 子分类（media_subcategory 字典，格式内可选），可空=未分类 */
     private String subcategory;
+    /** 子分类树节点 id（任意层级，媒体可挂叶子或中间分类）；名字快照 subcategory 供展示 */
+    private Long subcategoryId;
     /** 状态：WANT / WATCHING / DONE / PAUSED / DROPPED（全格式共用） */
     private String status;
     /** 手动评分（十分制，可空） */

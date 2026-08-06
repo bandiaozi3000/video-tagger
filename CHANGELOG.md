@@ -2,6 +2,42 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.10.0] - 2026-08-06
+
+### 新增
+- **分类树（子分类任意层级细分）**：`media_subcategory` 改邻接表（新增 `parent_id`，0=根），唯一键 `(format_id,name)` → `(parent_id,name)`——同一格式下可在任意分类下继续细分（如 番剧 → 热血 → 战斗）。媒体改按 `subcategory_id` 引用节点（V10 迁移回填存量，`subcategory` 名字保留为展示快照）。
+- **子树收敛筛选**：媒体列表与搜索按子分类筛选时，选中**分类及其全部下级**的媒体都算（后端递归 CTE / 客户端过滤兜底）——选「番剧」能看到挂在「热血」下的媒体。
+- **管理格式弹层树化**：子分类按 `parent_id` 缩进渲染为树，每节点「＋新增下级」（新增位置高亮、顶部「＋根级」切回）与「删除」；删除保护升级——节点**有下级或子树挂媒体**时拒绝删除。
+- **下拉树化**：新建/编辑媒体、媒体筛选、搜索三个子分类下拉改 option value=节点 id + 层级缩进，媒体可挂到**任意层级节点**（不限于根级）。
+- **统计路径 label**：按子分类分布按节点聚合，label 为「父 / 子」路径（跨分支重名可区分）。
+- **自动识别归组**：扩展打标新建媒体默认「番剧」时按名字解析到格式树节点（找不到保持未分类）；新建媒体内联新增子分类可挂到当前选中分类下。
+- **标签池维护增强**：通用池新增分页（page/size，默认 50，50/100/200 切换）与**全选本页**；`POST /api/tags` 新增词条、`DELETE /api/tags?ids=` 批量删孤儿（任一被引用整体拒绝）；**新增标签弹层**——实时去重（防抖匹配全量词库，命中提示「已存在」并可跳去合并）、空格/逗号分隔**批量入池**、逐词回显结果，替代原工具栏裸输入框。
+
+### 接口变更
+- `POST /api/media-formats/{id}/subcategories` body 加 `parentId`（0=根，缺省根）；`GET /api/media` / `GET /api/search` 子分类参数 `subcategory`（名字）→ `subcategoryId`（节点 id，子树收敛）。
+- `GET /api/tags/manage` 加 `page`/`size`（返回 `PageResult{items,total}`）；新增 `POST /api/tags`（加词条）、`DELETE /api/tags?ids=`（批量删孤儿）。
+
+### 修复
+- **标签管理页 500**：`TagMapper` 关联查错用 `clip`（实表 `clips`）+ `countGlobal`/`countByMedia` 缺列导致 TagUsage 原生 long 映射 NPE（仅数据存在时触发）。
+- **分类树 UI 错乱**：fm 弹层添加区换行错位（改 flex-wrap 两行布局）、子分类下拉层级显示（原生 option 路径字符串 `父 / 子`，代替全角空格缩进）、缺根级新增入口（顶部「＋根级」切回 + 「新增到『X』下（根级）」高亮提示）。
+
+### 工程化
+- Flyway `V10__subcategory_tree`（parent_id + 唯一键 + media.subcategory_id + 存量回填）。
+- `MediaMapper` 递归 CTE（`countBySubcategoryId`/`subtreeIds`，子树收敛 + 删除保护）；`MediaFormatService` 内存 DFS 子树计数；`SearchResult`/`MediaSummary`/`MediaDetail`/`StatsResponse.SubcategoryStat` 携带 `subcategoryId`。
+- `PageResult`（分页 record）；`TagAdminService.add/deleteBatch`（新增/批量删孤儿 + 引用预检）；`TagMapper.countGlobal/countByMedia` 补 `0 AS` 列。
+- 单测适配 + 新增子树过滤、父节点跨格式校验、有下级删除保护、子树计数 4 例；标签管理新增/批量删除/分页单测（90+ 例通过）。
+
+## [0.9.0] - 2026-08-06
+
+### 新增
+- **标签补全上下文化**：`GET /api/tags` 补全带 `mediaId` 上下文——有媒体上下文时该媒体已用标签（媒体/集/片段三级）优先 + 全局高频兜底；无上下文时从全局词库按**三级引用总次数**聚合排序（取代原来只统计 `clips.tag` 拆词，媒体/集层标签由此进入补全）。排序：精确命中 > 前缀 > 包含；同级次数降序。扩展浮层记住最近保存的 mediaId，同一页面连续打标补全带上下文；Web 片段编辑/集打标/媒体详情加标签三处补全接入。
+- **标签管理页（新 tab「标签」）**：通用池视图（全词条 + 媒体/集/片段三级引用计数 + 搜索过滤）+ 按媒体维度视图（媒体下拉 → 该媒体已用标签及引用数）。支持**改名**（同步 `clips.tag` 冗余列 + 引用实体自动重嵌；新名撞既有词条 400 引导合并）、**合并**（高然→高燃，三级关联迁移 + `clips.tag` 同步 + 删源词条 + 重嵌）、**删孤儿**（仅无任何引用词条可删，被引用拒绝）。复用现有 modal/confirm 弹窗体系。
+- **接口**：`GET /api/tags/manage?q=&mediaId=`（管理列表）、`PUT /api/tags/{id}`（改名）、`POST /api/tags/merge`（合并）、`DELETE /api/tags/{id}`（删孤儿）；`IllegalArgumentException` 统一 400 错误体。
+
+### 工程化
+- `TagAdminService` + `TagUsage`（三级计数聚合记录）；`TagMapper` 全局/媒体维度聚合查询；`ClipMapper` `selectByTagContains`/`updateTag`；三个关联 Mapper 加 `moveRefs`/`deleteRefs`。
+- 新增单测：`TagAdminServiceTest`（改名同步+重嵌/撞名/合并迁移/删孤儿，7 例）、`ClipServiceSuggestTest`（全局聚合/媒体上下文/精确前缀排序，3 例）、`TagControllerTest`（manage/补全 mediaId 透传，3 例）。
+
 ## [0.8.0] - 2026-08-06
 
 ### 新增

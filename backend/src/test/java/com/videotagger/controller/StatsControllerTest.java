@@ -33,7 +33,7 @@ class StatsControllerTest {
                 List.of(new StatsResponse.TrendPoint("2026-07-30", 2L)),
                 List.of(new StatsResponse.TrendPoint("2026-07-30", 2L)),
                 List.of(new StatsResponse.MediaFormatStat("VIDEO", "视频", 8L)),
-                List.of(new StatsResponse.SubcategoryStat("番剧", 6L)));
+                List.of(new StatsResponse.SubcategoryStat(2L, "番剧", 6L)));
         when(statsService.stats()).thenReturn(stats);
 
         mvc.perform(get("/api/stats"))

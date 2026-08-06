@@ -9,6 +9,7 @@ import com.videotagger.service.VideoSummary;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -100,4 +101,11 @@ public interface ClipMapper extends BaseMapper<Clip> {
     @Select("SELECT DATE(FROM_UNIXTIME(created_at / 1000)) AS date, COUNT(*) AS count "
             + "FROM clips WHERE created_at >= #{since} GROUP BY date ORDER BY date ASC")
     List<TrendPoint> countTrend(@Param("since") long since);
+
+    /** 标签改名/合并时定位含该词的片段（精确按空白分词替换，避免子串误伤）。 */
+    @Select("SELECT * FROM clips WHERE tag LIKE CONCAT('%', #{w}, '%')")
+    List<Clip> selectByTagContains(@Param("w") String w);
+
+    @Update("UPDATE clips SET tag = #{tag} WHERE id = #{id}")
+    void updateTag(@Param("id") long id, @Param("tag") String tag);
 }

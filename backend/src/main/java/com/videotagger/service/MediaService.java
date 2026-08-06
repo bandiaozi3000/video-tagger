@@ -60,10 +60,10 @@ public class MediaService {
         this.coverService = coverService;
     }
 
-    /** 媒体卡片墙：支持状态/格式/子分类/待确认筛选。 */
-    public List<MediaSummary> list(int limit, String status, String format, String subcategory,
+    /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认筛选。 */
+    public List<MediaSummary> list(int limit, String status, String format, Long subcategoryId,
                                    Integer confirmed, String sort) {
-        return mediaMapper.listFiltered(status, format, subcategory, confirmed, sort,
+        return mediaMapper.listFiltered(status, format, subcategoryId, confirmed, sort,
                 Math.min(Math.max(limit, 1), 100));
     }
 
@@ -79,8 +79,8 @@ public class MediaService {
         String fallbackCoverPath = a.getCoverPath() == null
                 ? clipMapper.selectRepresentativeCoverByMedia(id) : null;
         return new MediaDetail(a.getId(), a.getTitle(), a.getAliases(), a.getMediaFormat(), a.getSubcategory(),
-                a.getNote(), a.getStatus(), a.getRating(), a.getCoverPath(), a.getConfirmed(), a.getCreatedAt(),
-                clipCount, episodeCount, mediaTagMapper.selectTags(id),
+                a.getSubcategoryId(), a.getNote(), a.getStatus(), a.getRating(), a.getCoverPath(), a.getConfirmed(),
+                a.getCreatedAt(), clipCount, episodeCount, mediaTagMapper.selectTags(id),
                 mediaCollectionMapper.selectCollectionIdsByMedia(id), fallbackCoverPath);
     }
 
@@ -235,20 +235,35 @@ public class MediaService {
                 : mediaFormatMapper.selectOne(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<MediaFormat>()
                         .eq("code", format));
         a.setMediaFormat(mf != null ? mf.getCode() : "VIDEO");
-        // 子分类必须属于所选格式（可为空=未分类）
-        String sub = req.subcategory() == null ? null : req.subcategory().trim();
-        if (sub != null && !sub.isEmpty()) {
-            long cnt = mediaSubcategoryMapper.selectCount(
-                    new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<MediaSubcategory>()
-                            .eq("format_id", mf != null ? mf.getId() : mediaFormatIdOf("VIDEO"))
-                            .eq("name", sub));
-            a.setSubcategory(cnt > 0 ? sub : null);
-        } else {
-            a.setSubcategory(null);
-        }
+        applySubcategory(a, req, mf != null ? mf.getId() : mediaFormatIdOf("VIDEO"));
         a.setStatus(STATUSES.contains(req.status()) ? req.status() : "WANT");
         a.setRating(req.rating());
         a.setNote(req.note() == null ? "" : req.note().trim());
+    }
+
+    /** 子分类：优先按节点 id 引用（须属于所选格式）；旧客户端只传名字时按名字在格式树中回退解析。 */
+    private void applySubcategory(Media a, MediaRequest req, long formatId) {
+        a.setSubcategory(null);
+        a.setSubcategoryId(null);
+        Long id = req.subcategoryId();
+        if (id != null && id > 0) {
+            MediaSubcategory node = mediaSubcategoryMapper.selectById(id);
+            if (node != null && node.getFormatId() != null && node.getFormatId() == formatId) {
+                a.setSubcategoryId(node.getId());
+                a.setSubcategory(node.getName()); // 展示快照
+            }
+            return;
+        }
+        String sub = req.subcategory() == null ? null : req.subcategory().trim();
+        if (sub != null && !sub.isEmpty()) {
+            MediaSubcategory node = mediaSubcategoryMapper.selectOne(
+                    new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<MediaSubcategory>()
+                            .eq("format_id", formatId).eq("name", sub).last("LIMIT 1"));
+            if (node != null) {
+                a.setSubcategoryId(node.getId());
+                a.setSubcategory(node.getName());
+            }
+        }
     }
 
     private long mediaFormatIdOf(String code) {

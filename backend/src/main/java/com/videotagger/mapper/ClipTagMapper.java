@@ -21,4 +21,11 @@ public interface ClipTagMapper extends BaseMapper<ClipTag> {
     @Select("SELECT t.* FROM tag t JOIN clip_tag ct ON ct.tag_id = t.id "
             + "WHERE ct.clip_id = #{clipId} ORDER BY t.id")
     List<Tag> selectTags(@Param("clipId") long clipId);
+
+    /** 标签合并：源引用迁移到目标（INSERT IGNORE 防重复）。 */
+    @Insert("INSERT IGNORE INTO clip_tag(clip_id, tag_id) SELECT clip_id, #{toId} FROM clip_tag WHERE tag_id = #{fromId}")
+    void moveRefs(@Param("fromId") long fromId, @Param("toId") long toId);
+
+    @Delete("DELETE FROM clip_tag WHERE tag_id = #{fromId}")
+    void deleteRefs(@Param("fromId") long fromId);
 }
