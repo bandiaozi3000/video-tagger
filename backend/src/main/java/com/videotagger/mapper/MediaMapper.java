@@ -33,30 +33,45 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "GROUP BY a.id ORDER BY a.id DESC LIMIT #{limit}")
     List<MediaSummary> listSummaries(@Param("limit") int limit);
 
-    /** 最近观看：打过标记即算，按最新标记时间倒序聚合番剧。 */
-    @Select("SELECT a.id, a.title, a.media_format AS mediaFormat, a.subcategory, a.status, a.rating, a.cover_path AS coverPath, a.confirmed,"
+    /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/confirmed/collectionId 筛选。 */
+    @Select("<script>"
+            + "SELECT a.id, a.title, a.media_format AS mediaFormat, a.subcategory, a.status, a.rating, a.cover_path AS coverPath, a.confirmed,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
             + FALLBACK_COVER + " "
             + "FROM media a "
             + "LEFT JOIN episode e ON e.media_id = a.id "
             + "LEFT JOIN clips c ON c.episode_id = e.id "
+            + "<where>"
+            + "<if test='status != null'>a.status = #{status}</if>"
+            + "<if test='confirmed != null'>AND a.confirmed = #{confirmed}</if>"
+            + "<if test='collectionId != null'>AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
+            + "</where>"
             + "GROUP BY a.id HAVING latestAt IS NOT NULL "
-            + "ORDER BY latestAt DESC LIMIT #{limit}")
-    List<MediaSummary> listByLatest(@Param("limit") int limit);
+            + "ORDER BY latestAt DESC LIMIT #{limit}"
+            + "</script>")
+    List<MediaSummary> listByLatest(@Param("limit") int limit, @Param("status") String status,
+                                    @Param("confirmed") Integer confirmed, @Param("collectionId") Long collectionId);
 
     @Select("SELECT COUNT(*) FROM media")
     long countMedia();
 
-    /** 某收藏夹下的番剧列表。 */
-    @Select("SELECT a.id, a.title, a.media_format AS mediaFormat, a.subcategory, a.status, a.rating, a.cover_path AS coverPath, a.confirmed,"
+    /** 某收藏夹下的番剧列表；支持 status/confirmed 筛选。 */
+    @Select("<script>"
+            + "SELECT a.id, a.title, a.media_format AS mediaFormat, a.subcategory, a.status, a.rating, a.cover_path AS coverPath, a.confirmed,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
             + FALLBACK_COVER + " "
             + "FROM media a "
             + "JOIN media_collection ac ON ac.media_id = a.id AND ac.collection_id = #{collectionId} "
             + "LEFT JOIN episode e ON e.media_id = a.id "
             + "LEFT JOIN clips c ON c.episode_id = e.id "
-            + "GROUP BY a.id ORDER BY a.id DESC LIMIT #{limit}")
-    List<MediaSummary> listByCollection(@Param("collectionId") long collectionId, @Param("limit") int limit);
+            + "<where>"
+            + "<if test='status != null'>a.status = #{status}</if>"
+            + "<if test='confirmed != null'>AND a.confirmed = #{confirmed}</if>"
+            + "</where>"
+            + "GROUP BY a.id ORDER BY a.id DESC LIMIT #{limit}"
+            + "</script>")
+    List<MediaSummary> listByCollection(@Param("collectionId") long collectionId, @Param("limit") int limit,
+                                        @Param("status") String status, @Param("confirmed") Integer confirmed);
 
     /** 媒体列表筛选：状态/格式/子分类/待确认 组合，sort=latest 按最近标记倒序。 */
     @Select("<script>"

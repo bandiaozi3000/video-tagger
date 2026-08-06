@@ -55,6 +55,8 @@
             </div>
             <div class="toolbar-actions">
                 <button type="button" id="media-format-manage" class="btn-mini">⚙ 管理格式</button>
+                <button type="button" id="media-batch-del" class="btn-mini danger">批量删除</button>
+                <button type="button" id="media-batch-confirm" class="btn-mini danger" hidden>删除选中(0)</button>
                 <button type="button" id="media-create" class="btn-primary">＋ 新建媒体</button>
             </div>
         </div>
@@ -74,6 +76,7 @@
             <select id="filter-collection">
                 <option value="">收藏夹</option>
             </select>
+            <button type="button" id="collection-create" class="btn-mini" title="新建收藏夹">＋ 新建收藏夹</button>
             <label class="checkbox-inline"><input type="checkbox" id="filter-unconfirmed"> 待确认</label>
         </div>
         <div id="media-status" class="status"></div>
@@ -331,6 +334,43 @@
         <div class="modal-actions">
             <button id="rename-cancel" type="button">取消</button>
             <button id="rename-save" type="button">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 新建收藏夹 -->
+<div id="collection-modal" class="modal-overlay" hidden>
+    <div class="modal">
+        <h2>新建收藏夹</h2>
+        <label>收藏夹名称<input id="collection-name" autocomplete="off" maxlength="50"></label>
+        <div class="modal-actions">
+            <button id="collection-modal-cancel" type="button">取消</button>
+            <button id="collection-modal-save" type="button">创建</button>
+        </div>
+    </div>
+</div>
+
+<!-- 删除媒体确认（单删/批量删除共用） -->
+<div id="batch-del-modal" class="modal-overlay" hidden>
+    <div class="modal">
+        <h2>确认删除</h2>
+        <div class="batch-del-hint">将删除 <b id="batch-del-count">0</b> 个媒体，其下所有集与片段标签一并删除，此操作<em>不可恢复</em>。</div>
+        <ul id="batch-del-list" class="batch-del-list"></ul>
+        <div class="modal-actions">
+            <button id="batch-del-cancel" type="button">取消</button>
+            <button id="batch-del-confirm" type="button" class="danger">确认删除</button>
+        </div>
+    </div>
+</div>
+
+<!-- 通用确认弹窗（替代原生 confirm：删集/删标签/删格式/删子分类/详情页删媒体） -->
+<div id="confirm-modal" class="modal-overlay" hidden>
+    <div class="modal">
+        <h2 id="confirm-modal-title">确认</h2>
+        <div id="confirm-modal-msg" class="confirm-modal-msg"></div>
+        <div class="modal-actions">
+            <button id="confirm-modal-cancel" type="button">取消</button>
+            <button id="confirm-modal-ok" type="button" class="danger">确定</button>
         </div>
     </div>
 </div>

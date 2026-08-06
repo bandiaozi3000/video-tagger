@@ -57,10 +57,10 @@ public class CollectionService {
         mediaCollectionMapper.deleteLink(mediaId, collectionId);
     }
 
-    /** 收藏夹内容（整体浏览）。 */
-    public List<MediaSummary> media(Long collectionId) {
+    /** 收藏夹内容（整体浏览）；支持 status/confirmed 筛选。 */
+    public List<MediaSummary> media(Long collectionId, String status, Integer confirmed) {
         requireCollection(collectionId);
-        return mediaMapper.listByCollection(collectionId, 100);
+        return mediaMapper.listByCollection(collectionId, 100, status, confirmed);
     }
 
     private Collection requireCollection(Long id) {

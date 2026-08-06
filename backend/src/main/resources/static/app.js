@@ -75,6 +75,8 @@ const coverFileInput = document.getElementById('cover-file');
 const renameModal = document.getElementById('rename-modal');
 const renameTitleInput = document.getElementById('rename-title');
 const mergeIntoSelect = document.getElementById('merge-into');
+const collectionModal = document.getElementById('collection-modal');
+const collectionNameInput = document.getElementById('collection-name');
 const episodeTagModal = document.getElementById('episode-tag-modal');
 const episodeTagTargetEl = document.getElementById('episode-tag-target');
 const episodeTagInput = document.getElementById('episode-tag-input');
@@ -128,6 +130,32 @@ let videoCursor = null;   // { latest, fp } 下一页游标
 let pageSize = 20;
 let currentVideo = null;  // { fp, title }
 let mediaMode = 'recent';
+let mediaBatchMode = false; // 批量删除模式
+const mediaSelected = new Set();
+const mediaById = new Map();       // id → 媒体对象（弹确认弹窗时取标题/格式）
+const batchDelModal = document.getElementById('batch-del-modal');
+let batchDelIds = [];              // 当前待确认删除的媒体 id 列表
+const confirmModal = document.getElementById('confirm-modal');
+let confirmModalAction = null;     // 确认后要执行的回调
+
+/** 通用确认弹窗：替代原生 confirm()，风格与页面一致。 */
+function showConfirm({ title = '确认', msg = '', okText = '确定', danger = true, onOk }) {
+    document.getElementById('confirm-modal-title').textContent = title;
+    const msgEl = document.getElementById('confirm-modal-msg');
+    msgEl.textContent = msg;
+    msgEl.title = msg; // 长文本悬停查看全文
+    const ok = document.getElementById('confirm-modal-ok');
+    ok.textContent = okText;
+    ok.classList.toggle('danger', danger);
+    confirmModalAction = onOk;
+    confirmModal.hidden = false;
+}
+
+/** 关闭通用确认弹窗（取消/确认共用）。 */
+function closeConfirmModal() {
+    confirmModal.hidden = true;
+    confirmModalAction = null;
+}
 let mediaFilter = { status: '', format: '', subcategory: '', collectionId: '', unconfirmed: false };
 let currentMedia = null;  // 媒体详情当前对象
 let editingMediaId = null;
@@ -373,12 +401,52 @@ function renderEpisodeDetailHead(ep, media) {
         <div class="ad-info">
             <h2 class="ad-title"></h2>
             <div class="ad-meta"></div>
+            <button type="button" class="btn-mini ep-no-edit-btn">编辑季/集</button>
             ${mediaNav}
         </div>`;
     episodeDetailHeadEl.querySelector('.ad-title').textContent = ep.title || '(未命名)';
     const meta = [no, `${ep.clipCount || 0} 条片段`];
     if (ep.latestAt) meta.push(`最近标记 ${fmtDateTime(ep.latestAt)}`);
-    episodeDetailHeadEl.querySelector('.ad-meta').textContent = meta.join(' · ');
+    const metaEl = episodeDetailHeadEl.querySelector('.ad-meta');
+    metaEl.textContent = meta.join(' · ');
+    // 季/集号内联编辑：保存走 PUT /api/episodes/{id}（season/episodeNo）
+    episodeDetailHeadEl.querySelector('.ep-no-edit-btn').addEventListener('click', () => {
+        const oldNo = metaEl.textContent;
+        const sInput = document.createElement('input');
+        sInput.type = 'number'; sInput.min = '1'; sInput.placeholder = '季';
+        sInput.value = ep.season != null ? ep.season : '';
+        sInput.className = 'no-edit-input';
+        const eInput = document.createElement('input');
+        eInput.type = 'number'; eInput.min = '1'; eInput.placeholder = '集';
+        eInput.value = ep.episodeNo != null ? ep.episodeNo : '';
+        eInput.className = 'no-edit-input';
+        const save = document.createElement('button'); save.type = 'button'; save.className = 'btn-mini'; save.textContent = '保存';
+        const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn-mini'; cancel.textContent = '取消';
+        const wrap = document.createElement('div');
+        wrap.className = 'no-edit';
+        wrap.append('季', sInput, '集', eInput, save, cancel);
+        metaEl.replaceWith(wrap);
+        sInput.focus();
+        cancel.addEventListener('click', () => loadEpisodeDetail(ep.id));
+        save.addEventListener('click', async () => {
+            const body = {};
+            const s = parseInt(sInput.value, 10);
+            const e = parseInt(eInput.value, 10);
+            if (!isNaN(s) && s >= 1) body.season = s;
+            if (!isNaN(e) && e >= 1) body.episodeNo = e;
+            if (body.season == null && body.episodeNo == null) { loadEpisodeDetail(ep.id); return; }
+            try {
+                const resp = await fetch(`/api/episodes/${ep.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                if (resp.ok) { loadEpisodeDetail(ep.id); return; }
+            } catch (err) { }
+            wrap.replaceWith(metaEl);
+            metaEl.textContent = oldNo + '（保存失败）';
+        });
+    });
     episodeDetailHeadEl.querySelector('[data-nav="media"]')?.addEventListener('click', () => openMediaDetail(media.id));
 }
 
@@ -471,18 +539,24 @@ function renderEpisodeDetailTags(ep) {
 }
 
 /** 删除集：级联清理其下片段与封面；集详情页删除后返回，媒体详情行删除后刷新。 */
-async function deleteEpisode(ep) {
+function deleteEpisode(ep) {
     const no = ep.episodeNo != null ? `第${ep.episodeNo}集` : '本集';
-    if (!confirm(`删除${no}？其下所有片段、标签与封面将一并删除！`)) return;
-    try {
-        const resp = await fetch(`/api/episodes/${ep.id}`, { method: 'DELETE' });
-        if (!resp.ok && resp.status !== 204) throw new Error(`HTTP ${resp.status}`);
-        if (activeView() === 'episode-detail') { goBack(); return; }
-        if (activeView() === 'media-detail' && currentMedia) loadMediaDetail(currentMedia.id);
-    } catch (err) {
-        const st = activeView() === 'episode-detail' ? episodeDetailStatusEl : detailStatusEl;
-        st.textContent = '删除失败：后端未响应';
-    }
+    showConfirm({
+        title: `删除${no}`,
+        msg: `删除${no}？其下所有片段、标签与封面将一并删除！`,
+        okText: '删除',
+        onOk: async () => {
+            try {
+                const resp = await fetch(`/api/episodes/${ep.id}`, { method: 'DELETE' });
+                if (!resp.ok && resp.status !== 204) throw new Error(`HTTP ${resp.status}`);
+                if (activeView() === 'episode-detail') { goBack(); return; }
+                if (activeView() === 'media-detail' && currentMedia) loadMediaDetail(currentMedia.id);
+            } catch (err) {
+                const st = activeView() === 'episode-detail' ? episodeDetailStatusEl : detailStatusEl;
+                st.textContent = '删除失败：后端未响应';
+            }
+        }
+    });
 }
 
 // ---------- 搜索 ----------
@@ -896,16 +970,23 @@ async function saveEdit() {
     }
 }
 
-async function confirmDelete(r) {
-    if (!confirm(`删除这条标签？\n${r.title} · ${r.timestampSec != null ? fmtTime(r.timestampSec) : ''} · ${r.tag || ''}`)) return;
-    try {
-        const resp = await fetch(`/api/clips/${r.id}`, { method: 'DELETE' });
-        if (!resp.ok && resp.status !== 204) throw new Error(`HTTP ${resp.status}`);
-        if (activeView() === 'clip-detail') { goBack(); return; } // 详情页删除后返回
-        refreshCurrentView();
-    } catch (err) {
-        statusEl.textContent = '删除失败：后端未响应';
-    }
+function confirmDelete(r) {
+    const desc = `${r.title} · ${r.timestampSec != null ? fmtTime(r.timestampSec) : ''} · ${r.tag || ''}`;
+    showConfirm({
+        title: '删除这条标签',
+        msg: `删除这条标签？\n${desc}`,
+        okText: '删除',
+        onOk: async () => {
+            try {
+                const resp = await fetch(`/api/clips/${r.id}`, { method: 'DELETE' });
+                if (!resp.ok && resp.status !== 204) throw new Error(`HTTP ${resp.status}`);
+                if (activeView() === 'clip-detail') { goBack(); return; } // 详情页删除后返回
+                refreshCurrentView();
+            } catch (err) {
+                statusEl.textContent = '删除失败：后端未响应';
+            }
+        }
+    });
 }
 
 function refreshCurrentView() {
@@ -954,21 +1035,28 @@ async function loadMedia() {
     try {
         let url;
         if (mediaFilter.collectionId && mediaMode !== 'recent') {
-            url = `/api/collections/${mediaFilter.collectionId}/media`;
+            const params = new URLSearchParams();
+            if (mediaFilter.status) params.set('status', mediaFilter.status);
+            if (mediaFilter.unconfirmed) params.set('confirmed', '0');
+            url = `/api/collections/${mediaFilter.collectionId}/media?${params.toString()}`;
         } else if (mediaMode === 'recent') {
-            url = '/api/media/recent?limit=100';
+            const params = new URLSearchParams({ limit: '100' });
+            if (mediaFilter.collectionId) params.set('collectionId', mediaFilter.collectionId);
+            if (mediaFilter.status) params.set('status', mediaFilter.status);
+            if (mediaFilter.unconfirmed) params.set('confirmed', '0');
+            url = `/api/media/recent?${params.toString()}`;
         } else {
             const params = new URLSearchParams({ limit: '100' });
             if (mediaFilter.status) params.set('status', mediaFilter.status);
             if (mediaFilter.format) params.set('format', mediaFilter.format);
             if (mediaFilter.subcategory) params.set('subcategory', mediaFilter.subcategory);
             if (mediaFilter.unconfirmed) params.set('confirmed', '0');
-            url = `/api/media?${params}`;
+            url = `/api/media?${params.toString()}`;
         }
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         let list = await resp.json();
-        // 格式/子分类过滤兜底：recent 与收藏夹分支不走后端过滤参数，客户端统一过滤（数据量小）
+        // 格式/子分类过滤兜底：recent 与收藏夹分支后端只过滤 status/confirmed，format/subcategory 客户端统一过滤（数据量小）
         if (mediaFilter.format || mediaFilter.subcategory) {
             list = list.filter(m =>
                 (!mediaFilter.format || (m.mediaFormat || '') === mediaFilter.format) &&
@@ -998,6 +1086,32 @@ async function fillFilterCollections() {
         }
         filterCollectionEl.value = cur;
     } catch (e) { /* 忽略 */ }
+}
+
+/** 媒体栏工具栏：新建收藏夹（modal 输入 → 创建后选中新收藏夹并刷新列表）。 */
+function createCollectionFromToolbar() {
+    collectionNameInput.value = '';
+    collectionModal.hidden = false;
+    collectionNameInput.focus();
+}
+
+async function saveCollectionFromModal() {
+    const name = collectionNameInput.value.trim();
+    if (!name) { collectionNameInput.focus(); return; }
+    try {
+        const resp = await fetch('/api/collections', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        if (!resp.ok) { alert('创建失败'); return; }
+        const c = await resp.json();
+        collectionModal.hidden = true;
+        await fillFilterCollections();
+        filterCollectionEl.value = String(c.id);
+        mediaFilter.collectionId = String(c.id);
+        loadMedia();
+    } catch (err) { alert('创建失败：后端未响应'); }
 }
 
 async function renderDetailCollections(d) {
@@ -1051,8 +1165,9 @@ async function renderDetailCollections(d) {
 
 function renderMediaGrid(list) {
     for (const a of list) {
+        mediaById.set(a.id, a);
         const card = document.createElement('div');
-        card.className = 'media-card';
+        card.className = 'media-card' + (mediaBatchMode ? ' batch-mode' : '') + (mediaSelected.has(a.id) ? ' selected' : '');
         const cover = (a.coverPath || a.fallbackCoverPath)
             ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" onerror="this.style.display='none'">`
             : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
@@ -1060,7 +1175,10 @@ function renderMediaGrid(list) {
             ? `<span class="media-format-badge fmt-${esc(a.mediaFormat)}">${esc(formatName(a.mediaFormat))}</span>`
             : '';
         card.innerHTML = `
-            <div class="media-cover">${fmtBadge}${cover}</div>
+            <div class="media-cover">${fmtBadge}${cover}
+                <input type="checkbox" class="media-batch-cb" ${mediaBatchMode ? '' : 'hidden'} ${mediaSelected.has(a.id) ? 'checked' : ''}>
+                <button type="button" class="media-del-btn" title="删除媒体">×</button>
+            </div>
             <div class="media-card-body">
                 <div class="media-card-title"></div>
                 <div class="media-card-meta"></div>
@@ -1080,9 +1198,92 @@ function renderMediaGrid(list) {
             b.textContent = '待确认';
             badges.appendChild(b);
         }
-        card.addEventListener('click', () => openMediaDetail(a.id));
+        // 批量勾选（click stopPropagation：避免冒泡到 card click 导致批量模式下二次 toggle 把勾选取消）
+        const cb = card.querySelector('.media-batch-cb');
+        cb.addEventListener('click', (e) => e.stopPropagation());
+        cb.addEventListener('change', () => {
+            if (cb.checked) { mediaSelected.add(a.id); card.classList.add('selected'); }
+            else { mediaSelected.delete(a.id); card.classList.remove('selected'); }
+            updateMediaBatchConfirm();
+        });
+        // 单卡片删除（详情页外的新入口）
+        card.querySelector('.media-del-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            openBatchDelModal([a.id]);
+        });
+        card.addEventListener('click', () => {
+            if (mediaBatchMode) { // 批量模式下点卡片=切换勾选
+                cb.checked = !cb.checked;
+                cb.dispatchEvent(new Event('change'));
+                return;
+            }
+            openMediaDetail(a.id);
+        });
         mediaGridEl.appendChild(card);
     }
+}
+
+/** 批量删除模式：工具栏按钮切换 + 删除选中。 */
+function updateMediaBatchConfirm() {
+    const btn = document.getElementById('media-batch-confirm');
+    btn.textContent = `删除选中(${mediaSelected.size})`;
+    btn.hidden = !mediaBatchMode;
+}
+
+function toggleMediaBatchMode() {
+    mediaBatchMode = !mediaBatchMode;
+    mediaSelected.clear();
+    document.getElementById('media-batch-del').textContent = mediaBatchMode ? '取消批量' : '批量删除';
+    updateMediaBatchConfirm();
+    loadMedia(); // 重渲染以显示/隐藏勾选框
+}
+
+/** 打开删除确认弹窗（单删 ids=[id] / 批量 ids=mediaSelected）。 */
+function openBatchDelModal(ids) {
+    if (!ids || ids.length === 0) return;
+    batchDelIds = ids;
+    const names = ids.map(id => {
+        const m = mediaById.get(id);
+        return { title: m ? m.title : `#${id}`, fmt: m && m.mediaFormat ? formatName(m.mediaFormat) : '' };
+    });
+    document.getElementById('batch-del-count').textContent = names.length;
+    const ul = document.getElementById('batch-del-list');
+    ul.innerHTML = '';
+    for (const n of names) {
+        const li = document.createElement('li');
+        const t = document.createElement('span');
+        t.className = 'title';
+        t.textContent = n.title;
+        li.appendChild(t);
+        if (n.fmt) {
+            const f = document.createElement('span');
+            f.className = 'fmt';
+            f.textContent = n.fmt;
+            li.appendChild(f);
+        }
+        ul.appendChild(li);
+    }
+    batchDelModal.hidden = false;
+}
+
+/** 确认删除：调批量端点（单删 ids 也走同一端点）。 */
+async function confirmBatchDelete() {
+    if (batchDelIds.length === 0) return;
+    const ids = batchDelIds;
+    try {
+        await fetch(`/api/media?ids=${ids.join(',')}`, { method: 'DELETE' });
+    } catch (err) { }
+    batchDelModal.hidden = true;
+    batchDelIds = [];
+    if (mediaBatchMode) { // 来自批量模式：退出
+        mediaBatchMode = false;
+        mediaSelected.clear();
+        document.getElementById('media-batch-del').textContent = '批量删除';
+        updateMediaBatchConfirm();
+    } else { // 来自单卡片删除：仅移除已删 id
+        ids.forEach(id => mediaSelected.delete(id));
+    }
+    loadMedia();
 }
 
 /** 导航入口：入栈再加载媒体详情。 */
@@ -1345,16 +1546,22 @@ function renderFormatManager() {
             fmSelectedFormatId = f.id;
             renderFormatManager();
         });
-        item.querySelector('.fm-del').addEventListener('click', async (e) => {
+        item.querySelector('.fm-del').addEventListener('click', (e) => {
             e.stopPropagation();
-            if (!confirm(`删除格式「${f.name}」？其子分类一并删除，格式下有媒体时会被拒绝。`)) return;
-            try {
-                const resp = await fetch(`/api/media-formats/${f.id}`, { method: 'DELETE' });
-                if (!resp.ok) { fmStatusEl.textContent = '删除失败：格式下存在媒体'; return; }
-                await loadFormats();
-                fmSelectedFormatId = formatsCache.length ? formatsCache[0].id : null;
-                renderFormatManager();
-            } catch (err) { fmStatusEl.textContent = '删除失败'; }
+            showConfirm({
+                title: `删除格式「${f.name}」`,
+                msg: `删除格式「${f.name}」？其子分类一并删除，格式下有媒体时会被拒绝。`,
+                okText: '删除',
+                onOk: async () => {
+                    try {
+                        const resp = await fetch(`/api/media-formats/${f.id}`, { method: 'DELETE' });
+                        if (!resp.ok) { fmStatusEl.textContent = '删除失败：格式下存在媒体'; return; }
+                        await loadFormats();
+                        fmSelectedFormatId = formatsCache.length ? formatsCache[0].id : null;
+                        renderFormatManager();
+                    } catch (err) { fmStatusEl.textContent = '删除失败'; }
+                }
+            });
         });
         fmFormatsEl.appendChild(item);
     }
@@ -1374,14 +1581,20 @@ function renderFmSubs() {
             + `<button type="button" class="fm-del" title="删除子分类">×</button>`;
         row.querySelector('span').textContent = s.name;
         row.querySelector('.fm-sub-count').textContent = `${s.mediaCount || 0} 个媒体`;
-        row.querySelector('.fm-del').addEventListener('click', async () => {
-            if (!confirm(`删除子分类「${s.name}」？`)) return;
-            try {
-                const resp = await fetch(`/api/media-formats/subcategories/${s.id}`, { method: 'DELETE' });
-                if (!resp.ok) { fmStatusEl.textContent = '删除失败：该子分类下存在媒体'; return; }
-                await loadFormats();
-                renderFormatManager();
-            } catch (err) { fmStatusEl.textContent = '删除失败'; }
+        row.querySelector('.fm-del').addEventListener('click', () => {
+            showConfirm({
+                title: `删除子分类「${s.name}」`,
+                msg: `删除子分类「${s.name}」？`,
+                okText: '删除',
+                onOk: async () => {
+                    try {
+                        const resp = await fetch(`/api/media-formats/subcategories/${s.id}`, { method: 'DELETE' });
+                        if (!resp.ok) { fmStatusEl.textContent = '删除失败：该子分类下存在媒体'; return; }
+                        await loadFormats();
+                        renderFormatManager();
+                    } catch (err) { fmStatusEl.textContent = '删除失败'; }
+                }
+            });
         });
         fmSubListEl.appendChild(row);
     }
@@ -1429,69 +1642,105 @@ function renderEpisodeList(eps) {
         episodeListEl.innerHTML = '<div class="status">该媒体还没有集，去看片按 Alt+S 打标记会自动创建</div>';
         return;
     }
+    // 按季分组：season 非空按季排序；season 为空归「未识别」组（高亮提示编辑）
+    const groups = new Map();
+    const unknown = [];
     for (const ep of eps) {
-        const row = document.createElement('div');
-        row.className = 'episode-row';
-        const no = ep.episodeNo != null
-            ? (ep.season != null ? `${ep.season}-${ep.episodeNo}` : `第${ep.episodeNo}集`)
-            : (ep.season != null ? `S${ep.season}` : '?');
-        const coverHtml = ep.coverPath
-            ? `<div class="ep-cover"><img src="${ep.coverPath}" alt="" loading="lazy" onerror="this.parentElement.classList.add('broken')"></div>`
-            : `<div class="ep-cover ep-cover-empty">◇</div>`;
-        row.innerHTML = `
-            <div class="ep-no"></div>
-            ${coverHtml}
-            <div class="ep-main">
-                <div class="ep-title"></div>
-                <div class="ep-meta"></div>
-                <div class="ep-tags"></div>
-            </div>
-            <div class="ep-actions">
-                <button type="button" class="btn-mini ep-cover-btn">封面</button>
-                <button type="button" class="btn-mini ep-tag-btn">打标签</button>
-                <button type="button" class="btn-mini ep-time-btn">时间线</button>
-                <button type="button" class="btn-mini danger ep-del-btn">删除</button>
-            </div>`;
-        row.querySelector('.ep-no').textContent = no;
-        row.querySelector('.ep-title').textContent = ep.title || '(未命名)';
-        row.querySelector('.ep-meta').textContent = `${ep.clipCount || 0} 条片段`
-            + (ep.latestAt ? ` · 最近标记 ${fmtDateTime(ep.latestAt)}` : '');
-        const tagsEl = row.querySelector('.ep-tags');
-        for (const t of (ep.tags || [])) {
-            const chip = document.createElement('span');
-            chip.className = 'ep-tag-chip';
-            chip.textContent = t.name;
-            const rm = document.createElement('span');
-            rm.className = 'chip-remove';
-            rm.textContent = '×';
-            rm.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                await fetch(`/api/episodes/${ep.id}/tags/${t.id}`, { method: 'DELETE' });
-                refreshMediaDetail();
-            });
-            chip.appendChild(rm);
-            tagsEl.appendChild(chip);
+        if (ep.season != null) {
+            if (!groups.has(ep.season)) groups.set(ep.season, []);
+            groups.get(ep.season).push(ep);
+        } else {
+            unknown.push(ep);
         }
-        row.querySelector('.ep-tag-btn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            openEpisodeTagModal(ep);
-        });
-        row.querySelector('.ep-cover-btn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            openEpisodeCoverModal(ep);
-        });
-        row.querySelector('.ep-time-btn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            fromMediaDetail = true;
-            openTimeline({ fp: ep.videoFp, title: (currentMedia.title || '') + (no !== '?' ? ` · ${no}` : '') });
-        });
-        row.querySelector('.ep-del-btn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            deleteEpisode(ep);
-        });
-        row.addEventListener('click', () => openEpisodeDetail(ep.id)); // 点集行进集详情
-        episodeListEl.appendChild(row);
     }
+    for (const season of [...groups.keys()].sort((a, b) => a - b)) {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'episode-group';
+        const head = document.createElement('div');
+        head.className = 'episode-group-head';
+        head.textContent = `第 ${season} 季`;
+        groupEl.appendChild(head);
+        const listEl = document.createElement('div');
+        listEl.className = 'episode-group-list';
+        for (const ep of groups.get(season)) listEl.appendChild(buildEpisodeRow(ep, false));
+        groupEl.appendChild(listEl);
+        episodeListEl.appendChild(groupEl);
+    }
+    if (unknown.length > 0) {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'episode-group unknown';
+        const head = document.createElement('div');
+        head.className = 'episode-group-head';
+        head.innerHTML = '未识别季/集 <span class="ep-unknown-tip">季/集号未识别，点击集进详情「编辑季/集」修正</span>';
+        groupEl.appendChild(head);
+        const listEl = document.createElement('div');
+        listEl.className = 'episode-group-list';
+        for (const ep of unknown) listEl.appendChild(buildEpisodeRow(ep, true));
+        groupEl.appendChild(listEl);
+        episodeListEl.appendChild(groupEl);
+    }
+}
+
+function buildEpisodeRow(ep, unknown) {
+    const row = document.createElement('div');
+    row.className = 'episode-row' + (unknown ? ' ep-unknown' : '');
+    const no = unknown ? '？' : (ep.episodeNo != null ? `第${ep.episodeNo}集` : '?');
+    const coverHtml = ep.coverPath
+        ? `<div class="ep-cover"><img src="${ep.coverPath}" alt="" loading="lazy" onerror="this.parentElement.classList.add('broken')"></div>`
+        : `<div class="ep-cover ep-cover-empty">◇</div>`;
+    row.innerHTML = `
+        <div class="ep-no"></div>
+        ${coverHtml}
+        <div class="ep-main">
+            <div class="ep-title"></div>
+            <div class="ep-meta"></div>
+            <div class="ep-tags"></div>
+        </div>
+        <div class="ep-actions">
+            <button type="button" class="btn-mini ep-cover-btn">封面</button>
+            <button type="button" class="btn-mini ep-tag-btn">打标签</button>
+            <button type="button" class="btn-mini ep-time-btn">时间线</button>
+            <button type="button" class="btn-mini danger ep-del-btn">删除</button>
+        </div>`;
+    row.querySelector('.ep-no').textContent = no;
+    row.querySelector('.ep-title').textContent = ep.title || '(未命名)';
+    row.querySelector('.ep-meta').textContent = `${ep.clipCount || 0} 条片段`
+        + (ep.latestAt ? ` · 最近标记 ${fmtDateTime(ep.latestAt)}` : '');
+    const tagsEl = row.querySelector('.ep-tags');
+    for (const t of (ep.tags || [])) {
+        const chip = document.createElement('span');
+        chip.className = 'ep-tag-chip';
+        chip.textContent = t.name;
+        const rm = document.createElement('span');
+        rm.className = 'chip-remove';
+        rm.textContent = '×';
+        rm.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await fetch(`/api/episodes/${ep.id}/tags/${t.id}`, { method: 'DELETE' });
+            refreshMediaDetail();
+        });
+        chip.appendChild(rm);
+        tagsEl.appendChild(chip);
+    }
+    row.querySelector('.ep-tag-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openEpisodeTagModal(ep);
+    });
+    row.querySelector('.ep-cover-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openEpisodeCoverModal(ep);
+    });
+    row.querySelector('.ep-time-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        fromMediaDetail = true;
+        openTimeline({ fp: ep.videoFp, title: (currentMedia.title || '') + (unknown ? ' · 未识别' : ` · 第${ep.episodeNo}集`) });
+    });
+    row.querySelector('.ep-del-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteEpisode(ep);
+    });
+    row.addEventListener('click', () => openEpisodeDetail(ep.id)); // 点集行进集详情
+    return row;
 }
 
 function openEpisodeTagModal(ep) {
@@ -1702,11 +1951,17 @@ async function saveRename() {
     }
 }
 
-async function deleteMedia() {
+function deleteMedia() {
     if (!currentMedia) return;
-    if (!confirm(`删除媒体「${currentMedia.title}」？其下所有集与片段标签将一并删除！`)) return;
-    await fetch(`/api/media/${currentMedia.id}`, { method: 'DELETE' });
-    showView('media');
+    showConfirm({
+        title: `删除媒体「${currentMedia.title}」`,
+        msg: `删除媒体「${currentMedia.title}」？其下所有集与片段标签将一并删除！`,
+        okText: '删除',
+        onOk: async () => {
+            await fetch(`/api/media/${currentMedia.id}`, { method: 'DELETE' });
+            showView('media');
+        }
+    });
 }
 
 // ---------- 相似片段 ----------
@@ -1909,6 +2164,21 @@ document.querySelectorAll('.media-tabs .atab').forEach(btn => {
     });
 });
 document.getElementById('media-create').addEventListener('click', openCreateMedia);
+document.getElementById('media-batch-del').addEventListener('click', toggleMediaBatchMode);
+document.getElementById('media-batch-confirm').addEventListener('click', () => openBatchDelModal([...mediaSelected]));
+document.getElementById('batch-del-cancel').addEventListener('click', () => { batchDelModal.hidden = true; batchDelIds = []; });
+document.getElementById('batch-del-confirm').addEventListener('click', confirmBatchDelete);
+document.getElementById('confirm-modal-cancel').addEventListener('click', closeConfirmModal);
+document.getElementById('confirm-modal-ok').addEventListener('click', () => {
+    const fn = confirmModalAction;
+    closeConfirmModal();
+    if (fn) fn();
+});
+document.getElementById('collection-create').addEventListener('click', createCollectionFromToolbar);
+document.getElementById('collection-modal-cancel').addEventListener('click', () => { collectionModal.hidden = true; });
+document.getElementById('collection-modal-save').addEventListener('click', saveCollectionFromModal);
+collectionModal.addEventListener('click', (e) => { if (e.target === collectionModal) collectionModal.hidden = true; });
+collectionNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveCollectionFromModal(); });
 mediaFormatManageBtn.addEventListener('click', openMediaFormatModal);
 document.getElementById('back-to-media').addEventListener('click', goBack);
 document.getElementById('detail-edit').addEventListener('click', openEditMedia);

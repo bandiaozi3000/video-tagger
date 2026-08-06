@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -43,8 +44,10 @@ public class CollectionController {
     }
 
     @GetMapping("/{id}/media")
-    public List<MediaSummary> media(@PathVariable Long id) {
-        return collectionService.media(id);
+    public List<MediaSummary> media(@PathVariable Long id,
+                                    @RequestParam(required = false) String status,
+                                    @RequestParam(required = false) Integer confirmed) {
+        return collectionService.media(id, status, confirmed);
     }
 
     @PostMapping("/{id}/media")

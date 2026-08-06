@@ -39,17 +39,30 @@ public class EpisodeService {
         this.clipTagMapper = clipTagMapper;
     }
 
-    /** 更新集备注：变更后入队重嵌（备注参与向量检索）。 */
+    /** 更新集信息：备注/季/集号。字段传 null 表示不改；note 传空串表示清空；变更后入队重嵌。 */
     @Transactional
-    public void updateNote(Long id, String note) {
+    public void update(Long id, String note, Integer season, Integer episodeNo) {
         Episode ep = requireEpisode(id);
-        String trimmed = note == null ? "" : note.trim();
-        if (trimmed.equals(ep.getNote() == null ? "" : ep.getNote())) {
-            return; // 无变更不落库、不入队
+        boolean changed = false;
+        if (note != null) {
+            String trimmed = note.trim();
+            if (!trimmed.equals(ep.getNote() == null ? "" : ep.getNote())) {
+                ep.setNote(trimmed);
+                changed = true;
+            }
         }
-        ep.setNote(trimmed);
-        episodeMapper.updateById(ep);
-        embeddingTaskService.enqueue(EntityType.EPISODE, id);
+        if (season != null && !season.equals(ep.getSeason())) {
+            ep.setSeason(season);
+            changed = true;
+        }
+        if (episodeNo != null && !episodeNo.equals(ep.getEpisodeNo())) {
+            ep.setEpisodeNo(episodeNo);
+            changed = true;
+        }
+        if (changed) {
+            episodeMapper.updateById(ep);
+            embeddingTaskService.enqueue(EntityType.EPISODE, id);
+        }
     }
 
     public void addTag(Long episodeId, String tagName) {

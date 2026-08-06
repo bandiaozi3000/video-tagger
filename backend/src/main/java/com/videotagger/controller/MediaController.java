@@ -52,8 +52,11 @@ public class MediaController {
     }
 
     @GetMapping("/recent")
-    public List<MediaSummary> recent(@RequestParam(defaultValue = "20") int limit) {
-        return mediaService.recent(limit);
+    public List<MediaSummary> recent(@RequestParam(defaultValue = "20") int limit,
+                                     @RequestParam(required = false) String status,
+                                     @RequestParam(required = false) Integer confirmed,
+                                     @RequestParam(required = false) Long collectionId) {
+        return mediaService.recent(limit, status, confirmed, collectionId);
     }
 
     @GetMapping("/{id}")
@@ -69,6 +72,12 @@ public class MediaController {
     @PutMapping("/{id}")
     public Media update(@PathVariable Long id, @Valid @RequestBody MediaRequest req) {
         return mediaService.update(id, req);
+    }
+
+    @DeleteMapping
+    public ResponseEntity<Void> deleteBatch(@RequestParam List<Long> ids) {
+        mediaService.deleteBatch(ids);
+        return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{id}")

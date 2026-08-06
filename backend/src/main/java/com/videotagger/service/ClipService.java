@@ -256,7 +256,7 @@ public class ClipService {
         if (ep == null) {
             ep = new Episode();
             ep.setMediaId(mediaId);
-            ep.setSeason(parsed.season());
+            ep.setSeason(parsed.season());   // 解析不到保持 null，前端「未识别」分组高亮提示编辑
             ep.setEpisodeNo(parsed.episodeNo());
             ep.setTitle(req.title());
             ep.setUrl(req.url());

@@ -67,9 +67,9 @@ public class MediaService {
                 Math.min(Math.max(limit, 1), 100));
     }
 
-    /** 最近观看：打过标记即算，按最新标记时间倒序。 */
-    public List<MediaSummary> recent(int limit) {
-        return mediaMapper.listByLatest(Math.min(Math.max(limit, 1), 100));
+    /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/confirmed/collectionId 筛选。 */
+    public List<MediaSummary> recent(int limit, String status, Integer confirmed, Long collectionId) {
+        return mediaMapper.listByLatest(Math.min(Math.max(limit, 1), 100), status, confirmed, collectionId);
     }
 
     public MediaDetail get(Long id) {
@@ -170,6 +170,14 @@ public class MediaService {
         mediaCollectionMapper.deleteByMedia(id);
         embeddingTaskService.deleteFor(EntityType.MEDIA, a.getId());
         mediaMapper.deleteById(a.getId());
+    }
+
+    /** 批量删除媒体（级联清理同上）。单个失败中断回滚。 */
+    @Transactional
+    public void deleteBatch(List<Long> ids) {
+        for (Long id : ids) {
+            delete(id);
+        }
     }
 
     /** 某番剧的集列表（带片段数/集级标签）；封面解析：显式集封面为空时落到代表性片段帧。 */

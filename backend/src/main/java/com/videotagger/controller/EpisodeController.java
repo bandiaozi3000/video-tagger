@@ -43,10 +43,10 @@ public class EpisodeController {
         return ResponseEntity.noContent().build();
     }
 
-    /** 更新集信息（当前仅备注）。 */
+    /** 更新集信息（备注/季/集号；字段传 null 不改）。 */
     @PutMapping("/{id}")
     public ResponseEntity<Void> update(@PathVariable Long id, @RequestBody EpisodeUpdateRequest req) {
-        episodeService.updateNote(id, req.note());
+        episodeService.update(id, req.note(), req.season(), req.episodeNo());
         return ResponseEntity.noContent().build();
     }
 
