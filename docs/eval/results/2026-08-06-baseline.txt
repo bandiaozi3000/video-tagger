@@ -1,0 +1,292 @@
+====================================================================================================
+语义检索质量评估报告
+数据源: http://localhost:8080    K=10    golden 条目: 51（正常 45 / 负样本 6）
+semanticEnabled 全为 true: 是
+----------------------------------------------------------------------------------------------------
+汇总指标:
+  Recall@10（正常条目平均）  : 73.3%
+  MRR（正常条目平均）        : 0.722
+  空返回正确率（负样本）     : 100.0%  (6/6)
+----------------------------------------------------------------------------------------------------
+逐条明细:
+
+[PASS] 字面/标签命中 | 宇宙 (mixed)
+  期望: 宇宙    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:【4K】英雄时代_哔哩哔哩_bilibili #宇宙 [英雄时代]
+
+[PASS] 字面/标签命中 | 可爱杉浦 (mixed)
+  期望: 可爱杉浦    返回: 3 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:13_哔哩哔哩_bilibili #乱马可爱 [乱马1/2]
+
+[PASS] 字面/标签命中 | 乱马可爱 (mixed)
+  期望: 乱马可爱    返回: 3 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:13_哔哩哔哩_bilibili #乱马可爱 [乱马1/2]
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+
+[PASS] 字面/标签命中 | 谢尔顿狼狈时刻 (mixed)
+  期望: 谢尔顿狼狈时刻    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:生活大爆炸 第八季第1集-电视剧-全集-高清正版在线观看 #谢尔顿狼狈时刻 [生活大爆炸 -电视剧-全集-高清]
+
+[PASS] 字面/标签命中 | 可爱 (mixed)
+  期望: 可爱杉浦 / 乱马可爱    返回: 3 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:13_哔哩哔哩_bilibili #乱马可爱 [乱马1/2]
+
+[PASS] 字面/标签命中 | 狼狈 (mixed)
+  期望: 谢尔顿狼狈时刻    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:生活大爆炸 第八季第1集-电视剧-全集-高清正版在线观看 #谢尔顿狼狈时刻 [生活大爆炸 -电视剧-全集-高清]
+
+[PASS] 字面/标签命中 | 杉浦 (mixed)
+  期望: 可爱杉浦    返回: 3 条 | recall=100% mrr=0.50
+  top5:
+        EPISODE:12_哔哩哔哩_bilibili [乱马1/2]
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+
+[PASS] 字面/标签命中 | 乱马 (mixed)
+  期望: 乱马可爱    返回: 2 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:13_哔哩哔哩_bilibili #乱马可爱 [乱马1/2]
+        MEDIA:乱马1/2
+
+[PASS] 字面/标签命中 | 宇宙 (clip)
+  期望: 宇宙    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:【4K】英雄时代_哔哩哔哩_bilibili #宇宙 [英雄时代]
+
+[PASS] 字面/标签命中 | 可爱杉浦 (clip)
+  期望: 可爱杉浦    返回: 3 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:13_哔哩哔哩_bilibili #乱马可爱 [乱马1/2]
+
+[PASS] 近义/语义召回 | 太空 (mixed)
+  期望: 宇宙    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:【4K】英雄时代_哔哩哔哩_bilibili #宇宙 [英雄时代]
+
+[PASS] 近义/语义召回 | 星空 (mixed)
+  期望: 宇宙    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:【4K】英雄时代_哔哩哔哩_bilibili #宇宙 [英雄时代]
+
+[FAIL] 近义/语义召回 | 萌 (mixed)
+  期望: 可爱杉浦 / 乱马可爱    返回: 0 条 | recall=0% mrr=0.00
+  top5:
+        (空)
+
+[FAIL] 近义/语义召回 | 治愈 (mixed)
+  期望: 可爱杉浦 / 乱马可爱    返回: 0 条 | recall=0% mrr=0.00
+  top5:
+        (空)
+
+[FAIL] 近义/语义召回 | 出丑 (mixed)
+  期望: 谢尔顿狼狈时刻    返回: 0 条 | recall=0% mrr=0.00
+  top5:
+        (空)
+
+[FAIL] 近义/语义召回 | 搞笑 (mixed)
+  期望: 谢尔顿狼狈时刻    返回: 0 条 | recall=0% mrr=0.00
+  top5:
+        (空)
+
+[FAIL] 近义/语义召回 | 尴尬 (mixed)
+  期望: 谢尔顿狼狈时刻    返回: 0 条 | recall=0% mrr=0.00
+  top5:
+        (空)
+
+[FAIL] 近义/语义召回 | 哭 (mixed)
+  期望: 可爱杉浦    返回: 1 条 | recall=0% mrr=0.00
+  top5:
+        EPISODE:12_哔哩哔哩_bilibili [乱马1/2]
+
+[PASS] 近义/语义召回 | 宇宙空间 (mixed)
+  期望: 宇宙    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:【4K】英雄时代_哔哩哔哩_bilibili #宇宙 [英雄时代]
+
+[FAIL] 近义/语义召回 | 坏笑 (mixed)
+  期望: 谢尔顿狼狈时刻    返回: 0 条 | recall=0% mrr=0.00
+  top5:
+        (空)
+
+[PASS] 近义/语义召回 | 小可爱 (mixed)
+  期望: 可爱杉浦    返回: 3 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:13_哔哩哔哩_bilibili #乱马可爱 [乱马1/2]
+
+[FAIL] 近义/语义召回 | 丢脸 (mixed)
+  期望: 谢尔顿狼狈时刻    返回: 0 条 | recall=0% mrr=0.00
+  top5:
+        (空)
+
+[PASS] 描述性查询 | 谢尔顿狼狈的时刻 (mixed)
+  期望: 谢尔顿狼狈时刻    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:生活大爆炸 第八季第1集-电视剧-全集-高清正版在线观看 #谢尔顿狼狈时刻 [生活大爆炸 -电视剧-全集-高清]
+
+[FAIL] 描述性查询 | 男主角出糗的片段 (mixed)
+  期望: 谢尔顿狼狈时刻    返回: 0 条 | recall=0% mrr=0.00
+  top5:
+        (空)
+
+[PASS] 描述性查询 | 可爱到哭的角色 (mixed)
+  期望: 可爱杉浦 / 乱马可爱    返回: 3 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:13_哔哩哔哩_bilibili #乱马可爱 [乱马1/2]
+
+[PASS] 描述性查询 | 太空里的画面 (mixed)
+  期望: 宇宙    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:【4K】英雄时代_哔哩哔哩_bilibili #宇宙 [英雄时代]
+
+[PASS] 描述性查询 | 哭唧唧可爱的瞬间 (mixed)
+  期望: 可爱杉浦    返回: 3 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:13_哔哩哔哩_bilibili #乱马可爱 [乱马1/2]
+
+[FAIL] 描述性查询 | 尴尬名场面 (mixed)
+  期望: 谢尔顿狼狈时刻    返回: 0 条 | recall=0% mrr=0.00
+  top5:
+        (空)
+
+[FAIL] 描述性查询 | 好笑的片段 (mixed)
+  期望: 谢尔顿狼狈时刻    返回: 0 条 | recall=0% mrr=0.00
+  top5:
+        (空)
+
+[PASS] 描述性查询 | 宇宙中的镜头 (mixed)
+  期望: 宇宙    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:【4K】英雄时代_哔哩哔哩_bilibili #宇宙 [英雄时代]
+
+[PASS] 媒体级 | 英雄时代 (mixed)
+  期望: 英雄时代    返回: 3 条 | recall=100% mrr=1.00
+  top5:
+        EPISODE:【4K】英雄时代_哔哩哔哩_bilibili [英雄时代]
+        MEDIA:英雄时代
+        CLIP:【4K】英雄时代_哔哩哔哩_bilibili #宇宙 [英雄时代]
+
+[PASS] 媒体级 | 乱马1/2 (mixed)
+  期望: 乱马1/2 / 乱马可爱    返回: 2 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:13_哔哩哔哩_bilibili #乱马可爱 [乱马1/2]
+        MEDIA:乱马1/2
+
+[PASS] 媒体级 | 生活大爆炸 (mixed)
+  期望: 生活大爆炸    返回: 4 条 | recall=100% mrr=1.00
+  top5:
+        EPISODE:生活大爆炸 第八季第1集-电视剧-全集-高清正版在线观看 [生活大爆炸 -电视剧-全集-高清]
+        CLIP:【4K】英雄时代_哔哩哔哩_bilibili #宇宙 [英雄时代]
+        MEDIA:生活大爆炸 -电视剧-全集-高清正版在线观看-bilib
+        CLIP:生活大爆炸 第八季第1集-电视剧-全集-高清正版在线观看 #谢尔顿狼狈时刻 [生活大爆炸 -电视剧-全集-高清]
+
+[PASS] 媒体级 | 英雄时代 (media)
+  期望: 英雄时代    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        MEDIA:英雄时代
+
+[PASS] 媒体级 | 乱马1/2 (media)
+  期望: 乱马1/2    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        MEDIA:乱马1/2
+
+[PASS] 媒体级 | 生活大爆炸 (media)
+  期望: 生活大爆炸    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        MEDIA:生活大爆炸 -电视剧-全集-高清正版在线观看-bilib
+
+[PASS] 媒体级 | 12 (media)
+  期望: 12    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        MEDIA:12
+
+[PASS] 媒体级 | 乱马 (media)
+  期望: 乱马1/2    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        MEDIA:乱马1/2
+
+[PASS] 集级 | 生活大爆炸 第八季 (episode)
+  期望: 生活大爆炸    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        EPISODE:生活大爆炸 第八季第1集-电视剧-全集-高清正版在线观看 [生活大爆炸 -电视剧-全集-高清]
+
+[PASS] 集级 | 第八季 (episode)
+  期望: 生活大爆炸    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        EPISODE:生活大爆炸 第八季第1集-电视剧-全集-高清正版在线观看 [生活大爆炸 -电视剧-全集-高清]
+
+[PASS] 集级 | 英雄时代 (episode)
+  期望: 英雄时代    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        EPISODE:【4K】英雄时代_哔哩哔哩_bilibili [英雄时代]
+
+[PASS] 集级 | 13 (episode)
+  期望: 13    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        EPISODE:13_哔哩哔哩_bilibili [乱马1/2]
+
+[PASS] 集级 | 12 (episode)
+  期望: 12    返回: 1 条 | recall=100% mrr=1.00
+  top5:
+        EPISODE:12_哔哩哔哩_bilibili [乱马1/2]
+
+[FAIL] 集级 | 乱马1/2 第一集 (episode)
+  期望: 乱马1/2    返回: 0 条 | recall=0% mrr=0.00
+  top5:
+        (空)
+
+[PASS] 备注/复合命中 | 可爱杉浦 哭唧唧 (mixed)
+  期望: 可爱杉浦    返回: 3 条 | recall=100% mrr=1.00
+  top5:
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:12_哔哩哔哩_bilibili #可爱杉浦 [乱马1/2]
+        CLIP:13_哔哩哔哩_bilibili #乱马可爱 [乱马1/2]
+
+[PASS] 乱搜拒绝 | zxcvbnm asdfghjkl (mixed)
+  期望: (应空)    返回: 0 条 | recall=100% mrr=0.00
+  top5:
+        (空)
+
+[PASS] 乱搜拒绝 | qwertyuiop (mixed)
+  期望: (应空)    返回: 0 条 | recall=100% mrr=0.00
+  top5:
+        (空)
+
+[PASS] 乱搜拒绝 | 啊哦额衣屋迂 (mixed)
+  期望: (应空)    返回: 0 条 | recall=100% mrr=0.00
+  top5:
+        (空)
+
+[PASS] 乱搜拒绝 | asdfghjkl (mixed)
+  期望: (应空)    返回: 0 条 | recall=100% mrr=0.00
+  top5:
+        (空)
+
+[PASS] 乱搜拒绝 | 一二三四五六七八九十 (mixed)
+  期望: (应空)    返回: 0 条 | recall=100% mrr=0.00
+  top5:
+        (空)
+
+[PASS] 乱搜拒绝 | lkajsdflkjasdf (mixed)
+  期望: (应空)    返回: 0 条 | recall=100% mrr=0.00
+  top5:
+        (空)
+====================================================================================================

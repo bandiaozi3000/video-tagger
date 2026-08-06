@@ -1,0 +1,62 @@
+{
+  "note": "语义检索评测集（基于 2026-08-06 真实库数据生成）。expected 为应出现在 top-K 结果的 title/mediaTitle/tag/note 中的子串；shouldEmpty=true 为负样本（乱搜，应返回空）。近义/描述性条目标的是「好的搜索应召回什么」，当前系统召不到即缺口。",
+  "items": [
+    { "query": "宇宙", "dim": "mixed", "expected": ["宇宙"], "shouldEmpty": false, "category": "字面/标签命中" },
+    { "query": "可爱杉浦", "dim": "mixed", "expected": ["可爱杉浦"], "shouldEmpty": false, "category": "字面/标签命中" },
+    { "query": "乱马可爱", "dim": "mixed", "expected": ["乱马可爱"], "shouldEmpty": false, "category": "字面/标签命中" },
+    { "query": "谢尔顿狼狈时刻", "dim": "mixed", "expected": ["谢尔顿狼狈时刻"], "shouldEmpty": false, "category": "字面/标签命中" },
+    { "query": "可爱", "dim": "mixed", "expected": ["可爱杉浦", "乱马可爱"], "shouldEmpty": false, "category": "字面/标签命中" },
+    { "query": "狼狈", "dim": "mixed", "expected": ["谢尔顿狼狈时刻"], "shouldEmpty": false, "category": "字面/标签命中" },
+    { "query": "杉浦", "dim": "mixed", "expected": ["可爱杉浦"], "shouldEmpty": false, "category": "字面/标签命中" },
+    { "query": "乱马", "dim": "mixed", "expected": ["乱马可爱"], "shouldEmpty": false, "category": "字面/标签命中" },
+    { "query": "宇宙", "dim": "clip", "expected": ["宇宙"], "shouldEmpty": false, "category": "字面/标签命中" },
+    { "query": "可爱杉浦", "dim": "clip", "expected": ["可爱杉浦"], "shouldEmpty": false, "category": "字面/标签命中" },
+
+    { "query": "太空", "dim": "mixed", "expected": ["宇宙"], "shouldEmpty": false, "category": "近义/语义召回" },
+    { "query": "星空", "dim": "mixed", "expected": ["宇宙"], "shouldEmpty": false, "category": "近义/语义召回" },
+    { "query": "萌", "dim": "mixed", "expected": ["可爱杉浦", "乱马可爱"], "shouldEmpty": false, "category": "近义/语义召回" },
+    { "query": "治愈", "dim": "mixed", "expected": ["可爱杉浦", "乱马可爱"], "shouldEmpty": false, "category": "近义/语义召回" },
+    { "query": "出丑", "dim": "mixed", "expected": ["谢尔顿狼狈时刻"], "shouldEmpty": false, "category": "近义/语义召回" },
+    { "query": "搞笑", "dim": "mixed", "expected": ["谢尔顿狼狈时刻"], "shouldEmpty": false, "category": "近义/语义召回" },
+    { "query": "尴尬", "dim": "mixed", "expected": ["谢尔顿狼狈时刻"], "shouldEmpty": false, "category": "近义/语义召回" },
+    { "query": "哭", "dim": "mixed", "expected": ["可爱杉浦"], "shouldEmpty": false, "category": "近义/语义召回" },
+    { "query": "宇宙空间", "dim": "mixed", "expected": ["宇宙"], "shouldEmpty": false, "category": "近义/语义召回" },
+    { "query": "坏笑", "dim": "mixed", "expected": ["谢尔顿狼狈时刻"], "shouldEmpty": false, "category": "近义/语义召回" },
+    { "query": "小可爱", "dim": "mixed", "expected": ["可爱杉浦"], "shouldEmpty": false, "category": "近义/语义召回" },
+    { "query": "丢脸", "dim": "mixed", "expected": ["谢尔顿狼狈时刻"], "shouldEmpty": false, "category": "近义/语义召回" },
+
+    { "query": "谢尔顿狼狈的时刻", "dim": "mixed", "expected": ["谢尔顿狼狈时刻"], "shouldEmpty": false, "category": "描述性查询" },
+    { "query": "男主角出糗的片段", "dim": "mixed", "expected": ["谢尔顿狼狈时刻"], "shouldEmpty": false, "category": "描述性查询" },
+    { "query": "可爱到哭的角色", "dim": "mixed", "expected": ["可爱杉浦", "乱马可爱"], "shouldEmpty": false, "category": "描述性查询" },
+    { "query": "太空里的画面", "dim": "mixed", "expected": ["宇宙"], "shouldEmpty": false, "category": "描述性查询" },
+    { "query": "哭唧唧可爱的瞬间", "dim": "mixed", "expected": ["可爱杉浦"], "shouldEmpty": false, "category": "描述性查询" },
+    { "query": "尴尬名场面", "dim": "mixed", "expected": ["谢尔顿狼狈时刻"], "shouldEmpty": false, "category": "描述性查询" },
+    { "query": "好笑的片段", "dim": "mixed", "expected": ["谢尔顿狼狈时刻"], "shouldEmpty": false, "category": "描述性查询" },
+    { "query": "宇宙中的镜头", "dim": "mixed", "expected": ["宇宙"], "shouldEmpty": false, "category": "描述性查询" },
+
+    { "query": "英雄时代", "dim": "mixed", "expected": ["英雄时代"], "shouldEmpty": false, "category": "媒体级" },
+    { "query": "乱马1/2", "dim": "mixed", "expected": ["乱马1/2", "乱马可爱"], "shouldEmpty": false, "category": "媒体级" },
+    { "query": "生活大爆炸", "dim": "mixed", "expected": ["生活大爆炸"], "shouldEmpty": false, "category": "媒体级" },
+    { "query": "英雄时代", "dim": "media", "expected": ["英雄时代"], "shouldEmpty": false, "category": "媒体级" },
+    { "query": "乱马1/2", "dim": "media", "expected": ["乱马1/2"], "shouldEmpty": false, "category": "媒体级" },
+    { "query": "生活大爆炸", "dim": "media", "expected": ["生活大爆炸"], "shouldEmpty": false, "category": "媒体级" },
+    { "query": "12", "dim": "media", "expected": ["12"], "shouldEmpty": false, "category": "媒体级" },
+    { "query": "乱马", "dim": "media", "expected": ["乱马1/2"], "shouldEmpty": false, "category": "媒体级" },
+
+    { "query": "生活大爆炸 第八季", "dim": "episode", "expected": ["生活大爆炸"], "shouldEmpty": false, "category": "集级" },
+    { "query": "第八季", "dim": "episode", "expected": ["生活大爆炸"], "shouldEmpty": false, "category": "集级" },
+    { "query": "英雄时代", "dim": "episode", "expected": ["英雄时代"], "shouldEmpty": false, "category": "集级" },
+    { "query": "13", "dim": "episode", "expected": ["13"], "shouldEmpty": false, "category": "集级" },
+    { "query": "12", "dim": "episode", "expected": ["12"], "shouldEmpty": false, "category": "集级" },
+    { "query": "乱马1/2 第一集", "dim": "episode", "expected": ["乱马1/2"], "shouldEmpty": false, "category": "集级" },
+
+    { "query": "可爱杉浦 哭唧唧", "dim": "mixed", "expected": ["可爱杉浦"], "shouldEmpty": false, "category": "备注/复合命中" },
+
+    { "query": "zxcvbnm asdfghjkl", "dim": "mixed", "expected": [], "shouldEmpty": true, "category": "乱搜拒绝" },
+    { "query": "qwertyuiop", "dim": "mixed", "expected": [], "shouldEmpty": true, "category": "乱搜拒绝" },
+    { "query": "啊哦额衣屋迂", "dim": "mixed", "expected": [], "shouldEmpty": true, "category": "乱搜拒绝" },
+    { "query": "asdfghjkl", "dim": "mixed", "expected": [], "shouldEmpty": true, "category": "乱搜拒绝" },
+    { "query": "一二三四五六七八九十", "dim": "mixed", "expected": [], "shouldEmpty": true, "category": "乱搜拒绝" },
+    { "query": "lkajsdflkjasdf", "dim": "mixed", "expected": [], "shouldEmpty": true, "category": "乱搜拒绝" }
+  ]
+}
