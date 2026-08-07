@@ -20,7 +20,7 @@
     <div class="container header-inner">
         <div class="logo-wrap">
             <span class="logo-mark">✦</span>
-            <h1 class="logo">Video<span class="logo-accent">Tagger</span><span class="ver-chip">v0.10.0</span></h1>
+            <h1 class="logo">Video<span class="logo-accent">Tagger</span><span class="ver-chip">v0.13.0</span></h1>
         </div>
         <nav class="nav">
             <div class="nav-tabs">
@@ -43,6 +43,14 @@
                 <button type="button" class="tab" data-view="tags">
                     <svg viewBox="0 0 24 24" fill="none"><path d="M3 10.5V4a1 1 0 0 1 1-1h6.5a1 1 0 0 1 .7.3l9 9a1 1 0 0 1 0 1.4l-6.5 6.5a1 1 0 0 1-1.4 0l-9-9a1 1 0 0 1-.3-.7Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
                     标签
+                </button>
+                <button type="button" class="tab" data-view="collections">
+                    <svg viewBox="0 0 24 24" fill="none"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
+                    收藏夹
+                </button>
+                <button type="button" class="tab" data-view="recommend">
+                    <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.1 6.2L20 11l-5.9 1.8L12 19l-2.1-6.2L4 11l5.9-1.8z"/><path d="M18.5 16.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>
+                    推荐
                 </button>
             </div>
         </nav>
@@ -98,7 +106,7 @@
             <button type="button" id="detail-confirm" class="btn-mini" hidden>确认档案</button>
             <button type="button" id="detail-delete" class="btn-mini danger">删除</button>
         </div>
-        <h3 class="stats-title">作品标签</h3>
+        <h3 class="stats-title">标签池</h3>
         <div id="detail-tags" class="detail-tags"></div>
         <h3 class="stats-title">收藏夹</h3>
         <div id="detail-collections" class="detail-collections"></div>
@@ -119,7 +127,7 @@
             <button type="button" id="ep-detail-jump" class="btn-mini">去原视频</button>
             <button type="button" id="ep-detail-delete" class="btn-mini danger">删除该集</button>
         </div>
-        <h3 class="stats-title">集标签</h3>
+        <h3 class="stats-title">集标签池</h3>
         <div id="episode-detail-tags" class="detail-tags"></div>
         <h3 class="stats-title">该集片段</h3>
         <section id="episode-detail-clips" class="results"></section>
@@ -136,6 +144,8 @@
             <button type="button" id="clip-detail-edit" class="btn-mini">编辑</button>
             <button type="button" id="clip-detail-delete" class="btn-mini danger">删除</button>
         </div>
+        <h3 class="stats-title">片段标签</h3>
+        <div id="clip-detail-tags" class="detail-tags"></div>
         <h3 class="stats-title">同集片段</h3>
         <section id="clip-detail-siblings" class="results"></section>
         <h3 class="stats-title">相似片段</h3>
@@ -250,6 +260,80 @@
             </div>
         </div>
         <section id="tag-list" class="tag-admin-list"></section>
+    </section>
+    <section id="view-collections" class="view" hidden>
+        <div class="media-toolbar">
+            <div class="media-tabs">
+                <span class="media-tab-label">收藏夹管理</span>
+            </div>
+            <div class="toolbar-actions">
+                <button type="button" id="coll-create" class="btn-mini">＋ 新建收藏夹</button>
+            </div>
+        </div>
+        <div class="collection-manage-layout">
+            <aside class="coll-list" id="coll-list"></aside>
+            <div class="coll-content">
+                <div class="coll-content-head" id="coll-content-head"></div>
+                <section id="coll-media-grid" class="media-grid"></section>
+            </div>
+        </div>
+        <div id="coll-status" class="status"></div>
+    </section>
+
+    <!-- 推荐导出视图（分步向导：勾选 → 主题 → 预览导出） -->
+    <section id="view-recommend" class="view" hidden>
+        <div class="wizard-steps">
+            <button type="button" class="wizard-step" data-wstep="1"><span class="wstep-num">1</span>勾选媒体</button>
+            <button type="button" class="wizard-step" data-wstep="2"><span class="wstep-num">2</span>设置主题</button>
+            <button type="button" class="wizard-step" data-wstep="3"><span class="wstep-num">3</span>预览导出</button>
+        </div>
+
+        <!-- 步骤1：勾选要推荐的媒体 -->
+        <div class="wizard-pane" id="wizard-pane-1">
+            <div class="recommend-pick-head">
+                <h3>勾选要推荐的番剧</h3>
+                <span class="recommend-count" id="recommend-picked">已选 <b>0</b> 部</span>
+            </div>
+            <section id="recommend-grid" class="media-grid"></section>
+            <div class="wizard-nav">
+                <span class="wizard-hint">勾选媒体后进入下一步</span>
+                <button type="button" id="recommend-step-1-next" class="btn-primary" disabled>下一步：设置主题</button>
+            </div>
+        </div>
+
+        <!-- 步骤2：主题（标题文案） -->
+        <div class="wizard-pane" id="wizard-pane-2" hidden>
+            <div class="recommend-theme">
+                <h3>设置推荐页主题</h3>
+                <label class="recommend-theme-field">标题文案
+                    <input id="recommend-title" type="text" maxlength="40"
+                           placeholder="我的番剧推荐" autocomplete="off">
+                </label>
+                <p class="wizard-hint">将作为推荐页 <code>&lt;title&gt;</code> 与中心主标题显示，如「我的番剧推荐」。留空则用默认文案。</p>
+                <p class="recommend-theme-preview">预览：<b id="recommend-title-preview">我的番剧推荐</b></p>
+            </div>
+            <div class="wizard-nav">
+                <button type="button" id="recommend-step-2-back" class="btn-mini">上一步</button>
+                <button type="button" id="recommend-step-2-next" class="btn-primary">下一步：预览导出</button>
+            </div>
+        </div>
+
+        <!-- 步骤3：预览导出 -->
+        <div class="wizard-pane" id="wizard-pane-3" hidden>
+            <div class="recommend-export">
+                <h3>预览与导出</h3>
+                <p class="wizard-hint">已勾选 <b id="recommend-export-count">0</b> 部 · 主题「<span id="recommend-export-title">我的番剧推荐</span>」</p>
+                <div class="recommend-export-actions">
+                    <button type="button" id="recommend-gen-preview" class="btn-primary">生成预览</button>
+                    <button type="button" id="recommend-export-html" class="btn-mini">下载 HTML</button>
+                    <button type="button" id="recommend-export-video" class="btn-mini" disabled>导出视频</button>
+                </div>
+                <div id="recommend-export-status" class="status"></div>
+            </div>
+            <div class="wizard-nav">
+                <button type="button" id="recommend-step-3-back" class="btn-mini">上一步</button>
+            </div>
+        </div>
     </section>
 </main>
 
@@ -382,10 +466,10 @@
     </div>
 </div>
 
-<!-- 新建收藏夹 -->
+<!-- 新建 / 重命名收藏夹 -->
 <div id="collection-modal" class="modal-overlay" hidden>
     <div class="modal">
-        <h2>新建收藏夹</h2>
+        <h2 id="collection-modal-title">新建收藏夹</h2>
         <label>收藏夹名称<input id="collection-name" autocomplete="off" maxlength="50"></label>
         <div class="modal-actions">
             <button id="collection-modal-cancel" type="button">取消</button>
@@ -406,6 +490,61 @@
         </div>
     </div>
 </div>
+
+<!-- 推荐预览弹窗：iframe 内嵌渲染 HTML -->
+<div id="recommend-preview-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide preview-modal">
+        <div class="preview-modal-head">
+            <div class="preview-modal-title">
+                <h2>推荐预览</h2>
+                <span id="preview-title-note" class="preview-title-note"></span>
+            </div>
+            <button id="preview-expand" type="button" class="preview-expand-btn" title="全屏 / 还原">全屏 ⇱</button>
+        </div>
+        <iframe id="recommend-preview-frame" class="preview-frame" title="推荐预览" sandbox="allow-scripts allow-same-origin"></iframe>
+        <div class="modal-actions">
+            <button id="preview-close" type="button">关闭</button>
+            <button id="preview-export-video" type="button" class="btn-primary">导出视频</button>
+        </div>
+    </div>
+</div>
+
+<!-- 推荐视频导出弹窗：标题 / 格式 / 清晰度 / 导出地址 -->
+<div id="recommend-video-modal" class="modal-overlay" hidden>
+    <div class="modal">
+        <h2>导出视频</h2>
+        <div class="batch-del-hint">将导出 <b id="video-count">0</b> 部媒体；渲染用本机 Chrome + ffmpeg，需等待数十秒。</div>
+        <label>视频标题
+            <input id="video-filename" type="text" maxlength="60" placeholder="video-tagger-recommend" autocomplete="off">
+        </label>
+        <label>格式
+            <select id="video-format">
+                <option value="MP4" selected>MP4（H.264，兼容性好）</option>
+                <option value="WEBM">WebM（VP9，体积小）</option>
+            </select>
+            <span id="video-format-hint" class="video-format-hint" hidden>⚠ WebM 播放依赖 VP9 硬解，若卡顿建议改用 MP4</span>
+        </label>
+        <label>清晰度
+            <select id="video-resolution">
+                <option value="720P">720P（1280×720）</option>
+                <option value="1080P" selected>1080P（1920×1080）</option>
+                <option value="4K">4K（3840×2160）</option>
+            </select>
+        </label>
+        <label>导出地址
+            <span class="video-dst-row">
+                <input id="video-dst" type="text" readonly placeholder="点击右侧选择保存位置…">
+                <button type="button" id="video-dst-pick" class="btn-mini">选择位置</button>
+            </span>
+        </label>
+        <div class="modal-actions">
+            <button id="video-export-cancel" type="button">取消</button>
+            <button id="video-export-confirm" type="button" class="btn-primary" disabled>导出</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
 
 <!-- 通用确认弹窗（替代原生 confirm：删集/删标签/删格式/删子分类/详情页删媒体） -->
 <div id="confirm-modal" class="modal-overlay" hidden>

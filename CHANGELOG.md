@@ -2,6 +2,70 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 
+## [0.13.0] - 2026-08-07
+
+### 新增
+- **推荐导出向导化（独立「推荐」tab）**：导航新增第 7 个「推荐」tab，整条导出链路改为**分步向导**——① 勾选要推荐的番剧（顶部实时计数 + 步骤指示条）→ ② 填写主题文案（实时预览大标题）→ ③ 生成 HTML 预览（弹窗内嵌 iframe 直接看效果），没问题再「导出视频」/「下载 HTML」。
+- **主题文案参数化**：`recommend.html` 的 `<title>` 与 `<h1>` 由 `__TITLE__` 占位符注入用户填写的大标题（空 → 默认「我的番剧推荐」，HTML 转义防注入）。
+- **预览弹窗内嵌 iframe**：`POST /api/recommend/html` 生成的**自包含单文件**直接写 `iframe.srcdoc` 渲染，无需下载即可逐张翻看导览效果；弹窗内直接进「导出视频」。
+- **视频导出弹窗**：选择**标题 / 格式（MP4 / WEBM）/ 清晰度（720P / 1080P / 4K）/ 导出位置**。导出位置用 **File System Access API**（`showSaveFilePicker` → 写入所选文件；用户取消保留原状），非 Chromium 自动降级为浏览器默认目录下载。
+- **WEBM 格式导出**：`render.js` 编码参数按格式分流——MP4 `libx264`（veryfast + faststart）/ WEBM `libvpx-vp9`（CRF 32 + 低延迟 row-mt）。
+
+### 接口变更
+- `POST /api/recommend/html`：body 增加可选 `"title"`（主题文案，缺省/空白用「我的番剧推荐」）。
+- `POST /api/recommend/video`：body 增加可选 `"title"` 与 `"format":"MP4|WEBM"`（缺省 MP4）；返回 `video/mp4` 或 `video/webm` 附件。
+
+### 工程化
+- `RecommendService.buildHtml(ids, title)` 标题注入 + `RecommendVideoService.render(ids, title, format, resolution)` 格式参数化；`render.js` 新增 `--format` 与 `encodeArgs()` 分流编码器。
+- **渲染质量调优**（修复导出视频卡顿）：抓帧 JPEG 质量 82→70（1080P 帧率稳至 **~59fps**，此前受负载波动 38~55）；h264 `-crf 20` / vp9 `-crf 28` 码率提升近一倍（画面少伪影）；4K 档视口+抓帧降档至 1920 再 ffmpeg 放大（4K 从 18.8→31.6fps）；前端选 WebM 时提示「播放依赖 VP9 硬解，卡顿建议 MP4」。
+- 前端 `index.html` 新增「推荐」tab + `.wizard-steps` 步骤条 + 三 pane 向导区 + 预览/视频导出弹窗；`app.js` 向导状态机（步骤切换/计数/标题预览/iframe srcdoc/FS API 保存）；`app.css` 向导与弹窗样式块。
+- 新增/更新测试：`RecommendServiceTest` +2（标题注入/转义）、`RecommendControllerTest` +2（标题透传/WEBM 响应）、`RecommendVideoServiceTest` 5 例（校验路径），共 25 例全通过。
+
+## [0.12.0] - 2026-08-07
+
+### 新增
+- **渐变环流推荐导出**：媒体列表批量勾选（多选模式勾多部）→ 工具栏「导出推荐」→ 弹窗选 **HTML / 视频** 与清晰度（**720P / 1080P / 4K**）→ 下载。整条链路「勾选 → 生成 HTML → 导出视频」一键打通。
+  - **自包含推荐 HTML**（`POST /api/recommend/html`）：深色霓虹**渐变环流模板**——椭圆轨道自转 + 飘带式入场 + 自动导览（含进度条 / 「第 X 部 / 共 N 部」），封面转 **base64 内嵌**（`data:image/...`），输出单文件无任何外部依赖，可直接发送 / 手机打开。
+  - **导出 MP4 视频**（`POST /api/recommend/video`）：Node + **puppeteer-core** 连系统 Chrome 以 `?record=1` 录制模式播放自动导览（忽略交互打断），CDP `Page.startScreencast` 抓帧 + **ffmpeg 固定帧率合成**（时长精确 = 7s 定场 + 每部 6s + 2s 收尾），三档分辨率可选。
+- **封面内嵌读取**：`CoverService.base64ForCoverPath`——按 `/covers/**` 路径读封面转 base64 data URL（空 / 越界目录穿越 / 文件不存在 / 非文件 → null 降级），HTML 导出免外链、离开发送也能看图。
+
+### 接口变更
+- `POST /api/recommend/html`：body `{"ids":[...]}`，返回 `text/html` 附件 `video-tagger-recommend.html`（单次 ≤30 部，空 ids 400）。
+- `POST /api/recommend/video`：body `{"ids":[...],"resolution":"720P|1080P|4K"}`，返回 `video/mp4` 附件（文件名带时间戳，渲染约 1 秒/部）。
+
+### 工程化
+- 新增 `RecommendService`（HTML 组装：格式名 + 子分类路径 + 状态中文 + 标签热度 TOP6，HTML 转义防注入，缺失媒体跳过保序）、`RecommendVideoService`（ProcessBuilder 编排，20min 超时 / 产物校验 / 临时目录清理）、`RecommendController`（DTO record 反序列化，规避 `Map<String,Object>` 数字→Integer 强转陷阱）。
+- 新增 `backend/scripts/render.js`（puppeteer screencast 抓帧 + CFR 合成）与 `package.json`；`videotagger.render.*` 配置（scripts-dir 带工作目录候选兜底解析，IDE 项目根 / mvn backend 双场景可用）。
+- 模板 `templates/recommend.html`：`__SLIDES_JSON__` 占位符 + `?record=1` 录制模式；前端工具栏「导出推荐」按钮 + 导出弹窗 + 下载 toast（`.toast`）。
+- 新增测试：`RecommendControllerTest` 4 例、`RecommendServiceTest` 8 例、`CoverServiceTest` 6 例，共 18 例全通过。
+- 渲染踩坑：Windows 下 headless Chrome 加 `--disable-gpu` 会把超大 viewport 宽度 ×0.75 压缩（1920→1440），须去 GPU + `--window-size` + `--force-device-scale-factor=1`；ffmpeg concat demuxer 末帧 duration 语义不可控会拉长总时长，改 CFR `-framerate` 精确还原。
+
+## [0.11.0] - 2026-08-06
+
+### 新增
+- **收藏夹管理增强（独立 tab）**：导航新增第 6 个「收藏夹」tab——左侧收藏夹列表（媒体数 + 选中高亮）+ 右侧内容网格的管理视图。支持**重命名**（`PUT /api/collections/{id}`）、**删除**（确认弹窗，收藏夹内媒体仅解除关联、本体保留）、工具栏「＋ 新建收藏夹」（新建后自动选中）。删除/重命名同步刷新媒体筛选下拉。
+- **媒体卡片快捷收藏**：封面左下角 ♡ 按钮（hover 浮现，批量删除模式下隐藏）→ 弹收藏夹勾选浮层（复用 `.coll-check` 风格），勾选/取消即时加入/移出收藏夹，无需进详情页。
+- **收藏夹视图移出入口**：收藏夹 tab 内容网格的卡片操作由「删除媒体 ×」改为「移出收藏夹 ⇤」（amber 色，直接解除关联、媒体本体保留），杜绝收藏夹上下文误删媒体；删媒体入口收敛到媒体页/详情页。
+- **详情页标签池（媒体/集/片段三处）**：详情页标签展示升级为**标签池**卡片——每个标签带 `×N` 次数徽标 + **五档分级配色**（1 次灰 / 2-3 紫 / 4-6 粉 / 7-9 橙 / 10+ 金·大号·光晕），次数越高越暖越显眼，降序排列。
+  - **媒体页**：按媒体三级（作品级 + 集 + 片段）聚合引用次数（复用 `GET /api/tags/manage?mediaId=`）；作品级已挂标签保留 × 移除（集/片段引用不动），纯集/片段引用标签只展示热度；保留添加输入框与补全。
+  - **集页**：按**集内聚合**（集本身 + 其下片段引用，新 `GET /api/tags/episode-stats?episodeId=`）；集标签保留 × 移除与添加。
+  - **片段页**：新增「片段标签」区——片段自身标签（`clip.tag` 拆词）+ 每标签在整部作品里的引用热度（复用 manage?mediaId），纯展示；count=0 灰档无徽标。
+  - 三处共用 `.tag-pool-chip` 五档样式与分档函数；聚合接口失败均兜底回原标签展示。
+
+### 修复
+- **跳转失效（bangumi 等路径）**：`buildJumpUrl` 此前只认 `bilibili.com/video/` 路径，`/bangumi/play/` 等 URL 返回原样（无 `t` 参数）导致跳转静默失效。改为按**域名**选时间参数格式（YouTube `t=1018s` / B 站系纯秒 `t=1018`，未知站点不拼），用 `URL.searchParams.set` 覆盖已有 `t` 防双参数。
+- **跳转 key 不一致**：`JumpController.put/poll` 统一走 `VideoFingerprint.normalize()`（此前扩展端用 `normalizeUrl` 只去 `t`、后端原样存，URL 归一化结果对不上时跳转失效）。
+
+### 接口变更
+- `PUT /api/collections/{id}`：重命名收藏夹（body `{"name"}`；空名 400、不存在 404）。
+- `GET /api/tags/episode-stats?episodeId=`：某集内标签聚合（集本身 + 其下片段引用，`refCount`=集内引用总数），集详情页标签池数据源。
+
+### 工程化
+- `CollectionService.rename`（空名校验 + `updateById`）；`CollectionController` 加 PUT 端点；`CollectionControllerTest` 新增 3 例。
+- 前端收藏夹 tab：`views` 注册 + `showView` 接入 `loadCollections`；`renderMediaGrid` 加 `container` 参数（默认 `mediaGridEl`，收藏夹视图复用）；`loadCollections/renderCollList/loadCollMedia/deleteCollection`、快捷收藏浮层 `openFavPicker/loadFavOptions`（外部点击/滚动收起）。
+- `TagMapper.countByEpisode`（episode_tag ∪ 其下 clip_tag 聚合）；`TagAdminService.episodeStats`；`TagController` `/episode-stats` 端点；新增 2 例单测（TagAdminServiceTest 13 / TagControllerTest 4）。
+- 标签池三处：`renderDetailTags`/`renderEpisodeDetailTags` 改 async 聚合渲染 + `renderClipTags`（片段拆词热度）+ `tagStatTier` 分档函数；`.tag-pool-chip` 五档配色。
+
 ## [0.10.0] - 2026-08-06
 
 ### 新增

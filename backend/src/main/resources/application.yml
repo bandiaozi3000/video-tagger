@@ -45,3 +45,11 @@ videotagger:
     api-key: ${EMBEDDING_API_KEY:}
     model: ${EMBEDDING_MODEL:text-embedding-v4}
     dim: ${EMBEDDING_DIM:1024}
+  render:
+    # 推荐 HTML → 视频导出工具链（本机可用；Docker 容器内未装 → 视频导出不可用）
+    # scripts-dir 相对应用工作目录（IDE 从项目根启动，mvn spring-boot:run 从 backend 启动）；
+    # RecommendVideoService 会在找不到 render.js 时按常见候选兜底，双场景均可命中
+    scripts-dir: ${RENDER_SCRIPTS_DIR:backend/scripts}
+    node-path: ${RENDER_NODE_PATH:node}
+    chrome-path: ${RENDER_CHROME_PATH:C:/Program Files/Google/Chrome/Application/chrome.exe}
+    ffmpeg-path: ${RENDER_FFMPEG_PATH:${user.home}/.local/ffmpeg/bin/ffmpeg.exe}

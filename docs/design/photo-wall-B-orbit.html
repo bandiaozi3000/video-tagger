@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>环绕感 · ORBIT — 我的番剧推荐</title>
+<style>
+  /* ============ 晴空放映厅（动态照片墙版 · B 环绕感） ============
+     照片绕墙中心做椭圆轨道环绕，错相如行星；入场沿用八方汇聚
+     其余：点击镜头推近逐部详解 + Ken Burns 镜头缓推 + 信息逐行显现
+     设计稿 demo，封面为本地真实数据；交付后 base64 内嵌 */
+  :root{
+    --ink:#123c66;
+    --muted:#4f739b;
+    --faint:#7d97b6;
+    --sky:#2f9de8;
+    --deep:#1565c0;
+    --blue:#4a7fd6;
+    --mint:#2dd4bf;
+    --gold:#e6a23c;
+    --line:rgba(21,101,192,.16);
+    --card:rgba(255,255,255,.78);
+    --shadow:rgba(23,80,150,.16);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-snap-type:y proximity}
+  body{
+    font-family:"PingFang SC","Microsoft YaHei","Hiragino Sans GB",-apple-system,sans-serif;
+    color:var(--ink);
+    background:linear-gradient(168deg,#a6d7ff 0%,#7fbeec 42%,#cfe9ff 100%);
+    position:relative;overflow-x:hidden;
+  }
+  /* 流动晴空（超大渐变层，background-position 缓慢流动 = 视频天空感） */
+  .aurora{
+    position:fixed;inset:-30%;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(38% 46% at 22% 32%, rgba(255,255,255,.75), transparent 62%),
+      radial-gradient(34% 42% at 78% 24%, rgba(255,255,255,.6), transparent 62%),
+      radial-gradient(30% 38% at 55% 82%, rgba(84,190,255,.4), transparent 64%),
+      linear-gradient(120deg,#a9dbff,#7cbbea,#cfe9ff,#9ed0f8);
+    background-size:180% 180%;
+    animation:skyflow 26s ease-in-out infinite alternate;
+  }
+  @keyframes skyflow{
+    0%{background-position:0% 0%}
+    50%{background-position:60% 40%}
+    100%{background-position:30% 70%}
+  }
+  /* 云絮 */
+  .cloud{
+    position:fixed;border-radius:50%;z-index:1;pointer-events:none;
+    background:radial-gradient(circle,rgba(255,255,255,.85) 0%,rgba(255,255,255,0) 70%);
+    filter:blur(26px);
+    animation:drift linear infinite;
+  }
+  @keyframes drift{
+    0%{transform:translate3d(-4vw,2vh,0) scale(1)}
+    50%{transform:translate3d(4vw,-3vh,0) scale(1.08)}
+    100%{transform:translate3d(-4vw,2vh,0) scale(1)}
+  }
+  .content{position:relative;z-index:2}
+
+  /* ---------- 顶部品牌 ---------- */
+  .topbar{
+    position:fixed;top:0;left:0;right:0;z-index:20;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 30px;
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:2px;font-size:14px;color:var(--deep)}
+  .brand .logo{
+    width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--sky),var(--deep));
+    box-shadow:0 4px 14px rgba(47,157,232,.45);font-size:15px;color:#fff;
+  }
+  .brand em{font-style:normal;color:var(--faint);font-size:12px;letter-spacing:1px}
+  .topbar .hint{font-size:11.5px;color:var(--faint);letter-spacing:2px}
+
+  /* ---------- Hero：照片墙 ---------- */
+  .hero{
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:110px 20px 60px;text-align:center;
+  }
+  .hero .eyebrow{
+    font-size:12px;letter-spacing:4px;color:var(--deep);font-weight:600;margin-bottom:10px;
+  }
+  .hero h1{
+    font-size:clamp(30px,5vw,46px);font-weight:800;letter-spacing:6px;
+    background:linear-gradient(115deg,#0b3d79,#2f7fd0,#5aa8f0);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 2px 8px rgba(255,255,255,.8));
+    margin-bottom:8px;position:relative;
+  }
+  .hero .sub{font-size:13px;color:var(--muted);letter-spacing:2px;margin-bottom:38px}
+  .hero .sub b{color:var(--deep)}
+
+  /* 照片墙 */
+  .photo-wall{
+    display:flex;flex-wrap:wrap;justify-content:center;gap:16px;max-width:960px;
+    perspective:1200px;
+  }
+  .photo{
+    flex:none;width:150px;cursor:pointer;border:none;background:none;padding:0;text-align:left;
+    animation:popin 1.5s cubic-bezier(.16,.72,.28,1) both;
+    animation-delay:var(--d);
+    transform:rotate(var(--rot));
+    transition:transform .3s, filter .3s;
+  }
+  /* 汇聚入场：多张同时从四面八方（各自 --sx/--sy 起始偏移）带旋转、由大变小飘向镜头中央，落定成完整照片墙 */
+  @keyframes popin{
+    0%{opacity:0;transform:translate(var(--sx), var(--sy)) rotate(calc(var(--rot) + 12deg)) scale(var(--ss))}
+    14%{opacity:1}
+    100%{opacity:1;transform:translate(0,0) rotate(var(--rot)) scale(1)}
+  }
+  .photo:hover{transform:rotate(0) scale(1.06) translateY(-8px);filter:brightness(1.05);z-index:5}
+  .photo .pic{
+    position:relative;display:block;padding:7px 7px 10px;background:#fff;border-radius:9px;
+    box-shadow:0 14px 30px rgba(23,80,150,.2);
+    animation-name:var(--dn, orbit);
+    animation-duration:var(--dd, 9s);
+    animation-timing-function:ease-in-out;
+    animation-iteration-count:infinite;
+    animation-delay:var(--fd);
+  }
+  /* 环绕呼吸感：沿椭圆轨迹绕中心环绕，四方位加旋转摆动，错相如行星 */
+  @keyframes orbit{
+    0%,100%{transform:translate(-12px,0) rotate(-2deg)}
+    25%{transform:translate(0,-16px) rotate(2deg)}
+    50%{transform:translate(12px,0) rotate(-2deg)}
+    75%{transform:translate(0,16px) rotate(2deg)}
+  }
+  .photo .pic img{
+    width:100%;height:186px;object-fit:cover;border-radius:5px;display:block;
+    background:linear-gradient(160deg,#dfeeff,#b9d8f5);
+  }
+  .photo .ph-no{
+    position:absolute;left:11px;top:11px;font-size:10px;font-weight:800;color:#fff;
+    background:linear-gradient(135deg,var(--sky),var(--deep));padding:2px 7px;border-radius:999px;
+  }
+  .photo .ph-cap{
+    display:block;margin-top:9px;font-size:12.5px;font-weight:700;color:var(--ink);
+    letter-spacing:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .hero .cta{
+    margin-top:40px;font-size:12px;color:var(--faint);letter-spacing:3px;animation:pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
+
+  /* ---------- Story：逐部详解 ---------- */
+  .story{max-width:1080px;margin:0 auto;padding:20px 24px 80px}
+  .story-card{
+    scroll-snap-align:start;
+    position:relative;min-height:74vh;
+    display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:40px;align-items:center;
+    padding:60px 10px;scroll-margin-top:70px;
+  }
+  .story-card:not(:last-child){border-bottom:1px dashed rgba(21,101,192,.18)}
+  /* 超大描边序号（背景装饰，视频感分镜编号） */
+  .sc-no{
+    position:absolute;right:2%;top:6%;font-size:120px;font-weight:900;line-height:1;
+    color:transparent;-webkit-text-stroke:1.5px rgba(21,101,192,.22);
+    pointer-events:none;z-index:0;letter-spacing:4px;
+  }
+  .sc-poster{
+    position:relative;border-radius:18px;overflow:hidden;z-index:1;
+    aspect-ratio:3/4;max-height:62vh;
+    border:1px solid rgba(255,255,255,.95);
+    box-shadow:0 26px 60px rgba(23,80,150,.25);
+    background:linear-gradient(160deg,#dfeeff,#b9d8f5);
+  }
+  .sc-poster img{
+    width:100%;height:100%;object-fit:cover;display:block;
+    animation:kenburns 18s ease-in-out infinite alternate;
+    animation-play-state:paused;
+  }
+  .story-card.in-view .sc-poster img{animation-play-state:running}
+  @keyframes kenburns{from{transform:scale(1)}to{transform:scale(1.12)}}
+  .sc-poster .flag{
+    position:absolute;left:12px;top:12px;z-index:2;
+    font-size:11px;letter-spacing:1px;padding:4px 10px;border-radius:999px;
+    color:#fff;background:rgba(217,112,31,.8);backdrop-filter:blur(4px);
+  }
+  .sc-info{z-index:1;padding:10px 2px}
+  .sc-info > *{opacity:0;transform:translateY(18px);transition:opacity .6s ease, transform .6s ease}
+  .story-card.in-view .sc-info > *{opacity:1;transform:none}
+  .story-card.in-view .sc-info > *:nth-child(1){transition-delay:.05s}
+  .story-card.in-view .sc-info > *:nth-child(2){transition-delay:.15s}
+  .story-card.in-view .sc-info > *:nth-child(3){transition-delay:.25s}
+  .story-card.in-view .sc-info > *:nth-child(4){transition-delay:.35s}
+  .sc-info .kicker{
+    display:inline-flex;align-items:center;gap:7px;font-size:12px;letter-spacing:2px;
+    color:var(--sky);font-weight:600;margin-bottom:12px;
+  }
+  .sc-info .kicker::before{content:"";width:22px;height:1px;background:linear-gradient(90deg,var(--sky),transparent)}
+  .sc-info .cat{
+    display:inline-block;font-size:12px;letter-spacing:1px;color:#fff;
+    background:linear-gradient(120deg,var(--sky),var(--deep));
+    padding:4px 12px;border-radius:999px;font-weight:700;margin-bottom:14px;
+    box-shadow:0 4px 14px rgba(47,157,232,.38);
+  }
+  .sc-info h2{
+    font-size:clamp(26px,3.6vw,40px);font-weight:800;letter-spacing:2px;line-height:1.15;
+    background:linear-gradient(115deg,#0b3d79,#2f7fd0,#5aa8f0 90%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 2px 5px rgba(255,255,255,.8));
+    margin-bottom:16px;
+  }
+  .sc-info .note{
+    font-size:14.5px;line-height:1.9;color:var(--muted);margin-bottom:20px;max-width:56ch;
+  }
+  .sc-info .tags{display:flex;flex-wrap:wrap;gap:9px}
+  .chip{
+    font-size:12.5px;letter-spacing:.5px;padding:5px 12px;border-radius:999px;
+    border:1px solid transparent;display:inline-flex;align-items:center;gap:6px;font-weight:600;
+  }
+  .chip b{font-weight:800;font-size:11px}
+  .s1{color:#5c7f9e;background:rgba(120,140,170,.14)}
+  .s2{color:#0f7fc0;background:rgba(47,157,232,.15);border-color:rgba(47,157,232,.3)}
+  .s3{color:#3d5fbe;background:rgba(90,120,220,.14);border-color:rgba(90,120,220,.28)}
+  .s4{color:#d9731f;background:rgba(247,146,60,.16);border-color:rgba(247,146,60,.34)}
+  .s5{color:#b8860b;background:rgba(230,162,60,.18);border-color:rgba(230,162,60,.45);box-shadow:0 0 14px rgba(230,162,60,.28)}
+  .story-card .back{
+    grid-column:1/-1;justify-self:start;margin-top:6px;
+    border:1px solid rgba(47,157,232,.4);background:rgba(255,255,255,.7);color:var(--deep);
+    font-size:12px;letter-spacing:1px;padding:6px 18px;border-radius:999px;cursor:pointer;transition:all .25s;
+  }
+  .story-card .back:hover{background:linear-gradient(135deg,var(--sky),var(--deep));color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(47,157,232,.4)}
+
+  /* ---------- 底部轨道条（视频进度感） ---------- */
+  .trackbar{
+    position:fixed;left:50%;transform:translateX(-50%);bottom:22px;z-index:20;
+    display:flex;align-items:center;gap:14px;
+    background:var(--card);border:1px solid rgba(255,255,255,.9);
+    border-radius:999px;padding:8px 18px;backdrop-filter:blur(14px);
+    box-shadow:0 10px 30px rgba(23,80,150,.2);
+    opacity:0;pointer-events:none;transition:opacity .4s;
+    font-size:12.5px;letter-spacing:1px;color:var(--muted);
+  }
+  .trackbar.show{opacity:1;pointer-events:auto}
+  .trackbar b{color:var(--deep);font-weight:800}
+  .trackbar .cur{color:var(--sky)}
+  .trackbar button{
+    border:none;background:linear-gradient(135deg,var(--sky),var(--deep));color:#fff;
+    font-size:12px;letter-spacing:1px;padding:5px 14px;border-radius:999px;cursor:pointer;
+  }
+
+  .foot{max-width:1080px;margin:0 auto;padding:0 24px 40px;text-align:center;font-size:11px;color:var(--faint);letter-spacing:2px}
+  .foot i{font-style:normal;color:var(--sky);margin:0 6px}
+
+  @media (max-width:860px){
+    .photo{width:118px}
+    .photo .pic img{height:150px}
+    .story-card{grid-template-columns:1fr;gap:20px;padding:36px 8px;text-align:center}
+    .sc-poster{max-height:46vh}
+    .sc-info .tags,.sc-info .kicker{justify-content:center}
+    .sc-info .kicker::before{display:none}
+    .sc-no{font-size:80px;top:1%}
+    .story-card .back{justify-self:center}
+    .topbar .hint{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="aurora"></div>
+<div id="clouds"></div>
+
+<div class="content">
+  <header class="topbar">
+    <div class="brand"><span class="logo">✦</span>SELVA SKY <em>晴空放映厅</em></div>
+    <span class="hint">✦ 点击照片，进入详解 ✦</span>
+  </header>
+
+  <section class="hero">
+    <div class="eyebrow">B · 环绕感 — ORBIT</div>
+    <h1>我的番剧推荐</h1>
+    <p class="sub">生成于 2026-08-07 · 共 <b>8</b> 部 · 照片绕中心椭圆环绕，如行星错相</p>
+    <div class="photo-wall" id="wall"></div>
+    <div class="cta">▾ 点开任一张照片 ▾</div>
+  </section>
+
+  <main class="story" id="story"></main>
+
+  <div class="trackbar" id="trackbar">
+    <span>第 <b class="cur" id="tbCur">1</b> 部 / 共 <b id="tbTotal">8</b> 部</span>
+    <button id="toWall">⇪ 回照片墙</button>
+  </div>
+
+  <div class="foot">✦ GENERATED BY VIDEO-TAGGER <i>✦</i> 晴空放映，宜入坑 <i>✦</i></div>
+</div>
+
+<script>
+/* ========== 示例数据（设计稿占位；交付时后端以真实库数据填充） ========== */
+const SLIDES = [
+  { cover:'../../data/covers/18.jpg', cat:'番剧 · 异世界', title:'星屑与黄昏',
+    note:'流星坠落的异世界大陆，少女背负最后的星核踏上旅途。作画与配乐双绝，情感细腻到让人一边骂一边哭。',
+    flag:'连载中', tags:[['热血',14],['异世界',12],['战斗',9],['冒险',7],['奇幻',5]] },
+  { cover:'../../data/covers/20.jpg', cat:'番剧 · 热血', title:'迷宫都市的炼金术师',
+    note:'炼金术与地下城深度绑定的王道冒险，主角靠烧瓶和脑袋闯迷宫。智斗桥段极其上头。',
+    flag:'连载中', tags:[['热血',12],['战斗',10],['冒险',8],['奇幻',6],['励志',4]] },
+  { cover:'../../data/covers/24.jpg', cat:'番剧 · 音乐', title:'夏空奏鸣曲',
+    note:'海边小镇的青春音乐物语，群像刻画满分。OP 循环一周了还没出坑。',
+    flag:'已完结', tags:[['音乐',18],['青春',11],['日常',9],['催泪',6],['恋爱',5]] },
+  { cover:'../../data/covers/30.png', cat:'番剧 · 治愈', title:'幻境阶梯',
+    note:'通往梦境尽头的阶梯，每一级都藏着一段温柔的遗憾。治愈与致郁一线之隔，慎入。',
+    flag:'已完结', tags:[['治愈',10],['奇幻',8],['日常',7],['催泪',5]] },
+  { cover:'../../data/covers/37.png', cat:'番剧 · 科幻', title:'银色流星',
+    note:'近未来太空歌剧，舰队战美术封神。剧本前期铺垫略缓，后期全线炸裂。',
+    flag:'连载中', tags:[['科幻',15],['战斗',10],['宇宙',7],['热血',6]] },
+  { cover:'../../data/covers/42.jpg', cat:'番剧 · 恋爱', title:'黄昏少女',
+    note:'黄昏时分的校园恋爱，美术光影处理堪称教科书。细腻到每一帧都想截图。',
+    flag:'已完结', tags:[['恋爱',13],['青春',9],['日常',8],['治愈',6]] },
+  { cover:'../../data/covers/48.jpg', cat:'番剧 · 悬疑', title:'螺旋的律动',
+    note:'都市怪谈与时间循环叠加，推理闭环严丝合缝。第三集神展开直接封神。',
+    flag:'连载中', tags:[['悬疑',11],['推理',8],['奇幻',6],['致郁',4]] },
+  { cover:'../../data/covers/50.jpg', cat:'番剧 · 冒险', title:'晨曦之约',
+    note:'少年与兽娘横穿大陆的公路冒险，世界观设定厚重，笑点泪点交替着来。',
+    flag:'已完结', tags:[['冒险',16],['奇幻',10],['治愈',8],['友情',7],['搞笑',5]] }
+];
+
+/* ========== 云絮 ========== */
+(() => {
+  const wrap = document.getElementById('clouds');
+  const sizes = [
+    { w: 420, h: 160, x: 6,  y: 12, s: 15, d: 26 },
+    { w: 320, h: 130, x: 74, y: 18, s: 18, d: 32 },
+    { w: 520, h: 180, x: 40, y: 68, s: 12, d: 24 },
+    { w: 260, h: 110, x: 16, y: 46, s: 22, d: 38 },
+    { w: 380, h: 150, x: 64, y: 82, s: 16, d: 30 }
+  ];
+  for (const c of sizes) {
+    const d = document.createElement('div');
+    d.className = 'cloud';
+    d.style.cssText = `width:${c.w}px;height:${c.h}px;left:${c.x}%;top:${c.y}%;animation-duration:${c.d}s;animation-delay:${-c.s}s;opacity:.55;`;
+    wrap.appendChild(d);
+  }
+})();
+
+/* ========== 渲染：照片墙 + Story ========== */
+const wall = document.getElementById('wall');
+const story = document.getElementById('story');
+const tbCur = document.getElementById('tbCur');
+const tbTotal = document.getElementById('tbTotal');
+const pad = n => String(n).padStart(2, '0');
+const chip = ([name, n]) => {
+  const tier = n >= 10 ? 5 : n >= 7 ? 4 : n >= 4 ? 3 : n >= 2 ? 2 : 1;
+  return `<span class="chip s${tier}">${name}<b>×${n}</b></span>`;
+};
+
+SLIDES.forEach((s, i) => {
+  // 照片墙
+  const ph = document.createElement('button');
+  ph.className = 'photo';
+  // 环绕感：入场八方汇聚落成墙；落定后每张沿椭圆轨道环绕，相位均匀错开
+  const ang = (i / SLIDES.length) * Math.PI * 2;
+  ph.style.setProperty('--sx', (Math.cos(ang) * 300).toFixed(0) + 'px');
+  ph.style.setProperty('--sy', (Math.sin(ang) * 300).toFixed(0) + 'px');
+  ph.style.setProperty('--ss', (1.45 + (i % 3) * 0.12).toFixed(2));
+  ph.style.setProperty('--d', (i * 0.03).toFixed(2) + 's');
+  ph.style.setProperty('--fd', (1.6 + i * 1.1).toFixed(2) + 's');
+  ph.style.setProperty('--dn', 'orbit');
+  ph.style.setProperty('--dd', '9s');
+  ph.style.setProperty('--rot', ((i % 2 ? 1 : -1) * (1.5 + (i % 3))) + 'deg');
+  ph.innerHTML = `
+    <span class="pic"><img src="${s.cover}" alt="" loading="lazy" onerror="this.style.display='none'">
+      <span class="ph-no">#${pad(i + 1)}</span></span>
+    <span class="ph-cap">${s.title}</span>`;
+  ph.addEventListener('click', () => goto(i));
+  wall.appendChild(ph);
+
+  // Story 卡
+  const sc = document.createElement('section');
+  sc.className = 'story-card'; sc.id = 'story-' + i;
+  sc.innerHTML = `
+    <span class="sc-no">${pad(i + 1)}</span>
+    <div class="sc-poster">
+      <img src="${s.cover}" alt="${s.title}" loading="lazy" onerror="this.style.display='none'">
+      <span class="flag">${s.flag}</span>
+    </div>
+    <div class="sc-info">
+      <span class="kicker">PICK NO.${pad(i + 1)}</span>
+      <div><span class="cat">✦ ${s.cat}</span></div>
+      <h2>${s.title}</h2>
+      <p class="note">${s.note}</p>
+      <div class="tags">${s.tags.map(chip).join('')}</div>
+      <button class="back" type="button">⇪ 回照片墙</button>
+    </div>`;
+  story.appendChild(sc);
+});
+tbTotal.textContent = pad(SLIDES.length);
+
+const cards = [...story.children];
+
+/* 滚动进入视野 → 触发镜头缓推 + 信息逐行显现（IntersectionObserver） */
+const io = new IntersectionObserver(entries => {
+  for (const e of entries) {
+    if (e.isIntersecting) {
+      e.target.classList.add('in-view');
+      const n = cards.indexOf(e.target);
+      if (n >= 0) tbCur.textContent = pad(n + 1);
+    }
+  }
+}, { threshold: 0.45 });
+cards.forEach(c => io.observe(c));
+
+/* 底部轨道条：进入 story 区后浮现 */
+const tb = document.getElementById('trackbar');
+const hero = document.querySelector('.hero');
+const trackbarIO = new IntersectionObserver(es => {
+  for (const e of es) tb.classList.toggle('show', !e.isIntersecting);
+}, { threshold: 0 });
+trackbarIO.observe(hero);
+
+/* 定位：照片墙点击 → 滚到对应 Story 卡 */
+function goto(i){
+  const el = document.getElementById('story-' + i);
+  el.scrollIntoView({ behavior:'smooth', block:'start' });
+  tbCur.textContent = pad(i + 1);
+}
+document.getElementById('toWall').addEventListener('click', () => {
+  window.scrollTo({ top: 0, behavior:'smooth' });
+});
+cards.forEach(c => c.querySelector('.back').addEventListener('click', () => {
+  window.scrollTo({ top: 0, behavior:'smooth' });
+}));
+
+/* 键盘 ←/→ 切上下部（视频分镜感） */
+document.addEventListener('keydown', e => {
+  const n = cards.findIndex(c => c.classList.contains('in-view'));
+  if (n < 0) return;
+  if (e.key === 'ArrowRight') goto(Math.min(n + 1, SLIDES.length - 1));
+  if (e.key === 'ArrowLeft') goto(Math.max(n - 1, 0));
+});
+</script>
+</body>
+</html>

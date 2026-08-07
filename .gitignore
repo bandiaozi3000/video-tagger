@@ -29,3 +29,8 @@ backend/data/
 .claude/skills/
 .claude/settings.local.json
 skills-lock.json
+
+# Node 视频渲染依赖（npm install 生成，禁止提交）
+backend/scripts/node_modules/
+# render.js 冒烟测试产物（smoke.html 是测试模板需保留）
+backend/scripts/smoke.mp4

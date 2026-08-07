@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>深夜霓虹剧场 · NEON SELVA — 我的番剧推荐</title>
+<style>
+  /* ============ 深夜霓虹剧场 NEON・SELVA ============
+     设计稿 demo —— 二次元 × 现代审美
+     封面为本地真实数据（相对路径），最终交付将 base64 内嵌 */
+  :root{
+    --bg-0:#07060d;
+    --bg-1:#100e1e;
+    --bg-2:#191428;
+    --ink:#ece9f6;
+    --muted:#9d97b8;
+    --faint:#6b6690;
+    --sky:#4fc3f7;
+    --blue:#6f8bff;
+    --pink:#ff8fb8;
+    --gold:#ffd166;
+    --line:rgba(255,255,255,.09);
+    --card:rgba(20,16,38,.72);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    font-family:"PingFang SC","Microsoft YaHei","Hiragino Sans GB",-apple-system,sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(1200px 700px at 78% -10%, rgba(79,195,247,.16), transparent 60%),
+      radial-gradient(900px 600px at 8% 110%, rgba(111,139,255,.13), transparent 60%),
+      radial-gradient(700px 500px at 50% 120%, rgba(100,130,255,.10), transparent 65%),
+      linear-gradient(180deg,var(--bg-0),var(--bg-1) 55%,#0a0916);
+    min-height:100vh;
+    display:flex;align-items:center;justify-content:center;
+    overflow:hidden;
+    position:relative;
+  }
+  /* 星空粒子画布 */
+  #stars{position:fixed;inset:0;pointer-events:none;opacity:.85;z-index:0}
+  /* 背景霓虹光带 */
+  body::before{
+    content:"";position:fixed;left:-10%;right:-10%;top:0;height:3px;
+    background:linear-gradient(90deg,transparent,var(--sky),var(--blue),var(--pink),transparent);
+    filter:blur(.5px);opacity:.9;z-index:2;animation:topline 9s ease-in-out infinite;
+  }
+  @keyframes topline{0%,100%{opacity:.5}50%{opacity:1}}
+
+  .stage{
+    position:relative;z-index:1;width:min(1180px,94vw);
+    padding:26px 0 34px;
+    animation:stagein .8s cubic-bezier(.22,.8,.28,1) both;
+  }
+  @keyframes stagein{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+
+  /* ---------- 顶部 ---------- */
+  .topbar{
+    display:flex;align-items:flex-end;justify-content:space-between;
+    margin-bottom:22px;padding:0 6px;
+  }
+  .brand{
+    display:flex;align-items:center;gap:10px;
+    font-weight:700;letter-spacing:2px;font-size:15px;
+  }
+  .brand .logo{
+    width:30px;height:30px;border-radius:9px;flex:none;
+    display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--sky),var(--blue) 55%,var(--pink));
+    box-shadow:0 4px 18px rgba(79,195,247,.5);
+    font-size:15px;color:#08070f;
+  }
+  .brand em{font-style:normal;color:var(--muted);font-size:12px;letter-spacing:1px;margin-top:1px}
+  .heading{text-align:right}
+  .heading h1{
+    font-size:30px;letter-spacing:4px;font-weight:800;
+    background:linear-gradient(115deg,#fff 10%,#bfe0ff 45%,#9fd4ff 85%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 2px 14px rgba(79,195,247,.5));
+  }
+  .heading .meta{font-size:12.5px;color:var(--faint);margin-top:6px;letter-spacing:1px}
+  .heading .meta b{color:var(--gold);font-weight:700}
+
+  /* ---------- 轮播 ---------- */
+  .carousel{
+    position:relative;
+    background:linear-gradient(180deg,var(--card),rgba(12,9,24,.55));
+    border:1px solid var(--line);
+    border-radius:22px;
+    backdrop-filter:blur(18px);
+    box-shadow:0 30px 80px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+    padding:26px;
+    overflow:hidden;
+  }
+  /* 卡内顶部渐光线 */
+  .carousel::before{
+    content:"";position:absolute;left:26px;right:26px;top:0;height:1px;
+    background:linear-gradient(90deg,transparent,var(--blue),var(--pink),transparent);
+    opacity:.7;
+  }
+  .track{position:relative;height:min(520px,70vh);border-radius:14px}
+
+  .slide{
+    position:absolute;inset:0;display:flex;gap:34px;align-items:center;
+    padding:6px 6px 10px;opacity:0;pointer-events:none;
+  }
+  .slide.is-active{opacity:1;pointer-events:auto;z-index:2}
+  .slide.anim-in{animation:slideIn .72s cubic-bezier(.22,.8,.28,1) both}
+  .slide.anim-out{animation:slideOut .72s cubic-bezier(.22,.8,.28,1) both}
+  @keyframes slideIn{
+    0%{opacity:0;transform:translateX(60px) scale(.985)}
+    100%{opacity:1;transform:none}
+  }
+  @keyframes slideOut{
+    0%{opacity:1;transform:none}
+    100%{opacity:0;transform:translateX(-60px) scale(.985)}
+  }
+  .slide.from-prev.anim-in{animation-name:slideInRev}
+  .slide.from-prev.anim-out{animation-name:slideOutRev}
+  @keyframes slideInRev{from{opacity:0;transform:translateX(-60px) scale(.985)}to{opacity:1;transform:none}}
+  @keyframes slideOutRev{from{opacity:1;transform:none}to{opacity:0;transform:translateX(60px) scale(.985)}}
+
+  /* ----- 海报 ----- */
+  .poster{
+    flex:none;width:min(300px,32vw);aspect-ratio:3/4;
+    border-radius:16px;overflow:hidden;position:relative;
+    box-shadow:0 22px 50px rgba(0,0,0,.6);
+    border:1px solid rgba(255,255,255,.12);
+    background:linear-gradient(160deg,#221a3a,#0d0a18);
+  }
+  .poster::after{ /* 霓虹描边 */
+    content:"";position:absolute;inset:0;border-radius:16px;pointer-events:none;
+    box-shadow:inset 0 0 0 1px transparent;
+    transition:box-shadow .4s;
+  }
+  .slide.is-active .poster::after{
+    box-shadow:inset 0 0 0 1px rgba(79,195,247,.55), 0 0 34px rgba(79,195,247,.28);
+  }
+  .poster img{width:100%;height:100%;object-fit:cover;display:block}
+  .slide.is-active .poster img{animation:kenburns 8s ease-out both}
+  @keyframes kenburns{from{transform:scale(1.08)}to{transform:scale(1)}}
+  .poster .cover-shade{ /* 底部渐变 */
+    position:absolute;left:0;right:0;bottom:0;height:42%;
+    background:linear-gradient(180deg,transparent,rgba(6,4,14,.82));
+  }
+  /* 编号徽章 */
+  .poster .no{
+    position:absolute;left:10px;top:10px;z-index:3;
+    font-size:11px;font-weight:800;letter-spacing:1px;
+    color:#08070f;background:linear-gradient(135deg,var(--sky),var(--blue));
+    padding:4px 9px;border-radius:999px;
+    box-shadow:0 3px 12px rgba(79,195,247,.4);
+  }
+  .poster .no em{font-style:normal;opacity:.65;font-weight:600;margin-right:2px}
+  /* 底部状态条（作品级“待确认/观看中”占位，后续映射状态） */
+  .poster .flag{
+    position:absolute;right:10px;top:10px;z-index:3;
+    font-size:10.5px;letter-spacing:1px;padding:4px 8px;border-radius:999px;
+    color:#ffd9a6;background:rgba(255,143,77,.14);border:1px solid rgba(255,143,77,.35);
+  }
+
+  /* ----- 信息区 ----- */
+  .info{flex:1;min-width:0;padding:6px 2px}
+  .kicker{
+    display:inline-flex;align-items:center;gap:7px;
+    font-size:12px;letter-spacing:2px;color:var(--sky);
+    margin-bottom:12px;
+  }
+  .kicker::before{
+    content:"";width:22px;height:1px;background:linear-gradient(90deg,var(--sky),transparent);
+  }
+  .info .cat{
+    display:inline-block;font-size:12px;letter-spacing:1px;color:#0a0812;
+    background:linear-gradient(120deg,var(--sky),var(--blue));
+    padding:4px 12px;border-radius:999px;font-weight:700;margin-bottom:14px;
+    box-shadow:0 4px 16px rgba(79,195,247,.4);
+  }
+  .info h2{
+    font-size:clamp(24px,3.4vw,38px);font-weight:800;line-height:1.2;letter-spacing:2px;
+    background:linear-gradient(115deg,#fff 8%,#bfe0ff 45%,#9fd4ff 85%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 2px 12px rgba(79,195,247,.5));
+    margin-bottom:16px;
+  }
+  .info .note{
+    font-size:14px;line-height:1.85;color:var(--muted);
+    max-height:4.6em;overflow:hidden;position:relative;
+    margin-bottom:18px;padding-right:8px;
+  }
+  .info .note::after{ /* 淡出裁切 */
+    content:"";position:absolute;left:0;right:0;bottom:0;height:1.9em;
+    background:linear-gradient(180deg,transparent,rgba(16,14,30,.96));
+  }
+  .info .tags{display:flex;flex-wrap:wrap;gap:9px}
+  .chip{
+    font-size:12.5px;letter-spacing:.5px;padding:5px 12px;border-radius:999px;
+    border:1px solid var(--line);display:inline-flex;align-items:center;gap:6px;
+  }
+  .chip b{font-weight:800;font-size:11px}
+  .s1{color:#b8c4da;background:rgba(163,174,196,.1)}
+  .s2{color:#8fd0ff;background:rgba(79,195,247,.13);border-color:rgba(79,195,247,.4)}
+  .s3{color:#a9c2ff;background:rgba(111,139,255,.14);border-color:rgba(111,139,255,.4)}
+  .s4{color:#ffc07a;background:rgba(251,146,60,.14);border-color:rgba(251,146,60,.4)}
+  .s5{
+    color:#ffe08a;background:rgba(251,191,36,.13);border-color:rgba(251,191,36,.5);
+    box-shadow:0 0 16px rgba(251,191,36,.22);
+  }
+
+  /* ----- 控制 ----- */
+  .nav{
+    position:absolute;top:50%;transform:translateY(-50%);z-index:5;
+    width:46px;height:46px;border-radius:50%;
+    border:1px solid var(--line);color:var(--ink);
+    background:rgba(20,16,38,.6);backdrop-filter:blur(8px);
+    font-size:20px;cursor:pointer;display:grid;place-items:center;
+    transition:all .25s;
+  }
+  .nav:hover{
+    background:linear-gradient(135deg,rgba(79,195,247,.28),rgba(111,139,255,.28));
+    border-color:rgba(79,195,247,.65);box-shadow:0 0 22px rgba(79,195,247,.4);
+    transform:translateY(-50%) scale(1.06);
+  }
+  .nav.prev{left:-14px}
+  .nav.next{right:-14px}
+  @media (max-width:640px){.nav{width:38px;height:38px}.nav.prev{left:6px}.nav.next{right:6px}}
+
+  /* 底部：进度 + 计数 */
+  .carousel-foot{
+    display:flex;align-items:center;gap:16px;margin-top:20px;padding:0 4px;
+  }
+  .progress{
+    flex:1;height:3px;border-radius:3px;background:rgba(255,255,255,.09);
+    overflow:hidden;position:relative;
+  }
+  .progress i{
+    position:absolute;left:0;top:0;bottom:0;width:0;
+    background:linear-gradient(90deg,var(--sky),var(--blue),var(--pink));
+    border-radius:3px;box-shadow:0 0 12px rgba(79,195,247,.8);
+  }
+  .dots{display:flex;gap:8px;align-items:center}
+  .dot{
+    width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.18);
+    cursor:pointer;transition:all .3s;border:none;padding:0;
+  }
+  .dot.is-on{
+    width:24px;border-radius:6px;
+    background:linear-gradient(90deg,var(--sky),var(--pink));
+    box-shadow:0 0 12px rgba(79,195,247,.5);
+  }
+  .counter{
+    font-size:13px;letter-spacing:2px;color:var(--faint);
+    font-variant-numeric:tabular-nums;
+  }
+  .counter b{color:var(--ink);font-size:15px;font-weight:800}
+  .counter b.cur{color:var(--pink)}
+
+  /* ---------- 页脚 ---------- */
+  .foot{
+    text-align:center;margin-top:18px;font-size:11px;color:var(--faint);
+    letter-spacing:2px;
+  }
+  .foot i{font-style:normal;color:var(--blue);margin:0 6px}
+
+  @media (max-width:860px){
+    .slide{flex-direction:column;gap:18px;align-items:center;justify-content:center;padding:10px 6px}
+    .poster{width:min(230px,60vw)}
+    .info{width:100%;text-align:center;padding:0 10px}
+    .info .kicker{justify-content:center}
+    .info .kicker::before{display:none}
+    .info .tags{justify-content:center}
+    .track{height:auto}
+    .slide{position:relative;opacity:0}
+    .slide.is-active{opacity:1}
+    .topbar{flex-direction:column;align-items:center;gap:12px}
+    .heading{text-align:center}
+  }
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas>
+
+<div class="stage">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">✦</span>NEON SELVA <em>深夜霓虹剧场</em>
+    </div>
+    <div class="heading">
+      <h1>我的番剧推荐</h1>
+      <div class="meta">生成于 2026-08-07 21:30 · 共 <b>8</b> 部 · JUMP! NOW PLAYING</div>
+    </div>
+  </header>
+
+  <div class="carousel">
+    <div class="track" id="track"><!-- slides injected --></div>
+    <button class="nav prev" aria-label="上一部">‹</button>
+    <button class="nav next" aria-label="下一部">›</button>
+    <div class="carousel-foot">
+      <div class="progress"><i id="prog"></i></div>
+      <div class="dots" id="dots"></div>
+      <div class="counter"><b class="cur" id="cur">01</b> / <b id="total">08</b></div>
+    </div>
+  </div>
+
+  <div class="foot">✦ GENERATED BY VIDEO-TAGGER <i>✦</i> 深夜放映，勿关灯 <i>✦</i></div>
+</div>
+
+<script>
+/* ========== 示例数据（设计稿占位；交付时由后端以真实库数据填充） ========== */
+const SLIDES = [
+  {
+    cover:'../../data/covers/18.jpg', cat:'番剧 · 异世界', title:'星屑与黄昏',
+    note:'流星坠落的异世界大陆，少女背负最后的星核踏上旅途。作画与配乐双绝，情感细腻到让人一边骂一边哭。',
+    flag:'连载中', tags:[['热血',14],['异世界',12],['战斗',9],['冒险',7],['奇幻',5]]
+  },
+  {
+    cover:'../../data/covers/20.jpg', cat:'番剧 · 热血', title:'迷宫都市的炼金术师',
+    note:'炼金术与地下城深度绑定的王道冒险，主角靠烧瓶和脑袋闯迷宫。智斗桥段极其上头。',
+    flag:'连载中', tags:[['热血',12],['战斗',10],['冒险',8],['奇幻',6],['励志',4]]
+  },
+  {
+    cover:'../../data/covers/24.jpg', cat:'番剧 · 音乐', title:'夏空奏鸣曲',
+    note:'海边小镇的青春音乐物语，群像刻画满分。OP 循环一周了还没出坑。',
+    flag:'已完结', tags:[['音乐',18],['青春',11],['日常',9],['催泪',6],['恋爱',5]]
+  },
+  {
+    cover:'../../data/covers/30.png', cat:'番剧 · 治愈', title:'幻境阶梯',
+    note:'通往梦境尽头的阶梯，每一级都藏着一段温柔的遗憾。治愈与致郁一线之隔，慎入。',
+    flag:'已完结', tags:[['治愈',10],['奇幻',8],['日常',7],['催泪',5]]
+  },
+  {
+    cover:'../../data/covers/37.png', cat:'番剧 · 科幻', title:'银色流星',
+    note:'近未来太空歌剧，舰队战美术封神。剧本前期铺垫略缓，后期全线炸裂。',
+    flag:'连载中', tags:[['科幻',15],['战斗',10],['宇宙',7],['热血',6]]
+  },
+  {
+    cover:'../../data/covers/42.jpg', cat:'番剧 · 恋爱', title:'黄昏少女',
+    note:'黄昏时分的校园恋爱，美术光影处理堪称教科书。细腻到每一帧都想截图。',
+    flag:'已完结', tags:[['恋爱',13],['青春',9],['日常',8],['治愈',6]]
+  },
+  {
+    cover:'../../data/covers/48.jpg', cat:'番剧 · 悬疑', title:'螺旋的律动',
+    note:'都市怪谈与时间循环叠加，推理闭环严丝合缝。第三集神展开直接封神。',
+    flag:'连载中', tags:[['悬疑',11],['推理',8],['奇幻',6],['致郁',4]]
+  },
+  {
+    cover:'../../data/covers/50.jpg', cat:'番剧 · 冒险', title:'晨曦之约',
+    note:'少年与兽娘横穿大陆的公路冒险，世界观设定厚重，笑点泪点交替着来。',
+    flag:'已完结', tags:[['冒险',16],['奇幻',10],['治愈',8],['友情',7],['搞笑',5]]
+  }
+];
+
+/* ========== 星空粒子 ========== */
+(() => {
+  const cv = document.getElementById('stars'), ctx = cv.getContext('2d');
+  let W, H, pts = [];
+  const resize = () => { W = cv.width = innerWidth; H = cv.height = innerHeight; };
+  resize(); addEventListener('resize', resize);
+  for (let i = 0; i < 70; i++) pts.push({
+    x: Math.random() * W, y: Math.random() * H,
+    r: Math.random() * 1.3 + .4,
+    vy: Math.random() * .18 + .04,
+    tw: Math.random() * Math.PI * 2, tws: Math.random() * .02 + .008
+  });
+  (function draw(){
+    ctx.clearRect(0, 0, W, H);
+    const hue = [200, 218, 262];
+    for (const p of pts) {
+      p.y -= p.vy; p.tw += p.tws;
+      if (p.y < -4) { p.y = H + 4; p.x = Math.random() * W; }
+      const a = .35 + Math.sin(p.tw) * .25;
+      const h = hue[(Math.random() * hue.length) | 0];
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7);
+      ctx.fillStyle = `hsla(${h},80%,78%,${a})`; ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  })();
+})();
+
+/* ========== 渲染 ========== */
+const track = document.getElementById('track');
+const dotsEl = document.getElementById('dots');
+const curEl = document.getElementById('cur');
+const totalEl = document.getElementById('total');
+const progEl = document.getElementById('prog');
+const pad = n => String(n).padStart(2, '0');
+let idx = 0, timer = null, paused = false;
+
+SLIDES.forEach((s, i) => {
+  const chips = s.tags.map(([name, n]) => {
+    const tier = n >= 10 ? 5 : n >= 7 ? 4 : n >= 4 ? 3 : n >= 2 ? 2 : 1;
+    return `<span class="chip s${tier}">${name}<b>×${n}</b></span>`;
+  }).join('');
+  const div = document.createElement('div');
+  div.className = 'slide';
+  div.innerHTML = `
+    <div class="poster">
+      <img src="${s.cover}" alt="${s.title}" onerror="this.style.display='none'">
+      <div class="cover-shade"></div>
+      <span class="no"><em>#</em>${pad(i + 1)}</span>
+      <span class="flag">${s.flag}</span>
+    </div>
+    <div class="info">
+      <span class="cat">✦ ${s.cat}</span>
+      <h2>${s.title}</h2>
+      <p class="note">${s.note}</p>
+      <div class="tags">${chips}</div>
+    </div>`;
+  track.appendChild(div);
+  const d = document.createElement('button');
+  d.className = 'dot'; d.title = s.title;
+  d.addEventListener('click', () => go(i, i > idx ? 1 : -1));
+  dotsEl.appendChild(d);
+});
+totalEl.textContent = pad(SLIDES.length);
+
+const slides = [...track.children];
+const dots = [...dotsEl.children];
+
+/* ========== 轮播逻辑 ========== */
+function render(){
+  slides.forEach((el, i) => el.classList.toggle('is-active', i === idx));
+  dots.forEach((d, i) => d.classList.toggle('is-on', i === idx));
+  curEl.textContent = pad(idx + 1);
+}
+
+function go(n, dir = 1){
+  if (n === idx) return;
+  const from = slides[idx], to = slides[n];
+  const cls = dir >= 0 ? 'from-prev' : '';
+  from.className = `slide ${cls} anim-out`;
+  to.classList.add('anim-in', 'is-active');
+  to.classList.toggle('from-prev', dir < 0);
+  setTimeout(() => from.classList.remove('anim-out'), 700);
+  setTimeout(() => to.classList.remove('anim-in'), 700);
+  idx = n; render();
+}
+
+function next(){ go((idx + 1) % SLIDES.length, 1); }
+function prev(){ go((idx - 1 + SLIDES.length) % SLIDES.length, -1); }
+
+/* 自动播放 + 进度条 */
+const DUR = 5000;
+let start = null, raf = null;
+function tick(t){
+  if (paused) { start = null; raf = requestAnimationFrame(tick); return; }
+  if (start === null) start = t;
+  const p = Math.min((t - start) / DUR, 1);
+  progEl.style.width = (p * 100).toFixed(2) + '%';
+  if (p >= 1) { next(); start = null; }
+  raf = requestAnimationFrame(tick);
+}
+raf = requestAnimationFrame(tick);
+
+const car = document.querySelector('.carousel');
+car.addEventListener('mouseenter', () => paused = true);
+car.addEventListener('mouseleave', () => { paused = false; start = null; });
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') next();
+  if (e.key === 'ArrowLeft') prev();
+});
+
+/* 触摸滑动 */
+let tx = null;
+car.addEventListener('touchstart', e => tx = e.touches[0].clientX, { passive: true });
+car.addEventListener('touchend', e => {
+  if (tx === null) return;
+  const dx = e.changedTouches[0].clientX - tx;
+  if (Math.abs(dx) > 42) dx > 0 ? prev() : next();
+  tx = null;
+}, { passive: true });
+
+document.querySelector('.nav.next').addEventListener('click', next);
+document.querySelector('.nav.prev').addEventListener('click', prev);
+render();
+</script>
+</body>
+</html>

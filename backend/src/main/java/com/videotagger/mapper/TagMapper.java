@@ -46,6 +46,17 @@ public interface TagMapper extends BaseMapper<Tag> {
             + "ORDER BY ref_count DESC, t.id")
     List<TagUsage> countByMedia(@Param("mediaId") long mediaId);
 
+    /** 某集范围内标签 + 该集内引用次数（集本身 episode_tag ∪ 其下片段 clip_tag）。 */
+    @Select("SELECT t.id, t.name, t.created_at, 0 AS media_count, 0 AS episode_count, 0 AS clip_count, COUNT(*) AS ref_count "
+            + "FROM tag t JOIN ("
+            + "SELECT tag_id AS tid FROM episode_tag WHERE episode_id = #{episodeId} "
+            + "UNION ALL "
+            + "SELECT ct.tag_id FROM clip_tag ct JOIN clips c ON c.id = ct.clip_id WHERE c.episode_id = #{episodeId}"
+            + ") r ON r.tid = t.id "
+            + "GROUP BY t.id, t.name, t.created_at "
+            + "ORDER BY ref_count DESC, t.id")
+    List<TagUsage> countByEpisode(@Param("episodeId") long episodeId);
+
     /** 某标签被三级引用的总数（删孤儿检查）。 */
     @Select("SELECT (SELECT COUNT(*) FROM media_tag WHERE tag_id = #{tagId}) "
             + "+ (SELECT COUNT(*) FROM episode_tag WHERE tag_id = #{tagId}) "

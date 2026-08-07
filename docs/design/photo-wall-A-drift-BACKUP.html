@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>深夜霓虹剧场 · 飘流感 DRIFTING — 我的番剧推荐</title>
+<style>
+  /* ============ 深夜霓虹剧场（动态照片墙版 · A 漂流感） ============
+     照片如纸张悬在风里：入场缓慢漂入 + 落定后各自无规则摆动（三套轨迹错相）
+     自动导览：照片墙落定 → 停留 → 逐部自动跳转；滚动/点击/按键即停
+     设计稿 demo，封面为本地真实数据；交付后 base64 内嵌 */
+  :root{
+    --bg-0:#07060d;
+    --bg-1:#100e1e;
+    --bg-2:#191428;
+    --ink:#ece9f6;
+    --muted:#9d97b8;
+    --faint:#6b6690;
+    --sky:#4fc3f7;
+    --blue:#6f8bff;
+    --pink:#ff8fb8;
+    --gold:#ffd166;
+    --line:rgba(255,255,255,.09);
+    --card:rgba(20,16,38,.72);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-snap-type:y proximity}
+  body{
+    font-family:"PingFang SC","Microsoft YaHei","Hiragino Sans GB",-apple-system,sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(1200px 700px at 78% -10%, rgba(79,195,247,.16), transparent 60%),
+      radial-gradient(900px 600px at 8% 110%, rgba(111,139,255,.13), transparent 60%),
+      radial-gradient(700px 500px at 50% 120%, rgba(100,130,255,.10), transparent 65%),
+      linear-gradient(180deg,var(--bg-0),var(--bg-1) 55%,#0a0916);
+    min-height:100vh;position:relative;overflow-x:hidden;
+  }
+  /* 星空粒子画布 */
+  #stars{position:fixed;inset:0;pointer-events:none;opacity:.85;z-index:0}
+  /* 顶部霓虹光带 */
+  body::before{
+    content:"";position:fixed;left:-10%;right:-10%;top:0;height:3px;
+    background:linear-gradient(90deg,transparent,var(--sky),var(--blue),var(--pink),transparent);
+    filter:blur(.5px);opacity:.9;z-index:2;animation:topline 9s ease-in-out infinite;
+  }
+  @keyframes topline{0%,100%{opacity:.5}50%{opacity:1}}
+  /* 霓虹雾（深色夜空中漂浮的淡紫雾霭，替代浅色版的云絮） */
+  .cloud{
+    position:fixed;border-radius:50%;z-index:1;pointer-events:none;
+    background:radial-gradient(circle,rgba(111,139,255,.34) 0%,rgba(111,139,255,0) 70%);
+    filter:blur(26px);
+    animation:drift linear infinite;
+  }
+  @keyframes drift{
+    0%{transform:translate3d(-4vw,2vh,0) scale(1)}
+    50%{transform:translate3d(4vw,-3vh,0) scale(1.08)}
+    100%{transform:translate3d(-4vw,2vh,0) scale(1)}
+  }
+  .content{position:relative;z-index:2}
+
+  /* ---------- 顶部品牌 ---------- */
+  .topbar{
+    position:fixed;top:0;left:0;right:0;z-index:20;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 30px;
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:2px;font-size:14px;color:var(--ink)}
+  .brand .logo{
+    width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--sky),var(--blue) 55%,var(--pink));
+    box-shadow:0 4px 18px rgba(79,195,247,.5);font-size:15px;color:#08070f;
+  }
+  .brand em{font-style:normal;color:var(--muted);font-size:12px;letter-spacing:1px}
+  .topbar .hint{font-size:11.5px;color:var(--faint);letter-spacing:2px}
+
+  /* ---------- Hero：照片墙 ---------- */
+  .hero{
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:110px 20px 60px;text-align:center;
+  }
+  .hero .eyebrow{
+    font-size:12px;letter-spacing:4px;color:var(--sky);font-weight:600;margin-bottom:10px;
+  }
+  .hero h1{
+    font-size:clamp(30px,5vw,46px);font-weight:800;letter-spacing:6px;
+    background:linear-gradient(115deg,#fff 10%,#bfe0ff 45%,#9fd4ff 85%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 2px 14px rgba(79,195,247,.5));
+    margin-bottom:8px;position:relative;
+  }
+  .hero .sub{font-size:13px;color:var(--muted);letter-spacing:2px;margin-bottom:38px}
+  .hero .sub b{color:var(--gold)}
+
+  /* 照片墙 */
+  .photo-wall{
+    display:flex;flex-wrap:wrap;justify-content:center;gap:16px;max-width:960px;
+    perspective:1200px;
+  }
+  .photo{
+    flex:none;width:150px;cursor:pointer;border:none;background:none;padding:0;text-align:left;
+    animation:popin 2.2s ease-in-out both;
+    animation-delay:var(--d);
+    transform:rotate(var(--rot));
+    transition:transform .3s, filter .3s;
+  }
+  /* 漂流入场：从各自方位缓缓漂入，全程平滑无弹跳，像照片被风送到墙前 */
+  @keyframes popin{
+    0%{opacity:0;transform:translate(var(--sx), var(--sy)) rotate(calc(var(--rot) + 14deg)) scale(var(--ss))}
+    30%{opacity:1}
+    100%{opacity:1;transform:translate(0,0) rotate(var(--rot)) scale(1)}
+  }
+  .photo:hover{transform:rotate(0) scale(1.06) translateY(-8px);filter:brightness(1.12);z-index:5}
+  .photo .pic{
+    position:relative;display:block;padding:7px 7px 10px;
+    background:linear-gradient(180deg,var(--card),rgba(12,9,24,.55));
+    border:1px solid var(--line);border-radius:9px;
+    box-shadow:0 14px 34px rgba(0,0,0,.5);
+    animation-name:var(--dn, floaty);
+    animation-duration:var(--dd, 8.5s);
+    animation-timing-function:ease-in-out;
+    animation-iteration-count:infinite;
+    animation-delay:var(--fd);
+  }
+  /* 无规则漂流感：三套不同轨迹错开，x/y/旋转各自无规则摆动，如纸张悬在风里 */
+  @keyframes driftA{
+    0%,100%{transform:translate(0,0) rotate(0deg)}
+    25%{transform:translate(7px,-12px) rotate(1.6deg)}
+    50%{transform:translate(-6px,-3px) rotate(-1.8deg)}
+    75%{transform:translate(5px,9px) rotate(1deg)}
+  }
+  @keyframes driftB{
+    0%,100%{transform:translate(0,0) rotate(0deg)}
+    30%{transform:translate(-9px,-6px) rotate(-1.4deg)}
+    55%{transform:translate(4px,-11px) rotate(2deg)}
+    80%{transform:translate(-3px,8px) rotate(-1deg)}
+  }
+  @keyframes driftC{
+    0%,100%{transform:translate(0,0) rotate(0deg)}
+    20%{transform:translate(6px,8px) rotate(1.2deg)}
+    45%{transform:translate(-7px,5px) rotate(-1.6deg)}
+    70%{transform:translate(8px,-7px) rotate(1.8deg)}
+  }
+  .photo .pic img{
+    width:100%;height:186px;object-fit:cover;border-radius:5px;display:block;
+    background:linear-gradient(160deg,#221a3a,#0d0a18);
+  }
+  .photo .ph-no{
+    position:absolute;left:11px;top:11px;font-size:10px;font-weight:800;color:#08070f;
+    background:linear-gradient(135deg,var(--sky),var(--blue));padding:2px 7px;border-radius:999px;
+    box-shadow:0 3px 12px rgba(79,195,247,.4);
+  }
+  .photo .ph-cap{
+    display:block;margin-top:9px;font-size:12.5px;font-weight:700;color:var(--ink);
+    letter-spacing:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .hero .cta{
+    margin-top:40px;font-size:12px;color:var(--faint);letter-spacing:3px;animation:pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
+
+  /* ---------- Story：逐部详解 ---------- */
+  .story{max-width:1080px;margin:0 auto;padding:20px 24px 80px}
+  .story-card{
+    scroll-snap-align:start;
+    position:relative;min-height:74vh;
+    display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:40px;align-items:center;
+    padding:60px 10px;scroll-margin-top:70px;
+  }
+  .story-card:not(:last-child){border-bottom:1px dashed rgba(255,255,255,.08)}
+  /* 超大描边序号（背景装饰，视频感分镜编号） */
+  .sc-no{
+    position:absolute;right:2%;top:6%;font-size:120px;font-weight:900;line-height:1;
+    color:transparent;-webkit-text-stroke:1.5px rgba(111,139,255,.28);
+    pointer-events:none;z-index:0;letter-spacing:4px;
+  }
+  .sc-poster{
+    position:relative;border-radius:18px;overflow:hidden;z-index:1;
+    aspect-ratio:3/4;max-height:62vh;
+    border:1px solid rgba(255,255,255,.12);
+    box-shadow:0 26px 60px rgba(0,0,0,.6);
+    background:linear-gradient(160deg,#221a3a,#0d0a18);
+  }
+  .sc-poster::after{
+    content:"";position:absolute;inset:0;border-radius:18px;pointer-events:none;
+    box-shadow:inset 0 0 0 1px transparent;transition:box-shadow .5s;
+  }
+  .story-card.in-view .sc-poster::after{
+    box-shadow:inset 0 0 0 1px rgba(79,195,247,.55), 0 0 34px rgba(79,195,247,.28);
+  }
+  .sc-poster img{
+    width:100%;height:100%;object-fit:cover;display:block;
+    animation:kenburns 18s ease-in-out infinite alternate;
+    animation-play-state:paused;
+  }
+  .story-card.in-view .sc-poster img{animation-play-state:running}
+  @keyframes kenburns{from{transform:scale(1)}to{transform:scale(1.12)}}
+  .sc-poster .flag{
+    position:absolute;left:12px;top:12px;z-index:2;
+    font-size:11px;letter-spacing:1px;padding:4px 10px;border-radius:999px;
+    color:#ffd9a6;background:rgba(255,143,77,.14);border:1px solid rgba(255,143,77,.35);
+    backdrop-filter:blur(4px);
+  }
+  .sc-info{z-index:1;padding:10px 2px}
+  .sc-info > *{opacity:0;transform:translateY(18px);transition:opacity .6s ease, transform .6s ease}
+  .story-card.in-view .sc-info > *{opacity:1;transform:none}
+  .story-card.in-view .sc-info > *:nth-child(1){transition-delay:.05s}
+  .story-card.in-view .sc-info > *:nth-child(2){transition-delay:.15s}
+  .story-card.in-view .sc-info > *:nth-child(3){transition-delay:.25s}
+  .story-card.in-view .sc-info > *:nth-child(4){transition-delay:.35s}
+  .sc-info .kicker{
+    display:inline-flex;align-items:center;gap:7px;font-size:12px;letter-spacing:2px;
+    color:var(--sky);font-weight:600;margin-bottom:12px;
+  }
+  .sc-info .kicker::before{content:"";width:22px;height:1px;background:linear-gradient(90deg,var(--sky),transparent)}
+  .sc-info .cat{
+    display:inline-block;font-size:12px;letter-spacing:1px;color:#0a0812;
+    background:linear-gradient(120deg,var(--sky),var(--blue));
+    padding:4px 12px;border-radius:999px;font-weight:700;margin-bottom:14px;
+    box-shadow:0 4px 16px rgba(79,195,247,.4);
+  }
+  .sc-info h2{
+    font-size:clamp(26px,3.6vw,40px);font-weight:800;letter-spacing:2px;line-height:1.15;
+    background:linear-gradient(115deg,#fff 8%,#bfe0ff 45%,#9fd4ff 85%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 2px 12px rgba(79,195,247,.5));
+    margin-bottom:16px;
+  }
+  .sc-info .note{
+    font-size:14.5px;line-height:1.9;color:var(--muted);margin-bottom:20px;max-width:56ch;
+  }
+  .sc-info .tags{display:flex;flex-wrap:wrap;gap:9px}
+  .chip{
+    font-size:12.5px;letter-spacing:.5px;padding:5px 12px;border-radius:999px;
+    border:1px solid var(--line);display:inline-flex;align-items:center;gap:6px;font-weight:600;
+  }
+  .chip b{font-weight:800;font-size:11px}
+  .s1{color:#b8c4da;background:rgba(163,174,196,.1)}
+  .s2{color:#8fd0ff;background:rgba(79,195,247,.13);border-color:rgba(79,195,247,.4)}
+  .s3{color:#a9c2ff;background:rgba(111,139,255,.14);border-color:rgba(111,139,255,.4)}
+  .s4{color:#ffc07a;background:rgba(251,146,60,.14);border-color:rgba(251,146,60,.4)}
+  .s5{
+    color:#ffe08a;background:rgba(251,191,36,.13);border-color:rgba(251,191,36,.5);
+    box-shadow:0 0 16px rgba(251,191,36,.22);
+  }
+  .story-card .back{
+    grid-column:1/-1;justify-self:start;margin-top:6px;
+    border:1px solid var(--line);background:rgba(20,16,38,.6);color:var(--ink);
+    font-size:12px;letter-spacing:1px;padding:6px 18px;border-radius:999px;cursor:pointer;transition:all .25s;
+    backdrop-filter:blur(8px);
+  }
+  .story-card .back:hover{
+    background:linear-gradient(135deg,rgba(79,195,247,.28),rgba(111,139,255,.28));
+    border-color:rgba(79,195,247,.65);color:#fff;box-shadow:0 0 22px rgba(79,195,247,.4);
+  }
+
+  /* ---------- 底部轨道条（视频进度感） ---------- */
+  .trackbar{
+    position:fixed;left:50%;transform:translateX(-50%);bottom:22px;z-index:20;
+    display:flex;align-items:center;gap:14px;
+    background:rgba(20,16,38,.72);border:1px solid var(--line);
+    border-radius:999px;padding:8px 18px;backdrop-filter:blur(14px);
+    box-shadow:0 10px 34px rgba(0,0,0,.55);
+    opacity:0;pointer-events:none;transition:opacity .4s;
+    font-size:12.5px;letter-spacing:1px;color:var(--muted);
+  }
+  .trackbar.show{opacity:1;pointer-events:auto}
+  .trackbar b{color:var(--ink);font-weight:800}
+  .trackbar .cur{color:var(--pink)}
+  .trackbar button{
+    border:none;background:linear-gradient(135deg,var(--sky),var(--blue) 60%,var(--pink));color:#08070f;
+    font-size:12px;letter-spacing:1px;padding:5px 14px;border-radius:999px;cursor:pointer;
+  }
+
+  /* ---------- 自动导览：倒计时进度条 + 顶部提示胶囊 ---------- */
+  .tb-progress{
+    width:130px;height:3px;border-radius:999px;overflow:hidden;
+    background:rgba(255,255,255,.09);opacity:0;transition:opacity .3s;
+  }
+  .trackbar.auto .tb-progress{opacity:1}
+  .tb-progress i{
+    display:block;height:100%;width:0;border-radius:999px;
+    background:linear-gradient(90deg,var(--sky),var(--blue),var(--pink));
+    box-shadow:0 0 12px rgba(79,195,247,.8);
+  }
+  .tb-progress i.run{animation:tbprog 6s linear forwards}
+  @keyframes tbprog{from{width:0}to{width:100%}}
+  .auto-badge{
+    position:fixed;top:74px;right:24px;z-index:30;
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:11.5px;letter-spacing:1px;color:#08070f;
+    background:linear-gradient(135deg,var(--sky),var(--blue) 60%,var(--pink));
+    padding:6px 14px;border-radius:999px;box-shadow:0 6px 18px rgba(79,195,247,.5);
+  }
+  .auto-badge[hidden]{display:none}
+  .auto-badge::before{content:"";width:6px;height:6px;border-radius:50%;background:#08070f;animation:blink 1.1s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:.3}50%{opacity:1}}
+
+  .foot{max-width:1080px;margin:0 auto;padding:0 24px 40px;text-align:center;font-size:11px;color:var(--faint);letter-spacing:2px}
+  .foot i{font-style:normal;color:var(--blue);margin:0 6px}
+
+  @media (max-width:860px){
+    .photo{width:118px}
+    .photo .pic img{height:150px}
+    .story-card{grid-template-columns:1fr;gap:20px;padding:36px 8px;text-align:center}
+    .sc-poster{max-height:46vh}
+    .sc-info .tags,.sc-info .kicker{justify-content:center}
+    .sc-info .kicker::before{display:none}
+    .sc-no{font-size:80px;top:1%}
+    .story-card .back{justify-self:center}
+    .topbar .hint{display:none}
+    .auto-badge{right:14px}
+  }
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas>
+<div id="clouds"></div>
+<div class="auto-badge" id="autoBadge" hidden>自动导览中 · 交互即停</div>
+
+<div class="content">
+  <header class="topbar">
+    <div class="brand"><span class="logo">✦</span>NEON SELVA <em>深夜霓虹剧场</em></div>
+    <span class="hint">✦ 点击照片，进入详解 ✦</span>
+  </header>
+
+  <section class="hero">
+    <div class="eyebrow">A · 漂流感 — NEON DRIFTING</div>
+    <h1>我的番剧推荐</h1>
+    <p class="sub">生成于 2026-08-07 · 共 <b>8</b> 部 · 无规则漂移，照片如纸张悬在风里</p>
+    <div class="photo-wall" id="wall"></div>
+    <div class="cta">▾ 点开任一张照片 ▾</div>
+  </section>
+
+  <main class="story" id="story"></main>
+
+  <div class="trackbar" id="trackbar">
+    <span>第 <b class="cur" id="tbCur">1</b> 部 / 共 <b id="tbTotal">8</b> 部</span>
+    <div class="tb-progress"><i id="tbProg"></i></div>
+    <button id="toWall">⇪ 回照片墙</button>
+  </div>
+
+  <div class="foot">✦ GENERATED BY VIDEO-TAGGER <i>✦</i> 深夜放映，勿关灯 <i>✦</i></div>
+</div>
+
+<script>
+/* ========== 示例数据（设计稿占位；交付时后端以真实库数据填充） ========== */
+const SLIDES = [
+  { cover:'../../data/covers/18.jpg', cat:'番剧 · 异世界', title:'星屑与黄昏',
+    note:'流星坠落的异世界大陆，少女背负最后的星核踏上旅途。作画与配乐双绝，情感细腻到让人一边骂一边哭。',
+    flag:'连载中', tags:[['热血',14],['异世界',12],['战斗',9],['冒险',7],['奇幻',5]] },
+  { cover:'../../data/covers/20.jpg', cat:'番剧 · 热血', title:'迷宫都市的炼金术师',
+    note:'炼金术与地下城深度绑定的王道冒险，主角靠烧瓶和脑袋闯迷宫。智斗桥段极其上头。',
+    flag:'连载中', tags:[['热血',12],['战斗',10],['冒险',8],['奇幻',6],['励志',4]] },
+  { cover:'../../data/covers/24.jpg', cat:'番剧 · 音乐', title:'夏空奏鸣曲',
+    note:'海边小镇的青春音乐物语，群像刻画满分。OP 循环一周了还没出坑。',
+    flag:'已完结', tags:[['音乐',18],['青春',11],['日常',9],['催泪',6],['恋爱',5]] },
+  { cover:'../../data/covers/30.png', cat:'番剧 · 治愈', title:'幻境阶梯',
+    note:'通往梦境尽头的阶梯，每一级都藏着一段温柔的遗憾。治愈与致郁一线之隔，慎入。',
+    flag:'已完结', tags:[['治愈',10],['奇幻',8],['日常',7],['催泪',5]] },
+  { cover:'../../data/covers/37.png', cat:'番剧 · 科幻', title:'银色流星',
+    note:'近未来太空歌剧，舰队战美术封神。剧本前期铺垫略缓，后期全线炸裂。',
+    flag:'连载中', tags:[['科幻',15],['战斗',10],['宇宙',7],['热血',6]] },
+  { cover:'../../data/covers/42.jpg', cat:'番剧 · 恋爱', title:'黄昏少女',
+    note:'黄昏时分的校园恋爱，美术光影处理堪称教科书。细腻到每一帧都想截图。',
+    flag:'已完结', tags:[['恋爱',13],['青春',9],['日常',8],['治愈',6]] },
+  { cover:'../../data/covers/48.jpg', cat:'番剧 · 悬疑', title:'螺旋的律动',
+    note:'都市怪谈与时间循环叠加，推理闭环严丝合缝。第三集神展开直接封神。',
+    flag:'连载中', tags:[['悬疑',11],['推理',8],['奇幻',6],['致郁',4]] },
+  { cover:'../../data/covers/50.jpg', cat:'番剧 · 冒险', title:'晨曦之约',
+    note:'少年与兽娘横穿大陆的公路冒险，世界观设定厚重，笑点泪点交替着来。',
+    flag:'已完结', tags:[['冒险',16],['奇幻',10],['治愈',8],['友情',7],['搞笑',5]] }
+];
+
+/* ========== 星空粒子 ========== */
+(() => {
+  const cv = document.getElementById('stars'), ctx = cv.getContext('2d');
+  let W, H, pts = [];
+  const resize = () => { W = cv.width = innerWidth; H = cv.height = innerHeight; };
+  resize(); addEventListener('resize', resize);
+  for (let i = 0; i < 70; i++) pts.push({
+    x: Math.random() * W, y: Math.random() * H,
+    r: Math.random() * 1.3 + .4,
+    vy: Math.random() * .18 + .04,
+    tw: Math.random() * Math.PI * 2, tws: Math.random() * .02 + .008
+  });
+  (function draw(){
+    ctx.clearRect(0, 0, W, H);
+    const hue = [200, 218, 262];
+    for (const p of pts) {
+      p.y -= p.vy; p.tw += p.tws;
+      if (p.y < -4) { p.y = H + 4; p.x = Math.random() * W; }
+      const a = .35 + Math.sin(p.tw) * .25;
+      const h = hue[(Math.random() * hue.length) | 0];
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7);
+      ctx.fillStyle = `hsla(${h},80%,78%,${a})`; ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  })();
+})();
+
+/* ========== 霓虹雾（深色夜空漂浮的淡紫雾霭） ========== */
+(() => {
+  const wrap = document.getElementById('clouds');
+  const sizes = [
+    { w: 420, h: 160, x: 6,  y: 12, s: 15, d: 26 },
+    { w: 320, h: 130, x: 74, y: 18, s: 18, d: 32 },
+    { w: 520, h: 180, x: 40, y: 68, s: 12, d: 24 },
+    { w: 260, h: 110, x: 16, y: 46, s: 22, d: 38 },
+    { w: 380, h: 150, x: 64, y: 82, s: 16, d: 30 }
+  ];
+  for (const c of sizes) {
+    const d = document.createElement('div');
+    d.className = 'cloud';
+    d.style.cssText = `width:${c.w}px;height:${c.h}px;left:${c.x}%;top:${c.y}%;animation-duration:${c.d}s;animation-delay:${-c.s}s;opacity:.55;`;
+    wrap.appendChild(d);
+  }
+})();
+
+/* ========== 渲染：照片墙 + Story ========== */
+const wall = document.getElementById('wall');
+const story = document.getElementById('story');
+const tbCur = document.getElementById('tbCur');
+const tbTotal = document.getElementById('tbTotal');
+const pad = n => String(n).padStart(2, '0');
+const chip = ([name, n]) => {
+  const tier = n >= 10 ? 5 : n >= 7 ? 4 : n >= 4 ? 3 : n >= 2 ? 2 : 1;
+  return `<span class="chip s${tier}">${name}<b>×${n}</b></span>`;
+};
+
+SLIDES.forEach((s, i) => {
+  // 照片墙
+  const ph = document.createElement('button');
+  ph.className = 'photo';
+  // 漂流感：按圆周分配方位缓慢漂入；落定后每张套用三套无规则轨迹之一，错相摆动
+  const ang = (i / SLIDES.length) * Math.PI * 2;
+  ph.style.setProperty('--sx', (Math.cos(ang) * 300).toFixed(0) + 'px');
+  ph.style.setProperty('--sy', (Math.sin(ang) * 300).toFixed(0) + 'px');
+  ph.style.setProperty('--ss', '0.8');
+  ph.style.setProperty('--d', (i * 0.1).toFixed(2) + 's');
+  ph.style.setProperty('--fd', (2.2 + i * 0.8).toFixed(2) + 's');
+  ph.style.setProperty('--dn', 'drift' + ['A','B','C'][i % 3]);
+  ph.style.setProperty('--dd', (7.5 + (i % 3) * 0.8).toFixed(1) + 's');
+  ph.style.setProperty('--rot', ((i % 2 ? 1 : -1) * (1.5 + (i % 3))) + 'deg');
+  ph.innerHTML = `
+    <span class="pic"><img src="${s.cover}" alt="" loading="lazy" onerror="this.style.display='none'">
+      <span class="ph-no">#${pad(i + 1)}</span></span>
+    <span class="ph-cap">${s.title}</span>`;
+  ph.addEventListener('click', () => goto(i));
+  wall.appendChild(ph);
+
+  // Story 卡
+  const sc = document.createElement('section');
+  sc.className = 'story-card'; sc.id = 'story-' + i;
+  sc.innerHTML = `
+    <span class="sc-no">${pad(i + 1)}</span>
+    <div class="sc-poster">
+      <img src="${s.cover}" alt="${s.title}" loading="lazy" onerror="this.style.display='none'">
+      <span class="flag">${s.flag}</span>
+    </div>
+    <div class="sc-info">
+      <span class="kicker">PICK NO.${pad(i + 1)}</span>
+      <div><span class="cat">✦ ${s.cat}</span></div>
+      <h2>${s.title}</h2>
+      <p class="note">${s.note}</p>
+      <div class="tags">${s.tags.map(chip).join('')}</div>
+      <button class="back" type="button">⇪ 回照片墙</button>
+    </div>`;
+  story.appendChild(sc);
+});
+tbTotal.textContent = pad(SLIDES.length);
+
+const cards = [...story.children];
+
+/* 滚动进入视野 → 触发镜头缓推 + 信息逐行显现（IntersectionObserver） */
+const io = new IntersectionObserver(entries => {
+  for (const e of entries) {
+    if (e.isIntersecting) {
+      e.target.classList.add('in-view');
+      const n = cards.indexOf(e.target);
+      if (n >= 0) tbCur.textContent = pad(n + 1);
+    }
+  }
+}, { threshold: 0.45 });
+cards.forEach(c => io.observe(c));
+
+/* 底部轨道条：进入 story 区后浮现 */
+const tb = document.getElementById('trackbar');
+const hero = document.querySelector('.hero');
+const trackbarIO = new IntersectionObserver(es => {
+  for (const e of es) tb.classList.toggle('show', !e.isIntersecting);
+}, { threshold: 0 });
+trackbarIO.observe(hero);
+
+/* ========== 自动导览：照片墙落定 → 停留 → 逐部自动跳转 ========== */
+const autoBadge = document.getElementById('autoBadge');
+const tbBar = document.getElementById('trackbar');
+const prog = document.getElementById('tbProg');
+const AUTOPLAY_HOLD = 6000;      /* 每部停留时长（与 tbprog 动画同步） */
+const AUTOPLAY_START = 7000;     /* 入场落定（~3s）+ 定场 4s 后开播 */
+let entryTimer = null, autoTimer = null, autoIndex = 0, autoplaying = false;
+
+function resetProg(){
+  prog.classList.remove('run'); void prog.offsetWidth; prog.classList.add('run');
+}
+function beginAutoGuide(){
+  if (autoplaying) return;
+  autoplaying = true; autoIndex = 0;
+  autoBadge.hidden = false; tbBar.classList.add('auto');
+  goto(0);
+  scheduleAuto();
+}
+function scheduleAuto(){
+  resetProg();
+  autoTimer = setTimeout(() => {
+    autoIndex++;
+    if (autoIndex >= SLIDES.length){
+      finishAuto();
+      window.scrollTo({ top: 0, behavior:'smooth' });
+      return;
+    }
+    goto(autoIndex);
+    scheduleAuto();
+  }, AUTOPLAY_HOLD);
+}
+function finishAuto(){
+  autoplaying = false;
+  autoBadge.hidden = true;
+  tbBar.classList.remove('auto');
+  prog.classList.remove('run');
+}
+function stopAuto(){
+  clearTimeout(entryTimer); clearTimeout(autoTimer);
+  autoTimer = null; entryTimer = null;
+  finishAuto();
+}
+
+/* 定位：照片墙点击 → 滚到对应 Story 卡（自动导览中同步重置倒计时条） */
+function goto(i){
+  if (autoplaying) resetProg();
+  const el = document.getElementById('story-' + i);
+  el.scrollIntoView({ behavior:'smooth', block:'start' });
+  tbCur.textContent = pad(i + 1);
+}
+document.getElementById('toWall').addEventListener('click', () => {
+  stopAuto(); window.scrollTo({ top: 0, behavior:'smooth' });
+});
+cards.forEach(c => c.querySelector('.back').addEventListener('click', () => {
+  stopAuto(); window.scrollTo({ top: 0, behavior:'smooth' });
+}));
+wall.addEventListener('click', stopAuto);
+window.addEventListener('wheel', stopAuto, { passive:true });
+window.addEventListener('touchstart', stopAuto, { passive:true });
+
+/* 键盘 ←/→ 切上下部（视频分镜感），按下即停自动导览 */
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') stopAuto();
+  const n = cards.findIndex(c => c.classList.contains('in-view'));
+  if (n < 0) return;
+  if (e.key === 'ArrowRight') goto(Math.min(n + 1, SLIDES.length - 1));
+  if (e.key === 'ArrowLeft') goto(Math.max(n - 1, 0));
+});
+
+/* 照片墙落定 + 定场后自动开播 */
+entryTimer = setTimeout(beginAutoGuide, AUTOPLAY_START);
+</script>
+</body>
+</html>

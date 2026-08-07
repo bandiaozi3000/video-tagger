@@ -53,6 +53,11 @@ public class TagAdminService {
         return new PageResult<>(new ArrayList<>(filtered.subList(from, to)), filtered.size());
     }
 
+    /** 某集内标签聚合：集本身 + 其下片段引用（集详情页标签池，refCount=集内引用总数）。 */
+    public List<TagUsage> episodeStats(Long episodeId) {
+        return tagMapper.countByEpisode(episodeId);
+    }
+
     /** 改名：更新词条 + 同步 clips.tag 冗余列 + 引用实体重嵌。新名撞既有词条 → 拒绝（引导合并）。 */
     @Transactional
     public TagUsage rename(Long id, String newName) {

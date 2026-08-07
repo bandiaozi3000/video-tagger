@@ -64,4 +64,15 @@ class TagControllerTest {
                 .andExpect(jsonPath("$.items[0].clipCount").value(5))
                 .andExpect(jsonPath("$.total").value(1));
     }
+
+    @Test
+    void episodeStatsReturnsAggregatedTags() throws Exception {
+        when(tagAdminService.episodeStats(7L))
+                .thenReturn(List.of(new TagUsage(1L, "神作", 1L, 0, 0, 0, 5)));
+
+        mvc.perform(get("/api/tags/episode-stats").param("episodeId", "7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("神作"))
+                .andExpect(jsonPath("$[0].refCount").value(5));
+    }
 }

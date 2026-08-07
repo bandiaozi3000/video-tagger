@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>__TITLE__</title>
+<style>
+  /* ============ 深夜霓虹剧场（渐变环流版） ============
+     深色底上一圈光泽渐变瓦片（番剧封面）围成 3D 环，绕中央白色大字缓转
+     点击瓦片 → 镜头推近逐部详解；自动导览：落定 → 逐部跳转 → 交互即停
+     ?record=1 为视频渲染录制模式：忽略交互打断，全程自动导览 */
+  :root{
+    --bg-0:#07060d;
+    --bg-1:#100e1e;
+    --bg-2:#191428;
+    --ink:#ece9f6;
+    --muted:#9d97b8;
+    --faint:#6b6690;
+    --sky:#4fc3f7;
+    --blue:#6f8bff;
+    --pink:#ff8fb8;
+    --gold:#ffd166;
+    --line:rgba(255,255,255,.09);
+    --card:rgba(20,16,38,.72);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-snap-type:y proximity}
+  body{
+    font-family:"PingFang SC","Microsoft YaHei","Hiragino Sans GB",-apple-system,sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(1200px 700px at 78% -10%, rgba(79,195,247,.16), transparent 60%),
+      radial-gradient(900px 600px at 8% 110%, rgba(111,139,255,.13), transparent 60%),
+      radial-gradient(700px 500px at 50% 120%, rgba(100,130,255,.10), transparent 65%),
+      linear-gradient(180deg,var(--bg-0),var(--bg-1) 55%,#0a0916);
+    min-height:100vh;position:relative;overflow-x:hidden;
+  }
+  /* 星空粒子画布 */
+  #stars{position:fixed;inset:0;pointer-events:none;opacity:.85;z-index:0}
+  /* 顶部霓虹光带 */
+  body::before{
+    content:"";position:fixed;left:-10%;right:-10%;top:0;height:3px;
+    background:linear-gradient(90deg,transparent,var(--sky),var(--blue),var(--pink),transparent);
+    filter:blur(.5px);opacity:.9;z-index:2;animation:topline 9s ease-in-out infinite;
+  }
+  @keyframes topline{0%,100%{opacity:.5}50%{opacity:1}}
+  /* 霓虹雾（深色夜空中漂浮的淡紫雾霭） */
+  .cloud{
+    position:fixed;border-radius:50%;z-index:1;pointer-events:none;
+    background:radial-gradient(circle,rgba(111,139,255,.34) 0%,rgba(111,139,255,0) 70%);
+    filter:blur(26px);
+    animation:drift linear infinite;
+  }
+  @keyframes drift{
+    0%{transform:translate3d(-4vw,2vh,0) scale(1)}
+    50%{transform:translate3d(4vw,-3vh,0) scale(1.08)}
+    100%{transform:translate3d(-4vw,2vh,0) scale(1)}
+  }
+  .content{position:relative;z-index:2}
+
+  /* ---------- 顶部 ---------- */
+  .topbar{
+    position:fixed;top:0;left:0;right:0;z-index:20;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 30px;
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:2px;font-size:14px;color:var(--ink)}
+  .brand .logo{
+    width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--sky),var(--blue) 55%,var(--pink));
+    box-shadow:0 4px 18px rgba(79,195,247,.5);font-size:15px;color:#08070f;
+  }
+
+  /* ---------- Hero：渐变瓦片环 ---------- */
+  .hero{
+    position:relative;min-height:100vh;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:110px 20px 60px;text-align:center;
+  }
+  /* 瓦片环：JS 驱动椭圆轨道。每张瓦片正立（零旋转，不会歪斜），
+     沿椭圆轨道绕中心点匀速滑行：前方放大发光、后方缩小变暗，
+     中心铭牌（z-index 0）被前后穿梭的瓦片套住 */
+  .ring-stage{
+    position:absolute;left:50%;top:46%;width:0;height:0;
+    z-index:0;pointer-events:none;
+  }
+  .tile{
+    position:absolute;width:150px;height:200px;
+    margin:-100px 0 0 -75px;      /* 以中心对齐，transform 全部交给轨道循环 */
+    border-radius:15px;overflow:hidden;
+    border:1px solid rgba(255,255,255,.28);
+    background:linear-gradient(160deg,#221a3a,#0d0a18);
+    box-shadow:0 0 26px var(--glow), 0 18px 46px rgba(0,0,0,.6);
+    cursor:pointer;pointer-events:auto;
+    will-change:transform;
+  }
+  .tile:hover{border-color:rgba(255,255,255,.7)}
+  .tile img{width:100%;height:100%;object-fit:cover;display:block}
+  .tile::after{ /* 光泽高光（glossy）：左上斜向亮面 */
+    content:"";position:absolute;inset:0;z-index:2;pointer-events:none;
+    background:linear-gradient(135deg,rgba(255,255,255,.55) 0%,rgba(255,255,255,.07) 42%,transparent 62%);
+    mix-blend-mode:screen;
+  }
+  .tile::before{ /* 底部渐暗，压住封面底部 */
+    content:"";position:absolute;left:0;right:0;bottom:0;height:46%;z-index:3;pointer-events:none;
+    background:linear-gradient(180deg,transparent,rgba(6,4,14,.72));
+  }
+  .tile .t-no{
+    position:absolute;right:7px;bottom:7px;z-index:4;
+    font-size:10px;font-weight:800;color:#08070f;letter-spacing:.5px;
+    background:linear-gradient(135deg,var(--sky),var(--blue));padding:2px 7px;border-radius:999px;
+    box-shadow:0 3px 10px rgba(79,195,247,.4);
+  }
+  .tile:hover{filter:brightness(1.18);box-shadow:0 0 42px var(--glow), 0 26px 60px rgba(0,0,0,.65)}
+  /* 环中央铭牌：套在环心（translateZ 0），与瓦片同一 3D 空间，
+     瓦片转到前方时从铭牌上面盖过 → 真正的"箍在环中"立体环绕 */
+  .ring-plate{
+    position:absolute;left:0;top:0;width:max-content;z-index:0;
+    transform:translate(-50%,-50%);
+    padding:26px 44px 24px;border-radius:26px;text-align:center;
+    background:linear-gradient(160deg,rgba(24,19,46,.78),rgba(10,8,22,.6));
+    border:1px solid rgba(130,160,255,.24);
+    box-shadow:0 0 44px rgba(79,195,247,.3), inset 0 0 34px rgba(111,139,255,.08);
+    backdrop-filter:blur(8px);
+    pointer-events:none;
+  }
+  .ring-plate .eyebrow{
+    font-size:11px;letter-spacing:4px;color:var(--sky);font-weight:600;margin-bottom:10px;
+  }
+  .ring-plate h1{
+    font-size:clamp(26px,4vw,38px);font-weight:800;letter-spacing:6px;white-space:nowrap;
+    color:#fff;
+    text-shadow:0 0 18px rgba(79,195,247,.75), 0 0 48px rgba(111,139,255,.55);
+    margin-bottom:6px;
+  }
+  .ring-plate .sub{font-size:12px;color:var(--muted);letter-spacing:2px;white-space:nowrap}
+  .ring-plate .sub b{color:var(--gold)}
+
+  /* ---------- Story：逐部详解 ---------- */
+  .story{max-width:1080px;margin:0 auto;padding:20px 24px 80px}
+  .story-card{
+    scroll-snap-align:start;
+    position:relative;min-height:100vh;   /* 一屏一张，滚动时看不见别的卡 */
+    display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:46px;align-items:center;
+    padding:70px 10px;scroll-margin-top:70px;
+  }
+  .story-card:not(:last-child){border-bottom:1px dashed rgba(255,255,255,.08)}
+  /* 超大描边序号（背景装饰，视频感分镜编号） */
+  .sc-no{
+    position:absolute;right:2%;top:6%;font-size:120px;font-weight:900;line-height:1;
+    color:transparent;-webkit-text-stroke:1.5px rgba(111,139,255,.28);
+    pointer-events:none;z-index:0;letter-spacing:4px;
+  }
+  .sc-poster{
+    position:relative;border-radius:18px;overflow:hidden;z-index:1;
+    aspect-ratio:3/4;max-height:46vh;
+    border:1px solid rgba(255,255,255,.12);
+    box-shadow:0 26px 60px rgba(0,0,0,.6);
+    background:linear-gradient(160deg,#221a3a,#0d0a18);
+  }
+  .sc-poster::after{
+    content:"";position:absolute;inset:0;border-radius:18px;pointer-events:none;
+    box-shadow:inset 0 0 0 1px transparent;transition:box-shadow .5s;
+  }
+  .story-card.in-view .sc-poster::after{
+    box-shadow:inset 0 0 0 1px rgba(79,195,247,.55), 0 0 34px rgba(79,195,247,.28);
+  }
+  .sc-poster img{
+    width:100%;height:100%;object-fit:cover;display:block;
+    animation:kenburns 18s ease-in-out infinite alternate;
+    animation-play-state:paused;
+  }
+  .story-card.in-view .sc-poster img{animation-play-state:running}
+  @keyframes kenburns{from{transform:scale(1)}to{transform:scale(1.12)}}
+  .sc-poster .flag{
+    position:absolute;left:12px;top:12px;z-index:2;
+    font-size:11px;letter-spacing:1px;padding:4px 10px;border-radius:999px;
+    color:#ffd9a6;background:rgba(255,143,77,.14);border:1px solid rgba(255,143,77,.35);
+    backdrop-filter:blur(4px);
+  }
+  .sc-info{z-index:1;padding:10px 2px}
+  .sc-info > *{opacity:0;transform:translateY(18px);transition:opacity .6s ease, transform .6s ease}
+  .story-card.in-view .sc-info > *{opacity:1;transform:none}
+  .story-card.in-view .sc-info > *:nth-child(1){transition-delay:.05s}
+  .story-card.in-view .sc-info > *:nth-child(2){transition-delay:.15s}
+  .story-card.in-view .sc-info > *:nth-child(3){transition-delay:.25s}
+  .story-card.in-view .sc-info > *:nth-child(4){transition-delay:.35s}
+  .sc-info .kicker{
+    display:inline-flex;align-items:center;gap:7px;font-size:12px;letter-spacing:2px;
+    color:var(--sky);font-weight:600;margin-bottom:12px;
+  }
+  .sc-info .kicker::before{content:"";width:22px;height:1px;background:linear-gradient(90deg,var(--sky),transparent)}
+  .sc-info .cat{
+    display:inline-block;font-size:12px;letter-spacing:1px;color:#0a0812;
+    background:linear-gradient(120deg,var(--sky),var(--blue));
+    padding:4px 12px;border-radius:999px;font-weight:700;margin-bottom:14px;
+    box-shadow:0 4px 16px rgba(79,195,247,.4);
+  }
+  .sc-info h2{
+    font-size:clamp(26px,3.6vw,40px);font-weight:800;letter-spacing:2px;line-height:1.15;
+    background:linear-gradient(115deg,#fff 8%,#bfe0ff 45%,#9fd4ff 85%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 2px 12px rgba(79,195,247,.5));
+    margin-bottom:16px;
+  }
+  .sc-info .note{
+    font-size:14.5px;line-height:1.9;color:var(--muted);margin-bottom:20px;max-width:56ch;
+  }
+  .sc-info .tags{display:flex;flex-wrap:wrap;gap:9px}
+  .chip{
+    font-size:12.5px;letter-spacing:.5px;padding:5px 12px;border-radius:999px;
+    border:1px solid var(--line);display:inline-flex;align-items:center;gap:6px;font-weight:600;
+  }
+  .chip b{font-weight:800;font-size:11px}
+  .s1{color:#b8c4da;background:rgba(163,174,196,.1)}
+  .s2{color:#8fd0ff;background:rgba(79,195,247,.13);border-color:rgba(79,195,247,.4)}
+  .s3{color:#a9c2ff;background:rgba(111,139,255,.14);border-color:rgba(111,139,255,.4)}
+  .s4{color:#ffc07a;background:rgba(251,146,60,.14);border-color:rgba(251,146,60,.4)}
+  .s5{
+    color:#ffe08a;background:rgba(251,191,36,.13);border-color:rgba(251,191,36,.5);
+    box-shadow:0 0 16px rgba(251,191,36,.22);
+  }
+
+  /* ---------- 底部轨道条（视频进度感） ---------- */
+  .trackbar{
+    position:fixed;left:50%;transform:translateX(-50%);bottom:22px;z-index:20;
+    display:flex;align-items:center;gap:14px;
+    background:rgba(20,16,38,.72);border:1px solid var(--line);
+    border-radius:999px;padding:8px 18px;backdrop-filter:blur(14px);
+    box-shadow:0 10px 34px rgba(0,0,0,.55);
+    opacity:0;pointer-events:none;transition:opacity .4s;
+    font-size:12.5px;letter-spacing:1px;color:var(--muted);
+  }
+  .trackbar.show{opacity:1;pointer-events:auto}
+  .trackbar b{color:var(--ink);font-weight:800}
+  .trackbar .cur{color:var(--pink)}
+
+  /* ---------- 自动导览：倒计时进度条 ---------- */
+  .tb-progress{
+    width:130px;height:3px;border-radius:999px;overflow:hidden;
+    background:rgba(255,255,255,.09);opacity:0;transition:opacity .3s;
+  }
+  .trackbar.auto .tb-progress{opacity:1}
+  .tb-progress i{
+    display:block;height:100%;width:0;border-radius:999px;
+    background:linear-gradient(90deg,var(--sky),var(--blue),var(--pink));
+    box-shadow:0 0 12px rgba(79,195,247,.8);
+  }
+  .tb-progress i.run{animation:tbprog 6s linear forwards}
+  @keyframes tbprog{from{width:0}to{width:100%}}
+  .auto-badge{
+    position:fixed;top:74px;right:24px;z-index:30;
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:11.5px;letter-spacing:1px;color:#08070f;
+    background:linear-gradient(135deg,var(--sky),var(--blue) 60%,var(--pink));
+    padding:6px 14px;border-radius:999px;box-shadow:0 6px 18px rgba(79,195,247,.5);
+  }
+  .auto-badge[hidden]{display:none}
+  .auto-badge::before{content:"";width:6px;height:6px;border-radius:50%;background:#08070f;animation:blink 1.1s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:.3}50%{opacity:1}}
+
+  @media (max-width:860px){
+    .tile{left:-60px;top:-80px;width:120px;height:160px}
+    .ring-plate{padding:18px 22px 16px}
+    .ring-plate h1{font-size:23px;letter-spacing:4px}
+    .ring-plate .sub{font-size:11px;letter-spacing:1px;white-space:normal}
+    .story-card{grid-template-columns:1fr;gap:20px;padding:36px 8px;text-align:center}
+    .sc-poster{max-height:46vh}
+    .sc-info .tags,.sc-info .kicker{justify-content:center}
+    .sc-info .kicker::before{display:none}
+    .sc-no{font-size:80px;top:1%}
+    .auto-badge{right:14px}
+  }
+</style>
+</head>
+<body>
+<canvas id="stars"></canvas>
+<div id="clouds"></div>
+<div class="content">
+  <header class="topbar">
+    <div class="brand"><span class="logo">✦</span></div>
+  </header>
+
+  <section class="hero" id="hero">
+    <div class="ring-stage">
+      <div id="ring"></div>
+      <div class="ring-plate">
+        <h1>__TITLE__</h1>
+      </div>
+    </div>
+  </section>
+
+  <main class="story" id="story"></main>
+
+  <div class="trackbar" id="trackbar">
+    <span>第 <b class="cur" id="tbCur">1</b> 部 / 共 <b id="tbTotal">0</b> 部</span>
+    <div class="tb-progress"><i id="tbProg"></i></div>
+  </div>
+</div>
+
+<script>
+/* ========== 数据注入（后端渲染时替换为真实媒体数据 JSON 数组） ========== */
+const SLIDES = __SLIDES_JSON__;
+
+/* 录制模式：?record=1 供视频渲染使用（忽略交互打断，全程自动导览） */
+const IS_RECORD = new URLSearchParams(location.search).get('record') === '1';
+
+/* 每张瓦片的渐变辉光色（gradient collection：多彩渐变集合） */
+const GLOWS = ['#ff8fb8','#4fc3f7','#a78bfa','#ffd166','#f472b6','#34d399','#fb923c','#60a5fa'];
+
+/* ========== 星空粒子 ========== */
+(() => {
+  const cv = document.getElementById('stars'), ctx = cv.getContext('2d');
+  let W, H, pts = [];
+  const resize = () => { W = cv.width = innerWidth; H = cv.height = innerHeight; };
+  resize(); addEventListener('resize', resize);
+  for (let i = 0; i < 70; i++) pts.push({
+    x: Math.random() * W, y: Math.random() * H,
+    r: Math.random() * 1.3 + .4,
+    vy: Math.random() * .18 + .04,
+    tw: Math.random() * Math.PI * 2, tws: Math.random() * .02 + .008
+  });
+  (function draw(){
+    ctx.clearRect(0, 0, W, H);
+    const hue = [200, 218, 262];
+    for (const p of pts) {
+      p.y -= p.vy; p.tw += p.tws;
+      if (p.y < -4) { p.y = H + 4; p.x = Math.random() * W; }
+      const a = .35 + Math.sin(p.tw) * .25;
+      const h = hue[(Math.random() * hue.length) | 0];
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7);
+      ctx.fillStyle = `hsla(${h},80%,78%,${a})`; ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  })();
+})();
+
+/* ========== 霓虹雾 ========== */
+(() => {
+  const wrap = document.getElementById('clouds');
+  const sizes = [
+    { w: 420, h: 160, x: 6,  y: 12, s: 15, d: 26 },
+    { w: 320, h: 130, x: 74, y: 18, s: 18, d: 32 },
+    { w: 520, h: 180, x: 40, y: 68, s: 12, d: 24 },
+    { w: 260, h: 110, x: 16, y: 46, s: 22, d: 38 },
+    { w: 380, h: 150, x: 64, y: 82, s: 16, d: 30 }
+  ];
+  for (const c of sizes) {
+    const d = document.createElement('div');
+    d.className = 'cloud';
+    d.style.cssText = `width:${c.w}px;height:${c.h}px;left:${c.x}%;top:${c.y}%;animation-duration:${c.d}s;animation-delay:${-c.s}s;opacity:.55;`;
+    wrap.appendChild(d);
+  }
+})();
+
+/* ========== 渲染：渐变瓦片环 + Story ========== */
+const ring = document.getElementById('ring');
+const story = document.getElementById('story');
+const tbCur = document.getElementById('tbCur');
+const tbTotal = document.getElementById('tbTotal');
+const pad = n => String(n).padStart(2, '0');
+const chip = ([name, n]) => {
+  const tier = n >= 10 ? 5 : n >= 7 ? 4 : n >= 4 ? 3 : n >= 2 ? 2 : 1;
+  return `<span class="chip s${tier}">${name}<b>×${n}</b></span>`;
+};
+
+const TILES = [];
+SLIDES.forEach((s, i) => {
+  // 渐变瓦片：沿椭圆轨道初始角度分布，正立、由轨道循环驱动位置
+  const t = document.createElement('div');
+  t.className = 'tile';
+  t.style.left = '0px'; t.style.top = '0px';
+  t.style.setProperty('--glow', GLOWS[i % GLOWS.length]);
+  t.innerHTML = `
+    <img src="${s.cover}" alt="${s.title}" onerror="this.style.display='none'">
+    <span class="t-no">#${pad(i + 1)}</span>`;
+  t.addEventListener('click', () => goto(i));
+  ring.appendChild(t);
+  TILES.push({ el: t, angle: (i * (360 / SLIDES.length)) * Math.PI / 180 });
+
+  // Story 卡
+  const sc = document.createElement('section');
+  sc.className = 'story-card'; sc.id = 'story-' + i;
+  sc.innerHTML = `
+    <span class="sc-no">${pad(i + 1)}</span>
+    <div class="sc-poster">
+      <img src="${s.cover}" alt="${s.title}" onerror="this.style.display='none'">
+      <span class="flag">${s.flag}</span>
+    </div>
+    <div class="sc-info">
+      <span class="kicker">PICK NO.${pad(i + 1)}</span>
+      <div><span class="cat">✦ ${s.cat}</span></div>
+      <h2>${s.title}</h2>
+      <p class="note">${s.note}</p>
+      <div class="tags">${s.tags.map(chip).join('')}</div>
+    </div>`;
+  story.appendChild(sc);
+});
+tbTotal.textContent = pad(SLIDES.length);
+
+/* 椭圆轨道 + 入场：瓦片由大到小、从中心依次滑入轨道就位，
+   全部就位停一拍后才开始绕中心转圈（40s 一圈） */
+const ORBIT_RX = 300, ORBIT_RY = 150, ORBIT_SPEED = (Math.PI * 2) / 40;
+/* 飘带入场：瓦片从就位角后方沿轨道弧线滑入（像彩带一段段铺开），
+   由大缩到就位 + 轻微摆动翻正，全部就位停一拍后才开始转圈 */
+const ENTER_DELAY = 0.4, ENTER_GAP = 0.45, ENTER_DUR = 1.2, ENTER_SCALE = 1.55,
+      ENTER_PAUSE = 1.0, ENTER_SWEEP = 1.15, ENTER_WAVE = 12;
+let orbitT = 0, lastT = null;
+const enterT0 = performance.now();
+const easeOutCubic = u => 1 - Math.pow(1 - u, 3);
+const clamped = (v, a, b) => Math.min(b, Math.max(a, v));
+(function tickOrbit(){
+  const now = performance.now();
+  const el = (now - enterT0) / 1000;                   /* 页面加载后的秒数 */
+  const lastEnter = ENTER_DELAY + (TILES.length - 1) * ENTER_GAP + ENTER_DUR;  /* 最末张就位时刻 */
+  if (el >= lastEnter + ENTER_PAUSE && lastT != null){
+    orbitT += ((now - lastT) / 1000) * ORBIT_SPEED;    /* 全部就位 → 才开始转 */
+  }
+  lastT = now;
+  TILES.forEach((tile, i) => {
+    const p = clamped((el - (ENTER_DELAY + i * ENTER_GAP)) / ENTER_DUR, 0, 1); /* 0 未入 → 1 就位 */
+    const e = easeOutCubic(p);
+    /* 飘带：角度从就位角后方随进度滑入，自带摆动翻正 */
+    const th = tile.angle + orbitT - (1 - e) * ENTER_SWEEP;
+    const k = (Math.sin(th) + 1) / 2;
+    const sTarget = 0.72 + 0.5 * k;
+    const s = ENTER_SCALE + (sTarget - ENTER_SCALE) * e;   /* 由大缩到就位 */
+    const rot = (1 - e) * ENTER_WAVE;                      /* 摆动 → 归零 */
+    const x = Math.cos(th) * ORBIT_RX;
+    const y = Math.sin(th) * ORBIT_RY;
+    tile.el.style.left = x.toFixed(1) + 'px';
+    tile.el.style.top  = y.toFixed(1) + 'px';
+    tile.el.style.transform = 'scale(' + s.toFixed(3) + ') rotate(' + rot.toFixed(1) + 'deg)';
+    tile.el.style.zIndex = Math.round(Math.sin(th) * 20);
+    tile.el.style.opacity = p.toFixed(3);
+    tile.el.style.filter = 'brightness(' + (0.55 + 0.65 * k).toFixed(2) + ')';
+    tile.el.style.boxShadow = `0 0 ${(10 + 30 * k).toFixed(1)}px var(--glow), 0 18px ${(30 + 30 * k).toFixed(1)}px rgba(0,0,0,.6)`;
+  });
+  requestAnimationFrame(tickOrbit);
+})();
+
+const cards = [...story.children];
+
+/* 滚动进入视野 → 触发镜头缓推 + 信息逐行显现（IntersectionObserver） */
+const io = new IntersectionObserver(entries => {
+  for (const e of entries) {
+    if (e.isIntersecting) {
+      e.target.classList.add('in-view');
+      const n = cards.indexOf(e.target);
+      if (n >= 0) tbCur.textContent = pad(n + 1);
+    }
+  }
+}, { threshold: 0.45 });
+cards.forEach(c => io.observe(c));
+
+/* 底部轨道条：进入 story 区后浮现 */
+const tb = document.getElementById('trackbar');
+const hero = document.querySelector('.hero');
+const trackbarIO = new IntersectionObserver(es => {
+  for (const e of es) tb.classList.toggle('show', !e.isIntersecting);
+}, { threshold: 0 });
+trackbarIO.observe(hero);
+
+/* ========== 自动导览：瓦片环落定 → 停留 → 逐部自动跳转 ========== */
+const tbBar = document.getElementById('trackbar');
+const prog = document.getElementById('tbProg');
+const AUTOPLAY_HOLD = 6000;      /* 每部停留时长（与 tbprog 动画同步） */
+const AUTOPLAY_START = 7000;     /* 瓦片飘带就位（~5.7s）+ 定场后开播 */
+let entryTimer = null, autoTimer = null, autoIndex = 0, autoplaying = false;
+
+function resetProg(){
+  prog.classList.remove('run'); void prog.offsetWidth; prog.classList.add('run');
+}
+function beginAutoGuide(){
+  if (autoplaying) return;
+  autoplaying = true; autoIndex = 0;
+  tbBar.classList.add('auto');
+  goto(0);
+  scheduleAuto();
+}
+function scheduleAuto(){
+  resetProg();
+  autoTimer = setTimeout(() => {
+    autoIndex++;
+    if (autoIndex >= SLIDES.length){
+      finishAuto();
+      window.scrollTo({ top: 0, behavior:'smooth' });
+      return;
+    }
+    goto(autoIndex);
+    scheduleAuto();
+  }, AUTOPLAY_HOLD);
+}
+function finishAuto(){
+  autoplaying = false;
+  tbBar.classList.remove('auto');
+  prog.classList.remove('run');
+}
+function stopAuto(){
+  clearTimeout(entryTimer); clearTimeout(autoTimer);
+  autoTimer = null; entryTimer = null;
+  finishAuto();
+}
+
+/* 定位：瓦片点击 → 滚到对应 Story 卡（自动导览中同步重置倒计时条） */
+function goto(i){
+  if (autoplaying) resetProg();
+  const el = document.getElementById('story-' + i);
+  el.scrollIntoView({ behavior:'smooth', block:'start' });
+  tbCur.textContent = pad(i + 1);
+}
+
+if (!IS_RECORD) {
+  ring.addEventListener('click', stopAuto);
+  window.addEventListener('wheel', stopAuto, { passive:true });
+  window.addEventListener('touchstart', stopAuto, { passive:true });
+  /* 键盘 ←/→ 切上下部（视频分镜感），按下即停自动导览 */
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') stopAuto();
+    const n = cards.findIndex(c => c.classList.contains('in-view'));
+    if (n < 0) return;
+    if (e.key === 'ArrowRight') goto(Math.min(n + 1, SLIDES.length - 1));
+    if (e.key === 'ArrowLeft') goto(Math.max(n - 1, 0));
+  });
+}
+
+/* 瓦片环落定 + 定场后自动开播 */
+entryTimer = setTimeout(beginAutoGuide, AUTOPLAY_START);
+</script>
+</body>
+</html>

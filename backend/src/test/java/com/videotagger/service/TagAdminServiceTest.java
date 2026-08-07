@@ -206,4 +206,17 @@ class TagAdminServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.deleteBatch(List.of(1L, 2L)));
         verify(tagMapper, never()).deleteById(anyLong());
     }
+
+    @Test
+    void episodeStatsDelegatesToMapper() {
+        List<TagUsage> stats = List.of(
+                new TagUsage(1L, "神作", 1L, 0, 0, 0, 5),
+                new TagUsage(2L, "日常", 1L, 0, 0, 0, 2));
+        when(tagMapper.countByEpisode(7L)).thenReturn(stats);
+
+        List<TagUsage> result = service.episodeStats(7L);
+
+        assertEquals(stats, result);
+        verify(tagMapper).countByEpisode(7L);
+    }
 }

@@ -48,6 +48,12 @@ public class TagController {
         return tagAdminService.list(q, mediaId, page, size);
     }
 
+    /** 某集内标签聚合（集详情页标签池）：refCount=集本身+其下片段引用总数。 */
+    @GetMapping("/episode-stats")
+    public List<TagUsage> episodeStats(@RequestParam("episodeId") Long episodeId) {
+        return tagAdminService.episodeStats(episodeId);
+    }
+
     /** 新增词条：仅建词库条目，同名已存在返回 400。 */
     @PostMapping
     public TagUsage add(@RequestBody Map<String, String> body) {

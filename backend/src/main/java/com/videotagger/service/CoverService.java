@@ -172,6 +172,30 @@ public class CoverService {
         }
     }
 
+    /** 按 /covers/** 路径读取封面转 base64 data URL（推荐 HTML 内嵌用）。空/越界/文件不存在/读失败 → null（只读不改）。 */
+    public String base64ForCoverPath(String coverPath) {
+        if (coverPath == null || coverPath.isBlank()) {
+            return null;
+        }
+        try {
+            String normalized = coverPath.replace('\\', '/');
+            if (!normalized.startsWith("/covers/")) {
+                log.warn("拒绝读取越界封面路径: {}", coverPath);
+                return null;
+            }
+            Path file = coverDir.resolve(normalized.substring("/covers/".length())).normalize();
+            if (!file.startsWith(coverDir) || !Files.isRegularFile(file)) {
+                return null;
+            }
+            byte[] bytes = Files.readAllBytes(file);
+            String mime = mimeFor(file.getFileName().toString());
+            return "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(bytes);
+        } catch (IOException e) {
+            log.warn("读取封面转 base64 失败 {}: {}", coverPath, e.getMessage());
+            return null;
+        }
+    }
+
     /** 解析 data URL（data:image/...;base64,...）或裸 base64 为字节；非法抛 IllegalArgumentException。 */
     public byte[] decodeDataUrl(String dataUrl) {
         if (dataUrl == null || dataUrl.isBlank()) {
@@ -241,8 +265,7 @@ public class CoverService {
         }
     }
 
-    private static String extFor(String contentType) {
-        String ct = contentType == null ? "" : contentType.toLowerCase();
+    private static String extFor(String contentType) {        String ct = contentType == null ? "" : contentType.toLowerCase();
         if (ct.contains("png")) {
             return "png";
         }
@@ -262,5 +285,14 @@ public class CoverService {
             ext = "jpg";
         }
         return IMAGE_EXT.contains(ext) ? ext : "jpg";
+    }
+
+    private static String mimeFor(String fileName) {
+        String ext = extFromName(fileName);
+        return switch (ext) {
+            case "png" -> "image/png";
+            case "webp" -> "image/webp";
+            default -> "image/jpeg";
+        };
     }
 }

@@ -40,6 +40,17 @@ public class CollectionService {
         return c;
     }
 
+    /** 重命名收藏夹：空名 400（复用全局 IllegalArgumentException 处理），不存在 404。只改名字，不动关联。 */
+    public Collection rename(Long id, String name) {
+        Collection c = requireCollection(id);
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("name 不能为空");
+        }
+        c.setName(name.trim());
+        collectionMapper.updateById(c);
+        return c;
+    }
+
     @Transactional
     public void delete(Long id) {
         requireCollection(id);

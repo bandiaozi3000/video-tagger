@@ -7,7 +7,9 @@ const views = {
   videos: document.getElementById('view-videos'),
   timeline: document.getElementById('view-timeline'),
   stats: document.getElementById('view-stats'),
-  tags: document.getElementById('view-tags')
+  tags: document.getElementById('view-tags'),
+  collections: document.getElementById('view-collections'),
+  recommend: document.getElementById('view-recommend')
 };
 
 const form = document.getElementById('search-form');
@@ -78,6 +80,11 @@ const renameTitleInput = document.getElementById('rename-title');
 const mergeIntoSelect = document.getElementById('merge-into');
 const collectionModal = document.getElementById('collection-modal');
 const collectionNameInput = document.getElementById('collection-name');
+const collectionModalSaveBtn = document.getElementById('collection-modal-save');
+const collListEl = document.getElementById('coll-list');
+const collContentHeadEl = document.getElementById('coll-content-head');
+const collMediaGridEl = document.getElementById('coll-media-grid');
+const collStatusEl = document.getElementById('coll-status');
 const episodeTagModal = document.getElementById('episode-tag-modal');
 const episodeTagTargetEl = document.getElementById('episode-tag-target');
 const episodeTagInput = document.getElementById('episode-tag-input');
@@ -89,6 +96,7 @@ const episodeCoverFileEl = document.getElementById('episode-cover-file');
 const episodeDetailHeadEl = document.getElementById('episode-detail-head');
 const episodeDetailNoteEl = document.getElementById('episode-detail-note');
 const episodeDetailTagsEl = document.getElementById('episode-detail-tags');
+const clipDetailTagsEl = document.getElementById('clip-detail-tags');
 const episodeDetailClipsEl = document.getElementById('episode-detail-clips');
 const episodeDetailStatusEl = document.getElementById('episode-detail-status');
 const clipDetailHeadEl = document.getElementById('clip-detail-head');
@@ -198,6 +206,11 @@ function closeConfirmModal() {
     confirmModalAction = null;
 }
 let mediaFilter = { status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false };
+let collSelectedId = null;           // 收藏夹 tab：当前选中的收藏夹 id
+let collectionsCache = [];           // 收藏夹列表缓存（管理视图用）
+let collectionModalMode = 'create';  // collection-modal：create / rename
+let collectionRenameId = null;       // rename 模式的目标收藏夹 id
+let favOverlay = null;               // 卡片快捷收藏浮层
 let currentMedia = null;  // 媒体详情当前对象
 let editingMediaId = null;
 let episodeTagEpisodeId = null;
@@ -227,9 +240,22 @@ function fmtDateTime(ms) {
 
 function buildJumpUrl(url, ts) {
     const s = Math.floor(ts);
-    if (url.includes('youtube.com/watch')) return url + (url.includes('?') ? '&' : '?') + `t=${s}s`;
-    if (url.includes('bilibili.com/video')) return url + (url.includes('?') ? '&' : '?') + `t=${s}`;
-    return url;
+    let u;
+    try {
+        u = new URL(url);
+    } catch (e) {
+        return url; // 非法 URL 原样返回
+    }
+    // 按域名匹配时间参数格式：YouTube 秒后带 s（t=1018s）；B站系视频/番剧/合集统一纯秒（t=1018）。
+    // searchParams.set 会覆盖 URL 里已带的时间参数，避免出现 ?t=123&...&t=807 双 t 冲突。
+    if (u.hostname.includes('youtube.com') && u.pathname.startsWith('/watch')) {
+        u.searchParams.set('t', `${s}s`);
+    } else if (u.hostname.includes('bilibili.com')) {
+        u.searchParams.set('t', String(s));
+    } else {
+        return url; // 未知站点不拼，参数格式不定，拼了无效
+    }
+    return u.toString();
 }
 
 async function jump(r) {
@@ -256,6 +282,8 @@ function showView(name) {
     if (name === 'stats') loadStats();
     if (name === 'media') loadMedia();
     if (name === 'tags') loadTags();
+    if (name === 'collections') loadCollections();
+    if (name === 'recommend') loadRecommend();
 }
 
 // ---------- 视图历史栈（详情页逐层返回） ----------
@@ -351,6 +379,45 @@ function renderClipDetailHead(clip, ep, media) {
     if (clip.note) clipDetailHeadEl.querySelector('.cd-note').textContent = `备注：${clip.note}`;
     clipDetailHeadEl.querySelector('[data-nav="episode"]')?.addEventListener('click', () => openEpisodeDetail(ep.id));
     clipDetailHeadEl.querySelector('[data-nav="media"]')?.addEventListener('click', () => openMediaDetail(media.id));
+    renderClipTags(clip, media ? media.id : null);
+}
+
+/** 片段标签池：片段自身标签（clip.tag 拆词）+ 在整部作品里的引用热度，纯展示。 */
+async function renderClipTags(clip, mediaId) {
+    clipDetailTagsEl.innerHTML = '';
+    const names = (clip.tag || '').split(/[，,]/).map(s => s.trim()).filter(Boolean);
+    if (names.length === 0) {
+        clipDetailTagsEl.innerHTML = '<span class="status">无标签</span>';
+        return;
+    }
+    // 作品内热度（词条名 → 引用次数）；接口失败则无热度、纯卡片
+    const heat = new Map();
+    if (mediaId) {
+        try {
+            const resp = await fetch(`/api/tags/manage?mediaId=${mediaId}&page=1&size=1000`);
+            if (resp.ok) {
+                const pr = await resp.json();
+                for (const s of (pr.items || [])) heat.set(s.name, Number(s.refCount) || 0);
+            }
+        } catch (e) { /* 兜底无热度 */ }
+    }
+    for (const n of names) {
+        const count = heat.get(n) || 0;
+        const chip = document.createElement('span');
+        chip.className = `tag-pool-chip stat-${tagStatTier(count)}`;
+        chip.title = count > 0 ? `${n} · 在作品中引用 ${count} 次` : n;
+        const name = document.createElement('span');
+        name.className = 'tag-pool-name';
+        name.textContent = n;
+        chip.appendChild(name);
+        if (count > 0) {
+            const cnt = document.createElement('span');
+            cnt.className = 'tag-pool-count';
+            cnt.textContent = `×${count}`;
+            chip.appendChild(cnt);
+        }
+        clipDetailTagsEl.appendChild(chip);
+    }
 }
 
 async function loadClipDetailExtras(clip) {
@@ -544,21 +611,46 @@ function renderEpisodeNote(ep) {
     el.appendChild(editBtn);
 }
 
-function renderEpisodeDetailTags(ep) {
+/** 集标签池：集内聚合热度视图（集本身 + 其下片段引用），集标签可删，保留添加；接口失败兜底回集标签。 */
+async function renderEpisodeDetailTags(ep) {
     episodeDetailTagsEl.innerHTML = '';
-    for (const t of (ep.tags || [])) {
+    let stats = [];
+    try {
+        const resp = await fetch(`/api/tags/episode-stats?episodeId=${ep.id}`);
+        if (resp.ok) {
+            const arr = await resp.json();
+            stats = (arr || []).map(s => ({
+                id: s.id, name: s.name, count: Number(s.refCount) || 0
+            }));
+        }
+    } catch (e) { /* 兜底：仅集标签 */ }
+    const removableIds = new Set((ep.tags || []).map(t => t.id));
+    const pool = stats.length > 0 ? stats : (ep.tags || []).map(t => ({ id: t.id, name: t.name, count: 1 }));
+    pool.sort((a, b) => b.count - a.count || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const p of pool) {
         const chip = document.createElement('span');
-        chip.className = 'tag-chip removable';
-        chip.textContent = t.name;
-        const rm = document.createElement('span');
-        rm.className = 'chip-remove';
-        rm.textContent = '×';
-        rm.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await fetch(`/api/episodes/${ep.id}/tags/${t.id}`, { method: 'DELETE' });
-            loadEpisodeDetail(ep.id);
-        });
-        chip.appendChild(rm);
+        chip.className = `tag-pool-chip stat-${tagStatTier(p.count)}`;
+        chip.title = `${p.name} · 引用 ${p.count} 次`;
+        const name = document.createElement('span');
+        name.className = 'tag-pool-name';
+        name.textContent = p.name;
+        chip.appendChild(name);
+        const cnt = document.createElement('span');
+        cnt.className = 'tag-pool-count';
+        cnt.textContent = `×${p.count}`;
+        chip.appendChild(cnt);
+        if (removableIds.has(p.id)) {
+            const rm = document.createElement('span');
+            rm.className = 'chip-remove';
+            rm.textContent = '×';
+            rm.title = '从集标签移除（片段引用保留）';
+            rm.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await fetch(`/api/episodes/${ep.id}/tags/${p.id}`, { method: 'DELETE' });
+                loadEpisodeDetail(ep.id);
+            });
+            chip.appendChild(rm);
+        }
         episodeDetailTagsEl.appendChild(chip);
     }
     const wrap = document.createElement('span');
@@ -1133,9 +1225,24 @@ async function fillFilterCollections() {
     } catch (e) { /* 忽略 */ }
 }
 
-/** 媒体栏工具栏：新建收藏夹（modal 输入 → 创建后选中新收藏夹并刷新列表）。 */
+/** 工具栏/收藏夹 tab：新建收藏夹（modal create 模式）。 */
 function createCollectionFromToolbar() {
+    collectionModalMode = 'create';
+    collectionRenameId = null;
+    document.getElementById('collection-modal-title').textContent = '新建收藏夹';
+    collectionModalSaveBtn.textContent = '创建';
     collectionNameInput.value = '';
+    collectionModal.hidden = false;
+    collectionNameInput.focus();
+}
+
+/** 收藏夹管理：重命名入口（modal rename 模式）。 */
+function openRenameCollection(id, name) {
+    collectionModalMode = 'rename';
+    collectionRenameId = id;
+    document.getElementById('collection-modal-title').textContent = '重命名收藏夹';
+    collectionModalSaveBtn.textContent = '保存';
+    collectionNameInput.value = name;
     collectionModal.hidden = false;
     collectionNameInput.focus();
 }
@@ -1144,19 +1251,37 @@ async function saveCollectionFromModal() {
     const name = collectionNameInput.value.trim();
     if (!name) { collectionNameInput.focus(); return; }
     try {
-        const resp = await fetch('/api/collections', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
-        });
-        if (!resp.ok) { alert('创建失败'); return; }
-        const c = await resp.json();
-        collectionModal.hidden = true;
-        await fillFilterCollections();
-        filterCollectionEl.value = String(c.id);
-        mediaFilter.collectionId = String(c.id);
-        loadMedia();
-    } catch (err) { alert('创建失败：后端未响应'); }
+        if (collectionModalMode === 'rename') {
+            const resp = await fetch(`/api/collections/${collectionRenameId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            if (!resp.ok) { alert('改名失败'); return; }
+            collectionModal.hidden = true;
+            await loadCollections();
+            await fillFilterCollections();
+        } else {
+            const resp = await fetch('/api/collections', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            if (!resp.ok) { alert('创建失败'); return; }
+            const c = await resp.json();
+            collectionModal.hidden = true;
+            if (currentViewName === 'collections') {
+                collSelectedId = c.id;   // 在收藏夹 tab 创建 → 选中新收藏夹
+                await loadCollections();
+                await fillFilterCollections();
+            } else {
+                await fillFilterCollections();
+                filterCollectionEl.value = String(c.id);
+                mediaFilter.collectionId = String(c.id);
+                loadMedia();
+            }
+        }
+    } catch (err) { alert(collectionModalMode === 'rename' ? '改名失败：后端未响应' : '创建失败：后端未响应'); }
 }
 
 async function renderDetailCollections(d) {
@@ -1208,7 +1333,194 @@ async function renderDetailCollections(d) {
     detailCollectionsEl.appendChild(wrap);
 }
 
-function renderMediaGrid(list) {
+// ---------- 收藏夹 tab：管理视图（左列表 + 右内容） ----------
+
+/** 进入收藏夹视图：拉列表 → 恢复/回退选中 → 加载选中内容。 */
+async function loadCollections() {
+    let list = [];
+    try {
+        const resp = await fetch('/api/collections');
+        if (!resp.ok) throw new Error();
+        list = await resp.json();
+    } catch (e) {
+        collStatusEl.textContent = '加载失败：后端未响应';
+        return;
+    }
+    collectionsCache = list;
+    collStatusEl.textContent = '';
+    if (collSelectedId != null && !list.some(c => c.id === collSelectedId)) {
+        collSelectedId = null;   // 原选中已被删除 → 回退
+    }
+    if (collSelectedId == null && list.length > 0) collSelectedId = list[0].id;
+    renderCollList(list);
+    if (collSelectedId != null) {
+        loadCollMedia(collSelectedId);
+    } else {
+        collContentHeadEl.textContent = '';
+        collMediaGridEl.innerHTML = '';
+        collStatusEl.textContent = list.length === 0 ? '还没有收藏夹，点「＋ 新建收藏夹」建一个' : '';
+    }
+}
+
+function renderCollList(list) {
+    collListEl.innerHTML = '';
+    if (list.length === 0) {
+        collListEl.innerHTML = '<div class="coll-empty">还没有收藏夹</div>';
+        return;
+    }
+    for (const c of list) {
+        const item = document.createElement('div');
+        item.className = 'coll-item' + (c.id === collSelectedId ? ' selected' : '');
+        item.innerHTML = `
+            <div class="coll-item-main">
+                <div class="coll-item-name">${esc(c.name)}</div>
+                <div class="coll-item-count">${c.mediaCount || 0} 个媒体</div>
+            </div>
+            <div class="coll-item-actions">
+                <button type="button" class="coll-item-btn" title="重命名">✎</button>
+                <button type="button" class="coll-item-btn danger" title="删除">🗑</button>
+            </div>`;
+        item.querySelector('.coll-item-main').addEventListener('click', () => {
+            if (collSelectedId === c.id) return;
+            collSelectedId = c.id;
+            renderCollList(list);
+            loadCollMedia(c.id);
+        });
+        item.querySelector('.coll-item-btn[title="重命名"]').addEventListener('click', (e) => {
+            e.stopPropagation();
+            openRenameCollection(c.id, c.name);
+        });
+        item.querySelector('.coll-item-btn.danger').addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteCollection(c.id, c.name);
+        });
+        collListEl.appendChild(item);
+    }
+}
+
+/** 加载选中收藏夹的媒体（复用 renderMediaGrid，渲染进收藏夹视图容器）。 */
+async function loadCollMedia(id) {
+    collMediaGridEl.innerHTML = '';
+    collContentHeadEl.textContent = '';
+    let list = [];
+    try {
+        const resp = await fetch(`/api/collections/${id}/media`);
+        if (!resp.ok) throw new Error();
+        list = await resp.json();
+    } catch (e) {
+        collStatusEl.textContent = '加载失败：后端未响应';
+        return;
+    }
+    const coll = collectionsCache.find(c => c.id === id);
+    collContentHeadEl.textContent = coll ? `${coll.name} · ${list.length} 个媒体` : '';
+    collStatusEl.textContent = '';
+    if (list.length === 0) {
+        collStatusEl.textContent = '这个收藏夹还没有媒体，可在媒体卡片点 ♡ 加入';
+        return;
+    }
+    renderMediaGrid(list, collMediaGridEl, 'collection');
+}
+
+/** 收藏夹 tab：把媒体移出当前收藏夹（解除关联，媒体本体保留）。可逆——♡ 可再加回。 */
+async function removeFromCollection(mediaId) {
+    if (collSelectedId == null) return;
+    const coll = collectionsCache.find(c => c.id === collSelectedId);
+    try {
+        const resp = await fetch(`/api/collections/${collSelectedId}/media/${mediaId}`, { method: 'DELETE' });
+        if (!resp.ok) { alert('移出失败'); return; }
+        await loadCollMedia(collSelectedId);   // 刷新内容
+        await loadCollections();               // 刷新左侧列表媒体数
+        collStatusEl.textContent = coll ? `已移出收藏夹「${coll.name}」` : '';
+    } catch (e) { alert('移出失败：后端未响应'); }
+}
+
+/** 删除收藏夹：确认弹窗 → DELETE → 刷新列表/筛选/选中回退。媒体本身保留，仅解除关联。 */
+function deleteCollection(id, name) {
+    showConfirm({
+        title: '删除收藏夹',
+        msg: `删除收藏夹「${name}」？其中媒体将保留，仅解除关联。`,
+        okText: '删除',
+        onOk: async () => {
+            try {
+                const resp = await fetch(`/api/collections/${id}`, { method: 'DELETE' });
+                if (!resp.ok) { alert('删除失败'); return; }
+                if (collSelectedId === id) collSelectedId = null;
+                await loadCollections();
+                await fillFilterCollections();
+                if (currentViewName !== 'collections') loadMedia();
+            } catch (e) { alert('删除失败：后端未响应'); }
+        }
+    });
+}
+
+// ---------- 卡片快捷收藏（♡ 按钮 → 收藏夹勾选浮层） ----------
+
+function openFavPicker(mediaId, btn) {
+    closeFavPicker();
+    const overlay = document.createElement('div');
+    overlay.className = 'coll-pick';
+    overlay.textContent = '加载中…';
+    favOverlay = overlay;
+    document.body.appendChild(overlay);
+    btn.classList.add('fav-open');
+    const rect = btn.getBoundingClientRect();
+    const w = Math.min(210, window.innerWidth - 24);
+    overlay.style.width = `${w}px`;
+    overlay.style.left = `${Math.min(Math.max(rect.left, 12), window.innerWidth - w - 12)}px`;
+    // 视口钳制：浮层 max-height 260，卡片靠底时往上翻，避免超出视口
+    overlay.style.top = `${Math.min(rect.bottom + 6, Math.max(12, window.innerHeight - 268))}px`;
+    loadFavOptions(mediaId, overlay);
+}
+
+function closeFavPicker() {
+    if (favOverlay) { favOverlay.remove(); favOverlay = null; }
+    document.querySelectorAll('.fav-open').forEach(b => b.classList.remove('fav-open'));
+}
+
+async function loadFavOptions(mediaId, overlay) {
+    let colls = [], media = null;
+    try {
+        const [cr, mr] = await Promise.all([
+            fetch('/api/collections'),
+            fetch(`/api/media/${mediaId}`)
+        ]);
+        colls = cr.ok ? await cr.json() : [];
+        media = mr.ok ? await mr.json() : null;
+    } catch (e) { /* 走空态 */ }
+    overlay.innerHTML = '';
+    if (colls.length === 0) {
+        overlay.innerHTML = '<div class="coll-pick-empty">还没有收藏夹，先去媒体页建一个</div>';
+        return;
+    }
+    const current = new Set(media?.collectionIds || []);
+    for (const c of colls) {
+        const label = document.createElement('label');
+        label.className = 'coll-pick-item';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = current.has(c.id);
+        cb.addEventListener('change', async () => {
+            cb.disabled = true;   // 防连点
+            try {
+                if (cb.checked) {
+                    await fetch(`/api/collections/${c.id}/media`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mediaId })
+                    });
+                } else {
+                    await fetch(`/api/collections/${c.id}/media/${mediaId}`, { method: 'DELETE' });
+                }
+            } catch (e) { /* 忽略：下次进入浮层会重新同步 */ }
+            setTimeout(() => cb.disabled = false, 300);
+        });
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(` ${c.name}`));
+        overlay.appendChild(label);
+    }
+}
+
+function renderMediaGrid(list, container = mediaGridEl, mode = 'media') {
     for (const a of list) {
         mediaById.set(a.id, a);
         const card = document.createElement('div');
@@ -1221,8 +1533,11 @@ function renderMediaGrid(list) {
             : '';
         card.innerHTML = `
             <div class="media-cover">${fmtBadge}${cover}
-                <input type="checkbox" class="media-batch-cb" ${mediaBatchMode ? '' : 'hidden'} ${mediaSelected.has(a.id) ? 'checked' : ''}>
-                <button type="button" class="media-del-btn" title="删除媒体">×</button>
+                <input type="checkbox" class="media-batch-cb" title="勾选后可批量删除或导出推荐" ${mediaSelected.has(a.id) ? 'checked' : ''}>
+                ${mode === 'collection'
+                    ? `<button type="button" class="media-remove-btn" title="移出收藏夹">⇤</button>`
+                    : `<button type="button" class="media-del-btn" title="删除媒体">×</button>`}
+                <button type="button" class="media-fav-btn" title="收藏到收藏夹">♡</button>
             </div>
             <div class="media-card-body">
                 <div class="media-card-title"></div>
@@ -1251,10 +1566,22 @@ function renderMediaGrid(list) {
             else { mediaSelected.delete(a.id); card.classList.remove('selected'); }
             updateMediaBatchConfirm();
         });
-        // 单卡片删除（详情页外的新入口）
-        card.querySelector('.media-del-btn').addEventListener('click', (e) => {
+        // 单卡片操作：媒体视图 = 删除媒体；收藏夹视图 = 移出收藏夹（互斥，按 mode 渲染）
+        if (mode === 'collection') {
+            card.querySelector('.media-remove-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                removeFromCollection(a.id);
+            });
+        } else {
+            card.querySelector('.media-del-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                openBatchDelModal([a.id]);
+            });
+        }
+        // 卡片快捷收藏（batch-mode 下按钮被 CSS 隐藏，事件无影响）
+        card.querySelector('.media-fav-btn').addEventListener('click', (e) => {
             e.stopPropagation();
-            openBatchDelModal([a.id]);
+            openFavPicker(a.id, e.currentTarget);
         });
         card.addEventListener('click', () => {
             if (mediaBatchMode) { // 批量模式下点卡片=切换勾选
@@ -1264,7 +1591,7 @@ function renderMediaGrid(list) {
             }
             openMediaDetail(a.id);
         });
-        mediaGridEl.appendChild(card);
+        container.appendChild(card);
     }
 }
 
@@ -1331,6 +1658,254 @@ async function confirmBatchDelete() {
     loadMedia();
 }
 
+/** 轻提示：全局唯一 toast，2.5s 自动消失，可打断重显。 */
+let toastTimer = null;
+function showToast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.hidden = true; }, 2500);
+}
+
+// ---------- 推荐导出向导（独立「推荐」tab：勾选 → 主题 → 预览导出） ----------
+
+/** 推荐向导勾选的媒体 id（独立于媒体页批量删除的 mediaSelected）。 */
+const recommendSelected = new Set();
+let recommendStep = 1;            // 向导当前步骤 1/2/3
+let recommendDstHandle = null;    // File System Access API 保存句柄（选过保存位置后非空）
+
+/** 拉取推荐用媒体列表并渲染到向导网格（复用媒体列表接口，独立渲染函数）。 */
+async function loadRecommend() {
+    try {
+        const resp = await fetch(`/api/media?limit=200`);
+        const list = await resp.json();
+        renderRecommendGrid(Array.isArray(list) ? list : []);
+    } catch (e) {
+        showToast('加载媒体失败');
+    }
+}
+
+/** 渲染推荐勾选网格：复用 .media-card/.media-batch-cb 样式，勾选走 recommendSelected。 */
+function renderRecommendGrid(list) {
+    const grid = document.getElementById('recommend-grid');
+    grid.innerHTML = '';
+    for (const a of list) {
+        mediaById.set(a.id, a);
+        const card = document.createElement('div');
+        card.className = 'media-card' + (recommendSelected.has(a.id) ? ' selected' : '');
+        const cover = (a.coverPath || a.fallbackCoverPath)
+            ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" loading="lazy" onerror="this.style.display='none'">`
+            : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
+        const fmtBadge = a.mediaFormat
+            ? `<span class="media-format-badge fmt-${esc(a.mediaFormat)}">${esc(formatName(a.mediaFormat))}</span>`
+            : '';
+        card.innerHTML = `
+            <div class="media-cover">${fmtBadge}${cover}
+                <input type="checkbox" class="media-batch-cb" title="勾选后进入推荐导出" ${recommendSelected.has(a.id) ? 'checked' : ''}>
+                <button type="button" class="media-fav-btn" title="收藏到收藏夹">♡</button>
+            </div>
+            <div class="media-card-body">
+                <div class="media-card-title"></div>
+                <div class="media-card-meta"></div>
+            </div>`;
+        card.querySelector('.media-card-title').textContent = a.title;
+        const meta = [];
+        if (a.subcategory) meta.push(a.subcategory);
+        if (a.status) meta.push(MEDIA_STATUS_LABEL[a.status] || a.status);
+        meta.push(`${a.clipCount || 0} 条片段`);
+        card.querySelector('.media-card-meta').textContent = meta.join(' · ');
+        const cb = card.querySelector('.media-batch-cb');
+        cb.addEventListener('click', (e) => e.stopPropagation());
+        cb.addEventListener('change', () => {
+            if (cb.checked) { recommendSelected.add(a.id); card.classList.add('selected'); }
+            else { recommendSelected.delete(a.id); card.classList.remove('selected'); }
+            updateRecommendCount();
+        });
+        card.querySelector('.media-fav-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            openFavPicker(a.id, e.currentTarget);
+        });
+        card.addEventListener('click', () => openMediaDetail(a.id));
+        grid.appendChild(card);
+    }
+}
+
+/** 勾选数 → 计数 + 下一步按钮可用态。 */
+function updateRecommendCount() {
+    const n = recommendSelected.size;
+    document.getElementById('recommend-picked').innerHTML = `已选 <b>${n}</b> 部`;
+    document.getElementById('recommend-step-1-next').disabled = n === 0;
+    document.getElementById('recommend-export-count').textContent = n;
+}
+
+/** 向导步骤切换：步骤条 active 态 + 面板显隐。 */
+function showRecommendStep(step) {
+    recommendStep = step;
+    document.querySelectorAll('.wizard-step').forEach(s => {
+        const cur = Number(s.dataset.wstep);
+        s.classList.toggle('active', cur === step);
+        s.classList.toggle('done', cur < step);
+    });
+    for (let i = 1; i <= 3; i++) {
+        document.getElementById(`wizard-pane-${i}`).hidden = i !== step;
+    }
+}
+
+/** 推荐页标题（主题）当前值，空 → 默认。 */
+function recommendTitle() {
+    const t = document.getElementById('recommend-title').value.trim();
+    return t === '' ? '我的番剧推荐' : t;
+}
+
+/** 生成预览：POST html → blob → iframe.srcdoc 渲染（自包含页面）。 */
+async function generateRecommendPreview() {
+    const ids = [...recommendSelected];
+    if (ids.length === 0) { showToast('请先勾选要推荐的媒体'); return; }
+    const title = recommendTitle();
+    const statusEl = document.getElementById('recommend-export-status');
+    statusEl.textContent = '生成预览中…';
+    try {
+        const resp = await fetch('/api/recommend/html', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids, title }),
+        });
+        if (!resp.ok) throw new Error(`生成失败 (${resp.status})`);
+        const html = await resp.text();
+        const frame = document.getElementById('recommend-preview-frame');
+        frame.srcdoc = html;
+        document.getElementById('preview-title-note').textContent = `「${title}」· ${ids.length} 部`;
+        document.getElementById('recommend-preview-modal').hidden = false;
+        statusEl.textContent = '';
+    } catch (err) {
+        statusEl.textContent = '';
+        showToast(err.message || '生成预览失败');
+    }
+}
+
+/** 下载 HTML（普通 a.download，文件带时间戳）。 */
+async function downloadRecommendHtml() {
+    const ids = [...recommendSelected];
+    if (ids.length === 0) { showToast('请先勾选要推荐的媒体'); return; }
+    const title = recommendTitle();
+    try {
+        const resp = await fetch('/api/recommend/html', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids, title }),
+        });
+        if (!resp.ok) throw new Error(`生成失败 (${resp.status})`);
+        const blob = await resp.blob();
+        const stamp = stampNow();
+        downloadBlob(blob, `video-tagger-recommend-${stamp}.html`);
+        showToast(`已生成，共 ${ids.length} 部`);
+    } catch (err) {
+        showToast(err.message || '下载失败');
+    }
+}
+
+/** 打开视频导出弹窗：预填标题/计数，重置保存位置选择。 */
+function openVideoExport() {
+    document.getElementById('video-count').textContent = recommendSelected.size;
+    const title = recommendTitle();
+    document.getElementById('video-filename').value = title === '我的番剧推荐'
+        ? 'video-tagger-recommend'
+        : title;
+    document.getElementById('video-dst').value = '';
+    document.getElementById('video-dst-pick').textContent = '选择位置';
+    recommendDstHandle = null;
+    document.getElementById('video-export-confirm').disabled = false;
+    document.getElementById('video-format-hint').hidden = document.getElementById('video-format').value !== 'WEBM';
+    document.getElementById('recommend-video-modal').hidden = false;
+}
+
+/** 选择保存位置（File System Access API；非 Chromium → toast 提示走降级下载）。 */
+async function pickVideoDst() {
+    const ext = document.getElementById('video-format').value === 'WEBM' ? 'webm' : 'mp4';
+    const base = document.getElementById('video-filename').value.trim() || 'video-tagger-recommend';
+    if (!window.showSaveFilePicker) {
+        showToast('当前浏览器不支持选择保存位置，将直接下载到默认目录');
+        return;
+    }
+    try {
+        const handle = await window.showSaveFilePicker({
+            suggestedName: `${base}.${ext}`,
+            types: [{
+                description: ext === 'webm' ? 'WebM 视频' : 'MP4 视频',
+                accept: { [ext === 'webm' ? 'video/webm' : 'video/mp4']: [`.${ext}`] },
+            }],
+        });
+        recommendDstHandle = handle;
+        document.getElementById('video-dst').value = handle.name;
+        document.getElementById('video-dst-pick').textContent = '重新选择';
+    } catch (err) {
+        if (err && err.name === 'AbortError') return; // 用户取消选择，保留原状
+        showToast('选择保存位置失败');
+    }
+}
+
+/** 导出视频：渲染 → 写入选中位置（或降级下载）。 */
+async function exportRecommendVideo() {
+    const ids = [...recommendSelected];
+    if (ids.length === 0) { showToast('请先勾选要推荐的媒体'); return; }
+    const title = recommendTitle();
+    const format = document.getElementById('video-format').value;
+    const resolution = document.getElementById('video-resolution').value;
+    const btn = document.getElementById('video-export-confirm');
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = '渲染中…(约几十秒)';
+    try {
+        const resp = await fetch('/api/recommend/video', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids, title, format, resolution }),
+        });
+        if (!resp.ok) {
+            let msg = `渲染失败 (${resp.status})`;
+            try { const e = await resp.json(); if (e && e.message) msg = e.message; } catch (e2) { }
+            throw new Error(msg);
+        }
+        const blob = await resp.blob();
+        const ext = format === 'WEBM' ? 'webm' : 'mp4';
+        if (recommendDstHandle && window.showSaveFilePicker) {
+            const writable = await recommendDstHandle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            showToast('视频已导出到所选位置');
+        } else {
+            const base = document.getElementById('video-filename').value.trim() || 'video-tagger-recommend';
+            downloadBlob(blob, `${base}-${stampNow()}.${ext}`);
+            showToast('视频已生成');
+        }
+        document.getElementById('recommend-video-modal').hidden = true;
+    } catch (err) {
+        showToast(err.message || '视频导出失败');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
+/** 时间戳文件名辅助。 */
+function stampNow() {
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+}
+
+/** blob 触发浏览器下载。 */
+function downloadBlob(blob, fileName) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+}
+
 /** 导航入口：入栈再加载媒体详情。 */
 function openMediaDetail(id) {
     pushView('media-detail');
@@ -1392,21 +1967,47 @@ function renderMediaDetail(d, eps) {
     detailConfirmBtn.hidden = d.confirmed !== 0;
 }
 
-function renderDetailTags(d) {
+/** 标签池：三级聚合热度视图（次数降序 + 分级配色）。作品级已挂标签可删，保留添加；聚合接口失败兜底回作品级。 */
+async function renderDetailTags(d) {
     detailTagsEl.innerHTML = '';
-    for (const t of (d.tags || [])) {
+    let stats = [];
+    try {
+        const resp = await fetch(`/api/tags/manage?mediaId=${d.id}&page=1&size=1000`);
+        if (resp.ok) {
+            const pr = await resp.json();
+            stats = (pr.items || []).map(s => ({
+                id: s.id, name: s.name, count: Number(s.refCount) || 0
+            }));
+        }
+    } catch (e) { /* 兜底：仅作品级 */ }
+    // 作品级标签 id 集合 → 标记可删除（删作品级关联，集/片段引用不动）
+    const removableIds = new Set((d.tags || []).map(t => t.id));
+    const pool = stats.length > 0 ? stats : (d.tags || []).map(t => ({ id: t.id, name: t.name, count: 1 }));
+    pool.sort((a, b) => b.count - a.count || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const p of pool) {
         const chip = document.createElement('span');
-        chip.className = 'tag-chip removable';
-        chip.textContent = t.name;
-        const rm = document.createElement('span');
-        rm.className = 'chip-remove';
-        rm.textContent = '×';
-        rm.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await fetch(`/api/media/${d.id}/tags/${t.id}`, { method: 'DELETE' });
-            refreshMediaDetail();
-        });
-        chip.appendChild(rm);
+        chip.className = `tag-pool-chip stat-${tagStatTier(p.count)}`;
+        chip.title = `${p.name} · 引用 ${p.count} 次`;
+        const name = document.createElement('span');
+        name.className = 'tag-pool-name';
+        name.textContent = p.name;
+        chip.appendChild(name);
+        const cnt = document.createElement('span');
+        cnt.className = 'tag-pool-count';
+        cnt.textContent = `×${p.count}`;
+        chip.appendChild(cnt);
+        if (removableIds.has(p.id)) {
+            const rm = document.createElement('span');
+            rm.className = 'chip-remove';
+            rm.textContent = '×';
+            rm.title = '从作品级移除（集/片段引用保留）';
+            rm.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await fetch(`/api/media/${d.id}/tags/${p.id}`, { method: 'DELETE' });
+                refreshMediaDetail();
+            });
+            chip.appendChild(rm);
+        }
         detailTagsEl.appendChild(chip);
     }
     const wrap = document.createElement('span');
@@ -1427,6 +2028,15 @@ function renderDetailTags(d) {
     wrap.appendChild(input);
     detailTagsEl.appendChild(wrap);
     attachTagSuggest(input, () => (currentMedia && currentMedia.id) || null);
+}
+
+/** 标签池分级档位：1 / 2-3 / 4-6 / 7-9 / 10+ → 1..5。 */
+function tagStatTier(n) {
+    if (n >= 10) return 5;
+    if (n >= 7) return 4;
+    if (n >= 4) return 3;
+    if (n >= 2) return 2;
+    return 1;
 }
 
 function refreshMediaDetail() {
@@ -2721,6 +3331,48 @@ document.querySelectorAll('.media-tabs .atab').forEach(btn => {
 document.getElementById('media-create').addEventListener('click', openCreateMedia);
 document.getElementById('media-batch-del').addEventListener('click', toggleMediaBatchMode);
 document.getElementById('media-batch-confirm').addEventListener('click', () => openBatchDelModal([...mediaSelected]));
+
+// 推荐导出向导：步骤条 + 面板导航
+document.querySelectorAll('.wizard-step').forEach(s => s.addEventListener('click', () => {
+    if (s.dataset.wstep === '3' && recommendSelected.size === 0) { showToast('请先勾选要推荐的媒体'); return; }
+    showRecommendStep(Number(s.dataset.wstep));
+}));
+document.getElementById('recommend-step-1-next').addEventListener('click', () => showRecommendStep(2));
+document.getElementById('recommend-step-2-back').addEventListener('click', () => showRecommendStep(1));
+document.getElementById('recommend-step-2-next').addEventListener('click', () => {
+    document.getElementById('recommend-export-title').textContent = recommendTitle();
+    showRecommendStep(3);
+});
+document.getElementById('recommend-step-3-back').addEventListener('click', () => showRecommendStep(2));
+document.getElementById('recommend-title').addEventListener('input', () => {
+    document.getElementById('recommend-title-preview').textContent = recommendTitle();
+});
+// 预览导出
+document.getElementById('recommend-gen-preview').addEventListener('click', generateRecommendPreview);
+document.getElementById('recommend-export-html').addEventListener('click', downloadRecommendHtml);
+document.getElementById('recommend-export-video').addEventListener('click', openVideoExport);
+// 预览弹窗
+document.getElementById('preview-close').addEventListener('click', () => { document.getElementById('recommend-preview-modal').hidden = true; });
+document.getElementById('preview-export-video').addEventListener('click', () => {
+    document.getElementById('recommend-preview-modal').hidden = true;
+    openVideoExport();
+});
+// 预览全屏/还原
+document.getElementById('preview-expand').addEventListener('click', () => {
+    const modal = document.getElementById('recommend-preview-modal').querySelector('.preview-modal');
+    const full = modal.classList.toggle('preview-modal-full');
+    const btn = document.getElementById('preview-expand');
+    btn.textContent = full ? '还原 ⇲' : '全屏 ⇱';
+    btn.title = full ? '还原弹窗' : '全屏预览';
+});
+// 视频导出弹窗
+document.getElementById('video-export-cancel').addEventListener('click', () => { document.getElementById('recommend-video-modal').hidden = true; });
+document.getElementById('video-dst-pick').addEventListener('click', pickVideoDst);
+document.getElementById('video-export-confirm').addEventListener('click', exportRecommendVideo);
+document.getElementById('video-format').addEventListener('change', () => {
+    if (recommendDstHandle) { recommendDstHandle = null; document.getElementById('video-dst').value = ''; document.getElementById('video-dst-pick').textContent = '选择位置'; }
+    document.getElementById('video-format-hint').hidden = document.getElementById('video-format').value !== 'WEBM';
+});
 document.getElementById('batch-del-cancel').addEventListener('click', () => { batchDelModal.hidden = true; batchDelIds = []; });
 document.getElementById('batch-del-confirm').addEventListener('click', confirmBatchDelete);
 document.getElementById('confirm-modal-cancel').addEventListener('click', closeConfirmModal);
@@ -2730,10 +3382,18 @@ document.getElementById('confirm-modal-ok').addEventListener('click', () => {
     if (fn) fn();
 });
 document.getElementById('collection-create').addEventListener('click', createCollectionFromToolbar);
+document.getElementById('coll-create').addEventListener('click', createCollectionFromToolbar);
 document.getElementById('collection-modal-cancel').addEventListener('click', () => { collectionModal.hidden = true; });
 document.getElementById('collection-modal-save').addEventListener('click', saveCollectionFromModal);
 collectionModal.addEventListener('click', (e) => { if (e.target === collectionModal) collectionModal.hidden = true; });
 collectionNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveCollectionFromModal(); });
+// 快捷收藏浮层：点击浮层外部收起（fav-btn 的 click 已 stopPropagation，不会在打开瞬间误触）
+document.addEventListener('click', (e) => {
+    if (!favOverlay) return;
+    if (favOverlay.contains(e.target)) return;   // 浮层内（含 checkbox）不收起
+    closeFavPicker();
+});
+window.addEventListener('scroll', () => { if (favOverlay) closeFavPicker(); }, true);
 mediaFormatManageBtn.addEventListener('click', openMediaFormatModal);
 document.getElementById('back-to-media').addEventListener('click', goBack);
 document.getElementById('detail-edit').addEventListener('click', openEditMedia);
