@@ -27,7 +27,7 @@ class VideoControllerTest {
 
     @Test
     void listVideos() throws Exception {
-        when(videoService.listVideos(20, null, null))
+        when(videoService.listVideos(20, 0))
                 .thenReturn(List.of(new VideoSummary("fp1", 3L, 1700000000000L, "某动画 第3集")));
 
         mvc.perform(get("/api/videos"))

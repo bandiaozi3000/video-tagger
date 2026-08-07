@@ -23,9 +23,14 @@ public class VideoController {
 
     @GetMapping
     public List<VideoSummary> list(@RequestParam(defaultValue = "20") int limit,
-                                   @RequestParam(required = false) Long cursorLatest,
-                                   @RequestParam(required = false) String cursorFp) {
-        return videoService.listVideos(limit, cursorLatest, cursorFp);
+                                   @RequestParam(defaultValue = "0") int offset) {
+        return videoService.listVideos(limit, offset);
+    }
+
+    /** 有标记的视频总数，供列表分页导航。 */
+    @GetMapping("/count")
+    public long count() {
+        return videoService.countVideos();
     }
 
     @GetMapping("/{fp}/clips")

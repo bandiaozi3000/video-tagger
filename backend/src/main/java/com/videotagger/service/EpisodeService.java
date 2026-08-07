@@ -26,10 +26,12 @@ public class EpisodeService {
     private final CoverService coverService;
     private final ClipMapper clipMapper;
     private final ClipTagMapper clipTagMapper;
+    private final TagSyncService tagSyncService;
 
     public EpisodeService(EpisodeMapper episodeMapper, EpisodeTagMapper episodeTagMapper,
                           TagMapper tagMapper, EmbeddingTaskService embeddingTaskService,
-                          CoverService coverService, ClipMapper clipMapper, ClipTagMapper clipTagMapper) {
+                          CoverService coverService, ClipMapper clipMapper, ClipTagMapper clipTagMapper,
+                          TagSyncService tagSyncService) {
         this.episodeMapper = episodeMapper;
         this.episodeTagMapper = episodeTagMapper;
         this.tagMapper = tagMapper;
@@ -37,6 +39,7 @@ public class EpisodeService {
         this.coverService = coverService;
         this.clipMapper = clipMapper;
         this.clipTagMapper = clipTagMapper;
+        this.tagSyncService = tagSyncService;
     }
 
     /** 更新集信息：备注/季/集号。字段传 null 表示不改；note 传空串表示清空；变更后入队重嵌。 */
@@ -76,6 +79,8 @@ public class EpisodeService {
         if (tag != null) {
             episodeTagMapper.insertIgnore(episodeId, tag.getId());
             embeddingTaskService.enqueue(EntityType.EPISODE, episodeId);
+            // 集标签向上并集同步到所属媒体（媒体标签过滤可用）
+            tagSyncService.syncFromEpisode(episodeId);
         }
     }
 

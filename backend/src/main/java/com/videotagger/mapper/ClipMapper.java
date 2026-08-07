@@ -36,17 +36,15 @@ public interface ClipMapper extends BaseMapper<Clip> {
             + "ORDER BY timestamp_sec ASC")
     List<Clip> findNearby(@Param("url") String url, @Param("ts") double ts, @Param("window") double window);
 
+    /** 按最近活跃排序的视频列表，offset 分页（传统页码，配合 countVideos 计算总页数）。 */
     @Select("SELECT video_fp AS fp, COUNT(*) AS count, MAX(created_at) AS latest, "
             + "SUBSTRING_INDEX(MAX(CONCAT(LPAD(created_at, 20, '0'), '|', title)), '|', -1) AS title "
             + "FROM clips "
             + "WHERE video_fp IS NOT NULL AND video_fp <> '' "
             + "GROUP BY video_fp "
-            + "HAVING latest < #{cursorLatest} OR (latest = #{cursorLatest} AND fp < #{cursorFp}) "
             + "ORDER BY latest DESC, fp DESC "
-            + "LIMIT #{limit}")
-    List<VideoSummary> listVideos(@Param("cursorLatest") long cursorLatest,
-                                  @Param("cursorFp") String cursorFp,
-                                  @Param("limit") int limit);
+            + "LIMIT #{limit} OFFSET #{offset}")
+    List<VideoSummary> listVideos(@Param("limit") int limit, @Param("offset") int offset);
 
     @Select("SELECT * FROM clips WHERE video_fp = #{fp} ORDER BY timestamp_sec ASC")
     List<Clip> listByFingerprint(@Param("fp") String fp);

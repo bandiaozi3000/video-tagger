@@ -15,11 +15,14 @@ public class VideoService {
         this.clipMapper = clipMapper;
     }
 
-    /** 按最近活跃排序的视频列表，keyset 分页（cursor = 上一页最后一项的 latest/fp）。 */
-    public List<VideoSummary> listVideos(int limit, Long cursorLatest, String cursorFp) {
-        long latest = cursorLatest != null ? cursorLatest : Long.MAX_VALUE;
-        String fp = cursorFp == null ? "" : cursorFp;
-        return clipMapper.listVideos(latest, fp, Math.min(limit, 100));
+    /** 按最近活跃排序的视频列表，offset 分页（页码导航）。 */
+    public List<VideoSummary> listVideos(int limit, int offset) {
+        return clipMapper.listVideos(Math.min(limit, 200), offset);
+    }
+
+    /** 有标记的视频总数，供分页导航。 */
+    public long countVideos() {
+        return clipMapper.countVideos();
     }
 
     /** 某个视频的全部标记点，按时间戳升序（时间线）。 */

@@ -48,11 +48,13 @@ public class ClipService {
     private final ClipTagMapper clipTagMapper;
     private final CoverService coverService;
     private final EmbeddingTaskService embeddingTaskService;
+    private final TagSyncService tagSyncService;
 
     public ClipService(ClipMapper clipMapper, MediaMapper mediaMapper,
                        MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
                        EpisodeMapper episodeMapper, TagMapper tagMapper, ClipTagMapper clipTagMapper,
-                       CoverService coverService, EmbeddingTaskService embeddingTaskService) {
+                       CoverService coverService, EmbeddingTaskService embeddingTaskService,
+                       TagSyncService tagSyncService) {
         this.clipMapper = clipMapper;
         this.mediaMapper = mediaMapper;
         this.mediaFormatMapper = mediaFormatMapper;
@@ -62,6 +64,7 @@ public class ClipService {
         this.clipTagMapper = clipTagMapper;
         this.coverService = coverService;
         this.embeddingTaskService = embeddingTaskService;
+        this.tagSyncService = tagSyncService;
     }
 
     @Transactional
@@ -324,7 +327,7 @@ public class ClipService {
         return ep;
     }
 
-    /** 片段标签写入词库关联：无则建 tag 词条，有则复用。 */
+    /** 片段标签写入词库关联：无则建 tag 词条，有则复用；随后向上并集同步到所属集与媒体。 */
     private void linkClipTags(long clipId, String tagText, long now) {
         for (String token : tagText.trim().split("\\s+")) {
             if (token.isEmpty()) {
@@ -336,5 +339,6 @@ public class ClipService {
                 clipTagMapper.insertIgnore(clipId, tag.getId());
             }
         }
+        tagSyncService.syncFromClip(clipId);
     }
 }

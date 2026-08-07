@@ -4,6 +4,7 @@ import com.videotagger.service.ClipService;
 import com.videotagger.service.PageResult;
 import com.videotagger.service.TagAdminService;
 import com.videotagger.service.TagSuggestion;
+import com.videotagger.service.TagSyncService;
 import com.videotagger.service.TagUsage;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +16,7 @@ import java.util.List;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -29,6 +31,9 @@ class TagControllerTest {
 
     @MockBean
     TagAdminService tagAdminService;
+
+    @MockBean
+    TagSyncService tagSyncService;
 
     @Test
     void suggestReturnsTags() throws Exception {
@@ -74,5 +79,14 @@ class TagControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].name").value("神作"))
                 .andExpect(jsonPath("$[0].refCount").value(5));
+    }
+
+    @Test
+    void syncAllReturnsSyncedCount() throws Exception {
+        when(tagSyncService.syncAll()).thenReturn(12);
+
+        mvc.perform(post("/api/tags/sync-all"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.synced").value(12));
     }
 }

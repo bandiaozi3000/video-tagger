@@ -1,6 +1,7 @@
 package com.videotagger.controller;
 
 import com.videotagger.entity.Media;
+import com.videotagger.service.AniListSyncService;
 import com.videotagger.service.MediaDetail;
 import com.videotagger.service.MediaRequest;
 import com.videotagger.service.MediaService;
@@ -34,29 +35,66 @@ public class MediaController {
     private final MediaService mediaService;
     private final EpisodeService episodeService;
     private final CoverService coverService;
+    private final AniListSyncService aniListSyncService;
 
-    public MediaController(MediaService mediaService, EpisodeService episodeService, CoverService coverService) {
+    public MediaController(MediaService mediaService, EpisodeService episodeService, CoverService coverService,
+                           AniListSyncService aniListSyncService) {
         this.mediaService = mediaService;
         this.episodeService = episodeService;
         this.coverService = coverService;
+        this.aniListSyncService = aniListSyncService;
     }
 
     @GetMapping
     public List<MediaSummary> list(@RequestParam(defaultValue = "50") int limit,
+                                   @RequestParam(defaultValue = "0") int offset,
                                    @RequestParam(required = false) String status,
                                    @RequestParam(required = false) String format,
                                    @RequestParam(required = false) Long subcategoryId,
                                    @RequestParam(required = false) Integer confirmed,
-                                   @RequestParam(required = false) String sort) {
-        return mediaService.list(limit, status, format, subcategoryId, confirmed, sort);
+                                   @RequestParam(required = false) Long collectionId,
+                                   @RequestParam(required = false) String sort,
+                                   @RequestParam(required = false) Integer year,
+                                   @RequestParam(required = false) Long tagId) {
+        return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, year, tagId);
     }
 
     @GetMapping("/recent")
     public List<MediaSummary> recent(@RequestParam(defaultValue = "20") int limit,
+                                     @RequestParam(defaultValue = "0") int offset,
                                      @RequestParam(required = false) String status,
+                                     @RequestParam(required = false) String format,
+                                     @RequestParam(required = false) Long subcategoryId,
                                      @RequestParam(required = false) Integer confirmed,
-                                     @RequestParam(required = false) Long collectionId) {
-        return mediaService.recent(limit, status, confirmed, collectionId);
+                                     @RequestParam(required = false) Long collectionId,
+                                     @RequestParam(required = false) Integer year) {
+        return mediaService.recent(limit, offset, status, format, subcategoryId, confirmed, collectionId, year);
+    }
+
+    /** 带筛选的媒体总数（分页页码导航用）；latest=true 时按「最近观看」口径只统计打过标记的媒体。 */
+    @GetMapping("/count")
+    public long count(@RequestParam(required = false) String status,
+                      @RequestParam(required = false) String format,
+                      @RequestParam(required = false) Long subcategoryId,
+                      @RequestParam(required = false) Integer confirmed,
+                      @RequestParam(required = false) Long collectionId,
+                      @RequestParam(required = false) Integer year,
+                      @RequestParam(required = false) Long tagId,
+                      @RequestParam(defaultValue = "false") boolean latest) {
+        return mediaService.count(status, format, subcategoryId, confirmed, collectionId, year, tagId, latest);
+    }
+
+    /** 库中已有的全部首播年份（年份筛选下拉选项）。 */
+    @GetMapping("/years")
+    public List<Integer> years() {
+        return mediaService.years();
+    }
+
+    /** 补下缺失封面：遍历留存了 AniList 封面 URL 但尚无封面的媒体，重新触发异步下载。 */
+    @PostMapping("/retry-covers")
+    public Map<String, Object> retryCovers() {
+        int n = mediaService.retryCovers();
+        return Map.of("triggered", n);
     }
 
     @GetMapping("/{id}")
@@ -78,6 +116,16 @@ public class MediaController {
     public ResponseEntity<Void> deleteBatch(@RequestParam List<Long> ids) {
         mediaService.deleteBatch(ids);
         return ResponseEntity.noContent().build();
+    }
+
+    /** 番剧同步（AniList）：按勾选年份批量建媒体（名称/年份/封面），命中库中已有则跳过。 */
+    @PostMapping("/sync-anilist")
+    public AniListSyncService.SyncResult syncAnilist(@RequestBody Map<String, List<Integer>> body) {
+        List<Integer> years = body.getOrDefault("years", List.of());
+        if (years.isEmpty()) {
+            throw new IllegalArgumentException("请至少勾选一个年份");
+        }
+        return aniListSyncService.sync(years);
     }
 
     @DeleteMapping("/{id}")

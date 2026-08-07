@@ -23,59 +23,28 @@ public interface MediaMapper extends BaseMapper<Media> {
     @Select("SELECT * FROM media WHERE title LIKE CONCAT(#{title}, '%') ORDER BY id LIMIT 1")
     Media selectByTitlePrefix(@Param("title") String title);
 
+    /** AniList 同步去重：标题或原标题任一命中即视为已有（title/original_title 精确匹配）。 */
+    @Select("SELECT * FROM media WHERE title = #{title} OR original_title = #{title} LIMIT 1")
+    Media selectByTitleOrOriginal(@Param("title") String title);
+
+    /** 留存了封面 URL 但尚无封面文件的媒体（异步下载中断/未下完），供「补下缺失封面」。 */
+    @Select("SELECT * FROM media WHERE cover_url IS NOT NULL AND cover_url != '' "
+            + "AND (cover_path IS NULL OR cover_path = '')")
+    List<Media> listMissingCovers();
+
     /** 番剧卡片墙：含片段数与最新标记时间，按创建倒序。 */
-    @Select("SELECT a.id, a.title, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed,"
+    @Select("SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
             + FALLBACK_COVER + " "
             + "FROM media a "
             + "LEFT JOIN episode e ON e.media_id = a.id "
             + "LEFT JOIN clips c ON c.episode_id = e.id "
-            + "GROUP BY a.id ORDER BY a.id DESC LIMIT #{limit}")
-    List<MediaSummary> listSummaries(@Param("limit") int limit);
+            + "GROUP BY a.id ORDER BY a.id DESC LIMIT #{limit} OFFSET #{offset}")
+    List<MediaSummary> listSummaries(@Param("limit") int limit, @Param("offset") int offset);
 
-    /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/confirmed/collectionId 筛选。 */
+    /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/format/子分类（子树收敛）/confirmed/collectionId/year 筛选。 */
     @Select("<script>"
-            + "SELECT a.id, a.title, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed,"
-            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
-            + FALLBACK_COVER + " "
-            + "FROM media a "
-            + "LEFT JOIN episode e ON e.media_id = a.id "
-            + "LEFT JOIN clips c ON c.episode_id = e.id "
-            + "<where>"
-            + "<if test='status != null'>a.status = #{status}</if>"
-            + "<if test='confirmed != null'>AND a.confirmed = #{confirmed}</if>"
-            + "<if test='collectionId != null'>AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
-            + "</where>"
-            + "GROUP BY a.id HAVING latestAt IS NOT NULL "
-            + "ORDER BY latestAt DESC LIMIT #{limit}"
-            + "</script>")
-    List<MediaSummary> listByLatest(@Param("limit") int limit, @Param("status") String status,
-                                    @Param("confirmed") Integer confirmed, @Param("collectionId") Long collectionId);
-
-    @Select("SELECT COUNT(*) FROM media")
-    long countMedia();
-
-    /** 某收藏夹下的番剧列表；支持 status/confirmed 筛选。 */
-    @Select("<script>"
-            + "SELECT a.id, a.title, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed,"
-            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
-            + FALLBACK_COVER + " "
-            + "FROM media a "
-            + "JOIN media_collection ac ON ac.media_id = a.id AND ac.collection_id = #{collectionId} "
-            + "LEFT JOIN episode e ON e.media_id = a.id "
-            + "LEFT JOIN clips c ON c.episode_id = e.id "
-            + "<where>"
-            + "<if test='status != null'>a.status = #{status}</if>"
-            + "<if test='confirmed != null'>AND a.confirmed = #{confirmed}</if>"
-            + "</where>"
-            + "GROUP BY a.id ORDER BY a.id DESC LIMIT #{limit}"
-            + "</script>")
-    List<MediaSummary> listByCollection(@Param("collectionId") long collectionId, @Param("limit") int limit,
-                                        @Param("status") String status, @Param("confirmed") Integer confirmed);
-
-    /** 媒体列表筛选：状态/格式/子分类/待确认 组合，sort=latest 按最近标记倒序。 */
-    @Select("<script>"
-            + "SELECT a.id, a.title, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed,"
+            + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
             + FALLBACK_COVER + " "
             + "FROM media a "
@@ -90,22 +59,135 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
             + ") SELECT id FROM cte)</if>"
             + "<if test='confirmed != null'>AND a.confirmed = #{confirmed}</if>"
+            + "<if test='collectionId != null'>AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
+            + "<if test='year != null'>AND a.year = #{year}</if>"
+            + "</where>"
+            + "GROUP BY a.id HAVING latestAt IS NOT NULL "
+            + "ORDER BY latestAt DESC LIMIT #{limit} OFFSET #{offset}"
+            + "</script>")
+    List<MediaSummary> listByLatest(@Param("limit") int limit, @Param("offset") int offset,
+                                    @Param("status") String status, @Param("format") String format,
+                                    @Param("subcategoryId") Long subcategoryId,
+                                    @Param("confirmed") Integer confirmed, @Param("collectionId") Long collectionId,
+                                    @Param("year") Integer year);
+
+    @Select("SELECT COUNT(*) FROM media")
+    long countMedia();
+
+    /** 带筛选的媒体总数（全部媒体/收藏夹分支）：状态/格式/子分类子树/待确认/收藏夹/年份/媒体标签 组合，与 listFiltered/listByCollection 同条件。 */
+    @Select("<script>"
+            + "SELECT COUNT(DISTINCT a.id) FROM media a "
+            + "<where>"
+            + "<if test='status != null'>a.status = #{status}</if>"
+            + "<if test='format != null'>AND a.media_format = #{format}</if>"
+            + "<if test='subcategoryId != null'>AND a.subcategory_id IN ("
+            + "WITH RECURSIVE cte AS ("
+            + "SELECT id FROM media_subcategory WHERE id = #{subcategoryId} "
+            + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
+            + ") SELECT id FROM cte)</if>"
+            + "<if test='confirmed != null'>AND a.confirmed = #{confirmed}</if>"
+            + "<if test='collectionId != null'>AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
+            + "<if test='year != null'>AND a.year = #{year}</if>"
+            + "<if test='tagId != null'>AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
+            + "</where>"
+            + "</script>")
+    long countFiltered(@Param("status") String status, @Param("format") String format,
+                       @Param("subcategoryId") Long subcategoryId, @Param("confirmed") Integer confirmed,
+                       @Param("collectionId") Long collectionId, @Param("year") Integer year,
+                       @Param("tagId") Long tagId);
+
+    /** 最近观看分支总数：与 listByLatest 同条件 + 仅统计打过标记的媒体。 */
+    @Select("<script>"
+            + "SELECT COUNT(DISTINCT a.id) FROM media a "
+            + "<where>"
+            + "<if test='status != null'>a.status = #{status}</if>"
+            + "<if test='format != null'>AND a.media_format = #{format}</if>"
+            + "<if test='subcategoryId != null'>AND a.subcategory_id IN ("
+            + "WITH RECURSIVE cte AS ("
+            + "SELECT id FROM media_subcategory WHERE id = #{subcategoryId} "
+            + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
+            + ") SELECT id FROM cte)</if>"
+            + "<if test='confirmed != null'>AND a.confirmed = #{confirmed}</if>"
+            + "<if test='collectionId != null'>AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
+            + "<if test='year != null'>AND a.year = #{year}</if>"
+            + "AND EXISTS (SELECT 1 FROM clips c JOIN episode e ON e.id = c.episode_id WHERE e.media_id = a.id)"
+            + "</where>"
+            + "</script>")
+    long countLatest(@Param("status") String status, @Param("format") String format,
+                     @Param("subcategoryId") Long subcategoryId, @Param("confirmed") Integer confirmed,
+                     @Param("collectionId") Long collectionId, @Param("year") Integer year);
+
+    /** 库中已有的全部首播年份（降序，供年份筛选下拉）。 */
+    @Select("SELECT DISTINCT year FROM media WHERE year IS NOT NULL ORDER BY year DESC")
+    List<Integer> listDistinctYears();
+
+    /** 某收藏夹下的番剧列表；支持 status/format/子分类（子树收敛）/confirmed/year 筛选。 */
+    @Select("<script>"
+            + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed,"
+            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
+            + FALLBACK_COVER + " "
+            + "FROM media a "
+            + "JOIN media_collection ac ON ac.media_id = a.id AND ac.collection_id = #{collectionId} "
+            + "LEFT JOIN episode e ON e.media_id = a.id "
+            + "LEFT JOIN clips c ON c.episode_id = e.id "
+            + "<where>"
+            + "<if test='status != null'>a.status = #{status}</if>"
+            + "<if test='format != null'>AND a.media_format = #{format}</if>"
+            + "<if test='subcategoryId != null'>AND a.subcategory_id IN ("
+            + "WITH RECURSIVE cte AS ("
+            + "SELECT id FROM media_subcategory WHERE id = #{subcategoryId} "
+            + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
+            + ") SELECT id FROM cte)</if>"
+            + "<if test='confirmed != null'>AND a.confirmed = #{confirmed}</if>"
+            + "<if test='year != null'>AND a.year = #{year}</if>"
+            + "</where>"
+            + "GROUP BY a.id ORDER BY a.id DESC LIMIT #{limit} OFFSET #{offset}"
+            + "</script>")
+    List<MediaSummary> listByCollection(@Param("collectionId") long collectionId, @Param("limit") int limit,
+                                        @Param("offset") int offset,
+                                        @Param("status") String status, @Param("format") String format,
+                                        @Param("subcategoryId") Long subcategoryId,
+                                        @Param("confirmed") Integer confirmed, @Param("year") Integer year);
+
+    /** 媒体列表筛选：状态/格式/子分类/待确认/年份 组合，sort=latest 按最近标记倒序。 */
+    @Select("<script>"
+            + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed,"
+            + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
+            + FALLBACK_COVER + " "
+            + "FROM media a "
+            + "LEFT JOIN episode e ON e.media_id = a.id "
+            + "LEFT JOIN clips c ON c.episode_id = e.id "
+            + "<where>"
+            + "<if test='status != null'>a.status = #{status}</if>"
+            + "<if test='format != null'>AND a.media_format = #{format}</if>"
+            + "<if test='subcategoryId != null'>AND a.subcategory_id IN ("
+            + "WITH RECURSIVE cte AS ("
+            + "SELECT id FROM media_subcategory WHERE id = #{subcategoryId} "
+            + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
+            + ") SELECT id FROM cte)</if>"
+            + "<if test='confirmed != null'>AND a.confirmed = #{confirmed}</if>"
+            + "<if test='collectionId != null'>AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
+            + "<if test='year != null'>AND a.year = #{year}</if>"
+            + "<if test='tagId != null'>AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
             + "</where>"
             + "GROUP BY a.id "
             + "<choose>"
             + "<when test='sort != null and sort == \"latest\"'>ORDER BY latestAt DESC</when>"
             + "<otherwise>ORDER BY a.id DESC</otherwise>"
             + "</choose>"
-            + " LIMIT #{limit}"
+            + " LIMIT #{limit} OFFSET #{offset}"
             + "</script>")
     List<MediaSummary> listFiltered(@Param("status") String status, @Param("format") String format,
                                     @Param("subcategoryId") Long subcategoryId,
-                                    @Param("confirmed") Integer confirmed, @Param("sort") String sort,
-                                    @Param("limit") int limit);
+                                    @Param("confirmed") Integer confirmed, @Param("collectionId") Long collectionId,
+                                    @Param("sort") String sort,
+                                    @Param("year") Integer year,
+                                    @Param("tagId") Long tagId,
+                                    @Param("limit") int limit, @Param("offset") int offset);
 
     /** 媒体关键词召回：标题/别名/备注/作品标签命中。 */
     @Select("<script>"
-            + "SELECT DISTINCT a.id, a.title, a.aliases, a.note, a.media_format AS mediaFormat, a.subcategory, "
+            + "SELECT DISTINCT a.id, a.title, a.year, a.original_title AS originalTitle, a.aliases, a.note, a.media_format AS mediaFormat, a.subcategory, "
             + "a.subcategory_id AS subcategoryId, "
             + "a.status, a.rating, a.cover_path AS coverPath, a.confirmed, a.created_at "
             + "FROM media a "

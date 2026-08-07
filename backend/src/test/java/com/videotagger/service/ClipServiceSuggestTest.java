@@ -27,7 +27,8 @@ class ClipServiceSuggestTest {
         service = new ClipService(mock(ClipMapper.class), mock(MediaMapper.class),
                 mock(MediaFormatMapper.class), mock(MediaSubcategoryMapper.class),
                 mock(EpisodeMapper.class), tagMapper, mock(ClipTagMapper.class),
-                mock(CoverService.class), mock(EmbeddingTaskService.class));
+                mock(CoverService.class), mock(EmbeddingTaskService.class),
+                mock(TagSyncService.class));
     }
 
     @Test

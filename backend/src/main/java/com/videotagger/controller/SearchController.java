@@ -23,12 +23,13 @@ public class SearchController {
     @GetMapping
     public SearchResponse search(@RequestParam("q") String query,
                                  @RequestParam(value = "limit", defaultValue = "20") int limit,
+                                 @RequestParam(value = "offset", defaultValue = "0") int offset,
                                  @RequestParam(value = "dim", defaultValue = "mixed") String dim,
                                  @RequestParam(value = "format", required = false) String format,
                                  @RequestParam(value = "subcategoryId", required = false) Long subcategoryId,
                                  @RequestParam(value = "from", required = false) Long from,
                                  @RequestParam(value = "to", required = false) Long to) {
-        return searchService.search(query, limit, dim, format, subcategoryId, from, to);
+        return searchService.search(query, limit, offset, dim, format, subcategoryId, from, to);
     }
 
     @GetMapping("/similar")

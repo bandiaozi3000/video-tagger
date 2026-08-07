@@ -66,7 +66,10 @@
                 <button type="button" class="atab" data-media-tab="all">全部媒体</button>
             </div>
             <div class="toolbar-actions">
+                <button type="button" id="media-sync" class="btn-mini">⇄ 同步番剧</button>
+                <button type="button" id="media-retry-covers" class="btn-mini" title="补齐异步下载中断/未完成的封面">⇩ 补下封面</button>
                 <button type="button" id="media-format-manage" class="btn-mini">⚙ 管理格式</button>
+                <button type="button" id="media-batch-select-all" class="btn-mini" title="勾选当前列表全部">☑ 全选本页</button>
                 <button type="button" id="media-batch-del" class="btn-mini danger">批量删除</button>
                 <button type="button" id="media-batch-confirm" class="btn-mini danger" hidden>删除选中(0)</button>
                 <button type="button" id="media-create" class="btn-primary">＋ 新建媒体</button>
@@ -88,11 +91,26 @@
             <select id="filter-collection">
                 <option value="">收藏夹</option>
             </select>
+            <select id="filter-year">
+                <option value="">全部年份</option>
+            </select>
             <button type="button" id="collection-create" class="btn-mini" title="新建收藏夹">＋ 新建收藏夹</button>
             <label class="checkbox-inline"><input type="checkbox" id="filter-unconfirmed"> 待确认</label>
         </div>
         <div id="media-status" class="status"></div>
         <section id="media-grid" class="media-grid"></section>
+        <div class="media-pagination" id="media-pagination">
+            <span id="media-total" class="pagination-total"></span>
+            <select id="media-page-size" title="每页条数">
+                <option value="30" selected>30 条/页</option>
+                <option value="50">50 条/页</option>
+                <option value="100">100 条/页</option>
+                <option value="200">200 条/页</option>
+            </select>
+            <button type="button" id="media-page-prev" class="btn-mini" disabled>‹ 上一页</button>
+            <span id="media-page-info" class="pagination-info"></span>
+            <button type="button" id="media-page-next" class="btn-mini" disabled>下一页 ›</button>
+        </div>
     </section>
 
     <!-- 媒体详情视图 -->
@@ -191,13 +209,34 @@
         <div id="semantic-hint" class="semantic-hint" hidden>语义搜索未启用（未配置 Embedding API），当前为关键词搜索</div>
         <div id="status" class="status"></div>
         <section id="results" class="results"></section>
+        <div class="media-pagination" id="search-pagination">
+            <span id="search-total" class="pagination-total"></span>
+            <select id="search-page-size" title="每页条数">
+                <option value="20" selected>20 条/页</option>
+                <option value="50">50 条/页</option>
+                <option value="100">100 条/页</option>
+            </select>
+            <button type="button" id="search-page-prev" class="btn-mini" disabled>‹ 上一页</button>
+            <span id="search-page-info" class="pagination-info"></span>
+            <button type="button" id="search-page-next" class="btn-mini" disabled>下一页 ›</button>
+        </div>
     </section>
 
     <!-- 视频列表视图 -->
     <section id="view-videos" class="view" hidden>
         <div id="video-status" class="status"></div>
         <section id="video-list" class="results"></section>
-        <button type="button" id="load-more" class="load-more" hidden>加载更多</button>
+        <div class="media-pagination" id="video-pagination">
+            <span id="video-total" class="pagination-total"></span>
+            <select id="video-page-size" title="每页条数">
+                <option value="20" selected>20 条/页</option>
+                <option value="50">50 条/页</option>
+                <option value="100">100 条/页</option>
+            </select>
+            <button type="button" id="video-page-prev" class="btn-mini" disabled>‹ 上一页</button>
+            <span id="video-page-info" class="pagination-info"></span>
+            <button type="button" id="video-page-next" class="btn-mini" disabled>下一页 ›</button>
+        </div>
     </section>
 
     <!-- 时间线视图 -->
@@ -239,6 +278,7 @@
             <div class="toolbar-actions">
                 <select id="tag-media-select" hidden><option value="">— 选择媒体 —</option></select>
                 <input id="tag-filter" type="text" placeholder="过滤标签…" autocomplete="off">
+                <button type="button" id="tag-sync-all" class="btn-mini" title="把历史片段/集标签同步到集/媒体，让媒体标签过滤可用（幂等可重复点）">⇄ 同步历史标签</button>
                 <button type="button" id="tag-add-btn" class="btn-mini">＋ 新增标签</button>
                 <button type="button" id="tag-batch-del" class="btn-mini danger" hidden>批量删除(0)</button>
             </div>
@@ -275,6 +315,18 @@
             <div class="coll-content">
                 <div class="coll-content-head" id="coll-content-head"></div>
                 <section id="coll-media-grid" class="media-grid"></section>
+                <div class="media-pagination" id="coll-pagination">
+                    <span id="coll-total" class="pagination-total"></span>
+                    <select id="coll-page-size" title="每页条数">
+                        <option value="30" selected>30 条/页</option>
+                        <option value="50">50 条/页</option>
+                        <option value="100">100 条/页</option>
+                        <option value="200">200 条/页</option>
+                    </select>
+                    <button type="button" id="coll-page-prev" class="btn-mini" disabled>‹ 上一页</button>
+                    <span id="coll-page-info" class="pagination-info"></span>
+                    <button type="button" id="coll-page-next" class="btn-mini" disabled>下一页 ›</button>
+                </div>
             </div>
         </div>
         <div id="coll-status" class="status"></div>
@@ -292,9 +344,35 @@
         <div class="wizard-pane" id="wizard-pane-1">
             <div class="recommend-pick-head">
                 <h3>勾选要推荐的番剧</h3>
-                <span class="recommend-count" id="recommend-picked">已选 <b>0</b> 部</span>
+                <div class="recommend-pick-actions">
+                    <button type="button" id="recommend-select-all" class="btn-mini" title="勾选当前页全部">☑ 全选本页</button>
+                    <span class="recommend-count" id="recommend-picked">已选 <b>0</b> 部</span>
+                </div>
+            </div>
+            <div class="recommend-toolbar">
+                <select id="recommend-source" title="收藏夹来源过滤">
+                    <option value="">全部媒体</option>
+                </select>
+                <div class="recommend-tag-filter">
+                    <input id="recommend-tag-input" type="text" list="tag-suggest-list"
+                           placeholder="输入媒体标签过滤（自动补全）" autocomplete="off">
+                    <button type="button" id="recommend-tag-clear" class="btn-mini" hidden>✕ 清除</button>
+                </div>
+                <span class="wizard-hint">收藏夹下拉过滤，标签输入叠加过滤；勾选状态跨页保留</span>
             </div>
             <section id="recommend-grid" class="media-grid"></section>
+            <div class="media-pagination" id="recommend-pagination">
+                <span id="recommend-total" class="pagination-total"></span>
+                <select id="recommend-page-size" title="每页条数">
+                    <option value="30" selected>30 条/页</option>
+                    <option value="50">50 条/页</option>
+                    <option value="100">100 条/页</option>
+                    <option value="200">200 条/页</option>
+                </select>
+                <button type="button" id="recommend-page-prev" class="btn-mini" disabled>‹ 上一页</button>
+                <span id="recommend-page-info" class="pagination-info"></span>
+                <button type="button" id="recommend-page-next" class="btn-mini" disabled>下一页 ›</button>
+            </div>
             <div class="wizard-nav">
                 <span class="wizard-hint">勾选媒体后进入下一步</span>
                 <button type="button" id="recommend-step-1-next" class="btn-primary" disabled>下一步：设置主题</button>
@@ -396,10 +474,30 @@
             </select>
         </label>
         <label>评分（0~10）<input id="media-rating" type="number" min="0" max="10" step="0.5" autocomplete="off"></label>
+        <label>年份<input id="media-year" type="number" min="1900" max="2100" autocomplete="off" placeholder="如 2004，参与年份过滤"></label>
         <label class="field-note">备注<textarea id="media-note" rows="3" placeholder="作品备注（观感/待办等），参与搜索"></textarea></label>
         <div class="modal-actions">
             <button id="media-modal-cancel" type="button">取消</button>
             <button id="media-modal-save" type="button">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 番剧同步（AniList）：按年份勾选批量导入 -->
+<div id="media-sync-modal" class="modal-overlay" hidden>
+    <div class="modal">
+        <h2>同步番剧（AniList）</h2>
+        <p class="batch-del-hint">按勾选年份从 AniList 导入番剧（名称 / 年份 / 封面），库中已存在的自动跳过。</p>
+        <div class="sync-year-toolbar">
+            <span class="sync-year-label">选择年份</span>
+            <button type="button" id="sync-year-all" class="btn-mini">全选</button>
+            <button type="button" id="sync-year-clear" class="btn-mini">清空</button>
+        </div>
+        <div id="sync-year-grid" class="sync-year-grid"></div>
+        <div id="media-sync-status" class="status"></div>
+        <div class="modal-actions">
+            <button id="media-sync-cancel" type="button">取消</button>
+            <button id="media-sync-start" type="button" class="btn-primary">开始同步</button>
         </div>
     </div>
 </div>

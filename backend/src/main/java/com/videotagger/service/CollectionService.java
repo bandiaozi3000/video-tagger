@@ -68,10 +68,12 @@ public class CollectionService {
         mediaCollectionMapper.deleteLink(mediaId, collectionId);
     }
 
-    /** 收藏夹内容（整体浏览）；支持 status/confirmed 筛选。 */
-    public List<MediaSummary> media(Long collectionId, String status, Integer confirmed) {
+    /** 收藏夹内容（整体浏览）；支持 status/format/子分类/confirmed/year 筛选；offset 分页。 */
+    public List<MediaSummary> media(Long collectionId, int limit, int offset, String status, String format,
+                                    Long subcategoryId, Integer confirmed, Integer year) {
         requireCollection(collectionId);
-        return mediaMapper.listByCollection(collectionId, 100, status, confirmed);
+        return mediaMapper.listByCollection(collectionId, Math.min(Math.max(limit, 1), 100), Math.max(offset, 0),
+                status, format, subcategoryId, confirmed, year);
     }
 
     private Collection requireCollection(Long id) {

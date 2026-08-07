@@ -3,6 +3,33 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 每版演进的**叙事脉络**（为什么做 → 做了什么 → 延续）见 [docs/story.md](docs/story.md)，这里只列功能事实。
 
+## [0.14.0] - 2026-08-07
+
+### 新增
+- **媒体首播年份 + 原标题**：`media` 表新增 `year`（首播年份，可空=未知）与 `original_title`（AniList 原生日文标题）两列；列表卡片与详情页 meta 首位展示年份。
+- **番剧同步（AniList 数据源）**：媒体 tab 工具栏新增「⇄ 同步番剧」入口 → 弹层内**年份 chips 多选**（2000~2026，全选/清空）→ 按勾选年份从 AniList 批量导入番剧名称/年份/封面。标题以日文原名入库（`title` 与 `original_title` 同值占位，**可后续编辑成中文**）；命中库中已有（`title` 或 `original_title` 相同）自动**跳过不重复建**；封面经既有 coverExecutor **异步下载**，失败静默降级不阻塞主链路。
+- **标签三级同步（片段→集→媒体）**：打片段标签自动**并集同步**到所属集，再同步到所属媒体（集打标同样上溯媒体），媒体标签过滤从此有数据可用；同步只做**单向向上并集**（INSERT IGNORE 幂等），删除不级联、由用户按需在详情页手动清理。标签管理页新增「⇄ 同步历史标签」按钮一键把历史片段/集标签落库。
+- **推荐页来源过滤 + 全选本页**：推荐勾选网格顶部新增**收藏夹来源下拉**（勾选某收藏夹只看其中番剧）+ **标签手输过滤框**（带自动补全，Enter/blur 触发，未知标签 toast 提示）+「☑ 全选本页」按钮；勾选状态跨页保留。
+
+### 接口变更
+- `POST /api/media/sync-anilist`：body `{"years":[2004,...]}`，按年份逐个同步（分页拉取、页间 200ms 限流、单个年份失败跳过），返回 `{"added":241,"skipped":1}`。
+- 媒体列表接口（`GET /api/media`、`GET /api/media/recent`、`GET /api/media?collectionId=`）增加 `limit`/`offset` 分页参数。
+- `GET /api/media` 与 `GET /api/media/count` 增加 `collectionId` 过滤参数（收藏夹来源筛选）。
+- `POST /api/media/retry-covers`：遍历 `cover_url` 非空但封面文件缺失的媒体，重新触发异步补下，返回 `{"triggered":N}`。
+- `POST /api/tags/sync-all`：全量历史标签三级同步（幂等，可重复跑），返回 `{"synced":N}` 新增媒体标签条数。
+
+### 修复
+- **番剧同步混入老番**：AniList `seasonYear` 查询会混入未标季度的老番（勾 2000 实测混入 1969~1999 条目）——同步逻辑严格按 `startDate.year == 目标年` 过滤，非目标年份一律忽略不建。
+- **封面异步下载中断后无法补**：`media` 新增 `cover_url` 列留存 AniList URL；同步命中已有且无封面时补 URL 并重新触发下载；新增 `retry-covers` 手动补下入口（前端工具栏「⇩ 补下封面」）。
+- **批量删除补「全选本页」**：媒体列表工具栏新增「☑ 全选本页」，一键勾选当前已加载列表全部进批量删除。
+- **列表页分页**：媒体列表按 100 条分批加载 + 尾部「加载更多」按钮，替换一次性全量加载。
+- **收藏夹来源过滤失败**：`listFiltered` 缺 `collectionId` 参数（静默返回全部）而 `countFiltered` 有 → 列表/count 不一致、勾选收藏夹无效果；补齐参数 + SQL `IN (SELECT media_id FROM media_collection ...)` 子查询修复。
+- **推荐页缺「全选本页」**：推荐勾选网格顶部新增全选/取消（toggle 当前页），勾选状态跨页保留。
+
+### 工程化
+- 新增 `AniListSyncService`（GraphQL `Page` 分页 + 去重 upsert + 异步封面）；`Media`/`MediaRequest`/`MediaDetail`/`MediaSummary`/`MediaMapper` 全链路增加 `year`/`originalTitle`；Flyway `V11__media_anilist_sync.sql`；版本 0.13.0 → **0.14.0**。
+- 新增 `TagSyncService`（`syncFromClip`/`syncFromEpisode`/`syncAll`，片段→集→媒体单向向上并集）；实时接线 `ClipService.linkClipTags` + `EpisodeService.addTag`，同步后触发媒体向量重嵌；`MediaTagMapper.insertIgnore` 返回 `int` 以统计新增条数；`MediaMapper.listFiltered` 加 `collectionId` 参数。
+
 ## [0.13.0] - 2026-08-07
 
 ### 新增

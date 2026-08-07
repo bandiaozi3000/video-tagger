@@ -49,7 +49,7 @@ class RecommendServiceTest {
     }
 
     private MediaDetail media(long id, String title, String note, String status) {
-        return new MediaDetail(id, title, "别名", "ANIME", "异世界", 5L, note, status,
+        return new MediaDetail(id, title, 2004, "原名" + id, "别名", "ANIME", "异世界", 5L, note, status,
                 BigDecimal.ONE, "/covers/" + id + ".jpg", 1, 1L, 3L, 1L,
                 List.of(), List.of(), "/covers/clip/" + id + "-fallback.jpg");
     }
@@ -195,7 +195,7 @@ class RecommendServiceTest {
     @Test
     void buildHtmlUsesSubcategorySnapshotWhenIdAbsent() {
         when(mediaService.get(1L)).thenReturn(
-                new MediaDetail(1L, "Y", "别名", "ANIME", "治愈", null, "n", "WANT",
+                new MediaDetail(1L, "Y", null, null, "别名", "ANIME", "治愈", null, "n", "WANT",
                         BigDecimal.ONE, "/covers/1.jpg", 1, 1L, 0L, 0L,
                         List.of(), List.of(), null));
         when(coverService.base64ForCoverPath(any())).thenReturn(null);

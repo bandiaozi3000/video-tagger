@@ -14,6 +14,12 @@ public class Media {
     @TableId(type = IdType.AUTO)
     private Long id;
     private String title;
+    /** 首播年份（AniList 同步或手动录入，可空=未知） */
+    private Integer year;
+    /** 原标题（AniList 日文原名，供去重匹配与展示），可空 */
+    private String originalTitle;
+    /** AniList 封面 URL 留存（异步下载中断后补下用），可空 */
+    private String coverUrl;
     /** 别名（LLM 后台归组修正，可空） */
     private String aliases;
     /** 媒体备注（作品观感/待办等，供搜索），可空 */

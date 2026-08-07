@@ -13,7 +13,7 @@ import java.util.List;
 public interface MediaTagMapper extends BaseMapper<MediaTag> {
 
     @Insert("INSERT IGNORE INTO media_tag(media_id, tag_id) VALUES(#{mediaId}, #{tagId})")
-    void insertIgnore(@Param("mediaId") long mediaId, @Param("tagId") long tagId);
+    int insertIgnore(@Param("mediaId") long mediaId, @Param("tagId") long tagId);
 
     @Delete("DELETE FROM media_tag WHERE media_id = #{mediaId} AND tag_id = #{tagId}")
     void deleteLink(@Param("mediaId") long mediaId, @Param("tagId") long tagId);

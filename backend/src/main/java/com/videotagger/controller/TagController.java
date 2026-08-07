@@ -3,6 +3,7 @@ package com.videotagger.controller;
 import com.videotagger.service.ClipService;
 import com.videotagger.service.PageResult;
 import com.videotagger.service.TagAdminService;
+import com.videotagger.service.TagSyncService;
 import com.videotagger.service.TagSuggestion;
 import com.videotagger.service.TagUsage;
 import org.springframework.http.ResponseEntity;
@@ -25,10 +26,13 @@ public class TagController {
 
     private final ClipService clipService;
     private final TagAdminService tagAdminService;
+    private final TagSyncService tagSyncService;
 
-    public TagController(ClipService clipService, TagAdminService tagAdminService) {
+    public TagController(ClipService clipService, TagAdminService tagAdminService,
+                         TagSyncService tagSyncService) {
         this.clipService = clipService;
         this.tagAdminService = tagAdminService;
+        this.tagSyncService = tagSyncService;
     }
 
     /** 打标输入补全：mediaId 时该媒体已用标签优先 + 全局高频兜底；否则全局。 */
@@ -58,6 +62,13 @@ public class TagController {
     @PostMapping
     public TagUsage add(@RequestBody Map<String, String> body) {
         return tagAdminService.add(body.get("name"));
+    }
+
+    /** 历史数据同步：把全部片段/集标签并集落库到集/媒体（幂等，可重复跑）。返回新增媒体标签条数。 */
+    @PostMapping("/sync-all")
+    public Map<String, Object> syncAll() {
+        int synced = tagSyncService.syncAll();
+        return Map.of("synced", synced);
     }
 
     /** 批量删孤儿：ids 含被引用词条整体拒绝 400。 */

@@ -39,7 +39,7 @@ class VideoServiceIT extends AbstractMySqlIT {
         List<Clip> clips = videoService.listClipsByFingerprint(fp);
         assertEquals(2, clips.size());
 
-        VideoSummary group = videoService.listVideos(100, null, null).stream()
+        VideoSummary group = videoService.listVideos(100, 0).stream()
                 .filter(v -> v.fp().equals(fp))
                 .findFirst()
                 .orElse(null);
@@ -61,16 +61,16 @@ class VideoServiceIT extends AbstractMySqlIT {
     }
 
     @Test
-    void keysetPaginationReturnsNextPage() {
+    void offsetPaginationReturnsNextPage() {
         for (int i = 0; i < 5; i++) {
             clipService.save(new SaveClipRequest("视频" + i, "https://vt-page.test/" + i, 1.0, "标签", ""));
         }
 
-        List<VideoSummary> page1 = videoService.listVideos(2, null, null);
+        List<VideoSummary> page1 = videoService.listVideos(2, 0);
         assertEquals(2, page1.size());
         VideoSummary last = page1.get(page1.size() - 1);
 
-        List<VideoSummary> page2 = videoService.listVideos(2, last.latest(), last.fp());
+        List<VideoSummary> page2 = videoService.listVideos(2, 2);
         assertEquals(2, page2.size());
         assertEquals(0, page2.stream().filter(p2 -> p2.fp().equals(last.fp())).count());
     }

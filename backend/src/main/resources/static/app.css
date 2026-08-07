@@ -481,6 +481,33 @@ mark.hl {
     box-shadow: 0 10px 24px rgba(255, 77, 141, .35); transform: translateY(-1px);
 }
 
+/* ---------- 媒体列表分页 ---------- */
+.media-pagination {
+    display: flex; align-items: center; justify-content: center;
+    gap: 12px; flex-wrap: wrap; margin: 22px auto 0;
+}
+.media-pagination select {
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    border-radius: 10px; padding: 7px 30px 7px 12px; font-size: 12.5px;
+    font-family: inherit; outline: none; cursor: pointer;
+    appearance: none;
+    background-image:
+        linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
+        linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+    background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+    background-size: 5px 5px; background-repeat: no-repeat;
+    transition: border-color .15s;
+}
+.media-pagination select:focus { border-color: var(--pink); }
+.pagination-total, .pagination-info {
+    font-size: 12.5px; color: var(--text-dim); white-space: nowrap;
+}
+.media-pagination .btn-mini:disabled {
+    opacity: .35; cursor: not-allowed; transform: none; box-shadow: none;
+}
+
 /* ---------- 统计 ---------- */
 .stats-cards {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -668,6 +695,23 @@ mark.hl {
 .batch-del-hint { font-size: 13px; color: var(--text-dim); line-height: 1.7; margin-bottom: 14px; }
 .batch-del-hint b { color: var(--red); }
 .batch-del-hint em { color: var(--red); font-style: normal; }
+
+/* ---------- 番剧同步（AniList）：年份勾选 ---------- */
+.sync-year-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.sync-year-label { font-size: 13px; color: var(--text-dim); margin-right: 2px; }
+.sync-year-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.sync-year-chip {
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid var(--border-strong); border-radius: 9px;
+    color: var(--text-dim); font-size: 13px; font-family: inherit;
+    padding: 8px 0; cursor: pointer; text-align: center;
+    transition: all .15s;
+}
+.sync-year-chip:hover { border-color: rgba(167, 139, 250, .4); color: var(--violet); }
+.sync-year-chip.on {
+    background: var(--grad); border-color: transparent; color: #fff; font-weight: 700;
+    box-shadow: 0 4px 14px rgba(255, 77, 141, .3);
+}
 .batch-del-list {
     list-style: none; margin: 0; padding: 0;
     max-height: 168px; overflow: auto;
@@ -1386,6 +1430,7 @@ input[type="checkbox"] { accent-color: var(--pink); width: 15px; height: 15px; c
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 12px;
 }
+.recommend-pick-actions { display: flex; align-items: center; gap: 10px; }
 .recommend-pick-head h3, .recommend-theme h3, .recommend-export h3 {
     font-family: var(--font-display); font-size: 16px; color: #fff; letter-spacing: .5px;
 }
@@ -1395,6 +1440,36 @@ input[type="checkbox"] { accent-color: var(--pink); width: 15px; height: 15px; c
     padding: 5px 14px; border-radius: 20px;
 }
 .recommend-count b { color: var(--pink); }
+.recommend-toolbar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+.recommend-toolbar select {
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    border-radius: 10px; padding: 7px 30px 7px 12px; font-size: 12.5px;
+    font-family: inherit; outline: none; cursor: pointer;
+    appearance: none;
+    background-image:
+        linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
+        linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+    background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+    background-size: 5px 5px; background-repeat: no-repeat;
+    transition: border-color .15s;
+}
+.recommend-toolbar select:focus { border-color: var(--pink); }
+.recommend-tag-filter { display: flex; align-items: center; gap: 6px; }
+.recommend-tag-filter input {
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    border-radius: 10px; padding: 7px 12px; font-size: 12.5px;
+    font-family: inherit; outline: none; width: 190px;
+    transition: border-color .15s;
+}
+.recommend-tag-filter input:focus { border-color: var(--pink); }
+.recommend-tag-filter input::placeholder { color: var(--text-dim); }
 
 .wizard-nav {
     display: flex; align-items: center; justify-content: space-between;

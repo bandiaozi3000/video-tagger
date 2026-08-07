@@ -52,24 +52,30 @@ public class SearchService {
     /**
      * dim 为空或 mixed 时跨层混合搜索（前端分栏展示）。format/subcategoryId 为结果后置过滤
      * （子分类按子树收敛：选中节点的全部后代媒体结果都保留）；from/to 为打标时间范围后置过滤，均可空。
+     * offset/limit 为传统分页：一次语义检索取 offset+limit 条（上限 500，过滤在切页前做保证 total 准），
+     * total = 过滤后总条数；offset 越界返回空页。
      */
-    public SearchResponse search(String query, int limit, String dim, String format, Long subcategoryId,
-                                 Long from, Long to) {
+    public SearchResponse search(String query, int limit, int offset, String dim, String format,
+                                 Long subcategoryId, Long from, Long to) {
         boolean filtered = (format != null && !format.isBlank())
                 || subcategoryId != null
                 || from != null || to != null;
-        // 有过滤时内层多取一些，保证过滤后仍能凑够 limit
-        int fetchLimit = filtered ? Math.min(limit * 4, 200) : limit;
+        // 有过滤时内层多取一些，保证过滤后仍能凑够 offset+limit
+        int fetchLimit = Math.min((offset + limit) * (filtered ? 4 : 1), 500);
         SearchResponse resp = doSearch(query, fetchLimit, dim);
-        if (!filtered) {
-            return resp;
+        List<SearchResult> all = resp.results();
+        if (filtered) {
+            Set<Long> subtree = subcategoryId == null ? null : new HashSet<>(mediaMapper.subtreeIds(subcategoryId));
+            all = all.stream()
+                    .filter(r -> inTimeRange(r.createdAt(), from, to))
+                    .filter(r -> matchFormatSubcategory(r.mediaFormat(), r.subcategoryId(), format, subtree))
+                    .toList();
         }
-        Set<Long> subtree = subcategoryId == null ? null : new HashSet<>(mediaMapper.subtreeIds(subcategoryId));
-        List<SearchResult> kept = resp.results().stream()
-                .filter(r -> inTimeRange(r.createdAt(), from, to))
-                .filter(r -> matchFormatSubcategory(r.mediaFormat(), r.subcategoryId(), format, subtree))
-                .limit(limit).toList();
-        return new SearchResponse(resp.semanticEnabled(), kept);
+        int total = all.size();
+        List<SearchResult> page = offset >= total
+                ? List.of()
+                : all.subList(offset, Math.min(offset + limit, total));
+        return new SearchResponse(resp.semanticEnabled(), page, total);
     }
 
     private static boolean inTimeRange(Long createdAt, Long from, Long to) {

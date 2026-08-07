@@ -60,16 +60,41 @@ public class MediaService {
         this.coverService = coverService;
     }
 
-    /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认筛选。 */
-    public List<MediaSummary> list(int limit, String status, String format, Long subcategoryId,
-                                   Integer confirmed, String sort) {
-        return mediaMapper.listFiltered(status, format, subcategoryId, confirmed, sort,
-                Math.min(Math.max(limit, 1), 100));
+    /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/媒体标签筛选；offset 分页。 */
+    public List<MediaSummary> list(int limit, int offset, String status, String format, Long subcategoryId,
+                                   Integer confirmed, Long collectionId, String sort, Integer year, Long tagId) {
+        return mediaMapper.listFiltered(status, format, subcategoryId, confirmed, collectionId, sort, year, tagId,
+                Math.min(Math.max(limit, 1), 100), Math.max(offset, 0));
     }
 
-    /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/confirmed/collectionId 筛选。 */
-    public List<MediaSummary> recent(int limit, String status, Integer confirmed, Long collectionId) {
-        return mediaMapper.listByLatest(Math.min(Math.max(limit, 1), 100), status, confirmed, collectionId);
+    /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/format/子分类/confirmed/collectionId/year 筛选；offset 分页。 */
+    public List<MediaSummary> recent(int limit, int offset, String status, String format, Long subcategoryId,
+                                     Integer confirmed, Long collectionId, Integer year) {
+        return mediaMapper.listByLatest(Math.min(Math.max(limit, 1), 100), Math.max(offset, 0),
+                status, format, subcategoryId, confirmed, collectionId, year);
+    }
+
+    /** 带筛选的媒体总数：全部媒体/收藏夹分支走 countFiltered，最近观看分支（latest=true）走 countLatest。 */
+    public long count(String status, String format, Long subcategoryId, Integer confirmed, Long collectionId,
+                      Integer year, Long tagId, boolean latest) {
+        if (latest) {
+            return mediaMapper.countLatest(status, format, subcategoryId, confirmed, collectionId, year);
+        }
+        return mediaMapper.countFiltered(status, format, subcategoryId, confirmed, collectionId, year, tagId);
+    }
+
+    /** 库中已有的全部首播年份（降序）。 */
+    public List<Integer> years() {
+        return mediaMapper.listDistinctYears();
+    }
+
+    /** 补下缺失封面：遍历 cover_url 非空但尚无封面的媒体重新异步下载（异步中断/未下完的可一键补齐），返回触发数量。 */
+    public int retryCovers() {
+        List<Media> missing = mediaMapper.listMissingCovers();
+        for (Media m : missing) {
+            coverService.downloadAsync(m.getId(), m.getCoverUrl());
+        }
+        return missing.size();
     }
 
     public MediaDetail get(Long id) {
@@ -78,9 +103,9 @@ public class MediaService {
         long episodeCount = episodeMapper.countByMedia(id);
         String fallbackCoverPath = a.getCoverPath() == null
                 ? clipMapper.selectRepresentativeCoverByMedia(id) : null;
-        return new MediaDetail(a.getId(), a.getTitle(), a.getAliases(), a.getMediaFormat(), a.getSubcategory(),
-                a.getSubcategoryId(), a.getNote(), a.getStatus(), a.getRating(), a.getCoverPath(), a.getConfirmed(),
-                a.getCreatedAt(), clipCount, episodeCount, mediaTagMapper.selectTags(id),
+        return new MediaDetail(a.getId(), a.getTitle(), a.getYear(), a.getOriginalTitle(), a.getAliases(), a.getMediaFormat(),
+                a.getSubcategory(), a.getSubcategoryId(), a.getNote(), a.getStatus(), a.getRating(), a.getCoverPath(),
+                a.getConfirmed(), a.getCreatedAt(), clipCount, episodeCount, mediaTagMapper.selectTags(id),
                 mediaCollectionMapper.selectCollectionIdsByMedia(id), fallbackCoverPath);
     }
 
@@ -229,6 +254,8 @@ public class MediaService {
 
     private void apply(Media a, MediaRequest req) {
         a.setTitle(req.title());
+        a.setYear(req.year());
+        a.setOriginalTitle(req.originalTitle() == null ? null : req.originalTitle().trim());
         // 格式必须存在于字典；缺省/非法回退 VIDEO
         String format = req.mediaFormat() == null ? "" : req.mediaFormat().trim().toUpperCase();
         MediaFormat mf = format.isEmpty() ? null

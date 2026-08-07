@@ -21,7 +21,11 @@ const semanticHint = document.getElementById('semantic-hint');
 
 const videoStatusEl = document.getElementById('video-status');
 const videoListEl = document.getElementById('video-list');
-const loadMoreBtn = document.getElementById('load-more');
+const videoPageSizeEl = document.getElementById('video-page-size');
+const videoPagePrevEl = document.getElementById('video-page-prev');
+const videoPageNextEl = document.getElementById('video-page-next');
+const videoPageInfoEl = document.getElementById('video-page-info');
+const videoTotalEl = document.getElementById('video-total');
 
 const backBtn = document.getElementById('back-to-videos');
 const timelineTitleEl = document.getElementById('timeline-title');
@@ -58,6 +62,7 @@ const filterStatusEl = document.getElementById('filter-status');
 const filterSubcategoryEl = document.getElementById('filter-subcategory');
 const filterCollectionEl = document.getElementById('filter-collection');
 const filterUnconfirmedEl = document.getElementById('filter-unconfirmed');
+const filterYearEl = document.getElementById('filter-year');
 const formatTabsEl = document.getElementById('format-tabs');
 const mediaFormatManageBtn = document.getElementById('media-format-manage');
 const detailConfirmBtn = document.getElementById('detail-confirm');
@@ -71,7 +76,24 @@ const mediaAddSubBtn = document.getElementById('media-add-sub-btn');
 const mediaInlineAddBtn = document.getElementById('media-inline-add');
 const mediaStatusSelect = document.getElementById('media-status');
 const mediaRatingInput = document.getElementById('media-rating');
+const mediaYearInput = document.getElementById('media-year');
 const mediaNoteInput = document.getElementById('media-note');
+const mediaSyncModal = document.getElementById('media-sync-modal');
+const syncYearGridEl = document.getElementById('sync-year-grid');
+const mediaSyncStatusEl = document.getElementById('media-sync-status');
+const mediaSyncStartBtn = document.getElementById('media-sync-start');
+const mediaRetryCoversBtn = document.getElementById('media-retry-covers');
+const mediaSelectAllBtn = document.getElementById('media-batch-select-all');
+const mediaPageSizeEl = document.getElementById('media-page-size');
+const mediaPagePrevEl = document.getElementById('media-page-prev');
+const mediaPageNextEl = document.getElementById('media-page-next');
+const mediaPageInfoEl = document.getElementById('media-page-info');
+const mediaTotalEl = document.getElementById('media-total');
+const MEDIA_PAGE_SIZE = 30;      // 媒体列表默认每页条数（下拉可选 30/50/100/200）
+let mediaPage = 1;                // 当前页码（1-based）
+let mediaPageSize = MEDIA_PAGE_SIZE;   // 每页条数（默认 30，可切换）
+let mediaTotal = 0;               // 当前筛选下总数（分页页码用）
+let currentMediaList = [];        // 当前页媒体列表（全选本页用）
 const coverModal = document.getElementById('cover-modal');
 const coverUrlInput = document.getElementById('cover-url');
 const coverFileInput = document.getElementById('cover-file');
@@ -85,6 +107,20 @@ const collListEl = document.getElementById('coll-list');
 const collContentHeadEl = document.getElementById('coll-content-head');
 const collMediaGridEl = document.getElementById('coll-media-grid');
 const collStatusEl = document.getElementById('coll-status');
+const collPageSizeEl = document.getElementById('coll-page-size');
+const collPagePrevEl = document.getElementById('coll-page-prev');
+const collPageNextEl = document.getElementById('coll-page-next');
+const collPageInfoEl = document.getElementById('coll-page-info');
+const collTotalEl = document.getElementById('coll-total');
+const recommendSourceEl = document.getElementById('recommend-source');
+const recommendTagInputEl = document.getElementById('recommend-tag-input');
+const recommendTagClearEl = document.getElementById('recommend-tag-clear');
+const recommendGridEl = document.getElementById('recommend-grid');
+const recommendPageSizeEl = document.getElementById('recommend-page-size');
+const recommendPagePrevEl = document.getElementById('recommend-page-prev');
+const recommendPageNextEl = document.getElementById('recommend-page-next');
+const recommendPageInfoEl = document.getElementById('recommend-page-info');
+const recommendTotalEl = document.getElementById('recommend-total');
 const episodeTagModal = document.getElementById('episode-tag-modal');
 const episodeTagTargetEl = document.getElementById('episode-tag-target');
 const episodeTagInput = document.getElementById('episode-tag-input');
@@ -118,6 +154,7 @@ const tagAddInput = document.getElementById('tag-add-input');
 const tagAddPreviewEl = document.getElementById('tag-add-preview');
 const tagAddStatusEl = document.getElementById('tag-add-status');
 const tagBatchDelBtn = document.getElementById('tag-batch-del');
+const tagSyncAllBtn = document.getElementById('tag-sync-all');
 const tagCheckAll = document.getElementById('tag-check-all');
 const tagCheckAllWrap = document.getElementById('tag-check-all-wrap');
 const tagPager = document.getElementById('tag-pager');
@@ -138,6 +175,11 @@ const searchTimeCustom = document.getElementById('search-time-custom');
 const searchTimeFrom = document.getElementById('search-time-from');
 const searchTimeTo = document.getElementById('search-time-to');
 const searchGroupToggle = document.getElementById('search-group');
+const searchPaginationEl = document.getElementById('search-pagination');
+const searchPageSizeEl = document.getElementById('search-page-size');
+const searchPagePrevEl = document.getElementById('search-page-prev');
+const searchPageNextEl = document.getElementById('search-page-next');
+const searchPageInfoEl = document.getElementById('search-page-info');
 const statsFormatsEl = document.getElementById('stats-formats');
 const statsSubcategoriesEl = document.getElementById('stats-subcategories');
 const mediaFormatModal = document.getElementById('media-format-modal');
@@ -163,8 +205,12 @@ let fmSubParentId = 0;            // fm 弹层新增子分类的父节点 id（0
 let currentQuery = '';
 let currentDim = 'mixed';
 let editingClip = null;
-let videoCursor = null;   // { latest, fp } 下一页游标
-let pageSize = 20;
+let videoPage = 1;        // 视频列表分页
+let videoPageSize = 20;
+let videoTotal = 0;
+let searchPage = 1;       // 搜索结果分页
+let searchPageSize = 20;
+let searchTotal = 0;
 let currentVideo = null;  // { fp, title }
 let mediaMode = 'recent';
 let mediaBatchMode = false; // 批量删除模式
@@ -205,9 +251,20 @@ function closeConfirmModal() {
     confirmModal.hidden = true;
     confirmModalAction = null;
 }
-let mediaFilter = { status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false };
+let mediaFilter = { status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '' };
 let collSelectedId = null;           // 收藏夹 tab：当前选中的收藏夹 id
 let collectionsCache = [];           // 收藏夹列表缓存（管理视图用）
+let collPage = 1;                    // 收藏夹内媒体分页
+let collPageSize = 30;
+let collTotal = 0;
+let recommendPage = 1;               // 推荐向导来源网格分页
+let recommendPageSize = 30;
+let recommendTotal = 0;
+let recommendSourceType = '';        // 推荐来源过滤：'' | 'collection'
+let recommendSourceId = null;
+let recommendTagId = null;           // 标签过滤（已解析的 tag id）
+let recommendTagName = '';           // 已应用的标签名（防 Enter+blur 双触发）
+let currentRecommendList = [];       // 推荐向导当前页媒体（全选本页用）
 let collectionModalMode = 'create';  // collection-modal：create / rename
 let collectionRenameId = null;       // rename 模式的目标收藏夹 id
 let favOverlay = null;               // 卡片快捷收藏浮层
@@ -283,7 +340,7 @@ function showView(name) {
     if (name === 'media') loadMedia();
     if (name === 'tags') loadTags();
     if (name === 'collections') loadCollections();
-    if (name === 'recommend') loadRecommend();
+    if (name === 'recommend') { fillRecommendSources(); loadRecommend(); }
 }
 
 // ---------- 视图历史栈（详情页逐层返回） ----------
@@ -709,7 +766,8 @@ function searchTimeRange() {
     return { from: Date.now() - days * 86400000, to: null };
 }
 
-async function runSearch(q) {
+async function runSearch(q, resetPage = true) {
+    if (resetPage) searchPage = 1;
     currentQuery = q;
     statusEl.textContent = '搜索中…';
     resultsEl.innerHTML = '';
@@ -720,14 +778,35 @@ async function runSearch(q) {
         const { from, to } = searchTimeRange();
         if (from != null) sp.set('from', String(from));
         if (to != null) sp.set('to', String(to));
+        // 按媒体聚合 → 一次全量（分组后组数可控，跨页分组会拆散媒体）；否则传统分页
+        const grouped = searchGroupToggle && searchGroupToggle.checked;
+        if (grouped) {
+            sp.set('limit', '500');
+        } else {
+            sp.set('limit', String(searchPageSize));
+            sp.set('offset', String((searchPage - 1) * searchPageSize));
+        }
         const resp = await fetch(`/api/search?${sp.toString()}`);
         const data = await resp.json();
         semanticHint.hidden = data.semanticEnabled;
+        searchTotal = data.total != null ? data.total : data.results.length;
+        const totalPages = Math.max(1, Math.ceil(searchTotal / searchPageSize));
+        if (!grouped && searchPage > totalPages) { searchPage = totalPages; return runSearch(q, false); }
         renderResults(data.results);
-        statusEl.textContent = data.results.length ? `共 ${data.results.length} 条结果` : '没有找到相关内容';
+        renderSearchPagination(totalPages, grouped);
+        statusEl.textContent = searchTotal ? `共 ${searchTotal} 条结果` : '没有找到相关内容';
     } catch (err) {
         statusEl.textContent = '搜索失败：后端未响应，请确认服务已启动';
     }
+}
+
+/** 搜索分页条：聚合模式整条隐藏（一次全量无页码）；非聚合显示总数 + 页信息 + 上/下页。 */
+function renderSearchPagination(totalPages, grouped) {
+    searchPaginationEl.hidden = grouped;
+    if (grouped) return;
+    searchPageInfoEl.textContent = `共 ${searchTotal} 条 · 第 ${searchPage}/${totalPages} 页`;
+    searchPagePrevEl.disabled = searchPage <= 1;
+    searchPageNextEl.disabled = searchPage >= totalPages;
 }
 
 function doSearch(e) {
@@ -971,22 +1050,27 @@ function appendEpisodeCard(container, r) {
 
 // ---------- 视频列表 ----------
 
-async function loadVideos(reset) {
-    if (reset) {
-        videoListEl.innerHTML = '';
-        videoCursor = null;
-    }
+async function loadVideos(resetPage = true) {
+    if (resetPage) videoPage = 1;
+    videoListEl.innerHTML = '';
     videoStatusEl.textContent = '加载中…';
     try {
-        const params = new URLSearchParams({ limit: pageSize });
-        if (videoCursor) {
-            params.set('cursorLatest', videoCursor.latest);
-            params.set('cursorFp', videoCursor.fp);
-        }
-        const resp = await fetch(`/api/videos?${params}`);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const list = await resp.json();
+        const [listResp, countResp] = await Promise.all([
+            fetch(`/api/videos?limit=${videoPageSize}&offset=${(videoPage - 1) * videoPageSize}`),
+            fetch('/api/videos/count')
+        ]);
+        if (!listResp.ok) throw new Error(`HTTP ${listResp.status}`);
+        const list = await listResp.json();
+        videoTotal = countResp.ok ? Number(await countResp.json()) : list.length;
+        const totalPages = Math.max(1, Math.ceil(videoTotal / videoPageSize));
+        if (videoPage > totalPages) { videoPage = totalPages; return loadVideos(false); }
+        if (videoPage < 1) videoPage = 1;
         videoStatusEl.textContent = '';
+        if (list.length === 0) {
+            videoStatusEl.textContent = '还没有标记过任何视频，去看片按 Alt+S 打标吧';
+            renderVideoPagination(totalPages);
+            return;
+        }
         for (const v of list) {
             const card = document.createElement('div');
             card.className = 'card';
@@ -1004,12 +1088,17 @@ async function loadVideos(reset) {
             card.addEventListener('click', () => openTimeline(v));
             videoListEl.appendChild(card);
         }
-        const last = list[list.length - 1];
-        videoCursor = last ? { latest: last.latest, fp: last.fp } : null;
-        loadMoreBtn.hidden = list.length < pageSize;
+        renderVideoPagination(totalPages);
     } catch (err) {
         videoStatusEl.textContent = '加载失败：后端未响应';
     }
+}
+
+/** 视频列表分页条：总数 + 页信息 + 上/下页可用态。 */
+function renderVideoPagination(totalPages) {
+    videoPageInfoEl.textContent = `共 ${videoTotal} 部 · 第 ${videoPage}/${totalPages} 页`;
+    videoPagePrevEl.disabled = videoPage <= 1;
+    videoPageNextEl.disabled = videoPage >= totalPages;
 }
 
 // ---------- 时间线 ----------
@@ -1163,49 +1252,91 @@ function hl(text, q) {
     }, safe);
 }
 
-async function loadMedia() {
+/** 媒体列表当前页 + 总数（分页版）：筛选/页大小/翻页/tab 切换共用。
+ *  resetPage=true 回到第 1 页（筛选/切换/初始加载），false 保持当前页（翻页/越界回退）。 */
+async function loadMedia(resetPage = true) {
+    if (resetPage) mediaPage = 1;
     mediaStatusEl.textContent = '加载中…';
-    mediaGridEl.innerHTML = '';
     try {
-        let url;
-        if (mediaFilter.collectionId && mediaMode !== 'recent') {
-            const params = new URLSearchParams();
-            if (mediaFilter.status) params.set('status', mediaFilter.status);
-            if (mediaFilter.unconfirmed) params.set('confirmed', '0');
-            url = `/api/collections/${mediaFilter.collectionId}/media?${params.toString()}`;
-        } else if (mediaMode === 'recent') {
-            const params = new URLSearchParams({ limit: '100' });
-            if (mediaFilter.collectionId) params.set('collectionId', mediaFilter.collectionId);
-            if (mediaFilter.status) params.set('status', mediaFilter.status);
-            if (mediaFilter.unconfirmed) params.set('confirmed', '0');
-            url = `/api/media/recent?${params.toString()}`;
-        } else {
-            const params = new URLSearchParams({ limit: '100' });
-            if (mediaFilter.status) params.set('status', mediaFilter.status);
-            if (mediaFilter.format) params.set('format', mediaFilter.format);
-            if (mediaFilter.subcategoryId) params.set('subcategoryId', mediaFilter.subcategoryId);
-            if (mediaFilter.unconfirmed) params.set('confirmed', '0');
-            url = `/api/media?${params.toString()}`;
-        }
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        let list = await resp.json();
-        // 格式/子分类过滤兜底：recent 与收藏夹分支后端只过滤 status/confirmed，format/subcategoryId 客户端统一过滤（数据量小）
-        if (mediaFilter.format || mediaFilter.subcategoryId) {
-            const f = formatsCache.find(x => x.code === activeFormatTab);
-            const subTree = mediaFilter.subcategoryId && f
-                ? subcategoryTreeIds(f, mediaFilter.subcategoryId) : null;
-            list = list.filter(m =>
-                (!mediaFilter.format || (m.mediaFormat || '') === mediaFilter.format) &&
-                (!mediaFilter.subcategoryId || subTree.has(String(m.subcategoryId))));
-        }
-        mediaStatusEl.textContent = list.length
-            ? ''
-            : (mediaMode === 'recent' ? '还没有打过标记的媒体，去看片按 Alt+S 打一个' : '没有符合条件的媒体');
+        const { url, countUrl } = buildMediaUrls();
+        const [listResp, countResp] = await Promise.all([fetch(url), fetch(countUrl)]);
+        if (!listResp.ok) throw new Error(`HTTP ${listResp.status}`);
+        let list = await listResp.json();
+        mediaTotal = countResp.ok ? Number(await countResp.json()) : list.length;
+        const totalPages = Math.max(1, Math.ceil(mediaTotal / mediaPageSize));
+        if (mediaPage > totalPages) { mediaPage = totalPages; return loadMedia(false); }
+        if (mediaPage < 1) mediaPage = 1;
+        mediaGridEl.innerHTML = '';
+        currentMediaList = list;
         renderMediaGrid(list);
+        renderMediaPagination(totalPages);
+        if (list.length === 0) {
+            mediaStatusEl.textContent = mediaMode === 'recent' && mediaTotal === 0
+                ? '还没有打过标记的媒体，去看片按 Alt+S 打一个' : '没有符合条件的媒体';
+        } else {
+            mediaStatusEl.textContent = '';
+        }
     } catch (err) {
         mediaStatusEl.textContent = '加载失败：后端未响应';
     }
+}
+
+/** 按当前筛选/分页构造列表与 count 请求 URL（全部媒体/最近观看/收藏夹三分支）。
+ *  format/subcategoryId/year 全部后端过滤，保证分页总数与列表同条件。 */
+function buildMediaUrls() {
+    const base = new URLSearchParams({ limit: String(mediaPageSize), offset: String((mediaPage - 1) * mediaPageSize) });
+    const addCommon = p => {
+        if (mediaFilter.status) p.set('status', mediaFilter.status);
+        if (mediaFilter.format) p.set('format', mediaFilter.format);
+        if (mediaFilter.subcategoryId) p.set('subcategoryId', mediaFilter.subcategoryId);
+        if (mediaFilter.unconfirmed) p.set('confirmed', '0');
+        if (mediaFilter.year) p.set('year', mediaFilter.year);
+    };
+    let url, countParams;
+    if (mediaFilter.collectionId && mediaMode !== 'recent') {
+        addCommon(base);
+        url = `/api/collections/${mediaFilter.collectionId}/media?${base.toString()}`;
+        countParams = new URLSearchParams({ collectionId: mediaFilter.collectionId });
+        addCommon(countParams);
+    } else if (mediaMode === 'recent') {
+        if (mediaFilter.collectionId) base.set('collectionId', mediaFilter.collectionId);
+        addCommon(base);
+        url = `/api/media/recent?${base.toString()}`;
+        countParams = new URLSearchParams({ latest: 'true' });
+        if (mediaFilter.collectionId) countParams.set('collectionId', mediaFilter.collectionId);
+        addCommon(countParams);
+    } else {
+        addCommon(base);
+        url = `/api/media?${base.toString()}`;
+        countParams = new URLSearchParams();
+        addCommon(countParams);
+    }
+    return { url, countUrl: `/api/media/count?${countParams.toString()}` };
+}
+
+/** 渲染分页条：总数 + 页信息 + 上/下页可用态。 */
+function renderMediaPagination(totalPages) {
+    mediaPageInfoEl.textContent = `共 ${mediaTotal} 部 · 第 ${mediaPage}/${totalPages} 页`;
+    mediaPagePrevEl.disabled = mediaPage <= 1;
+    mediaPageNextEl.disabled = mediaPage >= totalPages;
+}
+
+/** 年份筛选下拉：库中已有的首播年份（降序）。 */
+async function fillYearFilter() {
+    try {
+        const resp = await fetch('/api/media/years');
+        if (!resp.ok) return;
+        const years = await resp.json();
+        const cur = filterYearEl.value;
+        filterYearEl.innerHTML = '<option value="">全部年份</option>';
+        for (const y of years) {
+            const opt = document.createElement('option');
+            opt.value = y;
+            opt.textContent = `${y} 年`;
+            filterYearEl.appendChild(opt);
+        }
+        filterYearEl.value = cur;
+    } catch (e) { /* 忽略 */ }
 }
 
 async function fillFilterCollections() {
@@ -1399,26 +1530,42 @@ function renderCollList(list) {
 }
 
 /** 加载选中收藏夹的媒体（复用 renderMediaGrid，渲染进收藏夹视图容器）。 */
-async function loadCollMedia(id) {
+async function loadCollMedia(id, resetPage = true) {
+    if (resetPage) collPage = 1;
     collMediaGridEl.innerHTML = '';
     collContentHeadEl.textContent = '';
-    let list = [];
     try {
-        const resp = await fetch(`/api/collections/${id}/media`);
-        if (!resp.ok) throw new Error();
-        list = await resp.json();
+        const base = new URLSearchParams({ limit: String(collPageSize), offset: String((collPage - 1) * collPageSize) });
+        const [listResp, countResp] = await Promise.all([
+            fetch(`/api/collections/${id}/media?${base.toString()}`),
+            fetch(`/api/media/count?collectionId=${id}`)
+        ]);
+        if (!listResp.ok) throw new Error();
+        const list = await listResp.json();
+        collTotal = countResp.ok ? Number(await countResp.json()) : list.length;
+        const totalPages = Math.max(1, Math.ceil(collTotal / collPageSize));
+        if (collPage > totalPages) { collPage = totalPages; return loadCollMedia(id, false); }
+        if (collPage < 1) collPage = 1;
+        const coll = collectionsCache.find(c => c.id === id);
+        collContentHeadEl.textContent = coll ? `${coll.name} · ${collTotal} 个媒体` : '';
+        collStatusEl.textContent = '';
+        if (collTotal === 0) {
+            collStatusEl.textContent = '这个收藏夹还没有媒体，可在媒体卡片点 ♡ 加入';
+            renderCollPagination(totalPages);
+            return;
+        }
+        renderMediaGrid(list, collMediaGridEl, 'collection');
+        renderCollPagination(totalPages);
     } catch (e) {
         collStatusEl.textContent = '加载失败：后端未响应';
-        return;
     }
-    const coll = collectionsCache.find(c => c.id === id);
-    collContentHeadEl.textContent = coll ? `${coll.name} · ${list.length} 个媒体` : '';
-    collStatusEl.textContent = '';
-    if (list.length === 0) {
-        collStatusEl.textContent = '这个收藏夹还没有媒体，可在媒体卡片点 ♡ 加入';
-        return;
-    }
-    renderMediaGrid(list, collMediaGridEl, 'collection');
+}
+
+/** 收藏夹内媒体分页条：总数 + 页信息 + 上/下页可用态。 */
+function renderCollPagination(totalPages) {
+    collPageInfoEl.textContent = `共 ${collTotal} 部 · 第 ${collPage}/${totalPages} 页`;
+    collPagePrevEl.disabled = collPage <= 1;
+    collPageNextEl.disabled = collPage >= totalPages;
 }
 
 /** 收藏夹 tab：把媒体移出当前收藏夹（解除关联，媒体本体保留）。可逆——♡ 可再加回。 */
@@ -1546,6 +1693,7 @@ function renderMediaGrid(list, container = mediaGridEl, mode = 'media') {
             </div>`;
         card.querySelector('.media-card-title').textContent = a.title;
         const meta = [];
+        if (a.year) meta.push(String(a.year));
         if (a.subcategory) meta.push(a.subcategory);
         if (a.status) meta.push(MEDIA_STATUS_LABEL[a.status] || a.status);
         if (a.rating != null) meta.push(`★ ${a.rating}`);
@@ -1675,20 +1823,105 @@ const recommendSelected = new Set();
 let recommendStep = 1;            // 向导当前步骤 1/2/3
 let recommendDstHandle = null;    // File System Access API 保存句柄（选过保存位置后非空）
 
-/** 拉取推荐用媒体列表并渲染到向导网格（复用媒体列表接口，独立渲染函数）。 */
-async function loadRecommend() {
+/** 拉取推荐用媒体列表并渲染到向导网格（复用媒体列表接口；收藏夹/标签过滤 + offset 分页，勾选跨页保留）。 */
+async function loadRecommend(resetPage = true) {
+    if (resetPage) recommendPage = 1;
+    recommendGridEl.innerHTML = '';
     try {
-        const resp = await fetch(`/api/media?limit=200`);
-        const list = await resp.json();
+        const params = new URLSearchParams({ limit: String(recommendPageSize), offset: String((recommendPage - 1) * recommendPageSize) });
+        const filters = new URLSearchParams();
+        if (recommendSourceType === 'collection') {
+            params.set('collectionId', String(recommendSourceId));
+            filters.set('collectionId', String(recommendSourceId));
+        }
+        if (recommendTagId) {
+            params.set('tagId', String(recommendTagId));
+            filters.set('tagId', String(recommendTagId));
+        }
+        const qs = filters.toString();
+        const [listResp, countResp] = await Promise.all([
+            fetch(`/api/media?${params.toString()}`),
+            fetch(`/api/media/count${qs ? '?' + qs : ''}`)
+        ]);
+        if (!listResp.ok) throw new Error();
+        const list = await listResp.json();
+        recommendTotal = countResp.ok ? Number(await countResp.json()) : (Array.isArray(list) ? list.length : 0);
+        const totalPages = Math.max(1, Math.ceil(recommendTotal / recommendPageSize));
+        if (recommendPage > totalPages) { recommendPage = totalPages; return loadRecommend(false); }
+        if (recommendPage < 1) recommendPage = 1;
         renderRecommendGrid(Array.isArray(list) ? list : []);
+        renderRecommendPagination(totalPages);
     } catch (e) {
         showToast('加载媒体失败');
+        renderRecommendPagination(1);
     }
+}
+
+/** 标签名 → tag id：manage?q 模糊查后精确匹配词条名（零后端改动）。查不到返回 null。 */
+async function resolveRecommendTagId(name) {
+    try {
+        const resp = await fetch(`/api/tags/manage?q=${encodeURIComponent(name)}&size=50`);
+        if (!resp.ok) return null;
+        const page = await resp.json();
+        const hit = (page.items || []).find(t => t.name === name);
+        return hit ? hit.id : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+/** 应用标签过滤：输入名 → 解析 id → 触发加载（空输入则清除标签过滤）。 */
+async function applyRecommendTagFilter() {
+    const name = recommendTagInputEl.value.trim();
+    if (name === recommendTagName) return;   // 已应用，防 Enter+blur 双触发
+    if (!name) {
+        recommendTagName = '';
+        recommendTagId = null;
+        recommendTagClearEl.hidden = true;
+        loadRecommend();
+        return;
+    }
+    const id = await resolveRecommendTagId(name);
+    if (!id) {
+        showToast(`标签「${name}」不在标签池中`);
+        return;
+    }
+    recommendTagName = name;
+    recommendTagId = id;
+    recommendTagClearEl.hidden = false;
+    loadRecommend();
+}
+
+/** 推荐来源网格分页条：总数 + 页信息 + 上/下页可用态。 */
+function renderRecommendPagination(totalPages) {
+    recommendTotalEl.textContent = `共 ${recommendTotal} 部`;
+    recommendPageInfoEl.textContent = `第 ${recommendPage}/${totalPages} 页`;
+    recommendPagePrevEl.disabled = recommendPage <= 1;
+    recommendPageNextEl.disabled = recommendPage >= totalPages;
+}
+
+/** 填充推荐收藏夹下拉：全部媒体 + 各收藏夹（值即收藏夹 id）。 */
+async function fillRecommendSources() {
+    try {
+        const resp = await fetch('/api/collections');
+        if (!resp.ok) return;
+        const list = await resp.json();
+        const cur = recommendSourceEl.value;
+        recommendSourceEl.innerHTML = '<option value="">全部媒体</option>';
+        for (const c of list) {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = `${c.name}（${c.mediaCount || 0}）`;
+            recommendSourceEl.appendChild(opt);
+        }
+        recommendSourceEl.value = cur;
+    } catch (e) { /* 忽略 */ }
 }
 
 /** 渲染推荐勾选网格：复用 .media-card/.media-batch-cb 样式，勾选走 recommendSelected。 */
 function renderRecommendGrid(list) {
-    const grid = document.getElementById('recommend-grid');
+    currentRecommendList = list;
+    const grid = recommendGridEl;
     grid.innerHTML = '';
     for (const a of list) {
         mediaById.set(a.id, a);
@@ -1737,6 +1970,24 @@ function updateRecommendCount() {
     document.getElementById('recommend-picked').innerHTML = `已选 <b>${n}</b> 部`;
     document.getElementById('recommend-step-1-next').disabled = n === 0;
     document.getElementById('recommend-export-count').textContent = n;
+}
+
+/** 全选本页：把当前页已渲染媒体全部加入/移出 recommendSelected（toggle，勾选跨页保留）。 */
+function selectRecommendAll() {
+    if (currentRecommendList.length === 0) { showToast('当前列表为空'); return; }
+    const allSelected = currentRecommendList.every(a => recommendSelected.has(a.id));
+    currentRecommendList.forEach(a => {
+        if (allSelected) recommendSelected.delete(a.id);
+        else recommendSelected.add(a.id);
+    });
+    document.querySelectorAll('#recommend-grid .media-batch-cb').forEach(cb => {
+        cb.checked = !allSelected;
+        cb.closest('.media-card').classList.toggle('selected', !allSelected);
+    });
+    updateRecommendCount();
+    showToast(allSelected
+        ? `已取消本页 ${currentRecommendList.length} 部全选`
+        : `已全选本页 ${currentRecommendList.length} 部`);
 }
 
 /** 向导步骤切换：步骤条 active 态 + 面板显隐。 */
@@ -1950,6 +2201,7 @@ function renderMediaDetail(d, eps) {
     mediaDetailHeadEl.querySelector('.ad-title').textContent = d.title;
     const meta = [];
     if (d.mediaFormat) meta.push(formatName(d.mediaFormat));
+    if (d.year) meta.push(String(d.year));
     if (d.subcategory) meta.push(d.subcategory);
     if (d.status) meta.push(MEDIA_STATUS_LABEL[d.status] || d.status);
     if (d.rating != null) meta.push(`★ ${d.rating}`);
@@ -2063,6 +2315,7 @@ async function loadFormats() {
     renderFormatTabs();
     fillSubcategoryFilter();
     fillSearchFilters();
+    fillYearFilter();
 }
 
 function renderFormatTabs() {
@@ -2574,6 +2827,87 @@ async function saveEpisodeCoverUpload() {
     refreshCurrentView();
 }
 
+/** 打开番剧同步弹窗：生成 2000~2026 年份勾选 chips，默认全不选。 */
+function openMediaSyncModal() {
+    syncYearGridEl.innerHTML = '';
+    mediaSyncStatusEl.textContent = '';
+    const now = new Date().getFullYear();
+    for (let y = now; y >= 2000; y--) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'sync-year-chip';
+        chip.dataset.year = y;
+        chip.textContent = y;
+        chip.addEventListener('click', () => {
+            chip.classList.toggle('on');
+        });
+        syncYearGridEl.appendChild(chip);
+    }
+    mediaSyncModal.hidden = false;
+}
+
+/** 全选 / 清空年份 chips。 */
+function setSyncYears(on) {
+    syncYearGridEl.querySelectorAll('.sync-year-chip').forEach(c => c.classList.toggle('on', on));
+}
+
+/** 开始同步：收集勾选年份 → POST → 展示结果 → 刷新媒体列表。 */
+async function startMediaSync() {
+    const years = [...syncYearGridEl.querySelectorAll('.sync-year-chip.on')]
+        .map(c => Number(c.dataset.year));
+    if (years.length === 0) { mediaSyncStatusEl.textContent = '请先勾选至少一个年份'; return; }
+    mediaSyncStartBtn.disabled = true;
+    mediaSyncStatusEl.textContent = `正在同步 ${Math.min(...years)}~${Math.max(...years)} 年…（数据源 AniList）`;
+    try {
+        const resp = await fetch('/api/media/sync-anilist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ years })
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const r = await resp.json();
+        mediaSyncStatusEl.textContent = `完成：新增 ${r.added} 部，跳过 ${r.skipped} 部`;
+        showToast(`番剧同步完成：新增 ${r.added}，跳过 ${r.skipped}`);
+        loadMedia();
+    } catch (e) {
+        mediaSyncStatusEl.textContent = '同步失败：后端未响应，请确认后端已启动';
+    } finally {
+        mediaSyncStartBtn.disabled = false;
+    }
+}
+
+/** 全选本页：把当前已渲染的媒体全部加入勾选集合（批量删除前快速圈选）。 */
+function selectAllCurrent() {
+    if (currentMediaList.length === 0) { showToast('当前列表为空'); return; }
+    // 全选/取消全选切换：本页已全部选中 → 取消本页全选；否则全选本页
+    const allSelected = currentMediaList.every(a => mediaSelected.has(a.id));
+    currentMediaList.forEach(a => {
+        if (allSelected) mediaSelected.delete(a.id);
+        else mediaSelected.add(a.id);
+    });
+    document.querySelectorAll('#media-grid .media-batch-cb').forEach(cb => {
+        cb.checked = !allSelected;
+        cb.closest('.media-card').classList.toggle('selected', !allSelected);
+    });
+    updateMediaBatchConfirm();
+    showToast(allSelected
+        ? `已取消本页 ${currentMediaList.length} 部全选`
+        : `已全选本页 ${currentMediaList.length} 部`);
+}
+
+/** 补下缺失封面：触发后端重下 cover_url 非空但尚无封面的媒体（异步下载中断/未下完的一键补齐）。 */
+async function retryCovers() {
+    showToast('正在触发补下缺失封面…');
+    try {
+        const resp = await fetch('/api/media/retry-covers', { method: 'POST' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const r = await resp.json();
+        showToast(`已触发 ${r.triggered} 部封面补下（异步下载中，稍后刷新可见）`);
+    } catch (e) {
+        showToast('补下封面失败：后端未响应');
+    }
+}
+
 function openCreateMedia() {
     editingMediaId = null;
     mediaModalTitle.textContent = '新建媒体';
@@ -2583,6 +2917,7 @@ function openCreateMedia() {
     fillMediaSubcategorySelect(null);
     mediaStatusSelect.value = 'WANT';
     mediaRatingInput.value = '';
+    mediaYearInput.value = '';
     mediaNoteInput.value = '';
     mediaModal.hidden = false;
     mediaTitleInput.focus();
@@ -2599,6 +2934,7 @@ function openEditMedia() {
     fillMediaSubcategorySelect(d.subcategoryId);
     mediaStatusSelect.value = d.status || 'WANT';
     mediaRatingInput.value = d.rating != null ? d.rating : '';
+    mediaYearInput.value = d.year || '';
     mediaNoteInput.value = d.note || '';
     mediaModal.hidden = false;
     mediaTitleInput.focus();
@@ -2613,6 +2949,7 @@ async function saveMedia() {
         subcategoryId: mediaSubcategorySelect.value ? Number(mediaSubcategorySelect.value) : null,
         status: mediaStatusSelect.value,
         rating: mediaRatingInput.value === '' ? null : parseFloat(mediaRatingInput.value),
+        year: mediaYearInput.value === '' ? null : Number(mediaYearInput.value),
         note: mediaNoteInput.value.trim()
     };
     if (editingMediaId == null) {
@@ -3297,7 +3634,12 @@ searchTimeTo.addEventListener('change', () => { const q = input.value.trim(); if
 searchGroupToggle.addEventListener('change', () => {
     if (currentQuery && resultsEl.children.length) runSearch(currentQuery);
 });
-loadMoreBtn.addEventListener('click', () => loadVideos(false));
+searchPageSizeEl.addEventListener('change', () => { searchPageSize = Number(searchPageSizeEl.value); runSearch(currentQuery); });
+searchPagePrevEl.addEventListener('click', () => { if (searchPage > 1) { searchPage--; runSearch(currentQuery, false); } });
+searchPageNextEl.addEventListener('click', () => { searchPage++; runSearch(currentQuery, false); });
+videoPageSizeEl.addEventListener('change', () => { videoPageSize = Number(videoPageSizeEl.value); loadVideos(); });
+videoPagePrevEl.addEventListener('click', () => { if (videoPage > 1) { videoPage--; loadVideos(false); } });
+videoPageNextEl.addEventListener('click', () => { videoPage++; loadVideos(false); });
 backBtn.addEventListener('click', () => {
     if (fromMediaDetail && currentMedia) {
         fromMediaDetail = false;
@@ -3331,6 +3673,44 @@ document.querySelectorAll('.media-tabs .atab').forEach(btn => {
 document.getElementById('media-create').addEventListener('click', openCreateMedia);
 document.getElementById('media-batch-del').addEventListener('click', toggleMediaBatchMode);
 document.getElementById('media-batch-confirm').addEventListener('click', () => openBatchDelModal([...mediaSelected]));
+// 番剧同步（AniList）：按钮 → 弹窗 → 勾选年份 → 开始同步
+document.getElementById('media-sync').addEventListener('click', openMediaSyncModal);
+document.getElementById('media-sync-cancel').addEventListener('click', () => { mediaSyncModal.hidden = true; });
+mediaSyncModal.addEventListener('click', (e) => { if (e.target === mediaSyncModal) mediaSyncModal.hidden = true; });
+document.getElementById('sync-year-all').addEventListener('click', () => setSyncYears(true));
+document.getElementById('sync-year-clear').addEventListener('click', () => setSyncYears(false));
+document.getElementById('media-sync-start').addEventListener('click', startMediaSync);
+// 封面补下 / 全选本页 / 媒体列表分页（页大小 / 上页 / 下页）
+document.getElementById('media-retry-covers').addEventListener('click', retryCovers);
+document.getElementById('media-batch-select-all').addEventListener('click', selectAllCurrent);
+mediaPageSizeEl.addEventListener('change', () => { mediaPageSize = Number(mediaPageSizeEl.value); loadMedia(); });
+mediaPagePrevEl.addEventListener('click', () => { if (mediaPage > 1) { mediaPage--; loadMedia(false); } });
+mediaPageNextEl.addEventListener('click', () => { mediaPage++; loadMedia(false); });
+collPageSizeEl.addEventListener('change', () => { collPageSize = Number(collPageSizeEl.value); if (collSelectedId != null) loadCollMedia(collSelectedId); });
+collPagePrevEl.addEventListener('click', () => { if (collPage > 1 && collSelectedId != null) { collPage--; loadCollMedia(collSelectedId, false); } });
+collPageNextEl.addEventListener('click', () => { if (collSelectedId != null) { collPage++; loadCollMedia(collSelectedId, false); } });
+// 推荐向导来源网格：收藏夹过滤 / 标签过滤 / 页大小 / 翻页
+recommendSourceEl.addEventListener('change', () => {
+    const v = recommendSourceEl.value;
+    recommendSourceType = v ? 'collection' : '';
+    recommendSourceId = v ? Number(v) : null;
+    loadRecommend();
+});
+recommendTagInputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); applyRecommendTagFilter(); } });
+recommendTagInputEl.addEventListener('blur', () => applyRecommendTagFilter());
+recommendTagClearEl.addEventListener('click', () => {
+    recommendTagInputEl.value = '';
+    recommendTagName = '';
+    recommendTagId = null;
+    recommendTagClearEl.hidden = true;
+    loadRecommend();
+});
+recommendPageSizeEl.addEventListener('change', () => { recommendPageSize = Number(recommendPageSizeEl.value); loadRecommend(); });
+recommendPagePrevEl.addEventListener('click', () => { if (recommendPage > 1) { recommendPage--; loadRecommend(false); } });
+recommendPageNextEl.addEventListener('click', () => { recommendPage++; loadRecommend(false); });
+// 推荐标签输入框挂全局补全（复用打标输入补全的数据源 /api/tags?prefix=）
+attachTagSuggest(recommendTagInputEl, () => null);
+document.getElementById('recommend-select-all').addEventListener('click', selectRecommendAll);
 
 // 推荐导出向导：步骤条 + 面板导航
 document.querySelectorAll('.wizard-step').forEach(s => s.addEventListener('click', () => {
@@ -3409,6 +3789,7 @@ filterStatusEl.addEventListener('change', () => { mediaFilter.status = filterSta
 filterSubcategoryEl.addEventListener('change', () => { mediaFilter.subcategoryId = filterSubcategoryEl.value; loadMedia(); });
 filterCollectionEl.addEventListener('change', () => { mediaFilter.collectionId = filterCollectionEl.value; loadMedia(); });
 filterUnconfirmedEl.addEventListener('change', () => { mediaFilter.unconfirmed = filterUnconfirmedEl.checked; loadMedia(); });
+filterYearEl.addEventListener('change', () => { mediaFilter.year = filterYearEl.value; loadMedia(); });
 fillFilterCollections();
 mediaModal.addEventListener('click', (e) => { if (e.target === mediaModal) mediaModal.hidden = true; });
 document.getElementById('media-modal-cancel').addEventListener('click', () => { mediaModal.hidden = true; });
@@ -3517,6 +3898,24 @@ tagAddInput.addEventListener('input', () => {
 });
 tagAddInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitTagAdd(); } });
 tagBatchDelBtn.addEventListener('click', confirmTagBatchDelete);
+// 历史标签三级同步：片段/集标签并集落库到集/媒体（幂等），让推荐页媒体标签过滤可用
+tagSyncAllBtn.addEventListener('click', async () => {
+    const btn = tagSyncAllBtn;
+    btn.disabled = true;
+    btn.textContent = '⇄ 同步中…';
+    try {
+        const r = await fetch('/api/tags/sync-all', { method: 'POST' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        showToast('已同步 ' + (data.synced ?? 0) + ' 条媒体标签（幂等可重复点）');
+    } catch (e) {
+        showToast('同步失败：' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '⇄ 同步历史标签';
+    }
+    loadTags();
+});
 tagRenameModal.addEventListener('click', (e) => { if (e.target === tagRenameModal) { tagRenameModal.hidden = true; tagRenameId = null; } });
 document.getElementById('tag-rename-cancel').addEventListener('click', () => { tagRenameModal.hidden = true; tagRenameId = null; });
 document.getElementById('tag-rename-save').addEventListener('click', saveTagRename);

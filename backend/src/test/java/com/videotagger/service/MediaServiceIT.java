@@ -78,7 +78,7 @@ class MediaServiceIT extends AbstractMySqlIT {
 
     @Test
     void createAndGetMedia() {
-        Media created = mediaService.create(new MediaRequest("测试新番", "VIDEO", null, "番剧", "WATCHING", null, null));
+        Media created = mediaService.create(new MediaRequest("测试新番", null, null, "VIDEO", null, "番剧", "WATCHING", null, null));
         assertNotNull(created.getId());
         assertEquals(1, created.getConfirmed()); // 手动创建已确认
 
@@ -89,7 +89,7 @@ class MediaServiceIT extends AbstractMySqlIT {
 
     @Test
     void addAndRemoveMediaTag() {
-        Media a = mediaService.create(new MediaRequest("标签测试", "VIDEO", null, "番剧", "WANT", null, null));
+        Media a = mediaService.create(new MediaRequest("标签测试", null, null, "VIDEO", null, "番剧", "WANT", null, null));
         mediaService.addTag(a.getId(), "热血");
         assertEquals(1, mediaTagMapper.selectTags(a.getId()).size());
 
@@ -105,7 +105,7 @@ class MediaServiceIT extends AbstractMySqlIT {
         assertNotNull(a1);
         mediaService.addTag(a1.getId(), "热血");
 
-        Media a2 = mediaService.create(new MediaRequest("番剧乙", "VIDEO", null, "番剧", "WANT", null, null));
+        Media a2 = mediaService.create(new MediaRequest("番剧乙", null, null, "VIDEO", null, "番剧", "WANT", null, null));
         mediaService.merge(a1.getId(), a2.getId());
 
         assertEquals(1, episodeMapper.countByMedia(a2.getId()));

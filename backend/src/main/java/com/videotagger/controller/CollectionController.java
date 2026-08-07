@@ -51,9 +51,14 @@ public class CollectionController {
 
     @GetMapping("/{id}/media")
     public List<MediaSummary> media(@PathVariable Long id,
+                                    @RequestParam(defaultValue = "100") int limit,
+                                    @RequestParam(defaultValue = "0") int offset,
                                     @RequestParam(required = false) String status,
-                                    @RequestParam(required = false) Integer confirmed) {
-        return collectionService.media(id, status, confirmed);
+                                    @RequestParam(required = false) String format,
+                                    @RequestParam(required = false) Long subcategoryId,
+                                    @RequestParam(required = false) Integer confirmed,
+                                    @RequestParam(required = false) Integer year) {
+        return collectionService.media(id, limit, offset, status, format, subcategoryId, confirmed, year);
     }
 
     @PostMapping("/{id}/media")
