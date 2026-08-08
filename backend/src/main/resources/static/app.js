@@ -370,7 +370,8 @@ function showView(name) {
     }
     if (name === 'videos') loadVideos(true);
     if (name === 'stats') loadStats();
-    if (name === 'media') loadMedia();
+    // media 保留当前分页/筛选：详情返回或导航切回都回到上次浏览位置（不重置回第一页）
+    if (name === 'media') loadMedia(false);
     if (name === 'tags') loadTags();
     if (name === 'collections') loadCollections();
     if (name === 'recommend') { fillRecommendSources(); loadRecommend(); }
