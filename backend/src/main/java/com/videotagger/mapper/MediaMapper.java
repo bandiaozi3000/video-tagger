@@ -187,15 +187,17 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "GROUP BY a.id "
             + "<choose>"
             + "<when test='sort != null and sort == \"latest\"'>ORDER BY latestAt DESC</when>"
-            + "<when test='sort != null and sort == \"rating\"'>ORDER BY a.rating DESC</when>"
-            + "<otherwise>ORDER BY a.id DESC</otherwise>"
+            + "<when test='sort != null and sort == \"rating\"'>ORDER BY (a.rating IS NULL), a.rating "
+            + "<choose><when test='order != null and order == \"asc\"'>ASC</when><otherwise>DESC</otherwise></choose></when>"
+            + "<otherwise>ORDER BY a.id "
+            + "<choose><when test='order != null and order == \"asc\"'>ASC</when><otherwise>DESC</otherwise></choose></otherwise>"
             + "</choose>"
             + " LIMIT #{limit} OFFSET #{offset}"
             + "</script>")
     List<MediaSummary> listFiltered(@Param("status") String status, @Param("format") String format,
                                     @Param("subcategoryId") Long subcategoryId,
                                     @Param("confirmed") Integer confirmed, @Param("collectionId") Long collectionId,
-                                    @Param("sort") String sort,
+                                    @Param("sort") String sort, @Param("order") String order,
                                     @Param("year") Integer year,
                                     @Param("source") String source,
                                     @Param("tagId") Long tagId,

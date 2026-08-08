@@ -17,7 +17,7 @@
 - **回收站**：媒体删除改「**移入回收站**」（软删除，`deleted_at` 标记；集/片段/标签/封面保留，撤回原样恢复）；媒体 tab 新增「**回收站**」子 tab 视图（最近观看 | 全部媒体 | 回收站）——标题搜索 + 列表（含删除时间）+ 单条撤回 / 彻底删除 + 清空回收站。接口：`GET /api/media/trash`（列表/搜索）、`GET /api/media/trash/count`、`POST /api/media/{id}/restore`（撤回）、`DELETE /api/media/purge?ids=`（彻底删除）、`DELETE /api/media/trash`（清空）。集/片段删除保持直接删。V14 迁移加 `deleted_at` 列；所有正常媒体查询排除已删。
 - **修复最近观看计数 SQL 报错**：媒体 tab 点选报错根因是 countLatest 的 `AND EXISTS` 前缺空格（软删恒真条件拼接后成 `IS NULLAND EXISTS`），已补空格并全库扫描确认仅此一处硬编码 AND 行。
 - **修复年份筛选 SQL 报错**：媒体筛选带年份（及任意相邻筛选组合）报 SQL 语法错误——根因是 MyBatis **相邻 `<if>` 拼接不加空格**（软删恒真条件放大触发），已统一给所有 `<if>` 内容加前导空格根治。
-- **媒体列表排序**：筛选区新增「排序」下拉（时间 / 评分），`GET /api/media` 的 `sort` 参数新增 `rating`（评分降序，无评分排最后）；`latest`（最近标记）与默认时间排序保留。
+- **媒体列表排序**：筛选区新增「排序」**维度下拉（时间 / 评分）+ 升降序切换按钮（↓/↑）**，`GET /api/media` 新增 `order` 参数（asc/desc 白名单，默认 desc）；评分排序无评分媒体恒排最后；时间降序=最新在前、评分降序=高分在前。参考主流列表交互。
 
 ### 接口变更
 - `POST /api/media/sync-omofuna`：body `{"years":[2026,...]}`，创建后台抓取任务并立即返回 `{taskId,status:"RUNNING",...}`；已有进行中任务返回 400。

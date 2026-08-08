@@ -54,10 +54,11 @@ public class MediaController {
                                    @RequestParam(required = false) Integer confirmed,
                                    @RequestParam(required = false) Long collectionId,
                                    @RequestParam(required = false) String sort,
+                                   @RequestParam(required = false) String order,
                                    @RequestParam(required = false) Integer year,
                                    @RequestParam(required = false) String source,
                                    @RequestParam(required = false) Long tagId) {
-        return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, year, source, tagId);
+        return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, order, year, source, tagId);
     }
 
     @GetMapping("/recent")
