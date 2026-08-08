@@ -248,28 +248,35 @@
   }
   .tb-progress i.run{animation:tbprog 6s linear forwards}
   @keyframes tbprog{from{width:0}to{width:100%}}
-  /* 背景音乐条：右下角，名称 + 播放进度 + 静音 */
+  /* 背景音乐：底部通栏播放条（音乐 App 风格，滚动固定） */
   .bgm-bar{
-    position:fixed;right:16px;bottom:16px;z-index:50;
-    display:flex;align-items:center;gap:10px;
-    background:rgba(10,10,21,.72);border:1px solid rgba(255,255,255,.15);
-    border-radius:12px;padding:8px 12px;backdrop-filter:blur(8px);
-    max-width:280px;
+    position:fixed;left:0;right:0;bottom:0;z-index:50;
+    display:flex;align-items:center;gap:14px;
+    padding:10px 22px;
+    background:rgba(8,8,18,.88);backdrop-filter:blur(12px);
+    border-top:1px solid rgba(255,255,255,.12);
+    box-shadow:0 -6px 24px rgba(0,0,0,.5);
   }
   .bgm-bar[hidden]{display:none}
-  .bgm-mute{
-    background:none;border:1px solid rgba(255,255,255,.22);border-radius:8px;
-    color:var(--pink);cursor:pointer;width:30px;height:30px;font-size:14px;line-height:1;
-    flex:none;transition:all .2s;
+  .bgm-bar::before{ /* 顶部渐变细条（霓虹点缀） */
+    content:'';position:absolute;top:0;left:0;right:0;height:2px;
+    background:linear-gradient(90deg,var(--pink),var(--amber),var(--sky));opacity:.85;
   }
-  .bgm-mute:hover{background:rgba(255,255,255,.08)}
-  .bgm-mute.muted{color:#5a5a70;text-decoration:line-through}
-  .bgm-info{flex:1;min-width:0}
-  .bgm-name{display:block;font-size:12px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .bgm-progress{height:4px;background:rgba(255,255,255,.12);border-radius:999px;margin-top:6px;overflow:hidden}
+  .bgm-play,.bgm-mute{
+    background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);
+    border-radius:50%;color:#fff;cursor:pointer;
+    width:34px;height:34px;font-size:13px;line-height:1;flex:none;transition:all .2s;
+  }
+  .bgm-play:hover,.bgm-mute:hover{background:rgba(255,255,255,.15)}
+  .bgm-mute.muted{color:#5a5a70}
+  .bgm-name{
+    font-size:13px;color:#fff;flex:none;max-width:180px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .bgm-progress{flex:1;height:5px;background:rgba(255,255,255,.12);border-radius:999px;overflow:hidden;cursor:pointer}
   .bgm-progress i{display:block;height:100%;width:0;border-radius:999px;
-    background:linear-gradient(90deg,var(--pink),var(--amber));}
-  .bgm-time{font-size:11px;color:#8b8ba3;white-space:nowrap;font-variant-numeric:tabular-nums}
+    background:linear-gradient(90deg,var(--pink),var(--amber));box-shadow:0 0 8px rgba(255,77,141,.5)}
+  .bgm-time{font-size:12px;color:#8b8ba3;white-space:nowrap;font-variant-numeric:tabular-nums;flex:none}
   .auto-badge{
     position:fixed;top:74px;right:24px;z-index:30;
     display:inline-flex;align-items:center;gap:6px;
@@ -319,14 +326,13 @@
     <div class="tb-progress"><i id="tbProg"></i></div>
   </div>
 
-  <!-- 背景音乐（__BGM_SRC__/__BGM_NAME__ 由后端注入，空则不显示）：名称 + 播放进度 + 静音 -->
+  <!-- 背景音乐（__BGM_SRC__/__BGM_NAME__ 由后端注入，空则不显示）：底部通栏播放条（音乐 App 风格） -->
   <div class="bgm-bar" id="bgmBar" hidden>
-    <button class="bgm-mute" id="bgmMuteBtn" title="静音/取消静音">♪</button>
-    <div class="bgm-info">
-      <span class="bgm-name" id="bgmName"></span>
-      <div class="bgm-progress"><i id="bgmProg"></i></div>
-    </div>
+    <button class="bgm-play" id="bgmPlayBtn" title="播放/暂停">▶</button>
+    <span class="bgm-name" id="bgmName"></span>
+    <div class="bgm-progress" id="bgmProgTrack" title="点击跳转进度"><i id="bgmProg"></i></div>
     <span class="bgm-time" id="bgmTime">0:00 / 0:00</span>
+    <button class="bgm-mute" id="bgmMuteBtn" title="静音/取消静音">♪</button>
   </div>
   <audio id="bgmAudio" loop preload="auto"></audio>
 </div>
@@ -343,28 +349,50 @@ const BGM_SRC = "__BGM_SRC__";
 if (BGM_SRC) {
   const bgmAudio = document.getElementById('bgmAudio');
   const bgmBar = document.getElementById('bgmBar');
+  const bgmPlayBtn = document.getElementById('bgmPlayBtn');
   const bgmMuteBtn = document.getElementById('bgmMuteBtn');
+  const bgmProg = document.getElementById('bgmProg');
+  const bgmTimeEl = document.getElementById('bgmTime');
   bgmAudio.src = BGM_SRC;
   bgmBar.hidden = false;
   document.getElementById('bgmName').textContent = "__BGM_NAME__";
-  bgmMuteBtn.textContent = '♪';
   const fmtT = s => {
     if (!isFinite(s) || s <= 0) return '0:00';
     return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
   };
-  bgmAudio.addEventListener('timeupdate', () => {
-    const p = bgmAudio.duration ? (bgmAudio.currentTime / bgmAudio.duration) * 100 : 0;
-    document.getElementById('bgmProg').style.width = p + '%';
-    document.getElementById('bgmTime').textContent = fmtT(bgmAudio.currentTime) + ' / ' + fmtT(bgmAudio.duration);
+  const updateTime = () => {
+    const d = bgmAudio.duration || 0;
+    bgmProg.style.width = (d ? (bgmAudio.currentTime / d) * 100 : 0) + '%';
+    bgmTimeEl.textContent = fmtT(bgmAudio.currentTime) + ' / ' + fmtT(d);
+  };
+  const setPlay = playing => {
+    bgmPlayBtn.textContent = playing ? '❚❚' : '▶';
+    bgmPlayBtn.title = playing ? '暂停' : '播放';
+  };
+  bgmAudio.addEventListener('timeupdate', updateTime);
+  bgmAudio.addEventListener('loadedmetadata', updateTime);
+  bgmAudio.addEventListener('ended', () => { /* loop 循环 */ });
+  // 播放/暂停（浏览器 autoplay 策略需用户交互，首次点击起播）
+  bgmPlayBtn.addEventListener('click', () => {
+    if (bgmAudio.paused) { bgmAudio.play().catch(() => {}); setPlay(true); }
+    else { bgmAudio.pause(); setPlay(false); }
   });
-  bgmAudio.addEventListener('ended', () => { /* loop 循环，无需处理 */ });
-  // ♪ 播放/暂停（浏览器 autoplay 策略需用户交互，首次点击起播）
+  // 静音
   bgmMuteBtn.addEventListener('click', () => {
-    if (bgmAudio.paused) { bgmAudio.play().catch(() => {}); bgmMuteBtn.textContent = '❚❚'; }
-    else { bgmAudio.pause(); bgmMuteBtn.textContent = '♪'; }
+    bgmAudio.muted = !bgmAudio.muted;
+    bgmMuteBtn.classList.toggle('muted', bgmAudio.muted);
+    bgmMuteBtn.textContent = bgmAudio.muted ? '🔇' : '♪';
+  });
+  // 进度条点击跳转
+  document.getElementById('bgmProgTrack').addEventListener('click', e => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    if (bgmAudio.duration) bgmAudio.currentTime = ratio * bgmAudio.duration;
   });
   // 录制模式：导览开始后尝试自动播放（被拦无妨，视频音轨由 ffmpeg 混入）
-  if (IS_RECORD) { setTimeout(() => bgmAudio.play().catch(() => {}), 3000); }
+  if (IS_RECORD) {
+    setTimeout(() => bgmAudio.play().catch(() => {}).then(() => setPlay(true)), 3000);
+  }
 }
 
 /* 每张瓦片的渐变辉光色（gradient collection：多彩渐变集合） */
