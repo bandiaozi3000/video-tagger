@@ -248,35 +248,35 @@
   }
   .tb-progress i.run{animation:tbprog 6s linear forwards}
   @keyframes tbprog{from{width:0}to{width:100%}}
-  /* 背景音乐：底部通栏播放条（音乐 App 风格，滚动固定） */
+  /* 背景音乐：左下角紧凑小块（一行胶囊，不占空间） */
   .bgm-bar{
-    position:fixed;left:0;right:0;bottom:0;z-index:50;
-    display:flex;align-items:center;gap:14px;
-    padding:10px 22px;
-    background:rgba(8,8,18,.88);backdrop-filter:blur(12px);
-    border-top:1px solid rgba(255,255,255,.12);
-    box-shadow:0 -6px 24px rgba(0,0,0,.5);
+    position:fixed;left:14px;bottom:14px;z-index:50;
+    display:flex;align-items:center;gap:8px;
+    background:rgba(8,8,18,.82);border:1px solid rgba(255,255,255,.14);
+    border-radius:999px;padding:6px 12px;backdrop-filter:blur(10px);
+    max-width:340px;box-shadow:0 6px 20px rgba(0,0,0,.45);
   }
   .bgm-bar[hidden]{display:none}
-  .bgm-bar::before{ /* 顶部渐变细条（霓虹点缀） */
-    content:'';position:absolute;top:0;left:0;right:0;height:2px;
-    background:linear-gradient(90deg,var(--pink),var(--amber),var(--sky));opacity:.85;
+  .bgm-bar::before{ /* 左侧渐变圆点（霓虹点缀） */
+    content:'';width:6px;height:6px;border-radius:50%;flex:none;
+    background:linear-gradient(135deg,var(--pink),var(--amber));
+    box-shadow:0 0 10px rgba(255,77,141,.7);
   }
   .bgm-play,.bgm-mute{
-    background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);
+    background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);
     border-radius:50%;color:#fff;cursor:pointer;
-    width:34px;height:34px;font-size:13px;line-height:1;flex:none;transition:all .2s;
+    width:26px;height:26px;font-size:11px;line-height:1;flex:none;transition:all .2s;
   }
   .bgm-play:hover,.bgm-mute:hover{background:rgba(255,255,255,.15)}
   .bgm-mute.muted{color:#5a5a70}
   .bgm-name{
-    font-size:13px;color:#fff;flex:none;max-width:180px;
+    font-size:12px;color:#fff;flex:none;max-width:110px;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   }
-  .bgm-progress{flex:1;height:5px;background:rgba(255,255,255,.12);border-radius:999px;overflow:hidden;cursor:pointer}
+  .bgm-progress{width:90px;height:4px;background:rgba(255,255,255,.12);border-radius:999px;overflow:hidden;cursor:pointer;flex:none}
   .bgm-progress i{display:block;height:100%;width:0;border-radius:999px;
     background:linear-gradient(90deg,var(--pink),var(--amber));box-shadow:0 0 8px rgba(255,77,141,.5)}
-  .bgm-time{font-size:12px;color:#8b8ba3;white-space:nowrap;font-variant-numeric:tabular-nums;flex:none}
+  .bgm-time{font-size:11px;color:#8b8ba3;white-space:nowrap;font-variant-numeric:tabular-nums;flex:none}
   .auto-badge{
     position:fixed;top:74px;right:24px;z-index:30;
     display:inline-flex;align-items:center;gap:6px;
