@@ -39,6 +39,7 @@ const ffmpegPath = arg('--ffmpeg');
 // 抓帧 JPEG 质量：82 在 1080P 下编码偏慢拖低推帧率（实测 54.7fps 且负载高时掉到 38），
 // 降到 70 加快编码换取更稳的帧率，画面由后续编码器保证（原图即内容，JPEG 只是中间帧）
 const quality = parseInt(arg('--quality') || '70', 10);
+const bgmPath = arg('--bgm'); // 可选：背景音乐文件（循环混入音轨，-stream_loop -1）
 
 if (!htmlPath || !outPath || !width || !height || !(duration > 0) || !chromePath || !ffmpegPath) {
   fail('参数缺失：--html/--out/--width/--height/--duration/--chrome/--ffmpeg');
@@ -172,16 +173,23 @@ let exitCode = 0;
       ? 'scale=' + outW + ':' + height + ':flags=bicubic,format=yuv420p'
       : 'format=yuv420p';
 
-    execFileSync(ffmpegPath, [
+    const ffmpegArgs = [
       '-y',
       '-framerate', fps.toFixed(4),
       '-start_number', '0',
       '-i', base + '-%05d.jpg',
-      '-vf', vf,
-      ...encodeArgs(format, outPath),
-      '-threads', '0',
-      outPath,
-    ], { stdio: 'pipe' });
+    ];
+    if (bgmPath) {
+      // BGM 循环到结束（-stream_loop -1 为输入选项，须紧跟输入）；mp4 用 aac、webm 用 libopus
+      ffmpegArgs.push('-stream_loop', '-1', '-i', bgmPath);
+    }
+    ffmpegArgs.push('-vf', vf, ...encodeArgs(format, outPath));
+    if (bgmPath) {
+      ffmpegArgs.push('-c:a', format === 'webm' ? 'libopus' : 'aac', '-shortest');
+    }
+    ffmpegArgs.push('-threads', '0', outPath);
+
+    execFileSync(ffmpegPath, ffmpegArgs, { stdio: 'pipe' });
 
     if (!fs.existsSync(outPath) || fs.statSync(outPath).size < 1024) {
       throw new Error('ffmpeg 产物为空: ' + outPath);

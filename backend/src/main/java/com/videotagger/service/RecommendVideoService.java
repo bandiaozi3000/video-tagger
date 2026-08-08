@@ -66,7 +66,12 @@ public class RecommendVideoService {
 
     /** 渲染推荐媒体为视频（MP4/WebM），返回临时文件路径（调用方负责删除）。 */
     public Path render(List<Long> ids, String resolution) {
-        return render(ids, null, null, resolution);
+        return render(ids, null, null, resolution, null);
+    }
+
+    /** 渲染推荐媒体为视频（无 BGM）。 */
+    public Path render(List<Long> ids, String title, String format, String resolution) {
+        return render(ids, title, format, resolution, null);
     }
 
     /**
@@ -76,8 +81,9 @@ public class RecommendVideoService {
      * @param title      推荐页标题文案（主题），空 → 默认
      * @param format     视频格式 MP4/WEBM，空 → mp4
      * @param resolution 清晰度 720P/1080P/4K
+     * @param bgmPath    背景音乐文件路径（循环混入音轨），null/空 → 无 BGM
      */
-    public Path render(List<Long> ids, String title, String format, String resolution) {
+    public Path render(List<Long> ids, String title, String format, String resolution, String bgmPath) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
@@ -106,17 +112,30 @@ public class RecommendVideoService {
 
             // 3. 调 node render.js
             Path out = work.resolve("recommend-" + LocalDateTime.now().format(FILE_TS) + "." + fmt);
-            ProcessBuilder pb = new ProcessBuilder(
-                    nodePath,
-                    "render.js",
-                    "--html", html.toAbsolutePath().toString(),
-                    "--out", out.toAbsolutePath().toString(),
-                    "--width", String.valueOf(wh[0]),
-                    "--height", String.valueOf(wh[1]),
-                    "--duration", String.valueOf(durationSeconds),
-                    "--format", fmt,
-                    "--chrome", chromePath,
-                    "--ffmpeg", ffmpegPath);
+            var cmd = new java.util.ArrayList<String>();
+            cmd.add(nodePath);
+            cmd.add("render.js");
+            cmd.add("--html");
+            cmd.add(html.toAbsolutePath().toString());
+            cmd.add("--out");
+            cmd.add(out.toAbsolutePath().toString());
+            cmd.add("--width");
+            cmd.add(String.valueOf(wh[0]));
+            cmd.add("--height");
+            cmd.add(String.valueOf(wh[1]));
+            cmd.add("--duration");
+            cmd.add(String.valueOf(durationSeconds));
+            cmd.add("--format");
+            cmd.add(fmt);
+            cmd.add("--chrome");
+            cmd.add(chromePath);
+            cmd.add("--ffmpeg");
+            cmd.add(ffmpegPath);
+            if (bgmPath != null && !bgmPath.isBlank()) {
+                cmd.add("--bgm");
+                cmd.add(bgmPath);
+            }
+            ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.directory(resolveScriptsDir().toFile());
             pb.redirectErrorStream(true);
 

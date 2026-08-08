@@ -2182,6 +2182,40 @@ function recommendTitle() {
 }
 
 /** 生成预览：POST html → blob → iframe.srcdoc 渲染（自包含页面）。 */
+/** 推荐背景音乐（可选）：{name, base64}，随 HTML/视频导出请求传递。 */
+let recommendBgm = null;
+
+/** BGM 请求体追加字段（无 BGM 时空对象）。 */
+function recommendBgmBody() {
+    return recommendBgm ? { bgmName: recommendBgm.name, bgmBase64: recommendBgm.base64 } : {};
+}
+
+/** 初始化 BGM 选择：选本地音频 → FileReader 读 base64 → 显示名称 + 移除。 */
+function initRecommendBgm() {
+    const fileInput = document.getElementById('recommend-bgm-file');
+    document.getElementById('recommend-bgm-pick').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+        const f = fileInput.files && fileInput.files[0];
+        if (!f) return;
+        if (f.size > 20 * 1024 * 1024) { showToast('BGM 文件过大（>20MB）'); fileInput.value = ''; return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+            const base64 = String(reader.result).split(',')[1] || '';
+            recommendBgm = { name: f.name, base64 };
+            document.getElementById('recommend-bgm-name').textContent = `🎵 ${f.name}`;
+            document.getElementById('recommend-bgm-remove').hidden = false;
+            showToast(`已添加 BGM：${f.name}`);
+        };
+        reader.readAsDataURL(f);
+    });
+    document.getElementById('recommend-bgm-remove').addEventListener('click', () => {
+        recommendBgm = null;
+        fileInput.value = '';
+        document.getElementById('recommend-bgm-name').textContent = '';
+        document.getElementById('recommend-bgm-remove').hidden = true;
+    });
+}
+
 async function generateRecommendPreview() {
     const ids = [...recommendSelected];
     if (ids.length === 0) { showToast('请先勾选要推荐的媒体'); return; }
@@ -2192,7 +2226,7 @@ async function generateRecommendPreview() {
         const resp = await fetch('/api/recommend/html', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title }),
+            body: JSON.stringify({ ids, title, ...recommendBgmBody() }),
         });
         if (!resp.ok) throw new Error(`生成失败 (${resp.status})`);
         const html = await resp.text();
@@ -2216,7 +2250,7 @@ async function downloadRecommendHtml() {
         const resp = await fetch('/api/recommend/html', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title }),
+            body: JSON.stringify({ ids, title, ...recommendBgmBody() }),
         });
         if (!resp.ok) throw new Error(`生成失败 (${resp.status})`);
         const blob = await resp.blob();
@@ -2283,7 +2317,7 @@ async function exportRecommendVideo() {
         const resp = await fetch('/api/recommend/video', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, format, resolution }),
+            body: JSON.stringify({ ids, title, format, resolution, ...recommendBgmBody() }),
         });
         if (!resp.ok) {
             let msg = `渲染失败 (${resp.status})`;
@@ -4051,6 +4085,7 @@ document.getElementById('recommend-title').addEventListener('input', () => {
     document.getElementById('recommend-title-preview').textContent = recommendTitle();
 });
 // 预览导出
+initRecommendBgm(); // BGM 选择（选本地音频 → base64 内嵌 HTML / 混入导出视频）
 document.getElementById('recommend-gen-preview').addEventListener('click', generateRecommendPreview);
 document.getElementById('recommend-export-html').addEventListener('click', downloadRecommendHtml);
 document.getElementById('recommend-export-video').addEventListener('click', openVideoExport);

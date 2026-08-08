@@ -64,22 +64,46 @@ public class RecommendService {
         return buildHtml(ids, null);
     }
 
+    /** 生成自包含推荐 HTML（无 BGM）。 */
+    public String buildHtml(List<Long> ids, String title) {
+        return buildHtml(ids, title, null, null);
+    }
+
     /**
      * 生成自包含推荐 HTML。
      *
-     * @param ids   媒体 id 列表（保持顺序），空 → IllegalArgumentException
-     * @param title 推荐页标题文案（主题），空/null → 默认「我的番剧推荐」
+     * @param ids        媒体 id 列表（保持顺序），空 → IllegalArgumentException
+     * @param title      推荐页标题文案（主题），空/null → 默认「我的番剧推荐」
+     * @param bgmName    背景音乐名称（无 BGM 传 null）
+     * @param bgmBase64  背景音乐 base64（纯 base64，无 data: 前缀；无 BGM 传 null）
      */
-    public String buildHtml(List<Long> ids, String title) {
+    public String buildHtml(List<Long> ids, String title, String bgmName, String bgmBase64) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
         String resolved = (title == null || title.isBlank()) ? DEFAULT_TITLE : title.trim();
         String template = readTemplate();
         String slidesJson = buildSlidesJson(ids);
+        String bgmSrc = (bgmBase64 == null || bgmBase64.isBlank())
+                ? ""
+                : "data:" + bgmMime(bgmName) + ";base64," + bgmBase64;
+        String bgmLabel = (bgmName == null || bgmName.isBlank()) ? "" : esc(bgmName.trim());
         return template
                 .replace("__TITLE__", esc(resolved))
-                .replace("__SLIDES_JSON__", slidesJson);
+                .replace("__SLIDES_JSON__", slidesJson)
+                .replace("__BGM_SRC__", bgmSrc)
+                .replace("__BGM_NAME__", bgmLabel);
+    }
+
+    /** 按 BGM 文件名推断音频 mime（未知 → audio/mpeg）。 */
+    private static String bgmMime(String name) {
+        if (name != null) {
+            String lower = name.toLowerCase();
+            if (lower.endsWith(".m4a")) return "audio/mp4";
+            if (lower.endsWith(".wav")) return "audio/wav";
+            if (lower.endsWith(".ogg")) return "audio/ogg";
+        }
+        return "audio/mpeg";
     }
 
     private String buildSlidesJson(List<Long> ids) {

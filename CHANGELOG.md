@@ -3,6 +3,15 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 每版演进的**叙事脉络**（为什么做 → 做了什么 → 延续）见 [docs/story.md](docs/story.md)，这里只列功能事实。
 
+## [0.16.0] - 2026-08-08
+
+### 新增
+- **推荐导出 BGM 支持**：推荐向导「设置主题」步骤新增「🎵 添加 BGM」——选本地音频（mp3/m4a/wav，≤20MB）→ base64 **内嵌**进自包含 HTML；HTML 右下角显示 **BGM 名称 + 播放进度条 + 播放/暂停**（♪ 切换）；导出 MP4/WEBM 时 BGM 通过 ffmpeg **循环混入音轨**（`-stream_loop -1`，导览多久播多久）。
+- 接口：`POST /api/recommend/html` 与 `POST /api/recommend/video` 新增 `bgmName`/`bgmBase64` 字段（可空，不传行为不变）。
+
+### 工程化
+- 版本 0.15.0 → **0.16.0**。
+
 ## [0.15.0] - 2026-08-08
 
 ### 新增

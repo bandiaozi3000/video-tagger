@@ -33,7 +33,7 @@ class RecommendControllerTest {
 
     @Test
     void htmlReturnsSelfContainedFile() throws Exception {
-        Mockito.when(recommendService.buildHtml(Mockito.anyList(), Mockito.any()))
+        Mockito.when(recommendService.buildHtml(Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn("<!DOCTYPE html><h1>我的番剧推荐</h1>");
 
         mvc.perform(post("/api/recommend/html")
@@ -45,12 +45,12 @@ class RecommendControllerTest {
                 .andExpect(header().string("Content-Disposition",
                         org.hamcrest.Matchers.containsString("video-tagger-recommend.html")));
 
-        Mockito.verify(recommendService).buildHtml(Mockito.anyList(), Mockito.any());
+        Mockito.verify(recommendService).buildHtml(Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     @Test
     void htmlPassesTitleThrough() throws Exception {
-        Mockito.when(recommendService.buildHtml(Mockito.anyList(), Mockito.any()))
+        Mockito.when(recommendService.buildHtml(Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn("<!DOCTYPE html><h1>2026 春季补番</h1>");
 
         mvc.perform(post("/api/recommend/html")
@@ -59,12 +59,12 @@ class RecommendControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("2026 春季补番")));
 
-        Mockito.verify(recommendService).buildHtml(Mockito.anyList(), Mockito.eq("2026 春季补番"));
+        Mockito.verify(recommendService).buildHtml(Mockito.anyList(), Mockito.eq("2026 春季补番"), Mockito.any(), Mockito.any());
     }
 
     @Test
     void htmlEmptyIdsReturns400() throws Exception {
-        Mockito.when(recommendService.buildHtml(Mockito.anyList(), Mockito.any()))
+        Mockito.when(recommendService.buildHtml(Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenThrow(new IllegalArgumentException("ids 不能为空"));
 
         mvc.perform(post("/api/recommend/html")
@@ -79,7 +79,7 @@ class RecommendControllerTest {
         Path mp4 = Files.createTempFile("vt-recommend-test-", ".mp4");
         Files.write(mp4, new byte[]{0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50});
         try {
-            Mockito.when(recommendVideoService.render(Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.eq("1080P")))
+            Mockito.when(recommendVideoService.render(Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.eq("1080P"), Mockito.any()))
                     .thenReturn(mp4);
 
             mvc.perform(post("/api/recommend/video")
@@ -91,7 +91,7 @@ class RecommendControllerTest {
                             org.hamcrest.Matchers.containsString(".mp4")))
                     .andExpect(content().bytes(new byte[]{0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50}));
 
-            Mockito.verify(recommendVideoService).render(Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.eq("1080P"));
+            Mockito.verify(recommendVideoService).render(Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.eq("1080P"), Mockito.any());
         } finally {
             Files.deleteIfExists(mp4);
         }
@@ -102,7 +102,7 @@ class RecommendControllerTest {
         Path webm = Files.createTempFile("vt-recommend-test-", ".webm");
         Files.write(webm, new byte[]{(byte) 0x1A, (byte) 0x45, (byte) 0xDF, (byte) 0xA3});
         try {
-            Mockito.when(recommendVideoService.render(Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.eq("720P")))
+            Mockito.when(recommendVideoService.render(Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.eq("720P"), Mockito.any()))
                     .thenReturn(webm);
 
             mvc.perform(post("/api/recommend/video")
@@ -113,7 +113,7 @@ class RecommendControllerTest {
                     .andExpect(header().string("Content-Disposition",
                             org.hamcrest.Matchers.containsString(".webm")));
 
-            Mockito.verify(recommendVideoService).render(Mockito.anyList(), Mockito.any(), Mockito.eq("WEBM"), Mockito.eq("720P"));
+            Mockito.verify(recommendVideoService).render(Mockito.anyList(), Mockito.any(), Mockito.eq("WEBM"), Mockito.eq("720P"), Mockito.any());
         } finally {
             Files.deleteIfExists(webm);
         }
@@ -121,7 +121,7 @@ class RecommendControllerTest {
 
     @Test
     void videoUnknownResolutionReturns400() throws Exception {
-        Mockito.when(recommendVideoService.render(Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.eq("4KXX")))
+        Mockito.when(recommendVideoService.render(Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.eq("4KXX"), Mockito.any()))
                 .thenThrow(new IllegalArgumentException("未知清晰度: 4KXX（可选 720P/1080P/4K）"));
 
         mvc.perform(post("/api/recommend/video")

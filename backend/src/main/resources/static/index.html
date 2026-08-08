@@ -423,6 +423,15 @@
                 </label>
                 <p class="wizard-hint">将作为推荐页 <code>&lt;title&gt;</code> 与中心主标题显示，如「我的番剧推荐」。留空则用默认文案。</p>
                 <p class="recommend-theme-preview">预览：<b id="recommend-title-preview">我的番剧推荐</b></p>
+                <label class="recommend-theme-field">背景音乐（可选）
+                    <span class="recommend-bgm-row">
+                        <button type="button" id="recommend-bgm-pick" class="btn-mini">🎵 添加 BGM</button>
+                        <span id="recommend-bgm-name" class="recommend-bgm-name"></span>
+                        <button type="button" id="recommend-bgm-remove" class="btn-mini danger" hidden>移除</button>
+                    </span>
+                </label>
+                <p class="wizard-hint">选择本地音频（mp3/m4a/wav）作为推荐页背景音乐，内嵌进 HTML 并循环混入导出视频音轨。不选则无 BGM。</p>
+                <input type="file" id="recommend-bgm-file" accept="audio/*" hidden>
             </div>
             <div class="wizard-nav">
                 <button type="button" id="recommend-step-2-back" class="btn-mini">上一步</button>

@@ -248,6 +248,28 @@
   }
   .tb-progress i.run{animation:tbprog 6s linear forwards}
   @keyframes tbprog{from{width:0}to{width:100%}}
+  /* 背景音乐条：右下角，名称 + 播放进度 + 静音 */
+  .bgm-bar{
+    position:fixed;right:16px;bottom:16px;z-index:50;
+    display:flex;align-items:center;gap:10px;
+    background:rgba(10,10,21,.72);border:1px solid rgba(255,255,255,.15);
+    border-radius:12px;padding:8px 12px;backdrop-filter:blur(8px);
+    max-width:280px;
+  }
+  .bgm-bar[hidden]{display:none}
+  .bgm-mute{
+    background:none;border:1px solid rgba(255,255,255,.22);border-radius:8px;
+    color:var(--pink);cursor:pointer;width:30px;height:30px;font-size:14px;line-height:1;
+    flex:none;transition:all .2s;
+  }
+  .bgm-mute:hover{background:rgba(255,255,255,.08)}
+  .bgm-mute.muted{color:#5a5a70;text-decoration:line-through}
+  .bgm-info{flex:1;min-width:0}
+  .bgm-name{display:block;font-size:12px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bgm-progress{height:4px;background:rgba(255,255,255,.12);border-radius:999px;margin-top:6px;overflow:hidden}
+  .bgm-progress i{display:block;height:100%;width:0;border-radius:999px;
+    background:linear-gradient(90deg,var(--pink),var(--amber));}
+  .bgm-time{font-size:11px;color:#8b8ba3;white-space:nowrap;font-variant-numeric:tabular-nums}
   .auto-badge{
     position:fixed;top:74px;right:24px;z-index:30;
     display:inline-flex;align-items:center;gap:6px;
@@ -296,6 +318,17 @@
     <span>第 <b class="cur" id="tbCur">1</b> 部 / 共 <b id="tbTotal">0</b> 部</span>
     <div class="tb-progress"><i id="tbProg"></i></div>
   </div>
+
+  <!-- 背景音乐（__BGM_SRC__/__BGM_NAME__ 由后端注入，空则不显示）：名称 + 播放进度 + 静音 -->
+  <div class="bgm-bar" id="bgmBar" hidden>
+    <button class="bgm-mute" id="bgmMuteBtn" title="静音/取消静音">♪</button>
+    <div class="bgm-info">
+      <span class="bgm-name" id="bgmName"></span>
+      <div class="bgm-progress"><i id="bgmProg"></i></div>
+    </div>
+    <span class="bgm-time" id="bgmTime">0:00 / 0:00</span>
+  </div>
+  <audio id="bgmAudio" loop preload="auto"></audio>
 </div>
 
 <script>
@@ -304,6 +337,35 @@ const SLIDES = __SLIDES_JSON__;
 
 /* 录制模式：?record=1 供视频渲染使用（忽略交互打断，全程自动导览） */
 const IS_RECORD = new URLSearchParams(location.search).get('record') === '1';
+
+/* ========== 背景音乐（__BGM_SRC__/__BGM_NAME__ 由后端注入，空则 BGM 区隐藏） ========== */
+const BGM_SRC = "__BGM_SRC__";
+if (BGM_SRC) {
+  const bgmAudio = document.getElementById('bgmAudio');
+  const bgmBar = document.getElementById('bgmBar');
+  const bgmMuteBtn = document.getElementById('bgmMuteBtn');
+  bgmAudio.src = BGM_SRC;
+  bgmBar.hidden = false;
+  document.getElementById('bgmName').textContent = "__BGM_NAME__";
+  bgmMuteBtn.textContent = '♪';
+  const fmtT = s => {
+    if (!isFinite(s) || s <= 0) return '0:00';
+    return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+  };
+  bgmAudio.addEventListener('timeupdate', () => {
+    const p = bgmAudio.duration ? (bgmAudio.currentTime / bgmAudio.duration) * 100 : 0;
+    document.getElementById('bgmProg').style.width = p + '%';
+    document.getElementById('bgmTime').textContent = fmtT(bgmAudio.currentTime) + ' / ' + fmtT(bgmAudio.duration);
+  });
+  bgmAudio.addEventListener('ended', () => { /* loop 循环，无需处理 */ });
+  // ♪ 播放/暂停（浏览器 autoplay 策略需用户交互，首次点击起播）
+  bgmMuteBtn.addEventListener('click', () => {
+    if (bgmAudio.paused) { bgmAudio.play().catch(() => {}); bgmMuteBtn.textContent = '❚❚'; }
+    else { bgmAudio.pause(); bgmMuteBtn.textContent = '♪'; }
+  });
+  // 录制模式：导览开始后尝试自动播放（被拦无妨，视频音轨由 ffmpeg 混入）
+  if (IS_RECORD) { setTimeout(() => bgmAudio.play().catch(() => {}), 3000); }
+}
 
 /* 每张瓦片的渐变辉光色（gradient collection：多彩渐变集合） */
 const GLOWS = ['#ff8fb8','#4fc3f7','#a78bfa','#ffd166','#f472b6','#34d399','#fb923c','#60a5fa'];
