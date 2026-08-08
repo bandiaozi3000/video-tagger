@@ -64,6 +64,7 @@ const filterCollectionEl = document.getElementById('filter-collection');
 const filterUnconfirmedEl = document.getElementById('filter-unconfirmed');
 const filterYearEl = document.getElementById('filter-year');
 const filterSourceEl = document.getElementById('filter-source');
+const filterSortEl = document.getElementById('filter-sort');
 const trashView = document.getElementById('trash-view');
 const trashBackBtn = document.getElementById('trash-back');
 const trashSearchInput = document.getElementById('trash-search');
@@ -282,7 +283,7 @@ function closeConfirmModal() {
     confirmModal.hidden = true;
     confirmModalAction = null;
 }
-let mediaFilter = { status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', source: '' };
+let mediaFilter = { status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', source: '', sort: '' };
 let collSelectedId = null;           // 收藏夹 tab：当前选中的收藏夹 id
 let collectionsCache = [];           // 收藏夹列表缓存（管理视图用）
 let collPage = 1;                    // 收藏夹内媒体分页
@@ -1324,6 +1325,7 @@ function buildMediaUrls() {
         if (mediaFilter.unconfirmed) p.set('confirmed', '0');
         if (mediaFilter.year) p.set('year', mediaFilter.year);
         if (mediaFilter.source) p.set('source', mediaFilter.source);
+        if (mediaFilter.sort) p.set('sort', mediaFilter.sort);
     };
     let url, countParams;
     if (mediaFilter.collectionId && mediaMode !== 'recent') {
@@ -4109,6 +4111,7 @@ filterCollectionEl.addEventListener('change', () => { mediaFilter.collectionId =
 filterUnconfirmedEl.addEventListener('change', () => { mediaFilter.unconfirmed = filterUnconfirmedEl.checked; loadMedia(); });
 filterYearEl.addEventListener('change', () => { mediaFilter.year = filterYearEl.value; loadMedia(); });
 filterSourceEl.addEventListener('change', () => { mediaFilter.source = filterSourceEl.value; loadMedia(); });
+filterSortEl.addEventListener('change', () => { mediaFilter.sort = filterSortEl.value; loadMedia(); });
 // 回收站：返回/清空/搜索（input 防抖 300ms；打开走媒体 tab 的 trash 分支）
 trashBackBtn.addEventListener('click', () => {
     // 返回媒体列表：切回「全部媒体」tab（含主区恢复）
