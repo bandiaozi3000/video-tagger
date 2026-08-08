@@ -712,6 +712,35 @@ mark.hl {
     background: var(--grad); border-color: transparent; color: #fff; font-weight: 700;
     box-shadow: 0 4px 14px rgba(255, 77, 141, .3);
 }
+/* omofuna 同步进度条（不确定滑动动画，贴合深色霓虹） */
+.sync-progress {
+    height: 8px; border-radius: 6px; background: rgba(255, 255, 255, .06);
+    overflow: hidden; margin-bottom: 12px;
+}
+.sync-progress-fill {
+    height: 100%; width: 40%; border-radius: 6px; background: var(--grad);
+    animation: sync-progress-slide 1.2s ease-in-out infinite alternate;
+}
+@keyframes sync-progress-slide {
+    from { margin-left: -10%; }
+    to { margin-left: 70%; }
+}
+/* 同步弹层数据源选择（单选 chips，与年份 chip 同风格） */
+.sync-source-label { font-size: 13px; color: var(--text-dim); margin-bottom: 8px; }
+.sync-source-chips { display: flex; gap: 8px; margin-bottom: 10px; }
+.sync-source-chip {
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid var(--border-strong); border-radius: 9px;
+    color: var(--text-dim); font-size: 13px; font-family: inherit;
+    padding: 7px 18px; cursor: pointer; text-align: center;
+    transition: all .15s;
+}
+.sync-source-chip:hover { border-color: rgba(167, 139, 250, .4); color: var(--violet); }
+.sync-source-chip.on {
+    background: var(--grad); border-color: transparent; color: #fff; font-weight: 700;
+    box-shadow: 0 4px 14px rgba(255, 77, 141, .3);
+}
+.sync-source-hint { font-size: 12px; color: var(--text-dim); line-height: 1.6; margin-bottom: 10px; }
 .batch-del-list {
     list-style: none; margin: 0; padding: 0;
     max-height: 168px; overflow: auto;
@@ -887,6 +916,31 @@ input[type="checkbox"] { accent-color: var(--pink); width: 15px; height: 15px; c
 .media-format-badge.fmt-VIDEO { color: #ff9cc0; border-color: rgba(255, 77, 141, .5); background: rgba(36, 10, 28, .72); }
 .media-format-badge.fmt-IMAGE { color: #8fe9ff; border-color: rgba(53, 214, 242, .5); background: rgba(8, 30, 38, .72); }
 .media-format-badge.fmt-TEXT  { color: #cbb7ff; border-color: rgba(167, 139, 250, .5); background: rgba(22, 14, 42, .72); }
+/* 媒体来源角标（同步来源 AniList/omofuna 显示，手动默认不显示）：暖金区分格式角标，
+   垂直堆叠在格式角标下方（左上角），避开右上角勾选框/右下角删除收藏 */
+.media-source-badge {
+    position: absolute; top: 40px; left: 8px; z-index: 2;
+    font-size: 10px; font-weight: 800; letter-spacing: .5px;
+    font-family: var(--font-mono);
+    color: #ffd7a8; border: 1px solid rgba(251, 191, 36, .45);
+    background: rgba(32, 22, 8, .72);
+    border-radius: 99px; padding: 3px 9px;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, .35);
+}
+/* 回收站视图 */
+.trash-toolbar { display: flex; align-items: center; gap: 10px; margin: 10px 0; flex-wrap: wrap; }
+.trash-title { font-size: 15px; font-weight: 700; color: var(--text); margin-right: 4px; }
+.trash-toolbar input {
+    background-color: #15152a; color: var(--text);
+    border: 1px solid rgba(255, 255, 255, .1); border-radius: 8px;
+    padding: 5px 12px; font-size: 13px; outline: none; font-family: inherit;
+    width: 220px; transition: border-color .15s;
+}
+.trash-toolbar input:focus { border-color: rgba(167, 139, 250, .5); }
+.trash-card .trash-actions { display: flex; gap: 8px; margin-top: 8px; }
+.trash-card .trash-actions .btn-mini { padding: 5px 12px; font-size: 12px; }
+.trash-empty { color: var(--text-dim); font-size: 13px; padding: 48px 0; text-align: center; }
 
 /* 媒体详情 */
 .media-detail-head { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 14px; }
@@ -1144,7 +1198,7 @@ input[type="checkbox"] { accent-color: var(--pink); width: 15px; height: 15px; c
 .ftab.active { color: #fff; background: var(--grad); border-color: transparent; box-shadow: 0 4px 14px rgba(255, 77, 141, .35), inset 0 0 0 1px rgba(255, 255, 255, .18); }
 
 .search-filters { display: flex; gap: 8px; margin: 10px 0 4px; flex-wrap: wrap; align-items: center; }
-.search-filters select {
+.search-filters select, .search-filters-more select {
     background-color: #15152a; color: var(--text);
     border: 1px solid rgba(255,255,255,.1); border-radius: 8px;
     padding: 5px 32px 5px 12px; font-size: 13px; outline: none;
@@ -1161,6 +1215,22 @@ input[type="checkbox"] { accent-color: var(--pink); width: 15px; height: 15px; c
     font-size: 13px; color: var(--text-dim); cursor: pointer; user-select: none;
 }
 .search-group-toggle:hover { color: var(--text); }
+/* 更多筛选折叠按钮 + 折叠区（次要项收进来，主行保持简洁，未来新增筛选也放这里） */
+.search-more-btn {
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid rgba(255, 255, 255, .12);
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-size: 13px; font-family: inherit;
+    padding: 5px 12px; cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+}
+.search-more-btn:hover { border-color: rgba(167, 139, 250, .4); color: var(--violet); }
+.search-filters-more {
+    display: flex; gap: 8px; margin: 2px 0 4px; flex-wrap: wrap; align-items: center;
+    padding-top: 9px; border-top: 1px dashed rgba(255, 255, 255, .08);
+}
 
 .inline-add { display: inline-flex; gap: 6px; margin-left: 10px; align-items: center; }
 .inline-add input {

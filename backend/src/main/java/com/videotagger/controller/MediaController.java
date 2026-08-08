@@ -55,8 +55,9 @@ public class MediaController {
                                    @RequestParam(required = false) Long collectionId,
                                    @RequestParam(required = false) String sort,
                                    @RequestParam(required = false) Integer year,
+                                   @RequestParam(required = false) String source,
                                    @RequestParam(required = false) Long tagId) {
-        return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, year, tagId);
+        return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, year, source, tagId);
     }
 
     @GetMapping("/recent")
@@ -67,8 +68,9 @@ public class MediaController {
                                      @RequestParam(required = false) Long subcategoryId,
                                      @RequestParam(required = false) Integer confirmed,
                                      @RequestParam(required = false) Long collectionId,
-                                     @RequestParam(required = false) Integer year) {
-        return mediaService.recent(limit, offset, status, format, subcategoryId, confirmed, collectionId, year);
+                                     @RequestParam(required = false) Integer year,
+                                     @RequestParam(required = false) String source) {
+        return mediaService.recent(limit, offset, status, format, subcategoryId, confirmed, collectionId, year, source);
     }
 
     /** 带筛选的媒体总数（分页页码导航用）；latest=true 时按「最近观看」口径只统计打过标记的媒体。 */
@@ -79,9 +81,10 @@ public class MediaController {
                       @RequestParam(required = false) Integer confirmed,
                       @RequestParam(required = false) Long collectionId,
                       @RequestParam(required = false) Integer year,
+                      @RequestParam(required = false) String source,
                       @RequestParam(required = false) Long tagId,
                       @RequestParam(defaultValue = "false") boolean latest) {
-        return mediaService.count(status, format, subcategoryId, confirmed, collectionId, year, tagId, latest);
+        return mediaService.count(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, latest);
     }
 
     /** 库中已有的全部首播年份（年份筛选下拉选项）。 */
@@ -114,23 +117,65 @@ public class MediaController {
 
     @DeleteMapping
     public ResponseEntity<Void> deleteBatch(@RequestParam List<Long> ids) {
-        mediaService.deleteBatch(ids);
+        mediaService.trashBatch(ids); // 移入回收站（软删除，可撤回）
         return ResponseEntity.noContent().build();
     }
 
-    /** 番剧同步（AniList）：按勾选年份批量建媒体（名称/年份/封面），命中库中已有则跳过。 */
+    /** 番剧同步（AniList）：按勾选年份批量建媒体（名称/年份/封面），命中库中已有则跳过。formats 可选过滤。 */
     @PostMapping("/sync-anilist")
-    public AniListSyncService.SyncResult syncAnilist(@RequestBody Map<String, List<Integer>> body) {
-        List<Integer> years = body.getOrDefault("years", List.of());
+    public AniListSyncService.SyncResult syncAnilist(@RequestBody SyncAnilistRequest req) {
+        List<Integer> years = req.years() == null ? List.of() : req.years();
         if (years.isEmpty()) {
             throw new IllegalArgumentException("请至少勾选一个年份");
         }
-        return aniListSyncService.sync(years);
+        return aniListSyncService.sync(years, req.formats());
+    }
+
+    /** 番剧同步请求：years 年份多选；formats 可选 AniList MediaFormat 列表（TV/MOVIE/OVA/ONA/SPECIAL/...，空=不过滤）。 */
+    public record SyncAnilistRequest(List<Integer> years, List<String> formats) {
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
-        mediaService.delete(id);
+        mediaService.trash(id); // 移入回收站（软删除，可撤回）
+        return ResponseEntity.noContent().build();
+    }
+
+    /** 回收站列表（已删媒体，deleted_at 非空，按删除时间倒序，q 标题过滤）。 */
+    @GetMapping("/trash")
+    public List<com.videotagger.entity.Media> trash(@RequestParam(required = false) String q,
+                                                    @RequestParam(defaultValue = "50") int limit,
+                                                    @RequestParam(defaultValue = "0") int offset) {
+        return mediaService.listTrash(q, limit, offset);
+    }
+
+    /** 回收站数量（可带标题过滤）。 */
+    @GetMapping("/trash/count")
+    public long trashCount(@RequestParam(required = false) String q) {
+        return mediaService.countTrash(q);
+    }
+
+    /** 撤回：恢复回收站媒体（deleted_at 置空，集/片段/标签原样回来）。 */
+    @PostMapping("/{id}/restore")
+    public ResponseEntity<Void> restore(@PathVariable Long id) {
+        mediaService.restore(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** 彻底删除（单/批量，级联清集/片段/标签/封面/向量）。 */
+    @DeleteMapping("/purge")
+    public ResponseEntity<Void> purge(@RequestParam List<Long> ids) {
+        mediaService.purgeBatch(ids);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** 清空回收站：全部彻底删除。 */
+    @DeleteMapping("/trash")
+    public ResponseEntity<Void> clearTrash() {
+        List<com.videotagger.entity.Media> all = mediaService.listTrash(null, 500, 0);
+        if (!all.isEmpty()) {
+            mediaService.purgeBatch(all.stream().map(com.videotagger.entity.Media::getId).toList());
+        }
         return ResponseEntity.noContent().build();
     }
 

@@ -1,10 +1,11 @@
 {
   "name": "video-tagger-render",
   "private": true,
-  "version": "0.12.0",
-  "description": "渲染推荐番剧 HTML 为 MP4 视频（puppeteer-core 录制 + ffmpeg 合成）",
+  "version": "0.15.0",
+  "description": "渲染推荐番剧 HTML 为 MP4 视频 + omofuna 番剧抓取（puppeteer-core）",
   "scripts": {
-    "render": "node render.js"
+    "render": "node render.js",
+    "omofuna": "node omofuna.js"
   },
   "dependencies": {
     "puppeteer-core": "^23.0.0"

@@ -20,7 +20,7 @@
     <div class="container header-inner">
         <div class="logo-wrap">
             <span class="logo-mark">✦</span>
-            <h1 class="logo">Video<span class="logo-accent">Tagger</span><span class="ver-chip">v0.13.0</span></h1>
+            <h1 class="logo">Video<span class="logo-accent">Tagger</span><span class="ver-chip">v0.15.0</span></h1>
         </div>
         <nav class="nav">
             <div class="nav-tabs">
@@ -66,7 +66,7 @@
                 <button type="button" class="atab" data-media-tab="all">全部媒体</button>
             </div>
             <div class="toolbar-actions">
-                <button type="button" id="media-sync" class="btn-mini">⇄ 同步番剧</button>
+                <button type="button" id="media-sync" class="btn-mini" title="选择数据源（AniList/omofuna）与年份批量导入">⇄ 同步番剧</button>
                 <button type="button" id="media-retry-covers" class="btn-mini" title="补齐异步下载中断/未完成的封面">⇩ 补下封面</button>
                 <button type="button" id="media-format-manage" class="btn-mini">⚙ 管理格式</button>
                 <button type="button" id="media-batch-select-all" class="btn-mini" title="勾选当前列表全部">☑ 全选本页</button>
@@ -94,7 +94,14 @@
             <select id="filter-year">
                 <option value="">全部年份</option>
             </select>
+            <select id="filter-source" title="按来源筛选（手动/AniList/omofuna 导入）">
+                <option value="">来源</option>
+                <option value="MANUAL">手动</option>
+                <option value="ANILIST">AniList 同步</option>
+                <option value="OMOFUNA">omofuna 同步</option>
+            </select>
             <button type="button" id="collection-create" class="btn-mini" title="新建收藏夹">＋ 新建收藏夹</button>
+            <button type="button" id="trash-open" class="btn-mini" title="查看已删除的媒体，可撤回或彻底删除">🗑 回收站</button>
             <label class="checkbox-inline"><input type="checkbox" id="filter-unconfirmed"> 待确认</label>
         </div>
         <div id="media-status" class="status"></div>
@@ -110,6 +117,18 @@
             <button type="button" id="media-page-prev" class="btn-mini" disabled>‹ 上一页</button>
             <span id="media-page-info" class="pagination-info"></span>
             <button type="button" id="media-page-next" class="btn-mini" disabled>下一页 ›</button>
+        </div>
+
+        <!-- 回收站视图：已删媒体（软删除），支持搜索/撤回/彻底删除/清空 -->
+        <div id="trash-view" class="trash-view" hidden>
+            <div class="trash-toolbar">
+                <button type="button" id="trash-back" class="back-btn">← 返回媒体</button>
+                <span class="trash-title">回收站</span>
+                <input id="trash-search" placeholder="搜索已删媒体标题…" autocomplete="off">
+                <button type="button" id="trash-clear" class="btn-mini danger" title="彻底删除回收站全部媒体">清空回收站</button>
+            </div>
+            <div id="trash-status" class="status"></div>
+            <section id="trash-list" class="media-grid"></section>
         </div>
     </section>
 
@@ -190,6 +209,16 @@
         <div class="search-filters">
             <select id="search-format"><option value="">格式</option></select>
             <select id="search-subcategory"><option value="">子分类</option></select>
+            <select id="search-source" title="按来源筛选（所属媒体的导入来源）">
+                <option value="">来源</option>
+                <option value="MANUAL">手动</option>
+                <option value="ANILIST">AniList 同步</option>
+                <option value="OMOFUNA">omofuna 同步</option>
+            </select>
+            <button type="button" id="search-more-btn" class="search-more-btn" title="展开更多筛选">更多筛选 ▾</button>
+        </div>
+        <!-- 折叠区：次要筛选项（时间/聚合）+ 未来新增项放这里，保持主行简洁 -->
+        <div class="search-filters-more" id="search-filters-more" hidden>
             <select id="search-time" title="按打标时间筛选">
                 <option value="">时间：不限</option>
                 <option value="7">近 7 天</option>
@@ -483,17 +512,26 @@
     </div>
 </div>
 
-<!-- 番剧同步（AniList）：按年份勾选批量导入 -->
+<!-- 番剧同步：选择数据源（AniList/omofuna）与年份批量导入 -->
 <div id="media-sync-modal" class="modal-overlay" hidden>
     <div class="modal">
-        <h2>同步番剧（AniList）</h2>
-        <p class="batch-del-hint">按勾选年份从 AniList 导入番剧（名称 / 年份 / 封面），库中已存在的自动跳过。</p>
+        <h2>同步番剧</h2>
+        <p class="batch-del-hint">选择数据源与年份批量导入番剧（名称 / 年份 / 封面），库中已存在的自动跳过。</p>
+        <div class="sync-source-label">数据源</div>
+        <div class="sync-source-chips">
+            <button type="button" class="sync-source-chip on" data-source="ANILIST">AniList</button>
+            <button type="button" class="sync-source-chip" data-source="OMOFUNA">omofuna</button>
+        </div>
+        <div id="sync-source-hint" class="sync-source-hint"></div>
+        <div class="sync-source-label">分类</div>
+        <div id="sync-category-grid" class="sync-year-grid"></div>
         <div class="sync-year-toolbar">
             <span class="sync-year-label">选择年份</span>
             <button type="button" id="sync-year-all" class="btn-mini">全选</button>
             <button type="button" id="sync-year-clear" class="btn-mini">清空</button>
         </div>
         <div id="sync-year-grid" class="sync-year-grid"></div>
+        <div id="media-sync-progress" class="sync-progress" hidden><div class="sync-progress-fill"></div></div>
         <div id="media-sync-status" class="status"></div>
         <div class="modal-actions">
             <button id="media-sync-cancel" type="button">取消</button>
@@ -576,15 +614,15 @@
     </div>
 </div>
 
-<!-- 删除媒体确认（单删/批量删除共用） -->
+<!-- 删除媒体确认（单删/批量删除共用）：移入回收站（可撤回） -->
 <div id="batch-del-modal" class="modal-overlay" hidden>
     <div class="modal">
-        <h2>确认删除</h2>
-        <div class="batch-del-hint">将删除 <b id="batch-del-count">0</b> 个媒体，其下所有集与片段标签一并删除，此操作<em>不可恢复</em>。</div>
+        <h2>移入回收站</h2>
+        <div class="batch-del-hint">将把 <b id="batch-del-count">0</b> 个媒体移入回收站，其下集与片段标签一并保留，可在回收站<em>撤回</em>或彻底删除。</div>
         <ul id="batch-del-list" class="batch-del-list"></ul>
         <div class="modal-actions">
             <button id="batch-del-cancel" type="button">取消</button>
-            <button id="batch-del-confirm" type="button" class="danger">确认删除</button>
+            <button id="batch-del-confirm" type="button" class="danger">移入回收站</button>
         </div>
     </div>
 </div>

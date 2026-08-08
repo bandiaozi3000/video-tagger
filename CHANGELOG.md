@@ -3,6 +3,29 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 每版演进的**叙事脉络**（为什么做 → 做了什么 → 延续）见 [docs/story.md](docs/story.md)，这里只列功能事实。
 
+## [0.15.0] - 2026-08-08
+
+### 新增
+- **omofuna 番剧同步（中文标题源）**：媒体 tab 新增「⇄ 同步中文番剧」入口 → 弹层内年份 chips 多选（2000~2026）→ 后台任务用 Node+puppeteer 连系统 Chrome 真实浏览器抓取 omofuna（日漫/动画/剧场）的中文标题/年份/封面 → 自动过 MaccMS 验证页（点「继续访问」）→ 逐条导入，命中库中已有（title 或 original_title 精确匹配）跳过。**补充 AniList**：omofuna 直接给中文标题，AniList 只给日文原名 → 同番会并存两条，靠既有「合并」功能手动治理。
+- **异步任务 + 进度轮询**：抓取 20~40 分钟后台执行，POST 立即返回 taskId，前端每 2s 轮询「已抓页数/条数」+ 不确定进度条动画；刷新页面后重开弹窗自动恢复进度（GET /current）。
+- **媒体来源字段**：media 新增 `source`（MANUAL / ANILIST / OMOFUNA 细分）——同步导入自动标注数据源（AniList/omofuna），手动新建默认 MANUAL，由系统决定不手选；历史数据启发式回填（`original_title` 非空→AniList、封面 `cfhls.top`→omofuna、其余手动）；列表卡片**同步来源角标**（AniList/omofuna，手动默认不显示）+ 详情 meta 完整展示来源。为后续按来源筛选/统计/治理打底。
+- **搜索来源筛选 + 筛选区折叠重构**：搜索新增「**来源**」下拉（手动 / AniList 同步 / omofuna 同步，按所属媒体 source 后置过滤，与格式/子分类同排）；搜索筛选区重构为「**常用项常驻 + 更多筛选折叠**」——格式/子分类/来源常驻一行，时间/自定义区间/按媒体聚合收进「更多筛选 ▾」展开区，未来新增筛选项统一放折叠区，保持主行简洁不臃肿。`/api/search` 新增 `source` 参数。
+- **媒体列表来源筛选**：媒体 tab 筛选区（子分类/状态/收藏夹/年份那排）新增「**来源**」下拉，覆盖最近观看 / 全部媒体 / 收藏夹内三个列表分支；`GET /api/media`、`/api/media/recent`、`/api/media/count`、`GET /api/collections/{id}/media` 均新增 `source` 参数。
+- **同步入口合一**：媒体工具栏两个同步按钮（⇄ 同步番剧 / ⇄ 同步中文番剧）合并为一个「⇄ 同步番剧」；弹层内**数据源单选 chips**（AniList / omofuna）+ 年份 chips 勾选，开始同步按来源分流——AniList 同步阻塞约几十秒，omofuna 异步任务 + 进度轮询 + 刷新恢复。
+- **媒体分页 200 修复**：后端媒体列表 limit 上限从 100 提到 200（此前前端「200 条/页」选项被后端钳成 100），`list`/`recent`/收藏夹内列表三处统一。
+- **同步分类筛选**：同步弹层新增「**分类**」chips 多选（按来源切换）——AniList 用 format 7 类（TV / TV 短片 / 剧场版 / OVA / ONA / 特别篇 / 音乐）、omofuna 用类目 3 类（日漫 / 动画 / 剧场），默认全选=不过滤，勾选后只导入所选分类控制导入量。`POST /api/media/sync-anilist` 新增 `formats` 参数（GraphQL `format_in` 过滤），`POST /api/media/sync-omofuna` 新增 `types` 参数（node 脚本只抓所选类目页）。
+- **回收站**：媒体删除改「**移入回收站**」（软删除，`deleted_at` 标记；集/片段/标签/封面保留，撤回原样恢复）；媒体 tab 新增「🗑 **回收站**」视图——标题搜索 + 列表（含删除时间）+ 单条撤回 / 彻底删除 + 清空回收站。接口：`GET /api/media/trash`（列表/搜索）、`GET /api/media/trash/count`、`POST /api/media/{id}/restore`（撤回）、`DELETE /api/media/purge?ids=`（彻底删除）、`DELETE /api/media/trash`（清空）。集/片段删除保持直接删。V14 迁移加 `deleted_at` 列；所有正常媒体查询排除已删。
+
+### 接口变更
+- `POST /api/media/sync-omofuna`：body `{"years":[2026,...]}`，创建后台抓取任务并立即返回 `{taskId,status:"RUNNING",...}`；已有进行中任务返回 400。
+- `GET /api/media/sync-omofuna/{taskId}`：轮询任务状态（RUNNING/DONE/ERROR + 已抓页数/条数/新增/跳过），不存在返回 404。
+- `GET /api/media/sync-omofuna/current`：最近一次任务（前端刷新恢复进度）。
+
+### 工程化
+- 新增 `OmofunaSyncService`（读 node 产物 JSON 逐条 upsert，`original_title` 显式留空）+ `OmofunaSyncTaskService`（内存任务表 + `@Async(syncExecutor)` 跑 node + reader 线程解析进度行）+ `OmofunaSyncController`；AsyncConfig 新增单线程 `syncExecutor`（不与封面/embedding 池争抢）。
+- 新增 `backend/scripts/omofuna.js`（puppeteer-core 抓取：验证页自动点「继续访问」、按 URL `show/{分类ID}--------{页码}---{年份}.html` 翻页终止、hash 去重、页间限速、stdout 进度行 + JSON checkpoint 输出）。
+- 版本 0.14.0 → **0.15.0**。
+
 ## [0.14.0] - 2026-08-07
 
 ### 新增

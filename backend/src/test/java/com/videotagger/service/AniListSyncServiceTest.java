@@ -67,6 +67,7 @@ class AniListSyncServiceTest {
         assertEquals("VIDEO", inserted.getMediaFormat());
         assertEquals("WANT", inserted.getStatus());
         assertEquals(1, inserted.getConfirmed());
+        assertEquals("ANILIST", inserted.getSource());
         // 封面：仅第一条带 URL → downloadAsync 一次
         verify(coverService).downloadAsync(eq(null), eq("https://x/cover.jpg"));
     }
@@ -185,5 +186,35 @@ class AniListSyncServiceTest {
         assertEquals("https://x/c.jpg", existing.getCoverUrl());
         verify(mediaMapper).updateById(existing);
         verify(coverService).downloadAsync(99L, "https://x/c.jpg");
+    }
+
+    @Test
+    void syncWithFormatsPassesFormatInToGraphQL() throws Exception {
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"data":{"Page":{"pageInfo":{"hasNextPage":false},"media":[]}}}
+                        """));
+
+        AniListSyncService.SyncResult r = service.sync(List.of(2004), List.of("TV", "MOVIE"));
+
+        assertEquals(0, r.added());
+        assertEquals(0, r.skipped());
+        String reqBody = server.takeRequest().getBody().readUtf8();
+        assertTrue(reqBody.contains("\"formats\":[\"TV\",\"MOVIE\"]"));
+    }
+
+    @Test
+    void syncWithEmptyFormatsSendsNull() throws Exception {
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("""
+                        {"data":{"Page":{"pageInfo":{"hasNextPage":false},"media":[]}}}
+                        """));
+
+        service.sync(List.of(2004), List.of());
+
+        String reqBody = server.takeRequest().getBody().readUtf8();
+        assertTrue(reqBody.contains("\"formats\":null"));
     }
 }

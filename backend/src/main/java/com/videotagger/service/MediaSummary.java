@@ -6,5 +6,5 @@ import java.math.BigDecimal;
  *  coverPath 为媒体显式封面；fallbackCoverPath 为无封面时代表性片段帧兜底。 */
 public record MediaSummary(Long id, String title, Integer year, String mediaFormat, String subcategory,
                            Long subcategoryId, String status, BigDecimal rating, String coverPath, Integer confirmed,
-                           Long clipCount, Long latestAt, String fallbackCoverPath) {
+                           String source, Long clipCount, Long latestAt, String fallbackCoverPath) {
 }

@@ -28,8 +28,9 @@ public class SearchController {
                                  @RequestParam(value = "format", required = false) String format,
                                  @RequestParam(value = "subcategoryId", required = false) Long subcategoryId,
                                  @RequestParam(value = "from", required = false) Long from,
-                                 @RequestParam(value = "to", required = false) Long to) {
-        return searchService.search(query, limit, offset, dim, format, subcategoryId, from, to);
+                                 @RequestParam(value = "to", required = false) Long to,
+                                 @RequestParam(value = "source", required = false) String source) {
+        return searchService.search(query, limit, offset, dim, format, subcategoryId, from, to, source);
     }
 
     @GetMapping("/similar")

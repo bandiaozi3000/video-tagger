@@ -50,16 +50,18 @@ public class SearchService {
     }
 
     /**
-     * dim 为空或 mixed 时跨层混合搜索（前端分栏展示）。format/subcategoryId 为结果后置过滤
-     * （子分类按子树收敛：选中节点的全部后代媒体结果都保留）；from/to 为打标时间范围后置过滤，均可空。
+     * dim 为空或 mixed 时跨层混合搜索（前端分栏展示）。format/subcategoryId/source 为结果后置过滤
+     * （子分类按子树收敛：选中节点的全部后代媒体结果都保留；source 按所属媒体来源 MANUAL/ANILIST/OMOFUNA）；
+     * from/to 为打标时间范围后置过滤，均可空。
      * offset/limit 为传统分页：一次语义检索取 offset+limit 条（上限 500，过滤在切页前做保证 total 准），
      * total = 过滤后总条数；offset 越界返回空页。
      */
     public SearchResponse search(String query, int limit, int offset, String dim, String format,
-                                 Long subcategoryId, Long from, Long to) {
+                                 Long subcategoryId, Long from, Long to, String source) {
         boolean filtered = (format != null && !format.isBlank())
                 || subcategoryId != null
-                || from != null || to != null;
+                || from != null || to != null
+                || (source != null && !source.isBlank());
         // 有过滤时内层多取一些，保证过滤后仍能凑够 offset+limit
         int fetchLimit = Math.min((offset + limit) * (filtered ? 4 : 1), 500);
         SearchResponse resp = doSearch(query, fetchLimit, dim);
@@ -69,6 +71,7 @@ public class SearchService {
             all = all.stream()
                     .filter(r -> inTimeRange(r.createdAt(), from, to))
                     .filter(r -> matchFormatSubcategory(r.mediaFormat(), r.subcategoryId(), format, subtree))
+                    .filter(r -> matchSource(r.source(), source))
                     .toList();
         }
         int total = all.size();
@@ -95,6 +98,11 @@ public class SearchService {
             return false;
         }
         return true;
+    }
+
+    /** 来源匹配（source 为空不做来源过滤）。 */
+    private static boolean matchSource(String resultSource, String source) {
+        return source == null || source.isBlank() || source.equalsIgnoreCase(resultSource);
     }
 
     private SearchResponse doSearch(String query, int limit, String dim) {
@@ -277,7 +285,7 @@ public class SearchService {
                 UrlTimeParams.build(c.getUrl(), c.getTimestampSec()),
                 c.getTimestampSec(), c.getTag(), c.getNote(), score,
                 "CLIP", null, c.getEpisodeId(), null, c.getCoverPath(), c.getDetailCoverPath(),
-                null, null, null, null, c.getCreatedAt());
+                null, null, null, null, null, c.getCreatedAt());
     }
 
     private SearchResult toMediaResult(Media a, Double score) {
@@ -289,7 +297,7 @@ public class SearchService {
                 : clipMapper.selectRepresentativeCoverByMedia(a.getId());
         return new SearchResult(a.getId(), a.getTitle(), null, null, null,
                 null, a.getNote(), score, EntityType.MEDIA.name(), a.getId(), null, null, cover, null,
-                null, null, null, a.getSubcategoryId(), a.getCreatedAt());
+                null, null, null, a.getSubcategoryId(), a.getSource(), a.getCreatedAt());
     }
 
     private SearchResult toEpisodeResult(Episode ep, Double score) {
@@ -301,7 +309,7 @@ public class SearchService {
                 : clipMapper.selectRepresentativeCoverByEpisode(ep.getId());
         return new SearchResult(ep.getId(), ep.getTitle(), ep.getUrl(), null, null,
                 null, ep.getNote(), score, "EPISODE", ep.getMediaId(), ep.getId(), ep.getVideoFp(), cover, null,
-                null, null, null, null, ep.getCreatedAt());
+                null, null, null, null, null, ep.getCreatedAt());
     }
 
     /**
@@ -346,6 +354,7 @@ public class SearchService {
                     m == null ? null : m.getMediaFormat(),
                     m == null ? null : m.getSubcategory(),
                     m == null ? null : m.getSubcategoryId(),
+                    m == null ? null : m.getSource(),
                     r.createdAt());
         }).toList();
     }

@@ -63,6 +63,14 @@ const filterSubcategoryEl = document.getElementById('filter-subcategory');
 const filterCollectionEl = document.getElementById('filter-collection');
 const filterUnconfirmedEl = document.getElementById('filter-unconfirmed');
 const filterYearEl = document.getElementById('filter-year');
+const filterSourceEl = document.getElementById('filter-source');
+const trashOpenBtn = document.getElementById('trash-open');
+const trashView = document.getElementById('trash-view');
+const trashBackBtn = document.getElementById('trash-back');
+const trashSearchInput = document.getElementById('trash-search');
+const trashClearBtn = document.getElementById('trash-clear');
+const trashStatusEl = document.getElementById('trash-status');
+const trashListEl = document.getElementById('trash-list');
 const formatTabsEl = document.getElementById('format-tabs');
 const mediaFormatManageBtn = document.getElementById('media-format-manage');
 const detailConfirmBtn = document.getElementById('detail-confirm');
@@ -82,6 +90,27 @@ const mediaSyncModal = document.getElementById('media-sync-modal');
 const syncYearGridEl = document.getElementById('sync-year-grid');
 const mediaSyncStatusEl = document.getElementById('media-sync-status');
 const mediaSyncStartBtn = document.getElementById('media-sync-start');
+const mediaSyncProgressEl = document.getElementById('media-sync-progress');
+const syncSourceChips = document.querySelectorAll('#media-sync-modal .sync-source-chip');
+const syncSourceHintEl = document.getElementById('sync-source-hint');
+const syncCategoryGridEl = document.getElementById('sync-category-grid');
+let syncSource = 'ANILIST'; // 同步数据源（弹层内单选，AniList/omofuna）
+let omofunaPollTimer = null; // omofuna 同步进度轮询定时器（关弹窗清除，刷新可恢复）
+// 分类 chips 选项：AniList 用 format，omofuna 用类目（多选，默认全选）
+const SYNC_FORMATS = [
+    { code: 'TV', name: 'TV' },
+    { code: 'TV_SHORT', name: 'TV 短片' },
+    { code: 'MOVIE', name: '剧场版' },
+    { code: 'OVA', name: 'OVA' },
+    { code: 'ONA', name: 'ONA' },
+    { code: 'SPECIAL', name: '特别篇' },
+    { code: 'MUSIC', name: '音乐' },
+];
+const SYNC_TYPES = [
+    { id: 1, name: '日漫' },
+    { id: 5, name: '动画' },
+    { id: 24, name: '剧场' },
+];
 const mediaRetryCoversBtn = document.getElementById('media-retry-covers');
 const mediaSelectAllBtn = document.getElementById('media-batch-select-all');
 const mediaPageSizeEl = document.getElementById('media-page-size');
@@ -175,6 +204,9 @@ const searchTimeCustom = document.getElementById('search-time-custom');
 const searchTimeFrom = document.getElementById('search-time-from');
 const searchTimeTo = document.getElementById('search-time-to');
 const searchGroupToggle = document.getElementById('search-group');
+const SEARCH_SOURCE_SELECT = document.getElementById('search-source');
+const searchMoreBtn = document.getElementById('search-more-btn');
+const searchFiltersMore = document.getElementById('search-filters-more');
 const searchPaginationEl = document.getElementById('search-pagination');
 const searchPageSizeEl = document.getElementById('search-page-size');
 const searchPagePrevEl = document.getElementById('search-page-prev');
@@ -251,7 +283,7 @@ function closeConfirmModal() {
     confirmModal.hidden = true;
     confirmModalAction = null;
 }
-let mediaFilter = { status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '' };
+let mediaFilter = { status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', source: '' };
 let collSelectedId = null;           // 收藏夹 tab：当前选中的收藏夹 id
 let collectionsCache = [];           // 收藏夹列表缓存（管理视图用）
 let collPage = 1;                    // 收藏夹内媒体分页
@@ -775,6 +807,7 @@ async function runSearch(q, resetPage = true) {
         const sp = new URLSearchParams({ q, dim: currentDim });
         if (SEARCH_FORMAT_SELECT && SEARCH_FORMAT_SELECT.value) sp.set('format', SEARCH_FORMAT_SELECT.value);
         if (SEARCH_SUBCATEGORY_SELECT && SEARCH_SUBCATEGORY_SELECT.value) sp.set('subcategoryId', SEARCH_SUBCATEGORY_SELECT.value);
+        if (SEARCH_SOURCE_SELECT && SEARCH_SOURCE_SELECT.value) sp.set('source', SEARCH_SOURCE_SELECT.value);
         const { from, to } = searchTimeRange();
         if (from != null) sp.set('from', String(from));
         if (to != null) sp.set('to', String(to));
@@ -1291,6 +1324,7 @@ function buildMediaUrls() {
         if (mediaFilter.subcategoryId) p.set('subcategoryId', mediaFilter.subcategoryId);
         if (mediaFilter.unconfirmed) p.set('confirmed', '0');
         if (mediaFilter.year) p.set('year', mediaFilter.year);
+        if (mediaFilter.source) p.set('source', mediaFilter.source);
     };
     let url, countParams;
     if (mediaFilter.collectionId && mediaMode !== 'recent') {
@@ -1678,8 +1712,12 @@ function renderMediaGrid(list, container = mediaGridEl, mode = 'media') {
         const fmtBadge = a.mediaFormat
             ? `<span class="media-format-badge fmt-${esc(a.mediaFormat)}">${esc(formatName(a.mediaFormat))}</span>`
             : '';
+        // 来源角标：仅同步来源显示（手动为默认态不刷屏）
+        const srcBadge = (a.source === 'ANILIST' || a.source === 'OMOFUNA')
+            ? `<span class="media-source-badge">${esc(a.source === 'ANILIST' ? 'AniList' : 'omofuna')}</span>`
+            : '';
         card.innerHTML = `
-            <div class="media-cover">${fmtBadge}${cover}
+            <div class="media-cover">${fmtBadge}${srcBadge}${cover}
                 <input type="checkbox" class="media-batch-cb" title="勾选后可批量删除或导出推荐" ${mediaSelected.has(a.id) ? 'checked' : ''}>
                 ${mode === 'collection'
                     ? `<button type="button" class="media-remove-btn" title="移出收藏夹">⇤</button>`
@@ -1803,7 +1841,133 @@ async function confirmBatchDelete() {
     } else { // 来自单卡片删除：仅移除已删 id
         ids.forEach(id => mediaSelected.delete(id));
     }
+    showToast(`已将 ${ids.length} 个媒体移入回收站，可随时撤回`);
     loadMedia();
+}
+
+// ---------- 回收站视图 ----------
+
+/** 打开回收站视图（隐藏媒体主区，显示回收站列表）。 */
+function openTrashView() {
+    document.querySelector('.media-toolbar').hidden = true;
+    document.getElementById('format-tabs').hidden = true;
+    document.getElementById('media-filters').hidden = true;
+    document.getElementById('media-status').hidden = true;
+    mediaGridEl.hidden = true;
+    document.getElementById('media-pagination').hidden = true;
+    trashView.hidden = false;
+    trashSearchInput.value = '';
+    loadTrash();
+}
+
+/** 返回媒体列表（恢复主区显示）。 */
+function backToMedia() {
+    trashView.hidden = true;
+    document.querySelector('.media-toolbar').hidden = false;
+    document.getElementById('format-tabs').hidden = false;
+    document.getElementById('media-filters').hidden = false;
+    document.getElementById('media-status').hidden = false;
+    mediaGridEl.hidden = false;
+    document.getElementById('media-pagination').hidden = false;
+    loadMedia();
+}
+
+/** 加载回收站列表（q 标题搜索）。 */
+async function loadTrash() {
+    const q = trashSearchInput.value.trim();
+    trashStatusEl.textContent = '加载中…';
+    try {
+        const sp = new URLSearchParams({ limit: '200', offset: '0' });
+        if (q) sp.set('q', q);
+        const [listResp, countResp] = await Promise.all([
+            fetch(`/api/media/trash?${sp.toString()}`),
+            fetch(`/api/media/trash/count${q ? '?q=' + encodeURIComponent(q) : ''}`)
+        ]);
+        const list = listResp.ok ? await listResp.json() : [];
+        const total = countResp.ok ? Number(await countResp.json()) : list.length;
+        renderTrashList(list);
+        trashStatusEl.textContent = total
+            ? `回收站共 ${total} 条`
+            : (q ? '没有匹配的已删媒体' : '回收站是空的');
+    } catch (e) {
+        trashStatusEl.textContent = '加载失败：后端未响应';
+    }
+}
+
+/** 渲染回收站卡片：封面/标题/删除时间 + 撤回/彻底删除。 */
+function renderTrashList(list) {
+    trashListEl.innerHTML = '';
+    if (list.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'trash-empty';
+        empty.textContent = '回收站是空的';
+        trashListEl.appendChild(empty);
+        return;
+    }
+    for (const m of list) {
+        const card = document.createElement('div');
+        card.className = 'media-card trash-card';
+        const cover = m.coverPath
+            ? `<img src="${m.coverPath}" alt="" onerror="this.style.display='none'">`
+            : `<span class="cover-placeholder">${esc(m.title).slice(0, 1)}</span>`;
+        card.innerHTML = `
+            <div class="media-cover">${cover}</div>
+            <div class="media-card-body">
+                <div class="media-card-title"></div>
+                <div class="media-card-meta"></div>
+                <div class="trash-actions">
+                    <button type="button" class="btn-mini trash-restore" title="撤回恢复到媒体列表">↩ 撤回</button>
+                    <button type="button" class="btn-mini danger trash-purge" title="彻底删除（不可恢复）">彻底删除</button>
+                </div>
+            </div>`;
+        card.querySelector('.media-card-title').textContent = m.title;
+        const meta = [];
+        if (m.year) meta.push(String(m.year));
+        if (m.subcategory) meta.push(m.subcategory);
+        if (m.deletedAt) meta.push('删除于 ' + fmtTime(m.deletedAt));
+        card.querySelector('.media-card-meta').textContent = meta.join(' · ');
+        card.querySelector('.trash-restore').addEventListener('click', () => restoreTrash(m.id));
+        card.querySelector('.trash-purge').addEventListener('click', () => purgeTrash(m.id));
+        trashListEl.appendChild(card);
+    }
+}
+
+/** 撤回：恢复回收站媒体到列表。 */
+async function restoreTrash(id) {
+    try {
+        const resp = await fetch(`/api/media/${id}/restore`, { method: 'POST' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        showToast('已撤回该媒体');
+        loadTrash();
+    } catch (e) {
+        showToast('撤回失败：后端未响应');
+    }
+}
+
+/** 彻底删除单条（不可恢复，级联清集/片段/封面）。 */
+async function purgeTrash(id) {
+    if (!confirm('彻底删除该媒体？其下集/片段/封面将一并删除，不可恢复。')) return;
+    try {
+        const resp = await fetch(`/api/media/purge?ids=${id}`, { method: 'DELETE' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        showToast('已彻底删除');
+        loadTrash();
+    } catch (e) {
+        showToast('删除失败：后端未响应');
+    }
+}
+
+/** 清空回收站：全部彻底删除。 */
+async function clearTrash() {
+    if (!confirm('清空回收站？全部媒体将彻底删除，不可恢复。')) return;
+    try {
+        const resp = await fetch('/api/media/trash', { method: 'DELETE' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        showToast('回收站已清空');
+        loadTrash();
+    } catch (e) {
+        showToast('清空失败：后端未响应');
+    }
 }
 
 /** 轻提示：全局唯一 toast，2.5s 自动消失，可打断重显。 */
@@ -1933,8 +2097,12 @@ function renderRecommendGrid(list) {
         const fmtBadge = a.mediaFormat
             ? `<span class="media-format-badge fmt-${esc(a.mediaFormat)}">${esc(formatName(a.mediaFormat))}</span>`
             : '';
+        // 来源角标：仅同步来源显示（推荐勾选时便于识别 omofuna/AniList 重复来源）
+        const srcBadge = (a.source === 'ANILIST' || a.source === 'OMOFUNA')
+            ? `<span class="media-source-badge">${esc(a.source === 'ANILIST' ? 'AniList' : 'omofuna')}</span>`
+            : '';
         card.innerHTML = `
-            <div class="media-cover">${fmtBadge}${cover}
+            <div class="media-cover">${fmtBadge}${srcBadge}${cover}
                 <input type="checkbox" class="media-batch-cb" title="勾选后进入推荐导出" ${recommendSelected.has(a.id) ? 'checked' : ''}>
                 <button type="button" class="media-fav-btn" title="收藏到收藏夹">♡</button>
             </div>
@@ -2200,6 +2368,7 @@ function renderMediaDetail(d, eps) {
         </div>`;
     mediaDetailHeadEl.querySelector('.ad-title').textContent = d.title;
     const meta = [];
+    meta.push(mediaSourceLabel(d.source)); // 手动 / AniList 同步 / omofuna 同步
     if (d.mediaFormat) meta.push(formatName(d.mediaFormat));
     if (d.year) meta.push(String(d.year));
     if (d.subcategory) meta.push(d.subcategory);
@@ -2301,6 +2470,13 @@ function formatName(code) {
     if (!code) return '';
     const f = formatsCache.find(x => x.code === code);
     return f ? f.name : code;
+}
+
+/** 媒体来源 → 完整展示名（详情 meta 用；角标用短名直接内联）。 */
+function mediaSourceLabel(s) {
+    if (s === 'ANILIST') return 'AniList 同步';
+    if (s === 'OMOFUNA') return 'omofuna 同步';
+    return '手动';
 }
 
 /** 拉取格式树并刷新各下拉/格式 tab（页面加载、维护操作后调用）。 */
@@ -2828,9 +3004,11 @@ async function saveEpisodeCoverUpload() {
 }
 
 /** 打开番剧同步弹窗：生成 2000~2026 年份勾选 chips，默认全不选。 */
+/** 打开同步弹窗：年份 chips + 来源 chips 状态 + 检查进行中 omofuna 任务（刷新恢复进度）。 */
 function openMediaSyncModal() {
     syncYearGridEl.innerHTML = '';
     mediaSyncStatusEl.textContent = '';
+    mediaSyncProgressEl.hidden = true;
     const now = new Date().getFullYear();
     for (let y = now; y >= 2000; y--) {
         const chip = document.createElement('button');
@@ -2843,7 +3021,45 @@ function openMediaSyncModal() {
         });
         syncYearGridEl.appendChild(chip);
     }
+    syncSourceChips.forEach(c => c.classList.toggle('on', c.dataset.source === syncSource));
+    updateSyncSourceHint();
+    renderSyncCategories();
     mediaSyncModal.hidden = false;
+    checkOmofunaCurrent();
+}
+
+/** 来源切换（单选互斥）；切换时重渲染分类 chips、清空状态/进度并停掉旧轮询。 */
+function setSyncSource(src) {
+    syncSource = src;
+    syncSourceChips.forEach(c => c.classList.toggle('on', c.dataset.source === src));
+    updateSyncSourceHint();
+    renderSyncCategories();
+    mediaSyncStatusEl.textContent = '';
+    mediaSyncProgressEl.hidden = true;
+    mediaSyncStartBtn.disabled = false;
+    if (omofunaPollTimer) { clearInterval(omofunaPollTimer); omofunaPollTimer = null; }
+}
+
+/** 按当前数据源渲染分类 chips（AniList format / omofuna 类目），多选默认全选。 */
+function renderSyncCategories() {
+    syncCategoryGridEl.innerHTML = '';
+    const list = syncSource === 'OMOFUNA' ? SYNC_TYPES : SYNC_FORMATS;
+    for (const c of list) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'sync-year-chip on';
+        chip.dataset.val = c.code != null ? c.code : String(c.id);
+        chip.textContent = c.name;
+        chip.addEventListener('click', () => chip.classList.toggle('on'));
+        syncCategoryGridEl.appendChild(chip);
+    }
+}
+
+/** 按数据源更新提示文案。 */
+function updateSyncSourceHint() {
+    syncSourceHintEl.textContent = syncSource === 'OMOFUNA'
+        ? 'omofuna：抓取中文标题（日漫/动画/剧场），后台运行约 20~40 分钟，刷新可恢复进度'
+        : 'AniList：日文原名占位，同步约几十秒，命中已有自动跳过';
 }
 
 /** 全选 / 清空年份 chips。 */
@@ -2851,18 +3067,31 @@ function setSyncYears(on) {
     syncYearGridEl.querySelectorAll('.sync-year-chip').forEach(c => c.classList.toggle('on', on));
 }
 
-/** 开始同步：收集勾选年份 → POST → 展示结果 → 刷新媒体列表。 */
+/** 开始同步：按数据源分流（AniList 同步阻塞 / omofuna 异步任务 + 轮询）。分类全选时不传（不过滤）。 */
 async function startMediaSync() {
     const years = [...syncYearGridEl.querySelectorAll('.sync-year-chip.on')]
         .map(c => Number(c.dataset.year));
     if (years.length === 0) { mediaSyncStatusEl.textContent = '请先勾选至少一个年份'; return; }
+    const catVals = [...syncCategoryGridEl.querySelectorAll('.sync-year-chip.on')].map(c => c.dataset.val);
+    const allCats = catVals.length === syncCategoryGridEl.children.length;
+    if (syncSource === 'OMOFUNA') {
+        await startOmofunaSync(years, allCats ? null : catVals.map(Number));
+    } else {
+        await startAnilistSync(years, allCats ? null : catVals);
+    }
+}
+
+/** AniList 同步（同步阻塞，几十秒）：POST → 展示结果 → 刷新媒体列表。formats 空=不过滤。 */
+async function startAnilistSync(years, formats) {
     mediaSyncStartBtn.disabled = true;
     mediaSyncStatusEl.textContent = `正在同步 ${Math.min(...years)}~${Math.max(...years)} 年…（数据源 AniList）`;
     try {
+        const body = { years };
+        if (formats && formats.length) body.formats = formats;
         const resp = await fetch('/api/media/sync-anilist', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ years })
+            body: JSON.stringify(body)
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const r = await resp.json();
@@ -2874,6 +3103,90 @@ async function startMediaSync() {
     } finally {
         mediaSyncStartBtn.disabled = false;
     }
+}
+
+/** omofuna 同步（异步任务）：POST 建后台任务（立即返回 taskId）→ 轮询进度。types 空=全部类目。 */
+async function startOmofunaSync(years, types) {
+    mediaSyncStartBtn.disabled = true;
+    mediaSyncStatusEl.textContent = '正在创建抓取任务…';
+    try {
+        const body = { years };
+        if (types && types.length) body.types = types;
+        const resp = await fetch('/api/media/sync-omofuna', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error((err && err.message) || `HTTP ${resp.status}`);
+        }
+        const t = await resp.json();
+        mediaSyncStatusEl.textContent = `任务已启动，正在抓取 ${Math.min(...years)}~${Math.max(...years)} 年…`;
+        pollOmofunaTask(t.taskId);
+    } catch (e) {
+        mediaSyncStatusEl.textContent = '启动失败：' + (e.message || '后端未响应');
+        mediaSyncStartBtn.disabled = false;
+    }
+}
+
+/** 轮询 omofuna 任务进度；DONE 收尾刷新媒体列表，ERROR 展示失败原因。 */
+function pollOmofunaTask(taskId) {
+    if (omofunaPollTimer) clearInterval(omofunaPollTimer);
+    omofunaPollTimer = setInterval(async () => {
+        try {
+            const resp = await fetch('/api/media/sync-omofuna/' + taskId);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const t = await resp.json();
+            if (t.status === 'RUNNING') {
+                mediaSyncProgressEl.hidden = false;
+                mediaSyncStatusEl.textContent = `正在抓取：已抓 ${t.processedPages} 页，约 ${t.itemsFound} 条`;
+            } else if (t.status === 'DONE') {
+                clearInterval(omofunaPollTimer);
+                omofunaPollTimer = null;
+                mediaSyncProgressEl.hidden = true;
+                mediaSyncStatusEl.textContent = `完成：新增 ${t.added} 部，跳过 ${t.skipped} 部`;
+                showToast(`omofuna 同步完成：新增 ${t.added}，跳过 ${t.skipped}`);
+                mediaSyncStartBtn.disabled = false;
+                loadMedia();
+            } else { // ERROR
+                clearInterval(omofunaPollTimer);
+                omofunaPollTimer = null;
+                mediaSyncProgressEl.hidden = true;
+                mediaSyncStatusEl.textContent = '同步失败：' + (t.message || '未知错误');
+                showToast('omofuna 同步失败');
+                mediaSyncStartBtn.disabled = false;
+            }
+        } catch (e) {
+            clearInterval(omofunaPollTimer);
+            omofunaPollTimer = null;
+            mediaSyncStatusEl.textContent = '轮询失败：后端未响应';
+            mediaSyncStartBtn.disabled = false;
+        }
+    }, 2000);
+}
+
+/** 刷新恢复：打开弹窗时查最近 omofuna 任务，RUNNING 续轮询（来源自动切 omofuna）/ DONE·ERROR 展示上次结果。 */
+async function checkOmofunaCurrent() {
+    try {
+        const resp = await fetch('/api/media/sync-omofuna/current');
+        if (!resp.ok) return;
+        const t = await resp.json();
+        if (!t) return;
+        if (t.status === 'RUNNING') {
+            syncSource = 'OMOFUNA';
+            syncSourceChips.forEach(c => c.classList.toggle('on', c.dataset.source === 'OMOFUNA'));
+            updateSyncSourceHint();
+            mediaSyncStartBtn.disabled = true;
+            mediaSyncProgressEl.hidden = false;
+            mediaSyncStatusEl.textContent = `恢复进度：正在抓取 ${t.years.join(',')} 年…`;
+            pollOmofunaTask(t.taskId);
+        } else if (t.status === 'DONE') {
+            mediaSyncStatusEl.textContent = `上次 omofuna 结果：新增 ${t.added} 部，跳过 ${t.skipped} 部`;
+        } else if (t.status === 'ERROR') {
+            mediaSyncStatusEl.textContent = '上次 omofuna 同步失败：' + (t.message || '未知错误');
+        }
+    } catch (e) { /* 刷新恢复失败不阻塞 */ }
 }
 
 /** 全选本页：把当前已渲染的媒体全部加入勾选集合（批量删除前快速圈选）。 */
@@ -3680,6 +3993,8 @@ mediaSyncModal.addEventListener('click', (e) => { if (e.target === mediaSyncModa
 document.getElementById('sync-year-all').addEventListener('click', () => setSyncYears(true));
 document.getElementById('sync-year-clear').addEventListener('click', () => setSyncYears(false));
 document.getElementById('media-sync-start').addEventListener('click', startMediaSync);
+// 同步来源单选 chips：切换即分流（AniList 同步阻塞 / omofuna 异步任务）
+syncSourceChips.forEach(c => c.addEventListener('click', () => setSyncSource(c.dataset.source)));
 // 封面补下 / 全选本页 / 媒体列表分页（页大小 / 上页 / 下页）
 document.getElementById('media-retry-covers').addEventListener('click', retryCovers);
 document.getElementById('media-batch-select-all').addEventListener('click', selectAllCurrent);
@@ -3790,6 +4105,16 @@ filterSubcategoryEl.addEventListener('change', () => { mediaFilter.subcategoryId
 filterCollectionEl.addEventListener('change', () => { mediaFilter.collectionId = filterCollectionEl.value; loadMedia(); });
 filterUnconfirmedEl.addEventListener('change', () => { mediaFilter.unconfirmed = filterUnconfirmedEl.checked; loadMedia(); });
 filterYearEl.addEventListener('change', () => { mediaFilter.year = filterYearEl.value; loadMedia(); });
+filterSourceEl.addEventListener('change', () => { mediaFilter.source = filterSourceEl.value; loadMedia(); });
+// 回收站：打开/返回/清空/搜索（input 防抖 300ms）
+trashOpenBtn.addEventListener('click', openTrashView);
+trashBackBtn.addEventListener('click', backToMedia);
+trashClearBtn.addEventListener('click', clearTrash);
+let trashSearchTimer = null;
+trashSearchInput.addEventListener('input', () => {
+    clearTimeout(trashSearchTimer);
+    trashSearchTimer = setTimeout(loadTrash, 300);
+});
 fillFilterCollections();
 mediaModal.addEventListener('click', (e) => { if (e.target === mediaModal) mediaModal.hidden = true; });
 document.getElementById('media-modal-cancel').addEventListener('click', () => { mediaModal.hidden = true; });
@@ -3820,6 +4145,20 @@ if (SEARCH_FORMAT_SELECT) {
 if (SEARCH_SUBCATEGORY_SELECT) {
     SEARCH_SUBCATEGORY_SELECT.addEventListener('change', () => {
         if (input.value.trim()) runSearch(input.value.trim());
+    });
+}
+// 来源筛选：选中即重搜
+if (SEARCH_SOURCE_SELECT) {
+    SEARCH_SOURCE_SELECT.addEventListener('change', () => {
+        if (input.value.trim()) runSearch(input.value.trim());
+    });
+}
+// 更多筛选折叠 toggle：展开次要项（时间/聚合），保持主行简洁
+if (searchMoreBtn) {
+    searchMoreBtn.addEventListener('click', () => {
+        const show = searchFiltersMore.hidden;
+        searchFiltersMore.hidden = !show;
+        searchMoreBtn.textContent = show ? '更多筛选 ▴' : '更多筛选 ▾';
     });
 }
 coverModal.addEventListener('click', (e) => { if (e.target === coverModal) coverModal.hidden = true; });

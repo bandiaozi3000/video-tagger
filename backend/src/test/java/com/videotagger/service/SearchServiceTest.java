@@ -55,7 +55,7 @@ class SearchServiceTest {
         vectorStore.upsert(EntityType.CLIP, 2L, new float[]{1f, 0f});
         vectorStore.upsert(EntityType.CLIP, 3L, new float[]{0.9f, 0.1f});
 
-        SearchResponse resp = searchService.search("战斗", 10, 0, "clip", null, null, null, null);
+        SearchResponse resp = searchService.search("战斗", 10, 0, "clip", null, null, null, null, null);
 
         assertTrue(resp.semanticEnabled());
         assertEquals(2L, resp.results().get(0).id());
@@ -69,7 +69,7 @@ class SearchServiceTest {
         when(clipMapper.selectBatchIds(anyCollection())).thenReturn(List.of(clip(1L, "战斗A")));
         when(embeddingClient.isConfigured()).thenReturn(false);
 
-        SearchResponse resp = searchService.search("战斗", 10, 0, "clip", null, null, null, null);
+        SearchResponse resp = searchService.search("战斗", 10, 0, "clip", null, null, null, null, null);
 
         assertFalse(resp.semanticEnabled());
         assertEquals(1, resp.results().size());
@@ -82,7 +82,7 @@ class SearchServiceTest {
         when(embeddingClient.isConfigured()).thenReturn(true);
         when(embeddingClient.embed(anyString())).thenThrow(new RuntimeException("API 超时"));
 
-        SearchResponse resp = searchService.search("战斗", 10, 0, "clip", null, null, null, null);
+        SearchResponse resp = searchService.search("战斗", 10, 0, "clip", null, null, null, null, null);
 
         assertFalse(resp.semanticEnabled());
         assertEquals(1, resp.results().size());
@@ -96,7 +96,7 @@ class SearchServiceTest {
         when(mediaMapper.searchByKeyword(eq("热血"), anyInt())).thenReturn(List.of(a));
         when(mediaMapper.selectBatchIds(anyCollection())).thenReturn(List.of(a));
 
-        SearchResponse resp = searchService.search("热血", 10, 0, "media", null, null, null, null);
+        SearchResponse resp = searchService.search("热血", 10, 0, "media", null, null, null, null, null);
 
         assertEquals(1, resp.results().size());
         SearchResult r = resp.results().get(0);
@@ -125,7 +125,7 @@ class SearchServiceTest {
         when(mediaMapper.selectBatchIds(anyCollection())).thenReturn(List.of(a));
         when(embeddingClient.isConfigured()).thenReturn(false);
 
-        SearchResponse resp = searchService.search("高燃", 10, 0, "clip", null, null, null, null);
+        SearchResponse resp = searchService.search("高燃", 10, 0, "clip", null, null, null, null, null);
 
         SearchResult r = resp.results().get(0);
         assertEquals(7L, r.mediaId());
@@ -153,7 +153,7 @@ class SearchServiceTest {
         when(mediaMapper.subtreeIds(7L)).thenReturn(List.of(7L, 8L));
         when(embeddingClient.isConfigured()).thenReturn(false);
 
-        SearchResponse resp = searchService.search("番", 10, 0, "media", null, 7L, null, null);
+        SearchResponse resp = searchService.search("番", 10, 0, "media", null, 7L, null, null, null);
 
         assertEquals(1, resp.results().size());
         assertEquals(8L, resp.results().get(0).id());
@@ -169,10 +169,47 @@ class SearchServiceTest {
         when(clipMapper.selectBatchIds(anyCollection())).thenReturn(List.of(c1, c2));
         when(embeddingClient.isConfigured()).thenReturn(false);
 
-        SearchResponse resp = searchService.search("高燃", 10, 0, "clip", null, null, 2000L, null);
+        SearchResponse resp = searchService.search("高燃", 10, 0, "clip", null, null, 2000L, null, null);
 
         assertEquals(1, resp.results().size());
         assertEquals(2L, resp.results().get(0).id());
+    }
+
+    @Test
+    void sourceFilterKeepsOnlyMatchingMedia() {
+        // 来源过滤：media 维度结果带自身 source，只保留匹配项
+        com.videotagger.entity.Media aOmofuna = new com.videotagger.entity.Media();
+        aOmofuna.setId(1L);
+        aOmofuna.setTitle("中文番");
+        aOmofuna.setSource("OMOFUNA");
+        com.videotagger.entity.Media aManual = new com.videotagger.entity.Media();
+        aManual.setId(2L);
+        aManual.setTitle("手动画");
+        aManual.setSource("MANUAL");
+        when(mediaMapper.searchByKeyword(eq("番"), anyInt())).thenReturn(List.of(aOmofuna, aManual));
+        when(mediaMapper.selectBatchIds(anyCollection())).thenReturn(List.of(aOmofuna, aManual));
+        when(embeddingClient.isConfigured()).thenReturn(false);
+
+        SearchResponse resp = searchService.search("番", 10, 0, "media", null, null, null, null, "OMOFUNA");
+
+        assertEquals(1, resp.results().size());
+        assertEquals("OMOFUNA", resp.results().get(0).source());
+    }
+
+    @Test
+    void sourceFilterIgnoredWhenBlank() {
+        // source 为空不过滤（默认全部来源）
+        com.videotagger.entity.Media a = new com.videotagger.entity.Media();
+        a.setId(1L);
+        a.setTitle("某番");
+        a.setSource("MANUAL");
+        when(mediaMapper.searchByKeyword(eq("某"), anyInt())).thenReturn(List.of(a));
+        when(mediaMapper.selectBatchIds(anyCollection())).thenReturn(List.of(a));
+        when(embeddingClient.isConfigured()).thenReturn(false);
+
+        SearchResponse resp = searchService.search("某", 10, 0, "media", null, null, null, null, "");
+
+        assertEquals(1, resp.results().size());
     }
 
     @Test
@@ -184,7 +221,7 @@ class SearchServiceTest {
         when(mediaMapper.searchByKeyword(eq("二刷"), anyInt())).thenReturn(List.of(a));
         when(mediaMapper.selectBatchIds(anyCollection())).thenReturn(List.of(a));
 
-        SearchResponse resp = searchService.search("二刷", 10, 0, "media", null, null, null, null);
+        SearchResponse resp = searchService.search("二刷", 10, 0, "media", null, null, null, null, null);
 
         assertEquals("值得二刷的名场面合集", resp.results().get(0).note());
     }

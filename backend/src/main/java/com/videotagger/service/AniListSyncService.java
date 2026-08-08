@@ -63,8 +63,13 @@ public class AniListSyncService {
                 .build();
     }
 
-    /** 按年份逐个拉取同步；单个年份失败跳过（记日志），不影响其余年份。 */
+    /** 兼容重载：不过滤 format。 */
     public SyncResult sync(List<Integer> years) {
+        return sync(years, null);
+    }
+
+    /** 按年份逐个拉取同步；单个年份失败跳过（记日志），不影响其余年份。formats 为空 = 不过滤。 */
+    public SyncResult sync(List<Integer> years, List<String> formats) {
         int added = 0;
         int skipped = 0;
         for (Integer year : years) {
@@ -73,7 +78,7 @@ public class AniListSyncService {
                 continue;
             }
             try {
-                SyncResult r = syncYear(year);
+                SyncResult r = syncYear(year, formats);
                 added += r.added();
                 skipped += r.skipped();
             } catch (Exception e) {
@@ -84,13 +89,13 @@ public class AniListSyncService {
     }
 
     /** 同步单个年份：循环分页拉取并逐条入库。 */
-    private SyncResult syncYear(int year) throws IOException, InterruptedException {
+    private SyncResult syncYear(int year, List<String> formats) throws IOException, InterruptedException {
         int added = 0;
         int skipped = 0;
         int page = 1;
         boolean hasNext;
         do {
-            JsonNode root = fetchPage(year, page);
+            JsonNode root = fetchPage(year, page, formats);
             JsonNode media = root.path("data").path("Page").path("media");
             hasNext = root.path("data").path("Page").path("pageInfo").path("hasNextPage").asBoolean();
             for (JsonNode m : media) {
@@ -107,13 +112,13 @@ public class AniListSyncService {
         return new SyncResult(added, skipped);
     }
 
-    /** 拉取一页 GraphQL 结果，解析为 JSON 树。 */
-    private JsonNode fetchPage(int year, int page) throws IOException, InterruptedException {
+    /** 拉取一页 GraphQL 结果，解析为 JSON 树。formats 为空传 null（不过滤 format）。 */
+    private JsonNode fetchPage(int year, int page, List<String> formats) throws IOException, InterruptedException {
         String query = """
-                query ($year: Int, $page: Int, $perPage: Int) {
+                query ($year: Int, $page: Int, $perPage: Int, $formats: [MediaFormat]) {
                   Page(page: $page, perPage: $perPage) {
                     pageInfo { hasNextPage }
-                    media(seasonYear: $year, type: ANIME, isAdult: false, sort: START_DATE) {
+                    media(seasonYear: $year, type: ANIME, isAdult: false, format_in: $formats, sort: START_DATE) {
                       id
                       title { native }
                       startDate { year }
@@ -123,8 +128,12 @@ public class AniListSyncService {
                   }
                 }
                 """;
+        String formatsJson = (formats == null || formats.isEmpty())
+                ? "null"
+                : objectMapper.writeValueAsString(formats);
         String body = "{\"query\":" + objectMapper.writeValueAsString(query)
-                + ",\"variables\":{\"year\":" + year + ",\"page\":" + page + ",\"perPage\":" + PER_PAGE + "}}";
+                + ",\"variables\":{\"year\":" + year + ",\"page\":" + page + ",\"perPage\":" + PER_PAGE
+                + ",\"formats\":" + formatsJson + "}}";
         HttpRequest req = HttpRequest.newBuilder(URI.create(apiBase))
                 .header("User-Agent", UA)
                 .header("Content-Type", "application/json")
@@ -170,6 +179,7 @@ public class AniListSyncService {
         a.setMediaFormat("VIDEO");
         a.setStatus("WANT");
         a.setConfirmed(1);
+        a.setSource("ANILIST");
         a.setCreatedAt(System.currentTimeMillis());
         mediaMapper.insert(a);
         if (cover != null && !cover.isBlank()) {

@@ -120,7 +120,7 @@ class MediaServiceIT extends AbstractMySqlIT {
         assertNotNull(a);
         assertTrue(clipMapper.countByMedia(a.getId()) >= 1);
 
-        mediaService.delete(a.getId());
+        mediaService.purge(a.getId());
 
         assertNull(mediaMapper.selectById(a.getId()));
         assertEquals(0, episodeMapper.countByMedia(a.getId()));

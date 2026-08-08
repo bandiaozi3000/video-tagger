@@ -57,8 +57,9 @@ public class CollectionController {
                                     @RequestParam(required = false) String format,
                                     @RequestParam(required = false) Long subcategoryId,
                                     @RequestParam(required = false) Integer confirmed,
-                                    @RequestParam(required = false) Integer year) {
-        return collectionService.media(id, limit, offset, status, format, subcategoryId, confirmed, year);
+                                    @RequestParam(required = false) Integer year,
+                                    @RequestParam(required = false) String source) {
+        return collectionService.media(id, limit, offset, status, format, subcategoryId, confirmed, year, source);
     }
 
     @PostMapping("/{id}/media")

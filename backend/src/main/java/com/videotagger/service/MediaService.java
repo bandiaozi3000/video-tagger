@@ -60,27 +60,29 @@ public class MediaService {
         this.coverService = coverService;
     }
 
-    /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/媒体标签筛选；offset 分页。 */
+    /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/来源/媒体标签筛选；offset 分页。 */
     public List<MediaSummary> list(int limit, int offset, String status, String format, Long subcategoryId,
-                                   Integer confirmed, Long collectionId, String sort, Integer year, Long tagId) {
-        return mediaMapper.listFiltered(status, format, subcategoryId, confirmed, collectionId, sort, year, tagId,
-                Math.min(Math.max(limit, 1), 100), Math.max(offset, 0));
+                                   Integer confirmed, Long collectionId, String sort, Integer year,
+                                   String source, Long tagId) {
+        return mediaMapper.listFiltered(status, format, subcategoryId, confirmed, collectionId, sort, year,
+                source, tagId,
+                Math.min(Math.max(limit, 1), 200), Math.max(offset, 0));
     }
 
-    /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/format/子分类/confirmed/collectionId/year 筛选；offset 分页。 */
+    /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/format/子分类/confirmed/collectionId/year/source 筛选；offset 分页。 */
     public List<MediaSummary> recent(int limit, int offset, String status, String format, Long subcategoryId,
-                                     Integer confirmed, Long collectionId, Integer year) {
-        return mediaMapper.listByLatest(Math.min(Math.max(limit, 1), 100), Math.max(offset, 0),
-                status, format, subcategoryId, confirmed, collectionId, year);
+                                     Integer confirmed, Long collectionId, Integer year, String source) {
+        return mediaMapper.listByLatest(Math.min(Math.max(limit, 1), 200), Math.max(offset, 0),
+                status, format, subcategoryId, confirmed, collectionId, year, source);
     }
 
     /** 带筛选的媒体总数：全部媒体/收藏夹分支走 countFiltered，最近观看分支（latest=true）走 countLatest。 */
     public long count(String status, String format, Long subcategoryId, Integer confirmed, Long collectionId,
-                      Integer year, Long tagId, boolean latest) {
+                      Integer year, String source, Long tagId, boolean latest) {
         if (latest) {
-            return mediaMapper.countLatest(status, format, subcategoryId, confirmed, collectionId, year);
+            return mediaMapper.countLatest(status, format, subcategoryId, confirmed, collectionId, year, source);
         }
-        return mediaMapper.countFiltered(status, format, subcategoryId, confirmed, collectionId, year, tagId);
+        return mediaMapper.countFiltered(status, format, subcategoryId, confirmed, collectionId, year, source, tagId);
     }
 
     /** 库中已有的全部首播年份（降序）。 */
@@ -105,7 +107,7 @@ public class MediaService {
                 ? clipMapper.selectRepresentativeCoverByMedia(id) : null;
         return new MediaDetail(a.getId(), a.getTitle(), a.getYear(), a.getOriginalTitle(), a.getAliases(), a.getMediaFormat(),
                 a.getSubcategory(), a.getSubcategoryId(), a.getNote(), a.getStatus(), a.getRating(), a.getCoverPath(),
-                a.getConfirmed(), a.getCreatedAt(), clipCount, episodeCount, mediaTagMapper.selectTags(id),
+                a.getConfirmed(), a.getSource(), a.getCreatedAt(), clipCount, episodeCount, mediaTagMapper.selectTags(id),
                 mediaCollectionMapper.selectCollectionIdsByMedia(id), fallbackCoverPath);
     }
 
@@ -114,6 +116,7 @@ public class MediaService {
         Media a = new Media();
         apply(a, req);
         a.setConfirmed(1); // 手动创建即已确认
+        a.setSource("MANUAL"); // 手动创建 → 手动来源（同步导入的由各 SyncService 分别标注）
         a.setCreatedAt(System.currentTimeMillis());
         mediaMapper.insert(a);
         embeddingTaskService.enqueue(EntityType.MEDIA, a.getId());
@@ -173,9 +176,33 @@ public class MediaService {
         }
     }
 
-    /** 删除番剧：级联删除其下所有集、片段及其标签/向量/任务，并清理全部封面文件。 */
+    /** 移入回收站（软删除）：只置 deleted_at，集/片段/标签/封面/向量保留（撤回原样恢复）。 */
     @Transactional
-    public void delete(Long id) {
+    public void trash(Long id) {
+        Media a = requireMedia(id);
+        a.setDeletedAt(System.currentTimeMillis());
+        mediaMapper.updateById(a);
+    }
+
+    /** 批量移入回收站。 */
+    @Transactional
+    public void trashBatch(List<Long> ids) {
+        for (Long id : ids) {
+            trash(id);
+        }
+    }
+
+    /** 撤回（恢复）：deleted_at 置空，媒体连同保留的集/片段/标签原样恢复。 */
+    @Transactional
+    public void restore(Long id) {
+        Media a = requireMedia(id);
+        a.setDeletedAt(null);
+        mediaMapper.updateById(a);
+    }
+
+    /** 彻底删除媒体：级联删除其下所有集、片段及其标签/向量/任务，并清理全部封面文件。 */
+    @Transactional
+    public void purge(Long id) {
         Media a = requireMedia(id);
         for (Episode ep : episodeMapper.listByMedia(id)) {
             coverService.deleteCover(ep.getCoverPath());
@@ -197,12 +224,22 @@ public class MediaService {
         mediaMapper.deleteById(a.getId());
     }
 
-    /** 批量删除媒体（级联清理同上）。单个失败中断回滚。 */
+    /** 批量彻底删除（级联清理同上）。单个失败中断回滚。 */
     @Transactional
-    public void deleteBatch(List<Long> ids) {
+    public void purgeBatch(List<Long> ids) {
         for (Long id : ids) {
-            delete(id);
+            purge(id);
         }
+    }
+
+    /** 回收站列表：已删媒体（deleted_at 非空），q 按标题模糊过滤，按删除时间倒序。 */
+    public List<Media> listTrash(String q, int limit, int offset) {
+        return mediaMapper.listTrash(q, Math.min(Math.max(limit, 1), 200), Math.max(offset, 0));
+    }
+
+    /** 回收站数量（可带标题过滤）。 */
+    public long countTrash(String q) {
+        return mediaMapper.countTrash(q);
     }
 
     /** 某番剧的集列表（带片段数/集级标签）；封面解析：显式集封面为空时落到代表性片段帧。 */

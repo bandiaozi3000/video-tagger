@@ -1,6 +1,8 @@
 package com.videotagger.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -38,5 +40,11 @@ public class Media {
     private String coverPath;
     /** 自动识别为低置信时置 0，需手工确认（B 做全的待确认标记） */
     private Integer confirmed;
+    /** 来源：MANUAL（手动）/ ANILIST / OMOFUNA（同步数据源细分，系统决定不手选） */
+    private String source;
     private Long createdAt;
+    /** 删除时间戳（回收站软删除标记，null=正常；回收站查询 deleted_at 非空）。
+     *  updateStrategy=IGNORED：撤回时 updateById 必须能把 deleted_at 更新回 NULL（MyBatis-Plus 默认忽略 null 字段）。 */
+    @TableField(updateStrategy = FieldStrategy.IGNORED)
+    private Long deletedAt;
 }
