@@ -64,7 +64,6 @@ const filterCollectionEl = document.getElementById('filter-collection');
 const filterUnconfirmedEl = document.getElementById('filter-unconfirmed');
 const filterYearEl = document.getElementById('filter-year');
 const filterSourceEl = document.getElementById('filter-source');
-const trashOpenBtn = document.getElementById('trash-open');
 const trashView = document.getElementById('trash-view');
 const trashBackBtn = document.getElementById('trash-back');
 const trashSearchInput = document.getElementById('trash-search');
@@ -3980,7 +3979,11 @@ document.querySelectorAll('.media-tabs .atab').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.media-tabs .atab').forEach(b => b.classList.toggle('active', b === btn));
         mediaMode = btn.dataset.mediaTab;
-        loadMedia();
+        if (mediaMode === 'trash') {
+            openTrashView(); // 回收站独立视图（媒体栏下）
+        } else {
+            backToMedia(); // 内部恢复主区 + loadMedia
+        }
     });
 });
 document.getElementById('media-create').addEventListener('click', openCreateMedia);
@@ -4106,9 +4109,12 @@ filterCollectionEl.addEventListener('change', () => { mediaFilter.collectionId =
 filterUnconfirmedEl.addEventListener('change', () => { mediaFilter.unconfirmed = filterUnconfirmedEl.checked; loadMedia(); });
 filterYearEl.addEventListener('change', () => { mediaFilter.year = filterYearEl.value; loadMedia(); });
 filterSourceEl.addEventListener('change', () => { mediaFilter.source = filterSourceEl.value; loadMedia(); });
-// 回收站：打开/返回/清空/搜索（input 防抖 300ms）
-trashOpenBtn.addEventListener('click', openTrashView);
-trashBackBtn.addEventListener('click', backToMedia);
+// 回收站：返回/清空/搜索（input 防抖 300ms；打开走媒体 tab 的 trash 分支）
+trashBackBtn.addEventListener('click', () => {
+    // 返回媒体列表：切回「全部媒体」tab（含主区恢复）
+    const allTab = document.querySelector('.media-tabs .atab[data-media-tab="all"]');
+    if (allTab) allTab.click();
+});
 trashClearBtn.addEventListener('click', clearTrash);
 let trashSearchTimer = null;
 trashSearchInput.addEventListener('input', () => {

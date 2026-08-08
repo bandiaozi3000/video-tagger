@@ -118,7 +118,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='collectionId != null'>AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
             + "<if test='year != null'>AND a.year = #{year}</if>"
             + "<if test='source != null'>AND a.source = #{source}</if>"
-            + "AND EXISTS (SELECT 1 FROM clips c JOIN episode e ON e.id = c.episode_id WHERE e.media_id = a.id)"
+            + " AND EXISTS (SELECT 1 FROM clips c JOIN episode e ON e.id = c.episode_id WHERE e.media_id = a.id)"
             + "</where>"
             + "</script>")
     long countLatest(@Param("status") String status, @Param("format") String format,

@@ -14,7 +14,8 @@
 - **同步入口合一**：媒体工具栏两个同步按钮（⇄ 同步番剧 / ⇄ 同步中文番剧）合并为一个「⇄ 同步番剧」；弹层内**数据源单选 chips**（AniList / omofuna）+ 年份 chips 勾选，开始同步按来源分流——AniList 同步阻塞约几十秒，omofuna 异步任务 + 进度轮询 + 刷新恢复。
 - **媒体分页 200 修复**：后端媒体列表 limit 上限从 100 提到 200（此前前端「200 条/页」选项被后端钳成 100），`list`/`recent`/收藏夹内列表三处统一。
 - **同步分类筛选**：同步弹层新增「**分类**」chips 多选（按来源切换）——AniList 用 format 7 类（TV / TV 短片 / 剧场版 / OVA / ONA / 特别篇 / 音乐）、omofuna 用类目 3 类（日漫 / 动画 / 剧场），默认全选=不过滤，勾选后只导入所选分类控制导入量。`POST /api/media/sync-anilist` 新增 `formats` 参数（GraphQL `format_in` 过滤），`POST /api/media/sync-omofuna` 新增 `types` 参数（node 脚本只抓所选类目页）。
-- **回收站**：媒体删除改「**移入回收站**」（软删除，`deleted_at` 标记；集/片段/标签/封面保留，撤回原样恢复）；媒体 tab 新增「🗑 **回收站**」视图——标题搜索 + 列表（含删除时间）+ 单条撤回 / 彻底删除 + 清空回收站。接口：`GET /api/media/trash`（列表/搜索）、`GET /api/media/trash/count`、`POST /api/media/{id}/restore`（撤回）、`DELETE /api/media/purge?ids=`（彻底删除）、`DELETE /api/media/trash`（清空）。集/片段删除保持直接删。V14 迁移加 `deleted_at` 列；所有正常媒体查询排除已删。
+- **回收站**：媒体删除改「**移入回收站**」（软删除，`deleted_at` 标记；集/片段/标签/封面保留，撤回原样恢复）；媒体 tab 新增「**回收站**」子 tab 视图（最近观看 | 全部媒体 | 回收站）——标题搜索 + 列表（含删除时间）+ 单条撤回 / 彻底删除 + 清空回收站。接口：`GET /api/media/trash`（列表/搜索）、`GET /api/media/trash/count`、`POST /api/media/{id}/restore`（撤回）、`DELETE /api/media/purge?ids=`（彻底删除）、`DELETE /api/media/trash`（清空）。集/片段删除保持直接删。V14 迁移加 `deleted_at` 列；所有正常媒体查询排除已删。
+- **修复最近观看计数 SQL 报错**：媒体 tab 点选报错根因是 countLatest 的 `AND EXISTS` 前缺空格（软删恒真条件拼接后成 `IS NULLAND EXISTS`），已补空格并全库扫描确认仅此一处硬编码 AND 行。
 
 ### 接口变更
 - `POST /api/media/sync-omofuna`：body `{"years":[2026,...]}`，创建后台抓取任务并立即返回 `{taskId,status:"RUNNING",...}`；已有进行中任务返回 400。

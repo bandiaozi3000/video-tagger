@@ -64,6 +64,7 @@
             <div class="media-tabs">
                 <button type="button" class="atab active" data-media-tab="recent">最近观看</button>
                 <button type="button" class="atab" data-media-tab="all">全部媒体</button>
+                <button type="button" class="atab" data-media-tab="trash">回收站</button>
             </div>
             <div class="toolbar-actions">
                 <button type="button" id="media-sync" class="btn-mini" title="选择数据源（AniList/omofuna）与年份批量导入">⇄ 同步番剧</button>
@@ -101,7 +102,6 @@
                 <option value="OMOFUNA">omofuna 同步</option>
             </select>
             <button type="button" id="collection-create" class="btn-mini" title="新建收藏夹">＋ 新建收藏夹</button>
-            <button type="button" id="trash-open" class="btn-mini" title="查看已删除的媒体，可撤回或彻底删除">🗑 回收站</button>
             <label class="checkbox-inline"><input type="checkbox" id="filter-unconfirmed"> 待确认</label>
         </div>
         <div id="media-status" class="status"></div>
