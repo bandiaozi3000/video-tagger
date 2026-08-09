@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>方案一 · 放映机 · 胶片闪回 → 银幕画廊</title>
+<style>
+  :root{
+    --amber:#f5a742; --ember:#ffd9a0; --brown:#3a2418; --coal:#17100c; --cream:#f0e3cf;
+    --curtain:#521a15; --ink:#0d0a07;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--ink);color:var(--cream);overflow:hidden;height:100vh;
+    font-family:Georgia,"Songti SC","Noto Serif SC",serif;
+  }
+
+  /* ---- 剧场墙体 + 颗粒 ---- */
+  .wall{position:fixed;inset:0;z-index:0;
+    background:
+      radial-gradient(1300px 800px at 28% 14%, rgba(245,167,66,.055), transparent 60%),
+      radial-gradient(1000px 720px at 78% 88%, rgba(82,26,21,.55), transparent 65%),
+      radial-gradient(700px 500px at 55% 30%, rgba(58,36,24,.35), transparent 70%),
+      var(--ink);
+  }
+  .wall::before{content:'';position:absolute;inset:0;opacity:.5;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ---- 两侧丝绒垂帘 ---- */
+  .curtain{position:fixed;top:0;bottom:0;width:12vw;min-width:90px;z-index:3;pointer-events:none;
+    background:linear-gradient(90deg,#2a0e0c 0%,#5a1d17 38%,var(--curtain) 62%,#200b09 100%);
+    box-shadow:inset -10px 0 22px rgba(0,0,0,.55);}
+  .curtain.left{left:0;border-right:1px solid rgba(245,167,66,.16)}
+  .curtain.right{right:0;border-left:1px solid rgba(245,167,66,.16);
+    background:linear-gradient(270deg,#2a0e0c 0%,#5a1d17 38%,var(--curtain) 62%,#200b09 100%);
+    box-shadow:inset 10px 0 22px rgba(0,0,0,.55);}
+  .curtain::after{content:'';position:absolute;top:0;bottom:0;left:0;right:0;opacity:.7;
+    background:repeating-linear-gradient(93deg,transparent 0 34px,rgba(0,0,0,.28) 34px 39px);
+    mix-blend-mode:multiply;}
+  .curtain::before{content:'';position:absolute;top:0;bottom:0;left:0;right:0;opacity:.35;
+    background:repeating-linear-gradient(0deg,transparent 0 12px,rgba(255,217,160,.035) 12px 13px);}
+  /* 帘头波浪 */
+  .valance{position:fixed;top:0;left:12vw;right:12vw;height:34px;z-index:4;pointer-events:none;
+    background:radial-gradient(18px 20px at 20px 0,var(--curtain) 55%,transparent 60%),
+               radial-gradient(18px 20px at 60px 0,var(--curtain) 55%,transparent 60%),
+               radial-gradient(18px 20px at 100px 0,var(--curtain) 55%,transparent 60%);
+    background-size:120px 34px;background-repeat:repeat-x;
+    border-bottom:2px solid rgba(245,167,66,.22);}
+
+  /* ---- 放映机光柱 + 灯珠 ---- */
+  .beam{position:fixed;right:4vw;bottom:0;width:44vw;height:80vh;z-index:1;pointer-events:none;
+    transform-origin:bottom right;
+    clip-path:polygon(0 100%, 14% 100%, 100% 0, 84% 0);
+    background:linear-gradient(115deg,rgba(245,167,66,.11),rgba(255,217,160,.035) 52%,transparent 82%);
+    filter:blur(3px);animation:flicker 3.2s steps(1) infinite;}
+  @keyframes flicker{
+    0%,100%{opacity:1} 3%{opacity:.7} 5%{opacity:.95} 8%{opacity:.8} 11%{opacity:1}
+    46%{opacity:.65} 49%{opacity:.92} 52%{opacity:.75} 55%{opacity:1}
+    83%{opacity:.8} 86%{opacity:1}}
+  .beam-orb{position:fixed;right:2.6vw;bottom:6vh;width:54px;height:54px;border-radius:50%;z-index:2;pointer-events:none;
+    background:radial-gradient(circle at 50% 44%,#fff7e6,#ffd9a0 42%,rgba(245,167,66,.28) 72%,transparent 80%);
+    box-shadow:0 0 70px 34px rgba(245,167,66,.32);
+    animation:flicker 3.2s steps(1) infinite;}
+  .projector{position:fixed;right:2vw;bottom:0;z-index:6;width:96px;height:66px;pointer-events:none;
+    background:linear-gradient(180deg,#2c1c12,#191009);
+    border:1px solid rgba(245,167,66,.2);border-bottom:none;border-radius:6px 6px 0 0;}
+  .projector::before{content:'';position:absolute;left:-8px;top:16px;width:112px;height:14px;
+    background:#241609;border:1px solid rgba(245,167,66,.16);border-radius:3px;}
+  .projector::after{content:'CINEMA · 35MM';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    font-size:8px;letter-spacing:2px;color:#8a6a3e;}
+
+  /* ---- 顶部品牌 + 海报标题 ---- */
+  .topbar{position:fixed;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
+    padding:16px 30px;mix-blend-mode:screen;pointer-events:none;}
+  .brand{font-size:12px;letter-spacing:6px;color:#c9a875;text-transform:uppercase}
+  .brand b{color:#f5e6cf;font-weight:400;letter-spacing:4px}
+  .brand .star{color:var(--amber);text-shadow:0 0 12px rgba(245,167,66,.8)}
+  .brand .right{font-style:italic;letter-spacing:3px;color:#9a7c4e}
+  .hero{position:fixed;top:0;left:0;right:0;z-index:19;text-align:center;padding-top:56px;pointer-events:none}
+  .hero h1{font-size:clamp(24px,4.4vw,50px);font-weight:700;letter-spacing:14px;color:#f5e6cf;
+    text-shadow:0 0 34px rgba(245,167,66,.28),0 2px 0 rgba(0,0,0,.6);}
+  .hero .sub{font-size:11px;letter-spacing:9px;color:#9a7c4e;margin-top:10px;text-transform:uppercase}
+  .hero .sub i{color:#c9a875;font-style:normal}
+
+  /* ---- 银幕舞台 ---- */
+  .screen-wrap{position:fixed;top:50%;left:50%;transform:translate(-50%,-55%);z-index:10;
+    width:min(64vw,600px);}
+  .screen{position:relative;width:100%;aspect-ratio:4/3;border-radius:4px;
+    background:#050302;border:1px solid rgba(245,167,66,.28);
+    box-shadow:0 34px 100px rgba(0,0,0,.75),0 0 0 1px rgba(0,0,0,.6),0 0 0 10px rgba(30,17,9,.55);
+    padding:10px;}
+  .mat{position:absolute;inset:10px;overflow:hidden;background:#070403}
+  .mat::after{content:'';position:absolute;inset:0;z-index:4;pointer-events:none;
+    box-shadow:inset 0 0 60px rgba(0,0,0,.55), inset 0 0 10px rgba(0,0,0,.4);}
+
+  /* 银幕内封面（闪回/正片共用） */
+  .card{position:absolute;inset:0;opacity:0;will-change:transform,opacity,filter;
+    background:linear-gradient(160deg,var(--c1),var(--c2));
+    filter:grayscale(1) contrast(1.18) brightness(.88);}
+  .card::after{content:'';position:absolute;inset:0;
+    background:linear-gradient(180deg,transparent 52%,rgba(0,0,0,.62)),linear-gradient(0deg,rgba(0,0,0,.12),transparent 40%);}
+  .card .tg{position:absolute;left:18px;top:14px;z-index:2;font-size:11px;letter-spacing:3px;color:var(--ember);
+    background:rgba(0,0,0,.5);padding:4px 12px;border-radius:99px;border:1px solid rgba(245,167,66,.42);}
+  .card .t{position:absolute;left:20px;bottom:16px;z-index:2;font-size:clamp(18px,2.2vw,26px);letter-spacing:3px;
+    color:#f5e6cf;text-shadow:0 2px 10px rgba(0,0,0,.85);font-weight:700}
+  .card .date{position:absolute;right:20px;bottom:20px;z-index:2;font-size:11px;letter-spacing:2px;
+    color:rgba(245,230,207,.7);font-style:italic}
+  /* 闪回阶段 */
+  .card.on{opacity:1;animation:shake .4s steps(2) 0s 1}
+  .card.colorize{animation:none;transition:filter 1.3s ease;filter:grayscale(0) contrast(1.06) brightness(1)}
+  @keyframes shake{ /* 抽帧抖动 */
+    0%{transform:translate(0,0)}10%{transform:translate(-4px,1px)}20%{transform:translate(3px,-2px)}
+    30%{transform:translate(-1px,2px)}40%{transform:translate(4px,1px)}50%{transform:translate(-3px,-1px)}
+    60%{transform:translate(2px,-2px)}70%{transform:translate(-2px,2px)}80%{transform:translate(3px,0)}
+    90%{transform:translate(-3px,1px)}100%{transform:translate(0,0)}}
+
+  /* 银幕噪点 + 刮痕 */
+  .grain{position:absolute;inset:0;z-index:6;pointer-events:none;opacity:.55;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+    animation:grain-jump .5s steps(1) infinite;}
+  @keyframes grain-jump{0%{transform:translate(0,0)}25%{transform:translate(-6px,4px)}50%{transform:translate(4px,-6px)}75%{transform:translate(-4px,-3px)}100%{transform:translate(6px,5px)}}
+  .scratch{position:absolute;top:0;bottom:0;width:2px;z-index:7;pointer-events:none;opacity:0;
+    background:linear-gradient(180deg,transparent,rgba(245,230,207,.14) 30%,rgba(245,230,207,.05) 70%,transparent);
+    transition:opacity .1s;}
+
+  /* 银幕底部字幕条 */
+  .ticker{position:absolute;left:0;right:0;bottom:-38px;text-align:center;font-size:14px;letter-spacing:4px;
+    color:#c9a875;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+  /* ---- 底部胶片帧条 ---- */
+  .filmstrip{position:fixed;left:50%;bottom:3vh;transform:translateX(-50%);z-index:15;
+    width:min(86vw,1000px);opacity:0;transition:opacity .8s ease .2s;}
+  .filmstrip.show{opacity:1}
+  .strip-outer{position:relative;background:rgba(13,10,7,.72);border-top:1px solid rgba(245,167,66,.22);
+    border-bottom:1px solid rgba(245,167,66,.22);padding:14px 10px 13px;
+    backdrop-filter:blur(2px);}
+  .sprocket{position:absolute;left:0;right:0;height:8px;
+    background-image:radial-gradient(circle at 11px 50%,#050302 0 4px,rgba(245,167,66,.22) 5px,transparent 6px);
+    background-size:30px 8px;background-repeat:repeat-x;}
+  .sprocket.top{top:-9px}.sprocket.bottom{bottom:-9px}
+  .strip{display:flex;gap:10px;justify-content:center}
+  .frame{flex:none;width:78px;height:56px;position:relative;overflow:hidden;cursor:pointer;
+    border:1px solid rgba(245,167,66,.22);opacity:.5;filter:grayscale(.5) contrast(1.05);
+    transition:opacity .25s,filter .25s,border-color .25s,box-shadow .25s,transform .25s;}
+  .frame .cov{position:absolute;inset:0;background:linear-gradient(160deg,var(--c1),var(--c2))}
+  .frame .no{position:absolute;left:5px;bottom:3px;z-index:2;font-size:9px;letter-spacing:1px;
+    color:var(--ember);text-shadow:0 1px 3px #000;font-style:italic}
+  .frame:hover{opacity:.95;filter:none;transform:translateY(-3px)}
+  .frame.cur{opacity:1;filter:none;border-color:var(--amber);transform:translateY(-4px);
+    box-shadow:0 0 18px rgba(245,167,66,.5)}
+
+  /* ---- 重播开场 ---- */
+  .replay{position:fixed;left:20px;bottom:18px;z-index:30;font-family:inherit;font-size:11px;letter-spacing:2px;
+    color:#c9a875;background:rgba(0,0,0,.55);border:1px solid rgba(245,167,66,.3);padding:9px 16px;
+    border-radius:4px;cursor:pointer;transition:.2s;}
+  .replay:hover{color:var(--ember);border-color:var(--amber);box-shadow:0 0 14px rgba(245,167,66,.25)}
+
+  /* 提示：正在开场 */
+  .hint{position:fixed;left:50%;bottom:12vh;transform:translateX(-50%);z-index:18;font-size:11px;
+    letter-spacing:6px;color:rgba(201,168,117,.5);text-transform:uppercase;pointer-events:none;
+    animation:blink 1.6s ease-in-out infinite;}
+  @keyframes blink{50%{opacity:.25}}
+</style>
+</head>
+<body>
+  <div class="wall"></div>
+  <div class="curtain left"></div><div class="curtain right"></div><div class="valance"></div>
+
+  <div class="beam"></div><div class="beam-orb"></div><div class="projector"></div>
+
+  <header class="topbar">
+    <div class="brand"><span class="star">✦</span>&nbsp;<b>我的番剧推荐</b></div>
+    <div class="right">年度放映 · The Annual Screening</div>
+  </header>
+  <div class="hero">
+    <h1>剧场 · 此刻</h1>
+    <div class="sub">SEASON <i>IN</i> REVIEW · 光影一瞬</div>
+  </div>
+
+  <!-- 银幕 -->
+  <div class="screen-wrap">
+    <div class="screen">
+      <div class="mat" id="mat"></div>
+      <div class="grain"></div>
+      <i class="scratch" style="left:18%"></i>
+      <i class="scratch" style="left:47%"></i>
+      <i class="scratch" style="left:76%"></i>
+      <div class="ticker" id="ticker"></div>
+    </div>
+  </div>
+
+  <!-- 胶片帧条 -->
+  <div class="filmstrip" id="filmstrip">
+    <div class="strip-outer">
+      <span class="sprocket top"></span><span class="sprocket bottom"></span>
+      <div class="strip" id="strip"></div>
+    </div>
+  </div>
+
+  <div class="hint" id="hint">REC · 回忆放映中</div>
+  <button class="replay" id="replay">↺ 重播开场</button>
+
+<script>
+  /* 占位番剧（渐变双色 + 标题），实际替换为封面图 */
+  const SLIDES = [
+    { n:'勇者王FINAL',   t:'热血', c1:'#ff5f6d', c2:'#ffc371' },
+    { n:'钢之炼金术师',  t:'奇幻', c1:'#667eea', c2:'#764ba2' },
+    { n:'青之芦苇',      t:'运动', c1:'#43e97b', c2:'#38f9d7' },
+    { n:'星屑与黄昏',    t:'治愈', c1:'#a18cd1', c2:'#fbc2eb' },
+    { n:'落第骑士',      t:'战斗', c1:'#f83600', c2:'#f9d423' },
+    { n:'轻松熊',        t:'日常', c1:'#ff9a9e', c2:'#fecfef' },
+    { n:'地狱模式',      t:'异世界', c1:'#5ee7df', c2:'#b490ca' },
+    { n:'螺旋境界线',    t:'科幻', c1:'#30cfd0', c2:'#330867' },
+    { n:'奇诺之旅',      t:'旅行', c1:'#84fab0', c2:'#8fd3f4' },
+    { n:'狼雨',          t:'致郁', c1:'#e0c3fc', c2:'#8ec5fc' },
+    { n:'初音岛',        t:'恋爱', c1:'#fccb90', c2:'#d57eeb' },
+    { n:'爱的魔法',      t:'搞笑', c1:'#ff758c', c2:'#ff7eb3' },
+  ];
+
+  const mat   = document.getElementById('mat');
+  const strip = document.getElementById('strip');
+  const ticker= document.getElementById('ticker');
+  const film  = document.getElementById('filmstrip');
+  const hint  = document.getElementById('hint');
+  const scratches = document.querySelectorAll('.scratch');
+
+  /* 构建银幕卡片 */
+  const cards = SLIDES.map((s, i) => {
+    const c = document.createElement('div');
+    c.className = 'card';
+    c.style.setProperty('--c1', s.c1);
+    c.style.setProperty('--c2', s.c2);
+    c.innerHTML = `<span class="tg">${s.t}</span><span class="t">${s.n}</span><span class="date">FRAME ${String(i+1).padStart(2,'0')}</span>`;
+    mat.appendChild(c);
+    return c;
+  });
+
+  /* 构建胶片帧条 */
+  const frames = SLIDES.map((s, i) => {
+    const f = document.createElement('div');
+    f.className = 'frame';
+    f.style.setProperty('--c1', s.c1);
+    f.style.setProperty('--c2', s.c2);
+    f.innerHTML = `<div class="cov"></div><span class="no">${String(i+1).padStart(2,'0')}</span>`;
+    f.onclick = () => { clearTimeline(); showSlide(i, true); setCur(i); };
+    strip.appendChild(f);
+    return f;
+  });
+
+  let raf = null, timers = [];
+
+  function clearTimeline() {
+    if (raf) cancelAnimationFrame(raf);
+    timers.forEach(clearTimeout);
+    timers = [];
+    raf = null;
+  }
+  function setCur(i) {
+    frames.forEach((f, j) => f.classList.toggle('cur', j === i));
+  }
+  function randomScratch() {
+    scratches.forEach((s, k) => {
+      const show = Math.random() < .35;
+      s.style.opacity = show ? String(.4 + Math.random() * .6) : '0';
+      s.style.left = (Math.random() * 92 + 4) + '%';
+      s.style.width = (1 + Math.random() * 2) + 'px';
+    });
+  }
+
+  /* 显示第 i 张：phase 在 flash 时长内 → 黑白抖动；之后 → 隐藏(黑帧) */
+  const FLASH = 400, BLACK = 70;
+  function setFrame(i, phase) {
+    cards.forEach((c, j) => {
+      if (j === i) {
+        c.classList.remove('colorize');
+        if (phase <= FLASH) {
+          c.classList.add('on');
+        } else {
+          c.classList.remove('on');
+        }
+      } else c.classList.remove('on', 'colorize');
+    });
+    ticker.textContent = '— ' + SLIDES[i].t + ' · ' + SLIDES[i].n + ' —';
+    randomScratch();
+  }
+
+  /* 闪回时间线：逐张闪现，最后一张定格上色 → 进画廊 */
+  function playIntro() {
+    clearTimeline();
+    film.classList.remove('show');
+    cards.forEach(c => c.classList.remove('on', 'colorize'));
+    hint.style.display = 'block';
+    setCur(-1);
+    const start = performance.now();
+    const CYCLE = FLASH + BLACK;
+    const TOTAL = SLIDES.length * CYCLE;
+
+    function frame(now) {
+      const el = now - start;
+      if (el < TOTAL) {
+        const ci = Math.floor(el / CYCLE);
+        const phase = el % CYCLE;
+        setFrame(ci, phase);
+        raf = requestAnimationFrame(frame);
+      } else {
+        /* 最后一张定格上色 */
+        const last = SLIDES.length - 1;
+        cards.forEach((c, j) => {
+          if (j === last) {
+            c.classList.remove('on');
+            c.classList.add('colorize');
+            c.style.opacity = '1';
+          } else c.classList.remove('on', 'colorize');
+        });
+        ticker.textContent = '— ' + SLIDES[last].t + ' · ' + SLIDES[last].n + ' —';
+        randomScratch();
+        timers.push(setTimeout(enterGallery, 900));
+      }
+    }
+    raf = requestAnimationFrame(frame);
+  }
+
+  function enterGallery() {
+    hint.style.display = 'none';
+    film.classList.add('show');
+    setCur(SLIDES.length - 1);
+  }
+
+  /* 正片：点击帧切换（保持彩色） */
+  function showSlide(i, color) {
+    cards.forEach((c, j) => {
+      if (j === i) {
+        c.classList.remove('on');
+        c.classList.add('colorize');
+        c.style.opacity = '1';
+      } else c.classList.remove('on', 'colorize');
+    });
+    ticker.textContent = '— ' + SLIDES[i].t + ' · ' + SLIDES[i].n + ' —';
+    randomScratch();
+  }
+
+  document.getElementById('replay').onclick = playIntro;
+
+  playIntro();
+</script>
+</body>
+</html>

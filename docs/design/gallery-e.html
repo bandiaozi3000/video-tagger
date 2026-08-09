@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>方案 E · 极简白墙</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#f4f2ee;color:#16161a;overflow:hidden;height:100vh;
+    font-family:"Helvetica Neue","PingFang SC",sans-serif}
+  body::before{content:'';position:fixed;inset:0;pointer-events:none;
+    background:radial-gradient(100% 60% at 50% 0%, rgba(255,255,255,.6), transparent 70%)}
+
+  .top{position:fixed;top:0;left:0;right:0;z-index:10;display:flex;justify-content:space-between;
+    padding:24px 30px;mix-blend-mode:difference;color:#fff}
+  .brand{font-size:11px;letter-spacing:6px;text-transform:uppercase;font-weight:600}
+  .index{font-size:11px;letter-spacing:3px;opacity:.8}
+
+  .hero{position:fixed;bottom:8%;left:34px;z-index:10;pointer-events:none}
+  .hero h1{font-size:clamp(30px,5.5vw,60px);font-weight:800;letter-spacing:-2px;line-height:1}
+  .hero .en{display:block;font-size:10px;letter-spacing:8px;color:#9a9aa0;margin-top:10px;text-transform:uppercase}
+
+  /* 大幅封面错落 + 大留白 */
+  .piece{position:absolute;z-index:5;mix-blend-mode:multiply}
+  .piece .num{font-size:11px;color:#8f8f96;letter-spacing:2px;margin-bottom:8px}
+  .piece .art{overflow:hidden;background:#fff;box-shadow:0 30px 70px rgba(30,30,40,.18)}
+  .piece .cover{position:absolute;inset:0;background:linear-gradient(160deg,var(--c1),var(--c2))}
+  .piece .n{position:absolute;z-index:6;left:16px;bottom:14px;color:#fff;font-size:13px;font-weight:600;letter-spacing:1px}
+
+  .piece{opacity:0;animation:slide 1s ease forwards}
+  .piece:nth-child(1){animation-delay:.1s}.piece:nth-child(2){animation-delay:.25s}
+  .piece:nth-child(3){animation-delay:.4s}.piece:nth-child(4){animation-delay:.55s}
+  .piece:nth-child(5){animation-delay:.7s}.piece:nth-child(6){animation-delay:.85s}
+  @keyframes slide{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="brand">✦ 我的番剧推荐</div>
+  <div class="index">2026 · SELECTED</div>
+</div>
+<div class="hero">
+  <h1>白墙<br>选录</h1>
+  <span class="en">Selected on White</span>
+</div>
+
+<script>
+  const S=[
+    {n:'勇者王FINAL',  c1:'#b0402a',c2:'#7a2412'},
+    {n:'钢之炼金术师', c1:'#28506a',c2:'#142c40'},
+    {n:'青之芦苇',     c1:'#1d6a48',c2:'#0c3a26'},
+    {n:'星屑与黄昏',   c1:'#5a3870',c2:'#34204a'},
+    {n:'落第骑士',     c1:'#7a2c2c',c2:'#401212'},
+    {n:'轻松熊',       c1:'#6a5838',c2:'#3a3018'},
+  ];
+  const spots=[
+    {x:.08,y:.16,w:220,h:330,num:'01'},
+    {x:.34,y:.22,w:170,h:255,num:'02'},
+    {x:.58,y:.12,w:250,h:375,num:'03'},
+    {x:.76,y:.28,w:180,h:270,num:'04'},
+    {x:.22,y:.52,w:200,h:300,num:'05'},
+    {x:.52,y:.50,w:230,h:345,num:'06'},
+  ];
+  S.forEach((s,i)=>{
+    const sp=spots[i],p=document.createElement('div');p.className='piece';
+    p.style.left=(sp.x*100)+'%';p.style.top=(sp.y*100)+'%';
+    const num=document.createElement('div');num.className='num';num.textContent='No.'+sp.num;p.appendChild(num);
+    const art=document.createElement('div');art.className='art';
+    art.style.width=sp.w+'px';art.style.height=sp.h+'px';
+    art.style.setProperty('--c1',s.c1);art.style.setProperty('--c2',s.c2);
+    art.innerHTML='<div class="cover"></div><span class="n">'+s.n+'</span>';
+    p.appendChild(art);document.body.appendChild(p);
+  });
+</script>
+</body>
+</html>

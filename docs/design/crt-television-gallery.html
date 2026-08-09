@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>方案 E · 老电视墙 · 开机闪回 → 屏幕画廊</title>
+<style>
+  :root{
+    --room:#0a0c0b; --plasma:#dff3ff; --pink:#ff5d8f; --cyan:#41d6ff; --red:#ff3b30;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--room);color:var(--plasma);overflow:hidden;height:100vh;
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  }
+  /* ---- 暗房夜 + 光晕 ---- */
+  .room{position:fixed;inset:0;z-index:0;
+    background:
+      radial-gradient(1000px 600px at 50% 42%, rgba(65,214,255,.06), transparent 60%),
+      radial-gradient(800px 500px at 80% 15%, rgba(255,93,143,.05), transparent 60%),
+      var(--room);}
+  .room::after{content:'';position:absolute;inset:0;
+    background:radial-gradient(60% 50% at 50% 44%, transparent 55%, rgba(0,0,0,.55) 95%);}
+  .floor{position:fixed;left:0;right:0;bottom:0;height:16vh;z-index:1;
+    background:linear-gradient(180deg,transparent,rgba(0,0,0,.5));
+    border-top:1px solid rgba(65,214,255,.08);}
+
+  /* ---- 顶部 ---- */
+  .topbar{position:fixed;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
+    padding:18px 30px;pointer-events:none;}
+  .brand{font-size:12px;letter-spacing:5px;color:rgba(223,243,255,.6);text-transform:uppercase;font-family:monospace}
+  .brand b{color:var(--plasma)}
+  .brand .r{color:var(--pink)}
+  .hero{position:fixed;top:0;left:0;right:0;z-index:19;text-align:center;padding-top:56px;pointer-events:none}
+  .hero h1{font-size:clamp(24px,4.4vw,50px);font-weight:700;letter-spacing:8px;color:var(--plasma);
+    font-family:monospace;text-shadow:0 0 24px rgba(65,214,255,.4),0 0 60px rgba(65,214,255,.15);}
+  .hero .sub{font-size:11px;letter-spacing:6px;color:rgba(223,243,255,.5);margin-top:10px;text-transform:uppercase;font-family:monospace}
+  .hero .sub i{color:var(--pink);font-style:normal}
+
+  /* ---- CRT 电视 ---- */
+  .tv{position:absolute;left:50%;top:44%;width:250px;transform-origin:center center;opacity:0;
+    will-change:transform,opacity,filter;}
+  .tv .cab{position:relative;padding:15px 15px 13px;background:linear-gradient(180deg,#3c403e,#242726 72%);
+    border-radius:20px;border:2px solid #111312;
+    box-shadow:0 26px 56px rgba(0,0,0,.65),inset 0 1px 0 rgba(255,255,255,.09);}
+  .tv .scr{position:relative;aspect-ratio:4/3;overflow:hidden;border-radius:9px;background:#03050a;
+    box-shadow:inset 0 0 36px rgba(0,0,0,.9),inset 0 0 8px rgba(255,255,255,.05);
+    border:1px solid #0a0b0a;}
+  .tv .pix{position:absolute;inset:0;background:linear-gradient(160deg,var(--c1),var(--c2));
+    opacity:.8;filter:saturate(.85) brightness(.82);
+    transition:opacity .25s,filter .25s;}
+  .tv .scan{position:absolute;inset:0;pointer-events:none;opacity:.32;z-index:2;
+    background:repeating-linear-gradient(180deg,transparent 0 3px,rgba(0,0,0,.3) 3px 4px);}
+  .tv .band{position:absolute;left:0;right:0;height:40px;pointer-events:none;opacity:.45;z-index:2;
+    background:linear-gradient(180deg,transparent,rgba(0,0,0,.4) 70%,transparent);
+    animation:bandsweep 3.6s linear infinite;}
+  @keyframes bandsweep{0%{top:-46px}100%{top:112%}}
+  .tv .glass{position:absolute;inset:0;z-index:4;pointer-events:none;border-radius:9px;
+    background:linear-gradient(115deg,rgba(255,255,255,.13) 0%,transparent 32% 68%,rgba(0,0,0,.16) 100%);}
+  .tv .snow{position:absolute;inset:0;z-index:5;pointer-events:none;opacity:0;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23s)'/%3E%3C/svg%3E");
+    animation:snowjump .14s steps(2) infinite;}
+  @keyframes snowjump{0%{transform:translate(0,0)}50%{transform:translate(-5px,4px)}100%{transform:translate(4px,-3px)}}
+  .tv.snowing .snow{opacity:.9}
+  .tv .ctrl{display:flex;align-items:center;justify-content:space-between;margin-top:11px;padding:0 3px;}
+  .tv .knobs{display:flex;gap:9px}
+  .tv .knob{width:24px;height:24px;border-radius:50%;
+    background:radial-gradient(circle at 40% 35%,#929693,#3f4341 62%,#1c1e1d);
+    box-shadow:0 2px 5px rgba(0,0,0,.75),inset 0 1px 1px rgba(255,255,255,.35);}
+  .tv .knob.tall{width:11px;height:24px;border-radius:3px;
+    background:linear-gradient(180deg,#6f7371,#343736);box-shadow:0 2px 4px rgba(0,0,0,.7);}
+  .tv .led{width:8px;height:8px;border-radius:50%;background:#3c413c;transition:.3s;}
+  .tv.power .led{background:var(--red);box-shadow:0 0 9px 2px rgba(255,59,48,.75)}
+  .tv .label{font-size:8px;letter-spacing:3px;color:#6f7471;font-family:monospace}
+  .tv .ant{position:absolute;left:50%;top:-24px;width:2px;height:24px;background:#161817;transform:translateX(-50%);}
+  .tv .ant::before,.tv .ant::after{content:'';position:absolute;top:0;width:2px;height:22px;background:#161817;}
+  .tv .ant::before{left:-12px;transform:rotate(-34deg)}.tv .ant::after{right:-12px;transform:rotate(34deg)}
+  /* 聚焦：屏幕增亮 */
+  .tv.focus .pix{opacity:1;filter:saturate(1.05) brightness(1)}
+  .tv.focus .scr{box-shadow:inset 0 0 36px rgba(0,0,0,.8),0 0 26px rgba(65,214,255,.25),inset 0 0 8px rgba(255,255,255,.06)}
+  .tv.dim .pix{opacity:.42;filter:saturate(.5) brightness(.62)}
+  .tv .chips{position:absolute;left:50%;bottom:-22px;transform:translateX(-50%);z-index:3;
+    font-size:9px;letter-spacing:2px;color:rgba(223,243,255,.55);font-family:monospace;
+    background:rgba(0,0,0,.6);padding:2px 8px;border:1px solid rgba(65,214,255,.25);border-radius:3px;
+    opacity:0;transition:opacity .3s;}
+  .tv.focus .chips{opacity:1;color:var(--plasma)}
+
+  /* ---- 频道条 ---- */
+  .chan-wrap{position:fixed;left:50%;bottom:5vh;transform:translateX(-50%);z-index:22;text-align:center;
+    opacity:0;transition:opacity .8s ease .2s;}
+  .chan-wrap.show{opacity:1}
+  .chan-now{font-size:12px;letter-spacing:3px;color:var(--plasma);font-family:monospace;margin-bottom:9px;text-shadow:0 0 12px rgba(65,214,255,.4)}
+  .chan-now b{color:var(--pink)}
+  .chans{display:flex;gap:7px;justify-content:center;flex-wrap:wrap}
+  .chan{font-family:monospace;font-size:10px;letter-spacing:1px;color:rgba(223,243,255,.5);
+    background:rgba(0,0,0,.55);border:1px solid rgba(65,214,255,.2);padding:5px 10px;border-radius:3px;cursor:pointer;transition:.2s;}
+  .chan:hover{color:var(--plasma);border-color:var(--cyan)}
+  .chan.cur{color:#04121a;background:var(--cyan);border-color:var(--cyan);box-shadow:0 0 14px rgba(65,214,255,.5)}
+
+  /* ---- 重播 + 提示 ---- */
+  .replay{position:fixed;left:20px;bottom:18px;z-index:30;font-family:monospace;font-size:11px;letter-spacing:2px;
+    color:rgba(223,243,255,.7);background:rgba(0,0,0,.55);border:1px solid rgba(65,214,255,.3);padding:8px 15px;
+    border-radius:3px;cursor:pointer;transition:.2s;}
+  .replay:hover{color:var(--plasma);border-color:var(--cyan);box-shadow:0 0 14px rgba(65,214,255,.25)}
+  .hint{position:fixed;left:50%;bottom:11vh;transform:translateX(-50%);z-index:18;font-size:11px;letter-spacing:5px;
+    color:rgba(223,243,255,.5);text-transform:uppercase;pointer-events:none;font-family:monospace;
+    animation:blink 1.5s ease-in-out infinite;}
+  @keyframes blink{50%{opacity:.25}}
+</style>
+</head>
+<body>
+  <div class="room"></div><div class="floor"></div>
+
+  <header class="topbar">
+    <div class="brand"><b>MY ANIME</b> · <span class="r">TV ROOM</span></div>
+  </header>
+  <div class="hero">
+    <h1>CHANNEL SURF</h1>
+    <div class="sub">SEASON <i>✦</i> 12 CHANNELS</div>
+  </div>
+
+  <div class="stage" id="stage"></div>
+
+  <!-- 频道条 -->
+  <div class="chan-wrap" id="chanWrap">
+    <div class="chan-now" id="chanNow">STANDBY</div>
+    <div class="chans" id="chans"></div>
+  </div>
+
+  <div class="hint" id="hint">SIGNAL IN… 换台中</div>
+  <button class="replay" id="replay">↺ 重新开机</button>
+
+<script>
+  const SLIDES = [
+    { n:'勇者王FINAL',   t:'热血', c1:'#ff5f6d', c2:'#ffc371' },
+    { n:'钢之炼金术师',  t:'奇幻', c1:'#667eea', c2:'#764ba2' },
+    { n:'青之芦苇',      t:'运动', c1:'#43e97b', c2:'#38f9d7' },
+    { n:'星屑与黄昏',    t:'治愈', c1:'#a18cd1', c2:'#fbc2eb' },
+    { n:'落第骑士',      t:'战斗', c1:'#f83600', c2:'#f9d423' },
+    { n:'轻松熊',        t:'日常', c1:'#ff9a9e', c2:'#fecfef' },
+    { n:'地狱模式',      t:'异世界', c1:'#5ee7df', c2:'#b490ca' },
+    { n:'螺旋境界线',    t:'科幻', c1:'#30cfd0', c2:'#330867' },
+    { n:'奇诺之旅',      t:'旅行', c1:'#84fab0', c2:'#8fd3f4' },
+    { n:'狼雨',          t:'致郁', c1:'#e0c3fc', c2:'#8ec5fc' },
+    { n:'初音岛',        t:'恋爱', c1:'#fccb90', c2:'#d57eeb' },
+    { n:'爱的魔法',      t:'搞笑', c1:'#ff758c', c2:'#ff7eb3' },
+  ];
+  /* 电视墙 spot：0 为主台(中央大)，其余环绕 */
+  const SPOTS = [
+    { x:  0,  y: -4, s:1.65 },
+    { x:-42,  y:-24, s:.7  }, { x:-26, y:-10, s:.58 }, { x:-10, y:-26, s:.82 },
+    { x:  6,  y:-22, s:.64 }, { x: 22, y:-12, s:.6  }, { x: 38, y:-26, s:.8  },
+    { x:-40,  y: 10, s:.62 }, { x:-22, y: 16, s:.55 }, { x:  2,  y: 14, s:.6  },
+    { x: 24,  y: 16, s:.56 }, { x: 42,  y:  8, s:.62 },
+  ];
+
+  const stage = document.getElementById('stage');
+  const chanWrap = document.getElementById('chanWrap');
+  const chanNow = document.getElementById('chanNow');
+  const chans = document.getElementById('chans');
+  const hint = document.getElementById('hint');
+
+  const N = SLIDES.length;
+  let timers = [], tourTimer = null, touring = false;
+  const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
+  const clearTour = () => { if (tourTimer) clearTimeout(tourTimer); tourTimer = null; touring = false; };
+
+  /* 构建一台电视 */
+  function makeTV(i, s) {
+    const tv = document.createElement('div');
+    tv.className = 'tv';
+    tv.style.setProperty('--c1', SLIDES[i].c1);
+    tv.style.setProperty('--c2', SLIDES[i].c2);
+    tv.style.transform = `translate(calc(-50% + ${s.x}vw), calc(-50% + ${s.y}vh)) scale(${s.s})`;
+    tv.innerHTML = `<div class="ant"></div>
+      <div class="cab">
+        <div class="scr">
+          <div class="pix"></div><div class="scan"></div><div class="band"></div><div class="glass"></div>
+          <div class="snow"></div>
+        </div>
+        <div class="ctrl">
+          <div class="knobs"><span class="knob"></span><span class="knob tall"></span><span class="knob"></span></div>
+          <span class="label">COLOR · ${String(i+1).padStart(2,'0')}</span>
+          <span class="led"></span>
+        </div>
+      </div>
+      <span class="chips">${SLIDES[i].t} · ${SLIDES[i].n}</span>`;
+    stage.appendChild(tv);
+    return tv;
+  }
+
+  const tvs = SPOTS.map((sp, i) => ({ el: makeTV(i, sp), sp }));
+
+  function snow(tv, on) { tv.el.classList.toggle('snowing', !!on); }
+
+  /* 聚焦某台：雪花转场 + 提亮，其他压暗 */
+  function focus(i) {
+    tvs.forEach((tv, j) => {
+      tv.el.classList.remove('focus', 'dim');
+      if (j === i) {
+        tv.el.classList.add('focus');
+        snow(tv, true);
+        timers.push(setTimeout(() => snow(tv, false), 180));
+        tv.el.style.zIndex = 20;
+      } else { tv.el.classList.add('dim'); tv.el.style.zIndex = 5; }
+    });
+    chanNow.innerHTML = `CH ${String(i+1).padStart(2,'0')} — <b>${SLIDES[i].t} · ${SLIDES[i].n}</b>`;
+    chans.querySelectorAll('.chan').forEach((c, j) => c.classList.toggle('cur', j === i));
+  }
+  function defocus() {
+    tvs.forEach(tv => { tv.el.classList.remove('focus', 'dim'); tv.el.style.zIndex = 5; });
+    chanNow.textContent = 'STANDBY';
+    chans.querySelectorAll('.chan').forEach(c => c.classList.remove('cur'));
+  }
+
+  /* 自动巡礼 */
+  function startTour(from) {
+    clearTour(); touring = true;
+    if (from >= N) from = 0;
+    const step = () => {
+      if (!touring) return;
+      focus(from);
+      tourTimer = setTimeout(() => { from = (from + 1) % N; step(); }, 3000);
+    };
+    step();
+  }
+
+  /* 频道条 */
+  for (let i = 0; i < N; i++) {
+    const c = document.createElement('span');
+    c.className = 'chan';
+    c.textContent = 'CH ' + String(i + 1).padStart(2, '0');
+    c.onclick = () => { clearTour(); focus(i); startTour(i + 1); };
+    chans.appendChild(c);
+  }
+
+  /* 开机闪回：中央主台逐张换台 */
+  function playFlash() {
+    clearTimers(); clearTour();
+    chanWrap.classList.remove('show');
+    hint.style.display = 'block';
+    tvs.forEach(tv => tv.el.style.opacity = '0');
+    const main = tvs[0].el;
+    main.style.opacity = '1';
+    main.style.zIndex = 20;
+
+    /* 开机：雪花 + 指示灯 */
+    main.classList.add('power');
+    snow({ el: main }, true);
+    timers.push(setTimeout(() => snow({ el: main }, false), 900));
+
+    /* 换台逐张 */
+    const DUR = 430, GAP = 50;
+    for (let i = 0; i < N; i++) {
+      timers.push(setTimeout(() => {
+        main.style.setProperty('--c1', SLIDES[i].c1);
+        main.style.setProperty('--c2', SLIDES[i].c2);
+        snow({ el: main }, true);
+        timers.push(setTimeout(() => snow({ el: main }, false), 140));
+        chanNow.innerHTML = `CH ${String(i+1).padStart(2,'0')} — <b>${SLIDES[i].t} · ${SLIDES[i].n}</b>`;
+      }, 900 + i * (DUR + GAP)));
+    }
+    timers.push(setTimeout(openWall, 900 + N * (DUR + GAP) + 400));
+  }
+
+  function openWall() {
+    hint.style.display = 'none';
+    chanWrap.classList.add('show');
+    /* 主台归位 + 全部电视淡入 */
+    tvs.forEach((tv, i) => {
+      const sp = SPOTS[i];
+      tv.el.style.transform = `translate(calc(-50% + ${sp.x}vw), calc(-50% + ${sp.y}vh)) scale(${sp.s})`;
+      tv.el.style.transition = 'transform 1s cubic-bezier(.2,1.1,.35,1), opacity .6s ease';
+      tv.el.style.opacity = '1';
+      tv.el.onmouseenter = () => { clearTour(); focus(i); };
+      tv.el.onmouseleave = () => { if (touring) return; defocus(); startTour((i + 1) % N); };
+    });
+    timers.push(setTimeout(() => startTour(0), 1400));
+  }
+
+  document.getElementById('replay').onclick = playFlash;
+  playFlash();
+</script>
+</body>
+</html>

@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>__TITLE__</title>
+<title>剧场 · 此刻</title>
 <style>
-  /* ============ 深夜霓虹剧场（渐变环流版） ============
-     深色底上一圈光泽渐变瓦片（番剧封面）围成 3D 环，绕中央白色大字缓转
-     点击瓦片 → 镜头推近逐部详解；自动导览：落定 → 逐部跳转 → 交互即停
+  /* ============ 深夜霓虹 · 暗房闪回开场（深色暗房版推荐导出模板） ============
+     开头：12 张宝丽来相纸在夜空中逐张"快门闪回"显影（灰阶→彩色注入）
+     显影完定格 → 自动导览逐部滚入 Story 详解
      ?record=1 为视频渲染录制模式：忽略交互打断，全程自动导览 */
   :root{
     --bg-0:#07060d;
@@ -44,12 +44,10 @@
     filter:blur(.5px);opacity:.9;z-index:2;animation:topline 9s ease-in-out infinite;
   }
   @keyframes topline{0%,100%{opacity:.5}50%{opacity:1}}
-  /* 霓虹雾（深色夜空中漂浮的淡紫雾霭） */
   .cloud{
     position:fixed;border-radius:50%;z-index:1;pointer-events:none;
     background:radial-gradient(circle,rgba(111,139,255,.34) 0%,rgba(111,139,255,0) 70%);
-    filter:blur(26px);
-    animation:drift linear infinite;
+    filter:blur(26px);animation:drift linear infinite;
   }
   @keyframes drift{
     0%{transform:translate3d(-4vw,2vh,0) scale(1)}
@@ -61,8 +59,7 @@
   /* ---------- 顶部 ---------- */
   .topbar{
     position:fixed;top:0;left:0;right:0;z-index:20;
-    display:flex;align-items:center;justify-content:space-between;
-    padding:14px 30px;
+    display:flex;align-items:center;justify-content:space-between;padding:14px 30px;
   }
   .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:2px;font-size:14px;color:var(--ink)}
   .brand .logo{
@@ -71,81 +68,101 @@
     box-shadow:0 4px 18px rgba(79,195,247,.5);font-size:15px;color:#08070f;
   }
 
-  /* ---------- Hero：渐变瓦片环 ---------- */
+  /* ========== Hero：暗房闪回开场 ========== */
   .hero{
-    position:relative;min-height:100vh;
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    position:relative;min-height:100vh;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;
     padding:110px 20px 60px;text-align:center;
   }
-  /* 瓦片环：JS 驱动椭圆轨道。每张瓦片正立（零旋转，不会歪斜），
-     沿椭圆轨道绕中心点匀速滑行：前方放大发光、后方缩小变暗，
-     中心铭牌（z-index 0）被前后穿梭的瓦片套住 */
-  .ring-stage{
-    position:absolute;left:50%;top:46%;width:0;height:0;
-    z-index:0;pointer-events:none;
+  /* 暗房红光氛围 */
+  .hero::after{
+    content:'';position:absolute;right:5%;bottom:6%;width:300px;height:300px;pointer-events:none;
+    background:radial-gradient(circle,rgba(255,143,184,.13),transparent 65%);filter:blur(22px);
   }
-  .tile{
-    position:absolute;width:150px;height:200px;
-    margin:-100px 0 0 -75px;      /* 以中心对齐，transform 全部交给轨道循环 */
-    border-radius:15px;overflow:hidden;
-    border:1px solid rgba(255,255,255,.28);
-    background:linear-gradient(160deg,#221a3a,#0d0a18);
-    box-shadow:0 0 26px var(--glow), 0 18px 46px rgba(0,0,0,.6);
-    cursor:pointer;pointer-events:auto;
-    will-change:transform;
+  .hero::before{
+    content:'';position:absolute;left:8%;top:16%;width:260px;height:260px;pointer-events:none;
+    background:radial-gradient(circle,rgba(79,195,247,.10),transparent 65%);filter:blur(24px);
   }
-  .tile:hover{border-color:rgba(255,255,255,.7)}
-  .tile img{width:100%;height:100%;object-fit:cover;display:block}
-  .tile::after{ /* 光泽高光（glossy）：左上斜向亮面 */
-    content:"";position:absolute;inset:0;z-index:2;pointer-events:none;
-    background:linear-gradient(135deg,rgba(255,255,255,.55) 0%,rgba(255,255,255,.07) 42%,transparent 62%);
-    mix-blend-mode:screen;
-  }
-  .tile::before{ /* 底部渐暗，压住封面底部 */
-    content:"";position:absolute;left:0;right:0;bottom:0;height:46%;z-index:3;pointer-events:none;
-    background:linear-gradient(180deg,transparent,rgba(6,4,14,.72));
-  }
-  .tile .t-no{
-    position:absolute;right:7px;bottom:7px;z-index:4;
-    font-size:10px;font-weight:800;color:#08070f;letter-spacing:.5px;
-    background:linear-gradient(135deg,var(--sky),var(--blue));padding:2px 7px;border-radius:999px;
-    box-shadow:0 3px 10px rgba(79,195,247,.4);
-  }
-  .tile:hover{filter:brightness(1.18);box-shadow:0 0 42px var(--glow), 0 26px 60px rgba(0,0,0,.65)}
-  /* 环中央铭牌：套在环心（translateZ 0），与瓦片同一 3D 空间，
-     瓦片转到前方时从铭牌上面盖过 → 真正的"箍在环中"立体环绕 */
-  .ring-plate{
-    position:absolute;left:0;top:0;width:max-content;z-index:0;
-    transform:translate(-50%,-50%);
-    padding:26px 44px 24px;border-radius:26px;text-align:center;
-    background:linear-gradient(160deg,rgba(24,19,46,.78),rgba(10,8,22,.6));
+  /* 标题铭牌（居中央，相纸环绕） */
+  .hero-plate{
+    position:relative;z-index:6;text-align:center;padding:30px 50px 27px;border-radius:26px;
+    background:linear-gradient(160deg,rgba(18,15,34,.78),rgba(10,8,22,.62));
     border:1px solid rgba(130,160,255,.24);
-    box-shadow:0 0 44px rgba(79,195,247,.3), inset 0 0 34px rgba(111,139,255,.08);
+    box-shadow:0 0 44px rgba(79,195,247,.28),inset 0 0 34px rgba(111,139,255,.08);
     backdrop-filter:blur(8px);
-    pointer-events:none;
   }
-  .ring-plate .eyebrow{
-    font-size:11px;letter-spacing:4px;color:var(--sky);font-weight:600;margin-bottom:10px;
+  .hero-plate .eyebrow{
+    font-size:11px;letter-spacing:5px;color:var(--sky);font-weight:600;margin-bottom:12px;
   }
-  .ring-plate h1{
-    font-size:clamp(26px,4vw,38px);font-weight:800;letter-spacing:6px;white-space:nowrap;
-    color:#fff;
-    text-shadow:0 0 18px rgba(79,195,247,.75), 0 0 48px rgba(111,139,255,.55);
-    margin-bottom:6px;
+  .hero-plate h1{
+    font-size:clamp(28px,4.6vw,46px);font-weight:800;letter-spacing:7px;white-space:nowrap;
+    background:linear-gradient(115deg,#fff 8%,#bfe0ff 45%,#9fd4ff 85%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 2px 16px rgba(79,195,247,.55));margin-bottom:9px;
   }
-  .ring-plate .sub{font-size:12px;color:var(--muted);letter-spacing:2px;white-space:nowrap}
-  .ring-plate .sub b{color:var(--gold)}
+  .hero-plate .sub{font-size:12px;color:var(--muted);letter-spacing:2px;white-space:nowrap}
+  .hero-plate .sub b{color:var(--gold);font-style:normal}
 
-  /* ---------- Story：逐部详解 ---------- */
+  /* 图片展示舞台（意识流碎片卡风格：圆角悬浮、无白边、发光） */
+  .darkroom{position:absolute;inset:0;pointer-events:none}
+  .card{
+    position:absolute;left:50%;top:52%;width:190px;height:270px;border-radius:14px;overflow:hidden;
+    pointer-events:auto;cursor:pointer;opacity:0;will-change:transform,opacity,filter;
+    transform-origin:center center;
+    border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 22px 54px rgba(5,8,30,.65);
+    transition:box-shadow .4s ease,filter .4s ease,border-color .4s,opacity .9s ease;
+  }
+  .card .cover{
+    position:absolute;inset:0;background:linear-gradient(160deg,var(--c1),var(--c2));
+    filter:grayscale(1) blur(5px) contrast(.8) brightness(.7);opacity:0;
+  }
+  .card .cover.develop{opacity:1;transition:filter 1.6s ease,opacity 1.4s ease;}
+  .card .cover.done{filter:grayscale(0) blur(0) contrast(1.04) brightness(1)}
+  .card .cover::after{content:'';position:absolute;inset:0;
+    background:linear-gradient(180deg,transparent 40%,rgba(5,8,30,.62));}
+  .card .glare{position:absolute;inset:0;opacity:0;transition:opacity .3s;pointer-events:none;
+    background:radial-gradient(120px 90px at 30% 22%,rgba(255,255,255,.28),transparent 62%);}
+  .card .tag{position:absolute;left:11px;top:11px;z-index:2;font-size:10.5px;letter-spacing:2px;color:var(--gold);
+    background:rgba(10,12,36,.55);padding:3px 9px;border-radius:99px;border:1px solid rgba(255,209,102,.4);
+    opacity:0;transition:opacity .45s ease .05s;}
+  .card .no{position:absolute;right:12px;top:12px;z-index:2;font-size:10px;letter-spacing:2px;
+    color:rgba(236,233,246,.55);font-style:italic}
+  .card .name{position:absolute;left:13px;right:13px;bottom:13px;z-index:2;font-size:14.5px;font-weight:600;
+    letter-spacing:1px;color:#f4f6ff;text-shadow:0 2px 10px rgba(0,0,0,.75);
+    opacity:0;transition:opacity .45s ease .1s;}
+  .card.mount .tag,.card.mount .name{opacity:1}
+  .card.mount{border-color:rgba(255,255,255,.2);
+    box-shadow:0 24px 56px rgba(5,8,30,.7),0 0 34px rgba(111,139,255,.12);}
+  .card:hover{border-color:rgba(255,255,255,.42);
+    box-shadow:0 28px 64px rgba(5,8,30,.75),0 0 46px rgba(79,195,247,.22);}
+  .card:hover .glare{opacity:1}
+
+  /* 显影进度 */
+  .dev-count{
+    position:fixed;left:50%;bottom:8vh;transform:translateX(-50%);z-index:20;
+    font-size:12px;letter-spacing:3px;color:var(--muted);opacity:0;transition:opacity .4s;
+  }
+  .dev-count.show{opacity:1}
+  .dev-count b{color:var(--pink);font-weight:800}
+  /* 跳过开场 */
+  .skip{
+    position:fixed;right:22px;bottom:20px;z-index:40;font-family:inherit;font-size:11.5px;letter-spacing:1px;
+    color:var(--muted);background:rgba(20,16,38,.6);border:1px solid var(--line);border-radius:999px;
+    padding:8px 16px;cursor:pointer;backdrop-filter:blur(8px);transition:.2s;
+  }
+  .skip:hover{color:var(--ink);border-color:var(--sky)}
+  .skip[hidden]{display:none}
+
+  /* ---------- Story：逐部详解（沿用模板） ---------- */
   .story{max-width:1080px;margin:0 auto;padding:20px 24px 80px}
   .story-card{
     scroll-snap-align:start;
-    position:relative;min-height:100vh;   /* 一屏一张，滚动时看不见别的卡 */
+    position:relative;min-height:100vh;
     display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:46px;align-items:center;
     padding:70px 10px;scroll-margin-top:70px;
   }
   .story-card:not(:last-child){border-bottom:1px dashed rgba(255,255,255,.08)}
-  /* 超大描边序号（背景装饰，视频感分镜编号） */
   .sc-no{
     position:absolute;right:2%;top:6%;font-size:120px;font-weight:900;line-height:1;
     color:transparent;-webkit-text-stroke:1.5px rgba(111,139,255,.28);
@@ -167,8 +184,7 @@
   }
   .sc-poster img{
     width:100%;height:100%;object-fit:cover;display:block;
-    animation:kenburns 18s ease-in-out infinite alternate;
-    animation-play-state:paused;
+    animation:kenburns 18s ease-in-out infinite alternate;animation-play-state:paused;
   }
   .story-card.in-view .sc-poster img{animation-play-state:running}
   @keyframes kenburns{from{transform:scale(1)}to{transform:scale(1.12)}}
@@ -234,8 +250,6 @@
   .trackbar.show{opacity:1;pointer-events:auto}
   .trackbar b{color:var(--ink);font-weight:800}
   .trackbar .cur{color:var(--pink)}
-
-  /* ---------- 自动导览：倒计时进度条 ---------- */
   .tb-progress{
     width:130px;height:3px;border-radius:999px;overflow:hidden;
     background:rgba(255,255,255,.09);opacity:0;transition:opacity .3s;
@@ -248,7 +262,7 @@
   }
   .tb-progress i.run{animation:tbprog 6s linear forwards}
   @keyframes tbprog{from{width:0}to{width:100%}}
-  /* 背景音乐：左下角紧凑小块（一行胶囊，不占空间） */
+  /* 背景音乐：左下角紧凑胶囊（沿用模板） */
   .bgm-bar{
     position:fixed;left:14px;bottom:14px;z-index:50;
     display:flex;align-items:center;gap:8px;
@@ -257,10 +271,10 @@
     max-width:340px;box-shadow:0 6px 20px rgba(0,0,0,.45);
   }
   .bgm-bar[hidden]{display:none}
-  .bgm-bar::before{ /* 左侧渐变圆点（霓虹点缀） */
+  .bgm-bar::before{
     content:'';width:6px;height:6px;border-radius:50%;flex:none;
-    background:linear-gradient(135deg,var(--pink),var(--amber));
-    box-shadow:0 0 10px rgba(255,77,141,.7);
+    background:linear-gradient(135deg,var(--pink),var(--gold));
+    box-shadow:0 0 10px rgba(255,143,184,.7);
   }
   .bgm-play,.bgm-mute{
     background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);
@@ -275,7 +289,7 @@
   }
   .bgm-progress{width:90px;height:4px;background:rgba(255,255,255,.12);border-radius:999px;overflow:hidden;cursor:pointer;flex:none}
   .bgm-progress i{display:block;height:100%;width:0;border-radius:999px;
-    background:linear-gradient(90deg,var(--pink),var(--amber));box-shadow:0 0 8px rgba(255,77,141,.5)}
+    background:linear-gradient(90deg,var(--pink),var(--gold));box-shadow:0 0 8px rgba(255,143,184,.5)}
   .bgm-time{font-size:11px;color:#8b8ba3;white-space:nowrap;font-variant-numeric:tabular-nums;flex:none}
   .auto-badge{
     position:fixed;top:74px;right:24px;z-index:30;
@@ -289,10 +303,10 @@
   @keyframes blink{0%,100%{opacity:.3}50%{opacity:1}}
 
   @media (max-width:860px){
-    .tile{left:-60px;top:-80px;width:120px;height:160px}
-    .ring-plate{padding:18px 22px 16px}
-    .ring-plate h1{font-size:23px;letter-spacing:4px}
-    .ring-plate .sub{font-size:11px;letter-spacing:1px;white-space:normal}
+    .hero-plate{padding:20px 24px 18px}
+    .hero-plate h1{font-size:24px;letter-spacing:4px}
+    .hero-plate .sub{font-size:11px;letter-spacing:1px;white-space:normal}
+    .card{width:150px;height:214px}
     .story-card{grid-template-columns:1fr;gap:20px;padding:36px 8px;text-align:center}
     .sc-poster{max-height:46vh}
     .sc-info .tags,.sc-info .kicker{justify-content:center}
@@ -307,26 +321,32 @@
 <div id="clouds"></div>
 <div class="content">
   <header class="topbar">
-    <div class="brand"><span class="logo">✦</span></div>
+    <div class="brand"><span class="logo">✦</span><span>我的番剧推荐</span></div>
+    <span class="auto-badge" id="autoBadge" hidden>✦ 自动导览中</span>
   </header>
 
+  <!-- Hero：暗房闪回开场 -->
   <section class="hero" id="hero">
-    <div class="ring-stage">
-      <div id="ring"></div>
-      <div class="ring-plate">
-        <h1>__TITLE__</h1>
-      </div>
+    <div class="darkroom" id="darkroom"></div>
+    <div class="hero-plate">
+      <div class="eyebrow">SEASON IN REVIEW</div>
+      <h1>剧场 · 此刻</h1>
+      <div class="sub"><b>✦</b>&nbsp; 12 部珍藏 · 逐张显影</div>
     </div>
+    <div class="dev-count" id="devCount"><b id="devIdx">0</b> / 12 显影中</div>
+    <button class="skip" id="skipBtn">跳过开场 ›</button>
   </section>
 
+  <!-- Story：逐部详解 -->
   <main class="story" id="story"></main>
 
+  <!-- 底部轨道条 -->
   <div class="trackbar" id="trackbar">
     <span>第 <b class="cur" id="tbCur">1</b> 部 / 共 <b id="tbTotal">0</b> 部</span>
     <div class="tb-progress"><i id="tbProg"></i></div>
   </div>
 
-  <!-- 背景音乐（__BGM_SRC__/__BGM_NAME__ 由后端注入，空则不显示）：底部通栏播放条（音乐 App 风格） -->
+  <!-- 背景音乐（__BGM_SRC__/__BGM_NAME__ 由后端注入，空则隐藏）：左下角紧凑胶囊 -->
   <div class="bgm-bar" id="bgmBar" hidden>
     <button class="bgm-play" id="bgmPlayBtn" title="播放/暂停">▶</button>
     <span class="bgm-name" id="bgmName"></span>
@@ -338,14 +358,30 @@
 </div>
 
 <script>
-/* ========== 数据注入（后端渲染时替换为真实媒体数据 JSON 数组） ========== */
-const SLIDES = __SLIDES_JSON__;
+/* ========== 数据注入（后端渲染时替换为真实媒体数据 JSON 数组） ==========
+   正式版：const SLIDES = __SLIDES_JSON__;  字段 cover/title/flag/cat/note/tags */
+const grad = (a, b) => 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="300" height="400" fill="url(#g)"/></svg>`);
+const SLIDES = [
+  { title:'勇者王FINAL',    flag:'热血', cat:'热血机甲', note:'燃烧到最后一刻的男人，和那台不会倒下的勇者机器人。', tags:[['热血',5],['机甲',3],['燃',4]], c1:'#4fc3f7', c2:'#6f8bff' },
+  { title:'钢之炼金术师',   flag:'奇幻', cat:'奇幻冒险', note:'等价交换。为了取回弟弟的身体，踏上旅程——等价交换。', tags:[['奇幻',5],['神作',5],['冒险',3]], c1:'#6f8bff', c2:'#a78bfa' },
+  { title:'青之芦苇',       flag:'运动', cat:'运动', note:'脚下的绿茵场，是梦想开始的地方。', tags:[['运动',4],['成长',3],['足球',4]], c1:'#ff8fb8', c2:'#f472b6' },
+  { title:'星屑与黄昏',     flag:'治愈', cat:'治愈日常', note:'在黄昏的街道上，拾起那些温柔的碎片。', tags:[['治愈',4],['日常',3],['音乐',2]], c1:'#ffd166', c2:'#fb923c' },
+  { title:'落第骑士',       flag:'战斗', cat:'战斗', note:'从垫底到顶点，靠的不是运气。', tags:[['战斗',4],['热血',3],['校园',2]], c1:'#4fc3f7', c2:'#34d399' },
+  { title:'轻松熊',         flag:'日常', cat:'日常', note:'什么都不做，也是一种幸福。', tags:[['日常',4],['治愈',4],['萌',3]], c1:'#a78bfa', c2:'#ff8fb8' },
+  { title:'地狱模式',       flag:'异世界', cat:'异世界', note:'这届异世界，难度系数拉满。', tags:[['异世界',4],['搞笑',3]], c1:'#6f8bff', c2:'#4fc3f7' },
+  { title:'螺旋境界线',     flag:'科幻', cat:'科幻', note:'边界之外，是另一片宇宙。', tags:[['科幻',4],['悬疑',3],['太空',3]], c1:'#fb923c', c2:'#ffd166' },
+  { title:'奇诺之旅',       flag:'旅行', cat:'旅行', note:'「世界并不美丽，却也因此美丽」。', tags:[['旅行',4],['哲学',3],['公路',3]], c1:'#f472b6', c2:'#ff8fb8' },
+  { title:'狼雨',           flag:'致郁', cat:'致郁', note:'寻找乐园的狼，和雪一起消失。', tags:[['致郁',4],['文艺',3],['动物',2]], c1:'#34d399', c2:'#4fc3f7' },
+  { title:'初音岛',         flag:'恋爱', cat:'恋爱', note:'永不凋谢的樱花树，许下的约定。', tags:[['恋爱',4],['催泪',3]], c1:'#ffd166', c2:'#ff8fb8' },
+  { title:'爱的魔法',       flag:'搞笑', cat:'搞笑', note:'恋爱喜剧的最高境界，是让人笑着流泪。', tags:[['搞笑',4],['恋爱',3],['日常',2]], c1:'#a78bfa', c2:'#6f8bff' },
+].map(s => ({ ...s, cover: grad(s.c1, s.c2) }));
 
 /* 录制模式：?record=1 供视频渲染使用（忽略交互打断，全程自动导览） */
 const IS_RECORD = new URLSearchParams(location.search).get('record') === '1';
 
 /* ========== 背景音乐（__BGM_SRC__/__BGM_NAME__ 由后端注入，空则 BGM 区隐藏） ========== */
-const BGM_SRC = "__BGM_SRC__";
+const BGM_SRC = "";
 if (BGM_SRC) {
   const bgmAudio = document.getElementById('bgmAudio');
   const bgmBar = document.getElementById('bgmBar');
@@ -372,31 +408,24 @@ if (BGM_SRC) {
   bgmAudio.addEventListener('timeupdate', updateTime);
   bgmAudio.addEventListener('loadedmetadata', updateTime);
   bgmAudio.addEventListener('ended', () => { /* loop 循环 */ });
-  // 播放/暂停（浏览器 autoplay 策略需用户交互，首次点击起播）
   bgmPlayBtn.addEventListener('click', () => {
     if (bgmAudio.paused) { bgmAudio.play().catch(() => {}); setPlay(true); }
     else { bgmAudio.pause(); setPlay(false); }
   });
-  // 静音
   bgmMuteBtn.addEventListener('click', () => {
     bgmAudio.muted = !bgmAudio.muted;
     bgmMuteBtn.classList.toggle('muted', bgmAudio.muted);
     bgmMuteBtn.textContent = bgmAudio.muted ? '🔇' : '♪';
   });
-  // 进度条点击跳转
   document.getElementById('bgmProgTrack').addEventListener('click', e => {
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = (e.clientX - rect.left) / rect.width;
     if (bgmAudio.duration) bgmAudio.currentTime = ratio * bgmAudio.duration;
   });
-  // 录制模式：导览开始后尝试自动播放（被拦无妨，视频音轨由 ffmpeg 混入）
   if (IS_RECORD) {
     setTimeout(() => bgmAudio.play().catch(() => {}).then(() => setPlay(true)), 3000);
   }
 }
-
-/* 每张瓦片的渐变辉光色（gradient collection：多彩渐变集合） */
-const GLOWS = ['#ff8fb8','#4fc3f7','#a78bfa','#ffd166','#f472b6','#34d399','#fb923c','#60a5fa'];
 
 /* ========== 星空粒子 ========== */
 (() => {
@@ -443,32 +472,100 @@ const GLOWS = ['#ff8fb8','#4fc3f7','#a78bfa','#ffd166','#f472b6','#34d399','#fb9
   }
 })();
 
-/* ========== 渲染：渐变瓦片环 + Story ========== */
-const ring = document.getElementById('ring');
+/* ========== 暗房闪回：相纸逐张显影 ========== */
+const N = SLIDES.length;
+const pad = n => String(n).padStart(2, '0');
+const darkroom = document.getElementById('darkroom');
+const devCount = document.getElementById('devCount');
+const devIdx = document.getElementById('devIdx');
+const skipBtn = document.getElementById('skipBtn');
+
+/* 相纸就位 spot：随意散落（错落不均 + 大小对比 + 各自倾斜），中心标题区留白 */
+const SPOTS = [
+  { x:-44, y:-14, s:1.0,  r:-7  },
+  { x:-26, y:-30, s:.64,  r: 5  },
+  { x: -8, y:-25, s:.92,  r:-3  },
+  { x: 18, y:-32, s:.6,   r: 9  },
+  { x: 38, y:-20, s:.86,  r:-5  },
+  { x: 42, y:-6,  s:1.12, r: 3  },
+  { x:-42, y:  8, s:.58,  r: 8  },
+  { x:-28, y: 20, s:1.06, r:-2  },
+  { x:-10, y: 10, s:.68,  r: 6  },
+  { x: 14, y: 22, s:.98,  r:-4  },
+  { x: 30, y:  6, s:.66,  r: 7  },
+  { x: 43, y: 16, s:.9,   r:-6  },
+];
+
+const pols = SLIDES.map((s, i) => {
+  const p = document.createElement('div');
+  p.className = 'card';
+  p.style.setProperty('--c1', s.c1);
+  p.style.setProperty('--c2', s.c2);
+  p.style.transform = `translate(calc(-50% + ${SPOTS[i].x}vw), calc(-50% + ${SPOTS[i].y}vh)) scale(${SPOTS[i].s}) rotate(${SPOTS[i].r}deg)`;
+  p.style.opacity = '0';
+  p.innerHTML = `<div class="cover"></div><div class="glare"></div>
+    <span class="tag">${s.flag}</span><span class="no">${pad(i + 1)}</span>
+    <span class="name">${s.title}</span>`;
+  darkroom.appendChild(p);
+  return p;
+});
+
+let devTimers = [];
+function develop(i, hold) {
+  const p = pols[i];
+  p.style.opacity = '1';
+  p.querySelector('.cover').classList.add('develop');
+  devIdx.textContent = pad(i + 1);
+  devTimers.push(setTimeout(() => p.querySelector('.cover').classList.add('done'), hold));
+}
+function playDevelop() {
+  devTimers.forEach(clearTimeout); devTimers = [];
+  skipBtn.hidden = IS_RECORD;
+  devCount.classList.add('show');
+  pols.forEach(p => { p.classList.remove('mount'); p.style.opacity = '0';
+    p.querySelector('.cover').classList.remove('develop', 'done'); });
+  const DUR = 720, GAP = 50;
+  /* 打乱显影顺序：不是一排排出现，而是随机四处浮现 */
+  const order = SLIDES.map((_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  let delay = 0;
+  for (const idx of order) {
+    devTimers.push(setTimeout(() => develop(idx, DUR), delay));
+    delay += DUR + GAP;
+  }
+  devTimers.push(setTimeout(openWall, delay + 300));
+}
+function openWall() {
+  devCount.classList.remove('show');
+  pols.forEach((p, i) => {
+    p.classList.add('mount');
+    p.onclick = () => { stopAuto(); goto(i); };
+  });
+  /* 定场后自动导览（由下方 AUTOPLAY 逻辑在 AUTOPLAY_START 触发） */
+}
+function skipFlash() {
+  devTimers.forEach(clearTimeout); devTimers = [];
+  pols.forEach((p, i) => {
+    p.style.opacity = '1';
+    p.querySelector('.cover').classList.add('develop', 'done');
+  });
+  openWall();
+  setTimeout(() => { beginAutoGuide(); }, 300);
+}
+skipBtn.addEventListener('click', skipFlash);
+
+/* ========== 渲染 Story：逐部详解 ========== */
 const story = document.getElementById('story');
 const tbCur = document.getElementById('tbCur');
 const tbTotal = document.getElementById('tbTotal');
-const pad = n => String(n).padStart(2, '0');
 const chip = ([name, n]) => {
   const tier = n >= 10 ? 5 : n >= 7 ? 4 : n >= 4 ? 3 : n >= 2 ? 2 : 1;
   return `<span class="chip s${tier}">${name}<b>×${n}</b></span>`;
 };
-
-const TILES = [];
 SLIDES.forEach((s, i) => {
-  // 渐变瓦片：沿椭圆轨道初始角度分布，正立、由轨道循环驱动位置
-  const t = document.createElement('div');
-  t.className = 'tile';
-  t.style.left = '0px'; t.style.top = '0px';
-  t.style.setProperty('--glow', GLOWS[i % GLOWS.length]);
-  t.innerHTML = `
-    <img src="${s.cover}" alt="${s.title}" onerror="this.style.display='none'">
-    <span class="t-no">#${pad(i + 1)}</span>`;
-  t.addEventListener('click', () => goto(i));
-  ring.appendChild(t);
-  TILES.push({ el: t, angle: (i * (360 / SLIDES.length)) * Math.PI / 180 });
-
-  // Story 卡
   const sc = document.createElement('section');
   sc.className = 'story-card'; sc.id = 'story-' + i;
   sc.innerHTML = `
@@ -486,52 +583,10 @@ SLIDES.forEach((s, i) => {
     </div>`;
   story.appendChild(sc);
 });
-tbTotal.textContent = pad(SLIDES.length);
-
-/* 椭圆轨道 + 入场：瓦片由大到小、从中心依次滑入轨道就位，
-   全部就位停一拍后才开始绕中心转圈（40s 一圈） */
-const ORBIT_RX = 300, ORBIT_RY = 150, ORBIT_SPEED = (Math.PI * 2) / 40;
-/* 飘带入场：瓦片从就位角后方沿轨道弧线滑入（像彩带一段段铺开），
-   由大缩到就位 + 轻微摆动翻正，全部就位停一拍后才开始转圈 */
-const ENTER_DELAY = 0.4, ENTER_GAP = 0.45, ENTER_DUR = 1.2, ENTER_SCALE = 1.55,
-      ENTER_PAUSE = 1.0, ENTER_SWEEP = 1.15, ENTER_WAVE = 12;
-let orbitT = 0, lastT = null;
-const enterT0 = performance.now();
-const easeOutCubic = u => 1 - Math.pow(1 - u, 3);
-const clamped = (v, a, b) => Math.min(b, Math.max(a, v));
-(function tickOrbit(){
-  const now = performance.now();
-  const el = (now - enterT0) / 1000;                   /* 页面加载后的秒数 */
-  const lastEnter = ENTER_DELAY + (TILES.length - 1) * ENTER_GAP + ENTER_DUR;  /* 最末张就位时刻 */
-  if (el >= lastEnter + ENTER_PAUSE && lastT != null){
-    orbitT += ((now - lastT) / 1000) * ORBIT_SPEED;    /* 全部就位 → 才开始转 */
-  }
-  lastT = now;
-  TILES.forEach((tile, i) => {
-    const p = clamped((el - (ENTER_DELAY + i * ENTER_GAP)) / ENTER_DUR, 0, 1); /* 0 未入 → 1 就位 */
-    const e = easeOutCubic(p);
-    /* 飘带：角度从就位角后方随进度滑入，自带摆动翻正 */
-    const th = tile.angle + orbitT - (1 - e) * ENTER_SWEEP;
-    const k = (Math.sin(th) + 1) / 2;
-    const sTarget = 0.72 + 0.5 * k;
-    const s = ENTER_SCALE + (sTarget - ENTER_SCALE) * e;   /* 由大缩到就位 */
-    const rot = (1 - e) * ENTER_WAVE;                      /* 摆动 → 归零 */
-    const x = Math.cos(th) * ORBIT_RX;
-    const y = Math.sin(th) * ORBIT_RY;
-    tile.el.style.left = x.toFixed(1) + 'px';
-    tile.el.style.top  = y.toFixed(1) + 'px';
-    tile.el.style.transform = 'scale(' + s.toFixed(3) + ') rotate(' + rot.toFixed(1) + 'deg)';
-    tile.el.style.zIndex = Math.round(Math.sin(th) * 20);
-    tile.el.style.opacity = p.toFixed(3);
-    tile.el.style.filter = 'brightness(' + (0.55 + 0.65 * k).toFixed(2) + ')';
-    tile.el.style.boxShadow = `0 0 ${(10 + 30 * k).toFixed(1)}px var(--glow), 0 18px ${(30 + 30 * k).toFixed(1)}px rgba(0,0,0,.6)`;
-  });
-  requestAnimationFrame(tickOrbit);
-})();
-
+tbTotal.textContent = pad(N);
 const cards = [...story.children];
 
-/* 滚动进入视野 → 触发镜头缓推 + 信息逐行显现（IntersectionObserver） */
+/* 滚动进入视野 → 触发镜头缓推 + 信息逐行显现 */
 const io = new IntersectionObserver(entries => {
   for (const e of entries) {
     if (e.isIntersecting) {
@@ -543,7 +598,7 @@ const io = new IntersectionObserver(entries => {
 }, { threshold: 0.45 });
 cards.forEach(c => io.observe(c));
 
-/* 底部轨道条：进入 story 区后浮现 */
+/* 底部轨道条：离开 hero 后浮现 */
 const tb = document.getElementById('trackbar');
 const hero = document.querySelector('.hero');
 const trackbarIO = new IntersectionObserver(es => {
@@ -551,11 +606,12 @@ const trackbarIO = new IntersectionObserver(es => {
 }, { threshold: 0 });
 trackbarIO.observe(hero);
 
-/* ========== 自动导览：瓦片环落定 → 停留 → 逐部自动跳转 ========== */
+/* ========== 自动导览：暗房显影完定场 → 逐部自动跳转 ========== */
 const tbBar = document.getElementById('trackbar');
 const prog = document.getElementById('tbProg');
+const autoBadge = document.getElementById('autoBadge');
 const AUTOPLAY_HOLD = 6000;      /* 每部停留时长（与 tbprog 动画同步） */
-const AUTOPLAY_START = 7000;     /* 瓦片飘带就位（~5.7s）+ 定场后开播 */
+const AUTOPLAY_START = 10800;     /* 暗房闪回（~9.2s）+ 定格后开播 */
 let entryTimer = null, autoTimer = null, autoIndex = 0, autoplaying = false;
 
 function resetProg(){
@@ -565,6 +621,7 @@ function beginAutoGuide(){
   if (autoplaying) return;
   autoplaying = true; autoIndex = 0;
   tbBar.classList.add('auto');
+  autoBadge.hidden = false;
   goto(0);
   scheduleAuto();
 }
@@ -585,6 +642,7 @@ function finishAuto(){
   autoplaying = false;
   tbBar.classList.remove('auto');
   prog.classList.remove('run');
+  autoBadge.hidden = true;
 }
 function stopAuto(){
   clearTimeout(entryTimer); clearTimeout(autoTimer);
@@ -592,7 +650,7 @@ function stopAuto(){
   finishAuto();
 }
 
-/* 定位：瓦片点击 → 滚到对应 Story 卡（自动导览中同步重置倒计时条） */
+/* 定位：点击相纸/瓦片 → 滚到对应 Story 卡（自动导览中同步重置倒计时条） */
 function goto(i){
   if (autoplaying) resetProg();
   const el = document.getElementById('story-' + i);
@@ -601,20 +659,19 @@ function goto(i){
 }
 
 if (!IS_RECORD) {
-  ring.addEventListener('click', stopAuto);
   window.addEventListener('wheel', stopAuto, { passive:true });
   window.addEventListener('touchstart', stopAuto, { passive:true });
-  /* 键盘 ←/→ 切上下部（视频分镜感），按下即停自动导览 */
   document.addEventListener('keydown', e => {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') stopAuto();
     const n = cards.findIndex(c => c.classList.contains('in-view'));
     if (n < 0) return;
-    if (e.key === 'ArrowRight') goto(Math.min(n + 1, SLIDES.length - 1));
+    if (e.key === 'ArrowRight') goto(Math.min(n + 1, N - 1));
     if (e.key === 'ArrowLeft') goto(Math.max(n - 1, 0));
   });
 }
 
-/* 瓦片环落定 + 定场后自动开播 */
+/* 开场闪回 + 定场后自动开播 */
+playDevelop();
 entryTimer = setTimeout(beginAutoGuide, AUTOPLAY_START);
 </script>
 </body>

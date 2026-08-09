@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>方案三 · 暗房 · 快门闪回 → 相纸画廊</title>
+<style>
+  :root{
+    --paper:#f4efe6; --paper2:#efe8da; --ink:#1f1d1a; --muted:#8d857a;
+    --blue:#002fa7; --warm:#b8a27e; --red:#9c2f22;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--paper);color:var(--ink);overflow:hidden;height:100vh;
+    font-family:Georgia,"Songti SC","Noto Serif SC",serif;
+  }
+
+  /* ---- 暗房墙面：暖白 + 纸纹 + 环境光 ---- */
+  .room{position:fixed;inset:0;z-index:0;
+    background:
+      radial-gradient(1100px 700px at 72% 12%, rgba(184,162,126,.16), transparent 60%),
+      radial-gradient(900px 640px at 14% 78%, rgba(0,47,169,.05), transparent 60%),
+      var(--paper);}
+  .room::before{content:'';position:absolute;inset:0;opacity:.5;mix-blend-mode:multiply;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)' opacity='0.12'/%3E%3C/svg%3E");}
+  .room::after{content:'';position:absolute;inset:0;
+    background:radial-gradient(62% 55% at 50% 46%, transparent 50%, rgba(60,45,25,.16) 92%);}
+  /* 暗房红灯（角落氛围灯） */
+  .redlamp{position:fixed;right:26px;top:26px;z-index:8;width:14px;height:14px;border-radius:50%;
+    background:radial-gradient(circle at 45% 40%,#ff9d8a,#c0392b 60%,#7a201a);opacity:.9;
+    box-shadow:0 0 18px 6px rgba(156,47,34,.4),0 0 40px 18px rgba(156,47,34,.14);
+    animation:lampglow 4.5s ease-in-out infinite;}
+  @keyframes lampglow{50%{box-shadow:0 0 22px 8px rgba(156,47,34,.5),0 0 50px 22px rgba(156,47,34,.18)}}
+  .redlamp::after{content:'DARKROOM';position:absolute;right:22px;top:-1px;font-size:9px;letter-spacing:3px;
+    color:rgba(120,60,40,.55);white-space:nowrap;font-family:"PingFang SC",sans-serif}
+
+  /* ---- 顶部标题（手写楷体） ---- */
+  .topbar{position:fixed;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
+    padding:20px 34px;pointer-events:none;}
+  .brand{font-size:12px;letter-spacing:5px;color:var(--muted);text-transform:uppercase;font-family:"PingFang SC",sans-serif}
+  .brand b{color:var(--ink);font-weight:400;letter-spacing:3px}
+  .brand .blue{color:var(--blue)}
+  .hero{position:fixed;top:0;left:0;right:0;z-index:19;text-align:center;padding-top:58px;pointer-events:none}
+  .hero h1{font-size:clamp(26px,4.8vw,52px);font-weight:500;letter-spacing:12px;color:var(--ink);
+    font-family:"KaiTi","STKaiti","Songti SC",serif;
+    text-shadow:0 1px 0 rgba(255,255,255,.6);}
+  .hero .sub{font-size:11px;letter-spacing:7px;color:var(--muted);margin-top:10px;text-transform:uppercase;
+    font-family:"PingFang SC",sans-serif}
+  .hero .sub i{color:var(--blue);font-style:normal;letter-spacing:3px}
+
+  /* ---- 相纸舞台 ---- */
+  .stage{position:fixed;inset:0;z-index:5;pointer-events:none}
+  .polaroid{position:absolute;left:50%;top:47%;width:220px;pointer-events:auto;cursor:pointer;
+    padding:11px 11px 26px;background:transparent;border-radius:2px;
+    will-change:transform;transform-origin:center center;
+    transition:box-shadow .45s ease,background .6s ease;}
+  .photo{position:relative;width:198px;height:248px;overflow:hidden;background:#e6dfd2;
+    box-shadow:inset 0 0 0 1px rgba(90,70,40,.08);}
+  .cover{position:absolute;inset:0;background:linear-gradient(160deg,var(--c1),var(--c2));
+    filter:grayscale(1) blur(5px) contrast(.78) brightness(.78);opacity:0;}
+  .cover.develop{opacity:1;transition:filter 1.15s ease,opacity .18s ease;}
+  /* 显影注入：中间态会经过"相纸淡影" */
+  .cover.done{filter:grayscale(0) blur(0) contrast(1.02) brightness(1)}
+  .photo::after{content:'';position:absolute;inset:0;
+    background:radial-gradient(120% 90% at 50% 40%, transparent 58%, rgba(120,100,70,.16) 100%);
+    opacity:0;transition:opacity .5s ease;}
+  .hand{position:absolute;left:12px;right:12px;bottom:6px;display:flex;align-items:baseline;justify-content:space-between;
+    font-family:"KaiTi","STKaiti",serif;opacity:0;transition:opacity .5s ease .1s;}
+  .hand .date{font-size:10px;letter-spacing:2px;color:var(--muted);font-style:italic}
+  .hand .title{font-size:15px;letter-spacing:1px;color:var(--ink);font-weight:500}
+  /* 正片：装裱上墙 */
+  .polaroid.mount{background:#fcf8f0;
+    box-shadow:0 2px 4px rgba(40,28,14,.1),0 12px 30px rgba(40,28,14,.16),0 30px 60px rgba(40,28,14,.12);}
+  .polaroid.mount .hand{opacity:1}
+  .polaroid.mount:hover{transform:rotate(0) !important}
+  .polaroid:hover{background:#fdfaf3;
+    box-shadow:0 4px 8px rgba(40,28,14,.12),0 18px 44px rgba(40,28,14,.22),0 40px 80px rgba(40,28,14,.16);}
+  /* hover 微倾由 JS 处理（叠加 CSS 变量） */
+
+  /* ---- 快门白闪 ---- */
+  .flash{position:fixed;inset:0;z-index:40;pointer-events:none;background:#fffdf7;opacity:0}
+  .flash.go{animation:flashan .22s ease-out}
+  @keyframes flashan{0%{opacity:.5}100%{opacity:0}}
+
+  /* ---- 底部签名 + 重播 ---- */
+  .sign{position:fixed;left:50%;bottom:5.5vh;transform:translateX(-50%);z-index:22;text-align:center;
+    font-size:12px;letter-spacing:4px;color:var(--muted);font-style:italic;opacity:0;transition:opacity 1s ease .4s;}
+  .sign.show{opacity:1}
+  .sign b{color:var(--ink);font-weight:400}
+  .replay{position:fixed;left:22px;bottom:20px;z-index:30;font-family:inherit;font-size:11px;letter-spacing:2px;
+    color:var(--ink);background:rgba(255,255,255,.5);border:1px solid rgba(60,40,20,.28);padding:9px 18px;
+    border-radius:3px;cursor:pointer;transition:.2s;}
+  .replay:hover{background:#fff;border-color:var(--blue);color:var(--blue)}
+  .hint{position:fixed;left:50%;bottom:11vh;transform:translateX(-50%);z-index:18;font-size:11px;
+    letter-spacing:6px;color:rgba(120,100,70,.55);text-transform:uppercase;pointer-events:none;
+    font-family:"PingFang SC",sans-serif;animation:breath 2s ease-in-out infinite;}
+  @keyframes breath{50%{opacity:.3}}
+</style>
+</head>
+<body>
+  <div class="room"></div>
+  <div class="redlamp"></div>
+
+  <header class="topbar">
+    <div class="brand"><b>我的番剧推荐</b> · <span class="blue">DEVELOP</span></div>
+  </header>
+  <div class="hero">
+    <h1>洗印 · 这一季</h1>
+    <div class="sub">MEMORIES <i>✦</i> DEVELOPED</div>
+  </div>
+
+  <div class="stage" id="stage"></div>
+  <div class="flash" id="flash"></div>
+
+  <div class="sign" id="sign">—— 冲洗于记忆暗房 · <b>2026</b> ——</div>
+  <div class="hint" id="hint">显影中 · DEVELOPING</div>
+  <button class="replay" id="replay">↺ 重新洗印</button>
+
+<script>
+  const SLIDES = [
+    { n:'勇者王FINAL',   t:'热血', c1:'#ff5f6d', c2:'#ffc371', d:'24.01' },
+    { n:'钢之炼金术师',  t:'奇幻', c1:'#667eea', c2:'#764ba2', d:'23.09' },
+    { n:'青之芦苇',      t:'运动', c1:'#43e97b', c2:'#38f9d7', d:'22.04' },
+    { n:'星屑与黄昏',    t:'治愈', c1:'#a18cd1', c2:'#fbc2eb', d:'21.11' },
+    { n:'落第骑士',      t:'战斗', c1:'#f83600', c2:'#f9d423', d:'20.07' },
+    { n:'轻松熊',        t:'日常', c1:'#ff9a9e', c2:'#fecfef', d:'19.03' },
+    { n:'地狱模式',      t:'异世界', c1:'#5ee7df', c2:'#b490ca', d:'18.10' },
+    { n:'螺旋境界线',    t:'科幻', c1:'#30cfd0', c2:'#330867', d:'17.05' },
+    { n:'奇诺之旅',      t:'旅行', c1:'#84fab0', c2:'#8fd3f4', d:'16.02' },
+    { n:'狼雨',          t:'致郁', c1:'#e0c3fc', c2:'#8ec5fc', d:'15.08' },
+    { n:'初音岛',        t:'恋爱', c1:'#fccb90', c2:'#d57eeb', d:'14.06' },
+    { n:'爱的魔法',      t:'搞笑', c1:'#ff758c', c2:'#ff7eb3', d:'13.01' },
+  ];
+
+  /* 相纸就位 spot：x/y（vw/vh 相对中心 47%），scale 大小，rotate 倾斜 */
+  const SPOTS = [
+    { x:-40, y:-24, s:.92, r:-3 }, { x:-24, y:-12, s:1.08, r: 2 },
+    { x:-6,  y:-25, s:.86, r: 3 }, { x: 12, y:-12, s:1.16, r:-2 },
+    { x: 30, y:-24, s:.92, r: 2 }, { x: 46, y:-13, s:1.04, r:-3 },
+    { x:-34, y: 12, s:1.0,  r: 2 }, { x:-17, y:  2, s:.86, r:-2 },
+    { x:  1, y: 13, s:1.12, r: 3 }, { x: 19, y:  2, s:.9,  r:-2 },
+    { x: 36, y: 13, s:1.04, r: 2 }, { x: 51, y:-1,  s:.86, r:-3 },
+  ];
+
+  const stage = document.getElementById('stage');
+  const flash = document.getElementById('flash');
+  const hint = document.getElementById('hint');
+  const sign = document.getElementById('sign');
+
+  const N = SLIDES.length;
+  const cards = SLIDES.map((s, i) => {
+    const sp = SPOTS[i];
+    const p = document.createElement('div');
+    p.className = 'polaroid';
+    p.style.setProperty('--c1', s.c1);
+    p.style.setProperty('--c2', s.c2);
+    p.style.transform = `translate(calc(-50% + ${sp.x}vw), calc(-50% + ${sp.y}vh)) scale(${sp.s}) rotate(${sp.r}deg)`;
+    p.style.opacity = '0';
+    p.innerHTML = `<div class="photo"><div class="cover"></div></div>
+      <div class="hand"><span class="date">${s.d}</span><span class="title">${s.n}</span></div>`;
+    stage.appendChild(p);
+    return p;
+  });
+
+  let timers = [];
+  const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
+
+  /* 快门闪白 */
+  function shutter() {
+    flash.classList.remove('go');
+    void flash.offsetWidth;
+    flash.classList.add('go');
+  }
+
+  /* 显影：第 i 张从灰阶注入彩色 */
+  function develop(i, hold) {
+    const p = cards[i], cv = p.querySelector('.cover');
+    shutter();
+    p.style.opacity = '1';
+    cv.classList.add('develop');
+    timers.push(setTimeout(() => cv.classList.add('done'), hold));
+  }
+
+  /* 慢动作逐张显影 */
+  function playDevelop() {
+    clearTimers();
+    sign.classList.remove('show');
+    hint.style.display = 'block';
+    cards.forEach(p => { p.classList.remove('mount'); p.style.opacity = '0';
+      const cv = p.querySelector('.cover'); cv.classList.remove('develop', 'done'); });
+
+    const DUR = 700, GAP = 60;
+    let delay = 0;
+    for (let i = 0; i < N; i++) {
+      timers.push(setTimeout(() => develop(i, DUR), delay));
+      delay += DUR + GAP;
+    }
+    /* 全部显影完 → 装裱上墙 */
+    timers.push(setTimeout(mount, delay + 400));
+  }
+
+  function mount() {
+    hint.style.display = 'none';
+    sign.classList.add('show');
+    cards.forEach((p, i) => {
+      const sp = SPOTS[i];
+      p.classList.add('mount');
+      p.style.transition = `box-shadow .45s ease, background .6s ease`;
+      /* hover 微倾：叠加 CSS 变量保持就位 */
+      p.style.setProperty('--bx', sp.x + 'vw');
+      p.style.setProperty('--by', sp.y + 'vh');
+      p.style.setProperty('--bs', sp.s);
+      p.style.setProperty('--br', sp.r + 'deg');
+      p.dataset.x = sp.x; p.dataset.y = sp.y; p.dataset.s = sp.s; p.dataset.r = sp.r;
+      p.addEventListener('mouseenter', () => {
+        p.style.transform = `translate(calc(-50% + ${sp.x}vw), calc(-50% + ${sp.y}vh)) scale(${sp.s * 1.04}) rotate(${sp.r + 3}deg)`;
+      });
+      p.addEventListener('mouseleave', () => {
+        p.style.transform = `translate(calc(-50% + ${sp.x}vw), calc(-50% + ${sp.y}vh)) scale(${sp.s}) rotate(${sp.r}deg)`;
+      });
+    });
+  }
+
+  document.getElementById('replay').onclick = playDevelop;
+
+  playDevelop();
+</script>
+</body>
+</html>

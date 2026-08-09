@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>方案 F · 悬浮展台</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#08080f;color:#eaeaf2;overflow:hidden;height:100vh;
+    font-family:"Helvetica Neue","PingFang SC",sans-serif}
+  /* 深邃空间 + 地面 */
+  .space{position:fixed;inset:0;
+    background:
+      radial-gradient(120% 80% at 50% 30%, rgba(40,40,90,.22), transparent 60%),
+      radial-gradient(160% 60% at 50% 100%, rgba(30,40,80,.16), transparent 60%),
+      #08080f;}
+  .floor{position:fixed;left:0;right:0;bottom:0;height:34%;z-index:1;
+    background:linear-gradient(180deg,transparent,rgba(30,34,70,.35))}
+
+  .top{position:fixed;top:0;left:0;right:0;z-index:10;display:flex;justify-content:space-between;align-items:baseline;
+    padding:22px 30px}
+  .brand{font-size:11px;letter-spacing:6px;color:#8f8fb2;text-transform:uppercase}
+  .brand b{color:#fff}
+  .hero{position:fixed;top:7%;left:0;right:0;text-align:center;z-index:10;pointer-events:none}
+  .hero h1{font-size:clamp(26px,4.5vw,48px);font-weight:300;letter-spacing:14px;color:#fff}
+  .hero .en{display:block;font-size:10px;letter-spacing:10px;color:#6f6f99;margin-top:10px;text-transform:uppercase}
+
+  /* 悬浮展台：封面悬浮 + 底部光柱 + 阴影 */
+  .pedestal{position:absolute;z-index:5;text-align:center}
+  .art{position:relative;overflow:hidden;margin:0 auto;background:#10101a;border:1px solid rgba(255,255,255,.10);
+    animation:float 5s ease-in-out infinite;
+    box-shadow:0 26px 60px rgba(0,0,0,.7)}
+  .pedestal:nth-child(even) .art{animation-delay:1.4s}
+  .cover{position:absolute;inset:0;background:linear-gradient(160deg,var(--c1),var(--c2))}
+  .art::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 42%,rgba(0,0,0,.5))}
+  .n{position:absolute;z-index:6;left:10px;bottom:8px;color:#fff;font-size:11px;letter-spacing:1px}
+  /* 光柱（底部向上） */
+  .art::before{content:'';position:absolute;left:50%;bottom:-40%;width:70%;height:55%;transform:translateX(-50%);
+    background:radial-gradient(50% 50% at 50% 0%, var(--glow), transparent 70%);filter:blur(14px);z-index:-1}
+  /* 展台底座 */
+  .base{width:80%;height:8px;margin:14px auto 0;border-radius:50%;
+    background:radial-gradient(50% 50% at 50% 50%, rgba(255,255,255,.18), transparent 70%);
+    box-shadow:0 0 30px rgba(90,100,200,.2)}
+  .tag{font-size:10px;letter-spacing:3px;color:#7f7fa8;margin-top:10px;text-transform:uppercase}
+
+  .pedestal{opacity:0;animation:fadeIn .9s ease forwards}
+  .pedestal:nth-child(1){animation-delay:.1s}.pedestal:nth-child(2){animation-delay:.25s}
+  .pedestal:nth-child(3){animation-delay:.4s}.pedestal:nth-child(4){animation-delay:.55s}
+  .pedestal:nth-child(5){animation-delay:.7s}.pedestal:nth-child(6){animation-delay:.85s}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+  @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+</style>
+</head>
+<body>
+<div class="space"></div>
+<div class="floor"></div>
+
+<div class="top"><div class="brand"><b>✦</b> 我的番剧推荐</div></div>
+<div class="hero"><h1>悬浮·展台</h1><span class="en">Levitating Pedestals</span></div>
+
+<script>
+  const S=[
+    {n:'勇者王FINAL',  t:'热血', c1:'#b0402a',c2:'#551810',g:'rgba(255,120,80,.5)'},
+    {n:'钢之炼金术师', t:'奇幻', c1:'#28506a',c2:'#0e2236',g:'rgba(90,150,220,.5)'},
+    {n:'青之芦苇',     t:'运动', c1:'#1d6a48',c2:'#0a2e1e',g:'rgba(90,220,150,.5)'},
+    {n:'星屑与黄昏',   t:'治愈', c1:'#5a3870',c2:'#241136',g:'rgba(180,120,230,.5)'},
+    {n:'落第骑士',     t:'战斗', c1:'#7a2c2c',c2:'#330a0a',g:'rgba(240,110,110,.5)'},
+    {n:'轻松熊',       t:'日常', c1:'#6a5838',c2:'#2e2410',g:'rgba(230,190,110,.5)'},
+  ];
+  const spots=[
+    {x:.05,y:.40,w:140,h:200},{x:.24,y:.26,w:120,h:172},{x:.42,y:.36,w:150,h:214},
+    {x:.60,y:.24,w:124,h:178},{x:.78,y:.38,w:146,h:208},{x:.90,y:.55,w:120,h:172},
+  ];
+  S.forEach((s,i)=>{
+    const sp=spots[i],p=document.createElement('div');p.className='pedestal';
+    p.style.left=(sp.x*100)+'%';p.style.top=(sp.y*100)+'%';
+    const art=document.createElement('div');art.className='art';
+    art.style.width=sp.w+'px';art.style.height=sp.h+'px';
+    art.style.setProperty('--c1',s.c1);art.style.setProperty('--c2',s.c2);art.style.setProperty('--glow',s.g);
+    art.innerHTML='<div class="cover"></div><span class="n">'+s.n+'</span>';
+    p.appendChild(art);
+    const base=document.createElement('div');base.className='base';p.appendChild(base);
+    const tag=document.createElement('div');tag.className='tag';tag.textContent=s.t;p.appendChild(tag);
+    document.body.appendChild(p);
+  });
+</script>
+</body>
+</html>

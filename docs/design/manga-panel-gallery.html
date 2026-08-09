@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>方案 D · 漫画分镜 · 定格闪回 → 热血漫墙</title>
+<style>
+  :root{
+    --paper:#f6f1e4; --ink:#161616; --red:#e63946; --amber:#f4a261; --bone:#fffdf6;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--paper);color:var(--ink);overflow:hidden;height:100vh;
+    font-family:"Heiti SC","Microsoft YaHei",system-ui,sans-serif;
+  }
+  /* ---- 纸面 + 半调网点 ---- */
+  .page{position:fixed;inset:0;z-index:0;
+    background:var(--paper);}
+  .page::before{content:'';position:absolute;inset:0;opacity:.55;
+    background-image:radial-gradient(circle,rgba(20,20,20,.10) 1.4px,transparent 1.9px);
+    background-size:8px 8px;}
+  .page::after{content:'';position:absolute;inset:0;
+    background:radial-gradient(70% 60% at 50% 42%,transparent 55%,rgba(60,40,10,.14) 96%);}
+
+  /* ---- 顶部漫画标题 ---- */
+  .topbar{position:fixed;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
+    padding:18px 30px;pointer-events:none;}
+  .brand{font-size:12px;font-weight:900;letter-spacing:4px;color:var(--ink);text-transform:uppercase}
+  .brand .r{color:var(--red)}
+  .hero{position:fixed;top:0;left:0;right:0;z-index:19;text-align:center;padding-top:52px;pointer-events:none}
+  .hero h1{display:inline-block;font-size:clamp(26px,4.6vw,50px);font-weight:900;letter-spacing:6px;color:var(--ink);
+    background:#fff;padding:4px 26px 8px;border:4px solid var(--ink);box-shadow:8px 8px 0 rgba(20,20,20,.9);
+    transform:rotate(-1.5deg);}
+  .hero h1 .r{color:var(--red)}
+  .hero .sub{font-size:11px;font-weight:800;letter-spacing:5px;color:var(--red);margin-top:14px;
+    text-transform:uppercase;text-shadow:1px 1px 0 #fff,2px 2px 0 rgba(20,20,20,.15);}
+
+  /* ---- 闪回大格 ---- */
+  .flash-panel{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%);z-index:12;
+    width:min(52vw,400px);aspect-ratio:3/4;background:var(--bone);
+    border:5px solid var(--ink);box-shadow:14px 14px 0 rgba(20,20,20,.9);overflow:hidden;
+    opacity:0;transition:opacity .2s;}
+  .flash-panel.on{opacity:1}
+  .flash-panel .inner{position:absolute;inset:4px;overflow:hidden;background:#e8e0cf;}
+  .flash-panel .cover{position:absolute;inset:0;background:linear-gradient(160deg,var(--c1),var(--c2));
+    filter:grayscale(1) contrast(1.15) brightness(.92);}
+  .flash-panel .cover.live{filter:grayscale(0) contrast(1.04) brightness(1);transition:filter .9s ease}
+  .flash-panel .dots{position:absolute;inset:0;opacity:1;mix-blend-mode:multiply;
+    background-image:radial-gradient(circle,rgba(20,20,20,.35) 1.2px,transparent 1.7px);
+    background-size:5px 5px;transition:opacity .5s ease;}
+  .flash-panel .cover.live ~ .dots{opacity:0}
+  .flash-panel .caption{position:absolute;left:8px;right:8px;bottom:8px;z-index:3;display:flex;justify-content:space-between;
+    background:var(--ink);color:#fff;padding:7px 12px;font-size:13px;font-weight:900;letter-spacing:2px;
+    border:3px solid var(--ink);box-shadow:4px 4px 0 var(--red);}
+  .flash-panel .caption .no{color:var(--amber)}
+  .flash-panel .sfx{position:absolute;z-index:4;font-size:clamp(30px,6vw,52px);font-weight:900;color:var(--ink);
+    text-shadow:-2px -2px 0 #fff,2px -2px 0 #fff,-2px 2px 0 #fff,2px 2px 0 #fff,-4px -4px 0 var(--red),4px 4px 0 var(--red);
+    top:6px;left:10px;transform:rotate(-8deg);opacity:0;}
+  .flash-panel .sfx.pop{animation:sfxpop .5s ease-out forwards}
+  @keyframes sfxpop{0%{opacity:0;transform:rotate(-8deg) scale(.4)}30%{opacity:1;transform:rotate(-8deg) scale(1.25)}70%{opacity:1}100%{opacity:0;transform:rotate(-8deg) scale(1.02)}}
+  .flash-panel .burst{position:absolute;inset:-16px;z-index:5;pointer-events:none;opacity:0;
+    background:radial-gradient(circle,transparent 32%,var(--red) 33%,transparent 44%);
+    background-size:100% 100%;}
+  .flash-panel .burst.go{animation:burst .42s ease-out forwards}
+  @keyframes burst{0%{opacity:1;transform:scale(.72)}100%{opacity:0;transform:scale(1.18)}}
+  .flash-panel .speed{position:absolute;inset:0;z-index:2;pointer-events:none;opacity:0;
+    background:repeating-conic-gradient(from 0deg at 50% 50%,transparent 0deg 3deg,rgba(20,20,20,.16) 3deg 4deg);}
+  .flash-panel .speed.on{opacity:.5}
+
+  /* ---- 正片：漫画墙 ---- */
+  .wall{position:fixed;top:52%;left:50%;transform:translate(-50%,-50%);z-index:8;
+    width:min(92vw,1180px);display:none;grid-template-columns:repeat(12,1fr);
+    grid-auto-rows:86px;gap:14px;opacity:0;transition:opacity .7s ease;}
+  .wall.show{display:grid;opacity:1}
+  .panel{position:relative;background:var(--bone);border:4px solid var(--ink);
+    box-shadow:7px 7px 0 rgba(20,20,20,.85);overflow:hidden;cursor:pointer;
+    transition:transform .25s cubic-bezier(.2,1.4,.4,1),box-shadow .25s;}
+  .panel:hover{transform:translate(-2px,-2px) scale(1.03);box-shadow:11px 11px 0 rgba(20,20,20,.85),0 0 0 3px var(--red);z-index:5}
+  .panel .art{position:absolute;inset:5px;overflow:hidden;background:#e8e0cf;}
+  .panel .art .cov{position:absolute;inset:0;background:linear-gradient(160deg,var(--c1),var(--c2))}
+  .panel .art::after{content:'';position:absolute;inset:0;mix-blend-mode:multiply;opacity:.4;
+    background-image:radial-gradient(circle,rgba(20,20,20,.3) 1px,transparent 1.5px);background-size:4.5px 4.5px;}
+  .panel .art::before{content:'';position:absolute;inset:0;
+    background:linear-gradient(180deg,transparent 58%,rgba(20,20,20,.5));}
+  .panel .no{position:absolute;left:10px;top:8px;z-index:3;font-size:11px;font-weight:900;letter-spacing:2px;
+    color:var(--ink);background:#fff;border:2px solid var(--ink);padding:1px 7px;box-shadow:2px 2px 0 var(--amber);}
+  .panel .cap{position:absolute;left:9px;right:9px;bottom:9px;z-index:3;font-size:12px;font-weight:900;letter-spacing:2px;
+    color:#fff;background:var(--ink);padding:5px 9px;text-align:center;box-shadow:3px 3px 0 var(--red);}
+  .panel .p-sfx{position:absolute;z-index:4;font-weight:900;color:var(--ink);opacity:0;pointer-events:none;
+    font-size:20px;text-shadow:-1px -1px 0 #fff,1px -1px 0 #fff,-1px 1px 0 #fff,1px 1px 0 #fff;}
+  .panel:hover .p-sfx{opacity:1;animation:sfxpop2 .6s ease-out infinite}
+  @keyframes sfxpop2{0%{transform:scale(.6) rotate(-10deg);opacity:1}60%{opacity:1}100%{transform:scale(1.15) rotate(-10deg);opacity:0}}
+  /* 分格 span 规划 */
+  .panel.a{grid-column:span 3;grid-row:span 2}
+  .panel.b{grid-column:span 2;grid-row:span 1}
+  .panel.c{grid-column:span 2;grid-row:span 2}
+  .panel.d{grid-column:span 3;grid-row:span 2}
+  .panel.e{grid-column:span 2;grid-row:span 1}
+  .panel.f{grid-column:span 2;grid-row:span 1}
+  .panel.g{grid-column:span 2;grid-row:span 2}
+  .panel.h{grid-column:span 3;grid-row:span 2}
+  .panel.i{grid-column:span 2;grid-row:span 1}
+  .panel.j{grid-column:span 3;grid-row:span 2}
+  .panel.k{grid-column:span 2;grid-row:span 2}
+  .panel.l{grid-column:span 3;grid-row:span 2}
+
+  /* ---- 底部 ---- */
+  .sign{position:fixed;left:50%;bottom:4.6vh;transform:translateX(-50%);z-index:22;text-align:center;
+    font-size:13px;font-weight:900;letter-spacing:4px;color:var(--ink);background:#fff;
+    border:3px solid var(--ink);padding:6px 20px;box-shadow:5px 5px 0 var(--red);
+    opacity:0;transition:opacity .8s ease .3s;}
+  .sign.show{opacity:1}
+  .replay{position:fixed;left:20px;bottom:18px;z-index:30;font-family:inherit;font-size:11px;font-weight:900;letter-spacing:2px;
+    color:var(--ink);background:#fff;border:3px solid var(--ink);padding:7px 14px;cursor:pointer;
+    box-shadow:4px 4px 0 var(--ink);transition:.15s;}
+  .replay:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--red)}
+  .hint{position:fixed;left:50%;bottom:11vh;transform:translateX(-50%);z-index:18;font-size:11px;font-weight:900;
+    letter-spacing:6px;color:var(--red);text-transform:uppercase;pointer-events:none;
+    animation:blink 1.4s steps(2) infinite;}
+  @keyframes blink{50%{opacity:.2}}
+</style>
+</head>
+<body>
+  <div class="page"></div>
+
+  <header class="topbar">
+    <div class="brand">✦ 我的番剧推荐 · <span class="r">MANGA</span></div>
+  </header>
+  <div class="hero">
+    <h1>热血<span class="r">封神</span></h1>
+    <div class="sub">—— 此季 TOP 12 ——</div>
+  </div>
+
+  <!-- 闪回大格 -->
+  <div class="flash-panel" id="flashPanel">
+    <div class="inner">
+      <div class="cover" id="flashCover"></div>
+      <div class="speed" id="flashSpeed"></div>
+      <div class="dots"></div>
+      <span class="sfx" id="flashSfx"></span>
+    </div>
+    <div class="caption"><span id="flashTitle">—</span><span class="no" id="flashNo">#01</span></div>
+    <i class="burst" id="flashBurst"></i>
+  </div>
+
+  <!-- 漫画墙 -->
+  <div class="wall" id="wall"></div>
+
+  <div class="sign" id="sign">—— 未完待续 · TO BE CONTINUED ——</div>
+  <div class="hint" id="hint">分镜翻页中…</div>
+  <button class="replay" id="replay">↺ 重演开场</button>
+
+<script>
+  const SLIDES = [
+    { n:'勇者王FINAL',   t:'热血', c1:'#ff5f6d', c2:'#ffc371' },
+    { n:'钢之炼金术师',  t:'奇幻', c1:'#667eea', c2:'#764ba2' },
+    { n:'青之芦苇',      t:'运动', c1:'#43e97b', c2:'#38f9d7' },
+    { n:'星屑与黄昏',    t:'治愈', c1:'#a18cd1', c2:'#fbc2eb' },
+    { n:'落第骑士',      t:'战斗', c1:'#f83600', c2:'#f9d423' },
+    { n:'轻松熊',        t:'日常', c1:'#ff9a9e', c2:'#fecfef' },
+    { n:'地狱模式',      t:'异世界', c1:'#5ee7df', c2:'#b490ca' },
+    { n:'螺旋境界线',    t:'科幻', c1:'#30cfd0', c2:'#330867' },
+    { n:'奇诺之旅',      t:'旅行', c1:'#84fab0', c2:'#8fd3f4' },
+    { n:'狼雨',          t:'致郁', c1:'#e0c3fc', c2:'#8ec5fc' },
+    { n:'初音岛',        t:'恋爱', c1:'#fccb90', c2:'#d57eeb' },
+    { n:'爱的魔法',      t:'搞笑', c1:'#ff758c', c2:'#ff7eb3' },
+  ];
+  const SFX = ['ドキ!','バン!','ズズン!','ピカッ!','ゴゴゴ…','ギュイン!','ドドド!','ヒュー!','ガツン!','スパァン!'];
+
+  const flashPanel = document.getElementById('flashPanel');
+  const flashCover = document.getElementById('flashCover');
+  const flashSpeed = document.getElementById('flashSpeed');
+  const flashSfx   = document.getElementById('flashSfx');
+  const flashBurst = document.getElementById('flashBurst');
+  const flashTitle = document.getElementById('flashTitle');
+  const flashNo    = document.getElementById('flashNo');
+  const wall       = document.getElementById('wall');
+  const sign       = document.getElementById('sign');
+  const hint       = document.getElementById('hint');
+
+  const N = SLIDES.length;
+  let timers = [];
+  const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
+
+  /* 拟声词闪现 */
+  function sfx(el) {
+    el.textContent = SFX[Math.floor(Math.random() * SFX.length)];
+    el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+  }
+
+  /* 闪回：大格逐张翻页（黑白→上色 + 冲击波） */
+  function playFlash() {
+    clearTimers();
+    wall.classList.remove('show');
+    sign.classList.remove('show');
+    hint.style.display = 'block';
+    flashPanel.classList.add('on');
+
+    const DUR = 420, GAP = 70;
+    for (let i = 0; i < N; i++) {
+      timers.push(setTimeout(() => {
+        flashCover.style.setProperty('--c1', SLIDES[i].c1);
+        flashCover.style.setProperty('--c2', SLIDES[i].c2);
+        flashCover.classList.remove('live'); void flashCover.offsetWidth; flashCover.classList.add('live');
+        flashTitle.textContent = SLIDES[i].t + ' · ' + SLIDES[i].n;
+        flashNo.textContent = '#' + String(i + 1).padStart(2, '0');
+        sfx(flashSfx);
+        flashBurst.classList.remove('go'); void flashBurst.offsetWidth; flashBurst.classList.add('go');
+        flashSpeed.classList.add('on');
+        timers.push(setTimeout(() => flashSpeed.classList.remove('on'), 320));
+      }, i * (DUR + GAP)));
+    }
+    timers.push(setTimeout(() => {
+      timers.push(setTimeout(openWall, 600));
+    }, N * (DUR + GAP)));
+  }
+
+  /* 正片：漫画墙 */
+  function openWall() {
+    hint.style.display = 'none';
+    flashPanel.style.display = 'none';
+    wall.classList.add('show');
+    sign.classList.add('show');
+  }
+
+  /* 构建漫画墙 */
+  const cls = ['a','b','c','d','e','f','g','h','i','j','k','l'];
+  SLIDES.forEach((s, i) => {
+    const p = document.createElement('div');
+    p.className = 'panel ' + cls[i];
+    p.style.setProperty('--c1', s.c1);
+    p.style.setProperty('--c2', s.c2);
+    p.innerHTML = `<div class="art"><div class="cov"></div></div>
+      <span class="no">${String(i+1).padStart(2,'0')}</span>
+      <span class="cap">${s.t} · ${s.n}</span>
+      <span class="p-sfx">${SFX[i % SFX.length]}</span>`;
+    wall.appendChild(p);
+  });
+
+  document.getElementById('replay').onclick = playFlash;
+  playFlash();
+</script>
+</body>
+</html>

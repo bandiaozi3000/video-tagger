@@ -67,14 +67,25 @@
                 <button type="button" class="atab" data-media-tab="trash">回收站</button>
             </div>
             <div class="toolbar-actions">
-                <button type="button" id="media-sync" class="btn-mini" title="选择数据源（AniList/omofuna）与年份批量导入">⇄ 同步番剧</button>
-                <button type="button" id="media-retry-covers" class="btn-mini" title="补齐异步下载中断/未完成的封面">⇩ 补下封面</button>
-                <button type="button" id="media-format-manage" class="btn-mini">⚙ 管理格式</button>
-                <button type="button" id="media-batch-select-all" class="btn-mini" title="勾选当前列表全部">☑ 全选本页</button>
-                <button type="button" id="media-batch-del" class="btn-mini danger">批量删除</button>
-                <button type="button" id="media-batch-confirm" class="btn-mini danger" hidden>删除选中(0)</button>
+                <button type="button" id="media-batch-op" class="btn-mini" title="进入勾选模式，可批量加入收藏夹或移入回收站">批量操作</button>
+                <div class="more-menu-wrap">
+                    <button type="button" id="media-more-btn" class="btn-mini" title="更多操作">⋯</button>
+                    <div id="media-more-menu" class="more-menu" hidden>
+                        <button type="button" id="media-sync" class="more-menu-item" title="选择数据源（AniList/omofuna）与年份批量导入">⇄ 同步番剧</button>
+                        <button type="button" id="media-retry-covers" class="more-menu-item" title="补齐异步下载中断/未完成的封面">⇩ 补下封面</button>
+                        <button type="button" id="media-format-manage" class="more-menu-item" title="维护媒体格式与子分类字典">⚙ 管理格式</button>
+                    </div>
+                </div>
                 <button type="button" id="media-create" class="btn-primary">＋ 新建媒体</button>
             </div>
+        </div>
+        <!-- 底部批量操作工具条：勾选模式常驻底部，操作就近卡片 -->
+        <div id="media-batch-bar" class="media-batch-bar" hidden>
+            <button type="button" id="media-batch-select-all" class="btn-mini">☑ 全选本页</button>
+            <span class="media-batch-sep"></span>
+            <button type="button" id="media-batch-fav-confirm" class="btn-mini" disabled>＋ 收藏夹(0)</button>
+            <button type="button" id="media-batch-confirm" class="btn-mini danger" disabled>🗑 移入回收站(0)</button>
+            <button type="button" id="media-batch-cancel" class="btn-mini">取消</button>
         </div>
         <div class="format-tabs" id="format-tabs"></div>
         <div class="media-filters" id="media-filters">
@@ -368,10 +379,14 @@
 
     <!-- 推荐导出视图（分步向导：勾选 → 主题 → 预览导出） -->
     <section id="view-recommend" class="view" hidden>
+        <div class="recommend-toolbar">
+            <button type="button" id="export-tasks-btn" class="btn-mini">🗂 导出任务</button>
+        </div>
         <div class="wizard-steps">
             <button type="button" class="wizard-step" data-wstep="1"><span class="wstep-num">1</span>勾选媒体</button>
-            <button type="button" class="wizard-step" data-wstep="2"><span class="wstep-num">2</span>设置主题</button>
-            <button type="button" class="wizard-step" data-wstep="3"><span class="wstep-num">3</span>预览导出</button>
+            <button type="button" class="wizard-step" data-wstep="2"><span class="wstep-num">2</span>内容 · 主题</button>
+            <button type="button" class="wizard-step" data-wstep="3"><span class="wstep-num">3</span>页面 · 交互</button>
+            <button type="button" class="wizard-step" data-wstep="4"><span class="wstep-num">4</span>预览导出</button>
         </div>
 
         <!-- 步骤1：勾选要推荐的媒体 -->
@@ -414,33 +429,129 @@
         </div>
 
         <!-- 步骤2：主题（标题文案） -->
+        <!-- 步骤2：内容·主题 -->
         <div class="wizard-pane" id="wizard-pane-2" hidden>
             <div class="recommend-theme">
-                <h3>设置推荐页主题</h3>
+                <h3>内容 · 主题</h3>
                 <label class="recommend-theme-field">标题文案
                     <input id="recommend-title" type="text" maxlength="40"
                            placeholder="我的番剧推荐" autocomplete="off">
                 </label>
                 <p class="wizard-hint">将作为推荐页 <code>&lt;title&gt;</code> 与中心主标题显示，如「我的番剧推荐」。留空则用默认文案。</p>
-                <p class="recommend-theme-preview">预览：<b id="recommend-title-preview">我的番剧推荐</b></p>
-                <label class="recommend-theme-field">背景音乐（可选）
-                    <span class="recommend-bgm-row">
-                        <button type="button" id="recommend-bgm-pick" class="btn-mini">🎵 添加 BGM</button>
-                        <span id="recommend-bgm-name" class="recommend-bgm-name"></span>
-                        <button type="button" id="recommend-bgm-remove" class="btn-mini danger" hidden>移除</button>
-                    </span>
+                <label class="recommend-theme-field">副标题（可选）
+                    <input id="recommend-subtitle" type="text" maxlength="40"
+                           placeholder="如：2026 春季补番清单" autocomplete="off">
                 </label>
-                <p class="wizard-hint">选择本地音频（mp3/m4a/wav）作为推荐页背景音乐，内嵌进 HTML 并循环混入导出视频音轨。不选则无 BGM。</p>
-                <input type="file" id="recommend-bgm-file" accept="audio/*" hidden>
+                <p class="wizard-hint">显示在推荐页主标题下方；留空则不显示。</p>
+                <label class="recommend-theme-field">简介（可选）
+                    <textarea id="recommend-intro" rows="3" maxlength="120"
+                              placeholder="对这一季推荐做一段概括，将显示在开局后的序言页…" autocomplete="off"></textarea>
+                </label>
+                <p class="wizard-hint">对视频主题做概括，出现在开局闪回后的序言页；留空则不显示序言。</p>
+                <label class="recommend-theme-field">序言标题（可选）
+                    <input id="recommend-prologue-title" type="text" maxlength="40"
+                           placeholder="留空则用主题标题" autocomplete="off">
+                </label>
+                <p class="wizard-hint">序言页的大标题；留空则用主题标题。</p>
+                <label class="recommend-theme-field">结尾标题（可选）
+                    <input id="recommend-ending-title" type="text" maxlength="40"
+                           placeholder="如：这一季的 12 部" autocomplete="off">
+                </label>
+                <p class="wizard-hint">结尾回顾墙的大标题；留空则默认「这一季的 N 部」。</p>
+                <label class="recommend-theme-field">结尾文案（可选）
+                    <input id="recommend-ending-text" type="text" maxlength="40"
+                           placeholder="如：谢谢观看 · 期待下季" autocomplete="off">
+                </label>
+                <p class="wizard-hint">结尾页致谢文案；留空则默认「谢谢观看 · 期待下季」。</p>
+                <p class="recommend-theme-preview">预览：<b id="recommend-title-preview">我的番剧推荐</b></p>
             </div>
             <div class="wizard-nav">
                 <button type="button" id="recommend-step-2-back" class="btn-mini">上一步</button>
-                <button type="button" id="recommend-step-2-next" class="btn-primary">下一步：预览导出</button>
+                <button type="button" id="recommend-step-2-next" class="btn-primary">下一步：页面 · 交互</button>
             </div>
         </div>
 
-        <!-- 步骤3：预览导出 -->
+        <!-- 步骤3：页面·交互 -->
         <div class="wizard-pane" id="wizard-pane-3" hidden>
+            <div class="recommend-theme">
+                <h3>页面展示与交互</h3>
+                <label class="recommend-theme-field">背景音乐（可多选）
+                    <span class="recommend-bgm-row">
+                        <button type="button" id="recommend-bgm-pick" class="btn-mini">🎵 添加 BGM</button>
+                        <span id="recommend-bgm-count" class="recommend-bgm-name"></span>
+                    </span>
+                    <span id="recommend-bgm-list" class="recommend-bgm-list"></span>
+                </label>
+                <p class="wizard-hint">可多选音频（mp3/m4a/wav），按添加顺序连续播放；导出视频时按序拼接混入音轨。不选则无 BGM。</p>
+                <input type="file" id="recommend-bgm-file" accept="audio/*" multiple hidden>
+
+                <label class="recommend-theme-field">分组方式
+                    <select id="recommend-group-by">
+                        <option value="none">不分组</option>
+                        <option value="year">按年份</option>
+                        <option value="subcategory">按分类</option>
+                        <option value="collection">按收藏夹</option>
+                    </select>
+                </label>
+                <p class="wizard-hint">按维度把推荐媒体分组展示：每组有转场页、组内带分组徽标。选「不分组」则直接逐部展示。</p>
+                <label class="recommend-theme-field">分组样式
+                    <select id="recommend-group-style">
+                        <option value="stream">流式横幅（默认）</option>
+                        <option value="chapter">章节式</option>
+                        <option value="overview">总览导航式</option>
+                    </select>
+                </label>
+                <p class="wizard-hint">分组呈现样式；仅在分组方式选「不分组」以外时生效。</p>
+
+                <label class="recommend-theme-field">开局封面
+                    <span class="recommend-bgm-row">
+                        <label class="recommend-opening-toggle">
+                            <input type="checkbox" id="recommend-opening-toggle"> 自定义开局封面
+                        </label>
+                        <span id="recommend-opening-count" class="recommend-bgm-name"></span>
+                        <button type="button" id="recommend-opening-pick" class="btn-mini" hidden>🎬 选择封面</button>
+                    </span>
+                </label>
+                <p class="wizard-hint">开场代表秀：不勾选则自动选评分高的 10 部（无评分随机补足）；勾选后手动指定进开场的封面，防止推荐多时开场太挤。</p>
+
+                <label class="recommend-theme-field">背景
+                    <select id="recommend-bg-type">
+                        <option value="default">默认（深色霓虹）</option>
+                        <option value="color">主题色</option>
+                        <option value="image">自定义图片</option>
+                    </select>
+                </label>
+                <span id="recommend-bg-color-row" class="recommend-bg-row" hidden>
+                    <input type="color" id="recommend-bg-color" value="#0d1530">
+                    <span class="wizard-hint">选择背景主题色</span>
+                </span>
+                <span id="recommend-bg-image-row" class="recommend-bg-row" hidden>
+                    <button type="button" id="recommend-bg-image-pick" class="btn-mini">🖼 选择背景图</button>
+                    <span id="recommend-bg-image-name" class="recommend-bgm-name"></span>
+                    <button type="button" id="recommend-bg-image-remove" class="btn-mini danger" hidden>移除</button>
+                </span>
+                <p class="wizard-hint">选择背景主题色或自定义图片（≤8MB）；不选则用默认深色霓虹背景。</p>
+                <input type="file" id="recommend-bg-file" accept="image/*" hidden>
+
+                <label class="recommend-theme-field">显示时长（秒）
+                    <span class="recommend-dur-row">
+                        <span>开局<input type="number" id="recommend-dur-opening" min="2" max="20" value="10"></span>
+                        <span>序言<input type="number" id="recommend-dur-intro" min="1" max="10" value="5"></span>
+                        <span>章节<input type="number" id="recommend-dur-group" min="1" max="10" value="5"></span>
+                        <span>详情<input type="number" id="recommend-dur-detail" min="3" max="15" value="10"></span>
+                        <span>结尾<input type="number" id="recommend-dur-ending" min="1" max="10" value="5"></span>
+                    </span>
+                </label>
+                <p class="wizard-hint">各阶段停留秒数：开局定格 / 序言页 / 章节转场 / 每部详情 / 结尾页。</p>
+            </div>
+            <div class="wizard-nav">
+                <button type="button" id="recommend-step-3-back" class="btn-mini">上一步</button>
+                <button type="button" id="recommend-step-3-next" class="btn-primary">下一步：预览导出</button>
+            </div>
+        </div>
+
+        <!-- 步骤4：预览导出 -->
+        <div class="wizard-pane" id="wizard-pane-4" hidden>
             <div class="recommend-export">
                 <h3>预览与导出</h3>
                 <p class="wizard-hint">已勾选 <b id="recommend-export-count">0</b> 部 · 主题「<span id="recommend-export-title">我的番剧推荐</span>」</p>
@@ -452,7 +563,7 @@
                 <div id="recommend-export-status" class="status"></div>
             </div>
             <div class="wizard-nav">
-                <button type="button" id="recommend-step-3-back" class="btn-mini">上一步</button>
+                <button type="button" id="recommend-step-4-back" class="btn-mini">上一步</button>
             </div>
         </div>
     </section>
@@ -616,6 +727,52 @@
     </div>
 </div>
 
+<!-- 导出任务弹窗（独立查看 + 搜索/状态/时间排序 + 批量删除） -->
+<div id="export-tasks-modal" class="modal-overlay" hidden>
+    <div class="modal modal-task">
+        <div class="modal-head">
+            <h3>🗂 导出任务</h3>
+            <div class="export-task-tools">
+                <span id="export-task-total" class="export-task-total"></span>
+                <input id="export-task-search" type="text" placeholder="🔍 搜索标题…" autocomplete="off">
+                <select id="export-task-status" title="按状态筛选">
+                    <option value="">全部状态</option>
+                    <option value="RUNNING">进行中</option>
+                    <option value="DONE">完成</option>
+                    <option value="ERROR">失败</option>
+                </select>
+                <select id="export-task-sort" title="按创建时间排序">
+                    <option value="desc">最新优先</option>
+                    <option value="asc">最早优先</option>
+                </select>
+            </div>
+        </div>
+        <div id="export-task-list" class="export-task-list"></div>
+        <div class="modal-actions export-task-actions">
+            <span class="export-task-batch">
+                <label><input type="checkbox" id="export-task-all"> 全选</label>
+                <button type="button" id="export-task-batch-del" class="btn-mini danger" disabled>删除所选</button>
+            </span>
+            <button type="button" id="export-tasks-close">关闭</button>
+        </div>
+    </div>
+</div>
+
+<!-- 媒体页批量加入收藏夹：选目标收藏夹（勾选媒体后触发） -->
+<div id="media-fav-pick-modal" class="modal-overlay" hidden>
+    <div class="modal">
+        <h2>加入收藏夹</h2>
+        <div class="batch-del-hint">将把 <b id="mf-count">0</b> 个媒体加入所选收藏夹（已在其中的自动跳过）。</div>
+        <label>收藏夹
+            <select id="mf-collection"><option value="">— 选择收藏夹 —</option></select>
+        </label>
+        <div class="modal-actions">
+            <button id="mf-cancel" type="button">取消</button>
+            <button id="mf-confirm" type="button" class="btn-primary" disabled>加入</button>
+        </div>
+    </div>
+</div>
+
 <!-- 新建 / 重命名收藏夹 -->
 <div id="collection-modal" class="modal-overlay" hidden>
     <div class="modal">
@@ -649,12 +806,34 @@
                 <h2>推荐预览</h2>
                 <span id="preview-title-note" class="preview-title-note"></span>
             </div>
-            <button id="preview-expand" type="button" class="preview-expand-btn" title="全屏 / 还原">全屏 ⇱</button>
+            <div class="preview-modal-tools">
+                <label class="preview-size-label">封面大小
+                    <select id="preview-cover-size">
+                        <option value="sm">小</option>
+                        <option value="md" selected>中</option>
+                        <option value="lg">大</option>
+                    </select>
+                </label>
+                <button id="preview-expand" type="button" class="preview-expand-btn" title="全屏 / 还原">全屏 ⇱</button>
+            </div>
         </div>
         <iframe id="recommend-preview-frame" class="preview-frame" title="推荐预览" sandbox="allow-scripts allow-same-origin"></iframe>
         <div class="modal-actions">
             <button id="preview-close" type="button">关闭</button>
             <button id="preview-export-video" type="button" class="btn-primary">导出视频</button>
+        </div>
+    </div>
+</div>
+
+<!-- 开局封面选择弹窗：从已勾选媒体里勾选进「开局代表秀」的封面 -->
+<div id="recommend-opening-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide">
+        <div class="modal-head"><h3>选择开局封面</h3></div>
+        <p class="wizard-hint">从已勾选的推荐媒体里，勾选进「开局代表秀」的封面（默认评分高优先）。</p>
+        <div id="recommend-opening-grid" class="recommend-opening-grid"></div>
+        <div class="modal-actions">
+            <button id="recommend-opening-cancel" type="button">取消</button>
+            <button id="recommend-opening-confirm" type="button" class="btn-primary">确认</button>
         </div>
     </div>
 </div>

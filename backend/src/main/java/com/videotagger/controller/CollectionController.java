@@ -63,8 +63,19 @@ public class CollectionController {
     }
 
     @PostMapping("/{id}/media")
-    public ResponseEntity<Void> addMedia(@PathVariable Long id, @RequestBody Map<String, Long> body) {
-        collectionService.addMedia(id, body.get("mediaId"));
+    public ResponseEntity<Void> addMedia(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+        Object ids = body.get("mediaIds");
+        if (ids instanceof List<?> list && !list.isEmpty()) {
+            List<Long> mediaIds = new java.util.ArrayList<>();
+            for (Object o : list) {
+                if (o instanceof Number n) {
+                    mediaIds.add(n.longValue());
+                }
+            }
+            collectionService.batchAdd(id, mediaIds);
+        } else if (body.get("mediaId") instanceof Number n) {
+            collectionService.addMedia(id, n.longValue());
+        }
         return ResponseEntity.noContent().build();
     }
 

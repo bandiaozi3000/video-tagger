@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>方案 A · 美术馆陈列</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:#0b0b10;color:#e8e6e1;overflow:hidden;height:100vh;
+    font-family:Georgia,"Songti SC","Noto Serif SC",serif;
+  }
+  /* 墙面质感 */
+  .wall{position:fixed;inset:0;
+    background:
+      radial-gradient(1400px 900px at 18% 12%, rgba(120,110,90,.07), transparent 60%),
+      radial-gradient(1200px 800px at 85% 20%, rgba(90,100,130,.06), transparent 60%),
+      #0b0b10;
+  }
+  .wall::after{content:'';position:absolute;inset:0;opacity:.5;
+    background:repeating-linear-gradient(0deg,transparent 0 3px, rgba(255,255,255,.006) 3px 4px);}
+  .wall::before{content:'';position:absolute;inset:0;
+    background:radial-gradient(50% 42% at 50% 46%, transparent 30%, rgba(0,0,0,.55) 90%);}
+
+  /* 顶部 */
+  .top{position:fixed;top:0;left:0;right:0;z-index:10;display:flex;align-items:baseline;justify-content:space-between;
+    padding:26px 34px;}
+  .brand{font-size:13px;letter-spacing:6px;color:#a89f8e;text-transform:uppercase}
+  .brand b{color:#e8e6e1;font-weight:400;letter-spacing:3px}
+  .hero{position:fixed;top:9%;left:34px;z-index:10;pointer-events:none}
+  .hero h1{font-size:clamp(30px,5vw,56px);font-weight:400;letter-spacing:8px;color:#f0ede6;
+    text-shadow:0 2px 30px rgba(0,0,0,.6)}
+  .hero .en{display:block;font-size:11px;letter-spacing:10px;color:#8f8674;margin-top:12px;text-transform:uppercase}
+
+  /* 画框（错落悬挂） */
+  .frame{position:absolute;z-index:5;cursor:pointer}
+  .frame .art{overflow:hidden;background:#14141b;border:1px solid rgba(214,206,190,.22);
+    box-shadow:0 24px 60px rgba(0,0,0,.7), inset 0 0 0 1px rgba(0,0,0,.4)}
+  .frame .art::after{content:'';position:absolute;inset:0;
+    background:linear-gradient(180deg,transparent 45%,rgba(0,0,0,.5))}
+  .frame .cover{position:absolute;inset:0;background:linear-gradient(160deg,var(--c1),var(--c2))}
+  .frame .no{position:absolute;z-index:6;font-size:11px;letter-spacing:3px;color:#b3a98f;font-family:Georgia,serif}
+  .frame .t{position:absolute;z-index:6;color:#f0ede6;font-size:14px;letter-spacing:2px;text-shadow:0 2px 10px rgba(0,0,0,.7)}
+  /* 聚光灯 */
+  .frame::before{content:'';position:absolute;z-index:1;pointer-events:none;
+    background:radial-gradient(46% 40% at 50% 0%, rgba(255,244,220,.16), rgba(255,244,220,.04) 55%, transparent 75%);
+    transform:translateY(-14%);filter:blur(2px);}
+
+  /* 落地入场：聚光渐亮 */
+  .frame{opacity:0;animation:reveal 1.1s ease forwards}
+  .frame:nth-child(1){animation-delay:.1s}.frame:nth-child(2){animation-delay:.25s}
+  .frame:nth-child(3){animation-delay:.4s}.frame:nth-child(4){animation-delay:.55s}
+  .frame:nth-child(5){animation-delay:.7s}.frame:nth-child(6){animation-delay:.85s}
+  @keyframes reveal{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<div class="wall"></div>
+
+<div class="top">
+  <div class="brand"><b>✦</b>&nbsp; 我的番剧推荐 · <span style="letter-spacing:4px">年度收藏</span></div>
+</div>
+<div class="hero">
+  <h1>剧场 · 此刻</h1>
+  <span class="en">The Season in Review</span>
+</div>
+
+<script>
+  const S = [
+    {n:'勇者王FINAL',   c1:'#8e4a3a',c2:'#d98e5a'},
+    {n:'钢之炼金术师',  c1:'#2f4f6f',c2:'#9db8c9'},
+    {n:'青之芦苇',      c1:'#1d5c45',c2:'#8fc9a8'},
+    {n:'星屑与黄昏',    c1:'#5a3a7a',c2:'#c9a8e8'},
+    {n:'落第骑士',      c1:'#7a2f2f',c2:'#d9a05a'},
+    {n:'轻松熊',        c1:'#6b5a3a',c2:'#d9c9a0'},
+  ];
+  /* 画框错落布局：近大远小（下方大、上方小）+ 左右错位 */
+  const spots = [
+    {x:.06,y:.30,w:150,h:214,no:'No.01'},
+    {x:.26,y:.16,w:112,h:160,no:'No.02'},
+    {x:.40,y:.38,w:180,h:256,no:'No.03'},
+    {x:.58,y:.14,w:120,h:172,no:'No.04'},
+    {x:.68,y:.36,w:160,h:228,no:'No.05'},
+    {x:.85,y:.22,w:126,h:180,no:'No.06'},
+  ];
+  S.forEach((s,i)=>{
+    const sp=spots[i];
+    const f=document.createElement('div');f.className='frame';
+    f.style.left=(sp.x*100)+'%';f.style.top=(sp.y*100)+'%';
+    const art=document.createElement('div');art.className='art';
+    art.style.width=sp.w+'px';art.style.height=sp.h+'px';
+    art.style.setProperty('--c1',s.c1);art.style.setProperty('--c2',s.c2);
+    art.innerHTML='<div class="cover"></div>';
+    f.appendChild(art);
+    const no=document.createElement('span');no.className='no';no.textContent=sp.no;
+    no.style.top='-24px';no.style.left='0';f.appendChild(no);
+    const t=document.createElement('span');t.className='t';t.textContent=s.n;
+    t.style.left='0';t.style.bottom='-26px';t.style.width=sp.w+'px';f.appendChild(t);
+    document.body.appendChild(f);
+  });
+</script>
+</body>
+</html>

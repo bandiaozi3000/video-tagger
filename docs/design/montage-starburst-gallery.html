@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>方案二 · 意识流 · 碎片闪回 → 星丛画廊</title>
+<style>
+  :root{
+    --dusk:#0d1530; --dusk2:#1a1440; --rose:#ff7a8a; --gold:#ffcf6b; --mist:#c9d4ff;
+    --glass:rgba(160,175,255,.12);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--dusk);color:#eef1ff;overflow:hidden;height:100vh;
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  }
+
+  /* ---- 暮色天空 ---- */
+  .sky{position:fixed;inset:0;z-index:0;
+    background:
+      radial-gradient(1100px 700px at 75% 8%, rgba(255,122,138,.16), transparent 60%),
+      radial-gradient(900px 700px at 18% 20%, rgba(255,207,107,.10), transparent 60%),
+      radial-gradient(1300px 900px at 50% 120%, rgba(40,30,90,.7), transparent 70%),
+      linear-gradient(180deg,var(--dusk),var(--dusk2) 78%,#0a0b20);}
+  /* 星尘粒子（CSS 光点浮动） */
+  .dust{position:fixed;inset:0;z-index:1;pointer-events:none;
+    background:
+      radial-gradient(2px 2px at 12% 20%,rgba(255,255,255,.7),transparent),
+      radial-gradient(1.5px 1.5px at 28% 44%,rgba(255,207,107,.6),transparent),
+      radial-gradient(2px 2px at 42% 12%,rgba(201,212,255,.6),transparent),
+      radial-gradient(1px 1px at 58% 30%,rgba(255,255,255,.5),transparent),
+      radial-gradient(2px 2px at 70% 52%,rgba(255,122,138,.5),transparent),
+      radial-gradient(1.5px 1.5px at 84% 18%,rgba(255,255,255,.55),transparent),
+      radial-gradient(1px 1px at 92% 40%,rgba(255,207,107,.5),transparent),
+      radial-gradient(1.5px 1.5px at 18% 70%,rgba(201,212,255,.45),transparent),
+      radial-gradient(2px 2px at 66% 82%,rgba(255,255,255,.4),transparent);
+    animation:drift 18s ease-in-out infinite alternate;}
+  @keyframes drift{from{transform:translateY(0)}to{transform:translateY(-26px)}}
+  /* 弥散光晕 */
+  .aura{position:fixed;inset:0;z-index:1;pointer-events:none;
+    background:radial-gradient(60% 46% at 50% 42%,transparent 42%,rgba(10,11,32,.5) 88%);}
+
+  /* ---- 顶部标题（楷体书法感） ---- */
+  .topbar{position:fixed;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
+    padding:18px 30px;pointer-events:none;}
+  .brand{font-size:12px;letter-spacing:5px;color:rgba(201,212,255,.7);text-transform:uppercase}
+  .brand b{color:#eef1ff;font-weight:400;letter-spacing:3px}
+  .brand .rose{color:var(--rose)}
+  .hero{position:fixed;top:0;left:0;right:0;z-index:19;text-align:center;padding-top:64px;pointer-events:none}
+  .hero h1{font-size:clamp(26px,5vw,54px);font-weight:600;letter-spacing:10px;color:#f4f6ff;
+    font-family:"KaiTi","STKaiti","Songti SC",serif;
+    text-shadow:0 0 40px rgba(255,122,138,.35),0 0 90px rgba(255,207,107,.18);}
+  .hero .sub{font-size:11px;letter-spacing:8px;color:rgba(201,212,255,.55);margin-top:10px;text-transform:uppercase}
+  .hero .sub i{color:var(--gold);font-style:normal;letter-spacing:4px}
+
+  /* ---- 星丛舞台 ---- */
+  .stage{position:fixed;inset:0;z-index:5;pointer-events:none}
+  .card{position:absolute;left:50%;top:52%;width:196px;height:280px;border-radius:14px;overflow:hidden;
+    will-change:transform,opacity,filter;transform-origin:center center;pointer-events:auto;cursor:pointer;
+    border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 22px 54px rgba(5,8,30,.65);
+    transition:box-shadow .4s ease,filter .4s ease;opacity:0;}
+  .card .cover{position:absolute;inset:0;background:linear-gradient(160deg,var(--c1),var(--c2))}
+  .card .cover::after{content:'';position:absolute;inset:0;
+    background:linear-gradient(180deg,transparent 40%,rgba(5,8,30,.6));}
+  .card .glare{position:absolute;inset:0;opacity:0;transition:opacity .3s;pointer-events:none;
+    background:radial-gradient(120px 90px at 30% 22%,rgba(255,255,255,.32),transparent 62%);}
+  .card .tag{position:absolute;left:11px;top:11px;z-index:2;font-size:10.5px;letter-spacing:2px;color:var(--gold);
+    background:rgba(10,12,36,.5);padding:3px 9px;border-radius:99px;border:1px solid rgba(255,207,107,.4);
+    opacity:0;transition:opacity .35s ease .05s;}
+  .card .name{position:absolute;left:12px;right:12px;bottom:12px;z-index:2;font-size:14.5px;font-weight:600;
+    letter-spacing:1px;color:#f4f6ff;text-shadow:0 2px 10px rgba(0,0,0,.75);opacity:0;
+    transition:opacity .35s ease .1s;}
+  .card .no{position:absolute;right:12px;top:11px;z-index:2;font-size:10px;letter-spacing:2px;
+    color:rgba(238,241,255,.6);font-style:italic}
+  /* 正片就位后 */
+  .card.scattered{opacity:1}
+  .card.scattered .tag,.card.scattered .name{opacity:1}
+  /* 聚焦（自动巡礼 / hover） */
+  .card.focused{z-index:30;filter:brightness(1.05);box-shadow:0 0 0 1px rgba(255,207,107,.5),0 26px 70px rgba(5,8,30,.7),0 0 46px rgba(255,122,138,.42)}
+  .card.focused .glare{opacity:1}
+  .card.away{filter:brightness(.72) saturate(.8)}
+  .card:hover{z-index:28}
+
+  /* ---- 记忆闪白（切换时的残影感） ---- */
+  .blink{position:fixed;inset:0;z-index:40;pointer-events:none;background:#fff;opacity:0}
+  .blink.go{animation:blinkanim .09s ease-out}
+  @keyframes blinkanim{0%{opacity:.16}100%{opacity:0}}
+
+  /* ---- 底部巡礼光带 ---- */
+  .trail-wrap{position:fixed;left:50%;bottom:4.4vh;transform:translateX(-50%);z-index:22;
+    width:min(78vw,900px);opacity:0;transition:opacity .8s ease .2s;pointer-events:none}
+  .trail-wrap.show{opacity:1}
+  .trail-track{position:relative;height:3px;background:rgba(160,175,255,.14);border-radius:2px}
+  .trail-fill{position:absolute;left:0;top:0;height:3px;width:0;border-radius:2px;
+    background:linear-gradient(90deg,var(--gold),var(--rose));
+    box-shadow:0 0 12px rgba(255,207,107,.6);transition:width .6s cubic-bezier(.2,.8,.2,1)}
+  .trail-cursor{position:absolute;top:50%;width:7px;height:7px;border-radius:50%;transform:translate(-50%,-50%);
+    background:var(--gold);box-shadow:0 0 14px 4px rgba(255,207,107,.55);
+    transition:left .6s cubic-bezier(.2,.8,.2,1)}
+  .trail-label{position:absolute;left:0;right:0;top:-26px;text-align:center;font-size:13px;letter-spacing:3px;
+    color:#eef1ff;font-weight:500;text-shadow:0 2px 12px rgba(0,0,0,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .trail-index{position:absolute;right:0;top:-26px;font-size:11px;letter-spacing:2px;color:rgba(201,212,255,.6);font-style:italic}
+
+  /* ---- 重播 + 提示 ---- */
+  .replay{position:fixed;left:20px;bottom:18px;z-index:30;font-family:inherit;font-size:11px;letter-spacing:2px;
+    color:rgba(201,212,255,.8);background:rgba(14,17,48,.55);border:1px solid rgba(255,207,107,.32);padding:9px 16px;
+    border-radius:99px;cursor:pointer;transition:.2s;}
+  .replay:hover{color:var(--gold);border-color:var(--gold);box-shadow:0 0 16px rgba(255,207,107,.25)}
+  .hint{position:fixed;left:50%;bottom:11vh;transform:translateX(-50%);z-index:18;font-size:11px;
+    letter-spacing:7px;color:rgba(201,212,255,.5);text-transform:uppercase;pointer-events:none;
+    animation:blink 1.5s ease-in-out infinite;}
+  @keyframes blink{50%{opacity:.25}}
+</style>
+</head>
+<body>
+  <div class="sky"></div><div class="dust"></div><div class="aura"></div>
+
+  <header class="topbar">
+    <div class="brand"><b>我的番剧推荐</b> · <span class="rose">MEMORY</span></div>
+  </header>
+  <div class="hero">
+    <h1>追忆 · 星丛</h1>
+    <div class="sub">REVERIE <i>✦</i> 记忆碎片</div>
+  </div>
+
+  <div class="stage" id="stage"></div>
+  <div class="blink" id="blink"></div>
+
+  <!-- 巡礼光带 -->
+  <div class="trail-wrap" id="trail">
+    <div class="trail-label" id="trailLabel">—</div>
+    <div class="trail-index" id="trailIndex"></div>
+    <div class="trail-track">
+      <div class="trail-fill" id="trailFill"></div>
+      <div class="trail-cursor" id="trailCursor"></div>
+    </div>
+  </div>
+
+  <div class="hint" id="hint">REC · 记忆翻涌中</div>
+  <button class="replay" id="replay">↺ 重播闪回</button>
+
+<script>
+  const SLIDES = [
+    { n:'勇者王FINAL',   t:'热血', c1:'#ff5f6d', c2:'#ffc371' },
+    { n:'钢之炼金术师',  t:'奇幻', c1:'#667eea', c2:'#764ba2' },
+    { n:'青之芦苇',      t:'运动', c1:'#43e97b', c2:'#38f9d7' },
+    { n:'星屑与黄昏',    t:'治愈', c1:'#a18cd1', c2:'#fbc2eb' },
+    { n:'落第骑士',      t:'战斗', c1:'#f83600', c2:'#f9d423' },
+    { n:'轻松熊',        t:'日常', c1:'#ff9a9e', c2:'#fecfef' },
+    { n:'地狱模式',      t:'异世界', c1:'#5ee7df', c2:'#b490ca' },
+    { n:'螺旋境界线',    t:'科幻', c1:'#30cfd0', c2:'#330867' },
+    { n:'奇诺之旅',      t:'旅行', c1:'#84fab0', c2:'#8fd3f4' },
+    { n:'狼雨',          t:'致郁', c1:'#e0c3fc', c2:'#8ec5fc' },
+    { n:'初音岛',        t:'恋爱', c1:'#fccb90', c2:'#d57eeb' },
+    { n:'爱的魔法',      t:'搞笑', c1:'#ff758c', c2:'#ff7eb3' },
+  ];
+
+  /* 星丛就位 spot：x/y 百分比（相对屏幕中心 52% 处），scale 大小，rotate 倾斜 */
+  const SPOTS = [
+    { x:-40, y:-24, s:.82, r:-4 }, { x:-16, y:-34, s:.6,  r: 3 },
+    { x:  2, y:-19, s:.9,  r:-2 }, { x: 22, y:-35, s:.58, r: 5 },
+    { x: 36, y:-21, s:.86, r:-3 }, { x: 52, y:-29, s:.66, r: 2 },
+    { x:-32, y:  6, s:.72, r: 4 }, { x:-10, y: 22, s:1.06,r:-2 },
+    { x:  8, y:  9, s:.66, r: 3 }, { x: 28, y: 22, s:.96, r:-1 },
+    { x: 46, y:  8, s:.7,  r: 5 }, { x: 62, y:-14, s:.6,  r:-3 },
+  ];
+
+  const stage = document.getElementById('stage');
+  const blink = document.getElementById('blink');
+  const trail = document.getElementById('trail');
+  const trailLabel = document.getElementById('trailLabel');
+  const trailIndex = document.getElementById('trailIndex');
+  const trailFill = document.getElementById('trailFill');
+  const trailCursor = document.getElementById('trailCursor');
+  const hint = document.getElementById('hint');
+
+  const N = SLIDES.length;
+  const cards = SLIDES.map((s, i) => {
+    const c = document.createElement('div');
+    c.className = 'card';
+    c.style.setProperty('--c1', s.c1);
+    c.style.setProperty('--c2', s.c2);
+    c.innerHTML = `<div class="cover"></div><div class="glare"></div>
+      <span class="tag">${s.t}</span><span class="no">${String(i+1).padStart(2,'0')}</span><span class="name">${s.n}</span>`;
+    /* 闪回阶段：中心处，逐张闪现 */
+    c.style.transform = `translate(-50%,-50%) scale(1)`;
+    stage.appendChild(c);
+    return c;
+  });
+
+  let timers = [], tourTimer = null, tourIdx = N - 1, touring = false;
+
+  const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
+  const clearTour = () => { if (tourTimer) clearTimeout(tourTimer); tourTimer = null; touring = false; };
+
+  /* 记忆闪白 */
+  function memBlink() {
+    blink.classList.remove('go');
+    void blink.offsetWidth;
+    blink.classList.add('go');
+  }
+
+  /* 闪回：第 i 张高速冲入中心（渐加速） */
+  function flashIn(i, dur) {
+    cards.forEach((c, j) => {
+      if (j === i) {
+        c.classList.remove('scattered', 'focused');
+        c.style.zIndex = 20;
+        c.style.transform = `translate(-50%,-50%) scale(1)`;
+        c.style.opacity = '1';
+        c.style.transition = `transform ${dur}ms cubic-bezier(.16,1,.3,1), filter ${dur}ms ease, opacity 120ms ease`;
+        c.style.filter = 'blur(0px)';
+        /* 先复位到"冲入前"再动画 */
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          c.style.transform = `translate(-50%,-50%) scale(.7)`;
+          c.style.filter = 'blur(9px)';
+          c.style.transition = `none`;
+          requestAnimationFrame(() => {
+            c.style.transform = `translate(-50%,-50%) scale(1)`;
+            c.style.filter = 'blur(0px)';
+            c.style.transition = `transform ${dur}ms cubic-bezier(.16,1,.3,1), filter ${dur}ms ease`;
+          });
+        }));
+      } else if (!c.classList.contains('scattered')) {
+        c.style.opacity = '0';
+      }
+    });
+    memBlink();
+  }
+
+  /* 闪回时间线：渐加速逐张闪现 */
+  function playFlash() {
+    clearTimers(); clearTour();
+    trail.classList.remove('show');
+    hint.style.display = 'block';
+    cards.forEach(c => { c.classList.remove('scattered', 'focused'); c.style.opacity = '0'; });
+    let delay = 0, dur = 520;
+    for (let i = 0; i < N; i++) {
+      timers.push(setTimeout(() => flashIn(i, dur), delay));
+      delay += dur + 60;
+      dur = Math.max(230, dur - 24);   // 渐加速
+    }
+    /* 最后一张停留 → 骤停，炸开成星丛 */
+    timers.push(setTimeout(() => {
+      cards[N-1].classList.add('scattered');
+      timers.push(setTimeout(scatter, 350));
+    }, delay + 80));
+  }
+
+  /* 骤停：所有卡片散开就位成星丛 */
+  function scatter() {
+    hint.style.display = 'none';
+    trail.classList.add('show');
+    cards.forEach((c, i) => {
+      const sp = SPOTS[i];
+      c.classList.add('scattered');
+      c.style.opacity = '1';
+      c.style.filter = 'none';
+      c.style.zIndex = 10 + i;
+      c.style.transition = `transform 1.15s cubic-bezier(.2,1.25,.35,1), filter .5s ease, opacity .5s ease, box-shadow .4s ease`;
+      c.style.transform = `translate(calc(-50% + ${sp.x}vw), calc(-50% + ${sp.y}vh)) scale(${sp.s}) rotate(${sp.r}deg)`;
+      c.onmouseenter = () => { clearTour(); focus(i); };
+      c.onmouseleave = () => { if (touring) return; defocus(); startTour(i + 1); };
+    });
+    timers.push(setTimeout(() => startTour(0), 1300));
+  }
+
+  /* 巡礼：逐张聚焦 */
+  function startTour(from) {
+    clearTour(); touring = true;
+    if (from >= N) from = 0;
+    const step = () => {
+      if (!touring) return;
+      focus(from);
+      tourTimer = setTimeout(() => { from = (from + 1) % N; step(); }, 3000);
+    };
+    step();
+  }
+
+  function focus(i) {
+    cards.forEach((c, j) => {
+      if (j === i) c.classList.add('focused');
+      else if (!c.classList.contains('focused')) c.classList.add('away');
+    });
+    trailLabel.textContent = SLIDES[i].t + ' · ' + SLIDES[i].n;
+    trailIndex.textContent = String(i + 1).padStart(2, '0') + ' / ' + N;
+    trailFill.style.width = ((i + 1) / N * 100) + '%';
+    trailCursor.style.left = ((i + 1) / N * 100) + '%';
+  }
+
+  function defocus() {
+    cards.forEach(c => c.classList.remove('focused', 'away'));
+    trailLabel.textContent = '—';
+    trailFill.style.width = '0%';
+    trailCursor.style.left = '0%';
+  }
+
+  document.getElementById('replay').onclick = playFlash;
+
+  playFlash();
+</script>
+</body>
+</html>

@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -66,24 +67,42 @@ public class RecommendVideoService {
 
     /** 渲染推荐媒体为视频（MP4/WebM），返回临时文件路径（调用方负责删除）。 */
     public Path render(List<Long> ids, String resolution) {
-        return render(ids, null, null, resolution, null);
+        return render(ids, null, null, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     /** 渲染推荐媒体为视频（无 BGM）。 */
     public Path render(List<Long> ids, String title, String format, String resolution) {
-        return render(ids, title, format, resolution, null);
+        return render(ids, title, format, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    /** 渲染推荐媒体为视频（单曲 BGM，兼容旧签名）。 */
+    public Path render(List<Long> ids, String title, String format, String resolution, String bgmPath) {
+        return render(ids, title, format, resolution,
+                bgmPath == null || bgmPath.isBlank() ? null : List.of(bgmPath), null, null, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     /**
      * 渲染推荐媒体为视频（MP4/WebM），返回临时文件路径（调用方负责删除）。
      *
-     * @param ids        媒体 id 列表
-     * @param title      推荐页标题文案（主题），空 → 默认
-     * @param format     视频格式 MP4/WEBM，空 → mp4
-     * @param resolution 清晰度 720P/1080P/4K
-     * @param bgmPath    背景音乐文件路径（循环混入音轨），null/空 → 无 BGM
+     * @param ids         媒体 id 列表
+     * @param title       推荐页标题文案（主题），空 → 默认
+     * @param format      视频格式 MP4/WEBM，空 → mp4
+     * @param resolution  清晰度 720P/1080P/4K
+     * @param bgmPaths    背景音乐文件列表（多曲按序 ffmpeg concat 拼接后混入音轨），null/空 → 无 BGM
+     * @param bgmTracks   背景音乐曲目（注入模板 BGM 条显示名称/进度/下一首提示；与 bgmPaths 同步），null/空 → 模板无 BGM 信息
+     * @param groupBy     分组维度（none/year/subcategory/collection），空 → 不分组
+     * @param groupStyle  分组呈现样式（stream/chapter/overview），空 → stream
+     * @param subtitle    副标题（可空，模板主标题下方显示）
+     * @param coverSize   开场封面大小 sm/md/lg（空 → md）
+     * @param openingIds  开场代表秀子集（空 → 开场全显）
+     * @param intro       主题简介（可空，模板开局后序言页显示；空 → 不显示序言页）
+     * @param durations   显示时长（开局定格/序言/详情/结尾，秒）
      */
-    public Path render(List<Long> ids, String title, String format, String resolution, String bgmPath) {
+    public Path render(List<Long> ids, String title, String format, String resolution, List<String> bgmPaths,
+                       List<RecommendService.BgmTrack> bgmTracks, String groupBy, String groupStyle,
+                       String subtitle, String coverSize, List<Long> openingIds, String intro,
+                       RecommendService.Durations durations, String endingTitle, String endingText,
+                       String bgColor, String bgImage, String prologueTitle) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
@@ -102,16 +121,60 @@ public class RecommendVideoService {
         Path html = null;
         try {
             // 1. 生成自包含 HTML → 临时文件
-            String htmlContent = recommendService.buildHtml(ids, title);
+            String htmlContent = recommendService.buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImage, prologueTitle);
             Path work = Files.createTempDirectory("vt-recommend-");
             html = work.resolve("recommend.html");
             Files.writeString(html, htmlContent, StandardCharsets.UTF_8);
 
-            // 2. 时长 = 入场定场(AUTOPLAY_START 7s) + N×每部停留(6s) + 2s 收尾
-            int durationSeconds = 7 + ids.size() * 6 + 2;
+            // 2. 背景音乐：多曲 → ffmpeg concat 拼接成单文件（统一 44100 stereo 顺序连接）；单曲直接用
+            String bgmFile = null;
+            if (bgmPaths != null && !bgmPaths.isEmpty()) {
+                if (bgmPaths.size() == 1) {
+                    bgmFile = bgmPaths.get(0);
+                } else {
+                    Path concat = work.resolve("bgm-concat.m4a");
+                    List<String> cc = new ArrayList<>();
+                    cc.add(ffmpegPath); cc.add("-y");
+                    for (String p : bgmPaths) {
+                        cc.add("-i"); cc.add(p);
+                    }
+                    StringBuilder fc = new StringBuilder();
+                    for (int i = 0; i < bgmPaths.size(); i++) {
+                        fc.append("[").append(i).append(":a]aresample=44100,aformat=channel_layouts=stereo[a")
+                                .append(i).append("];");
+                    }
+                    fc.append("[a0]");
+                    for (int i = 1; i < bgmPaths.size(); i++) {
+                        fc.append("[a").append(i).append("]");
+                    }
+                    fc.append("concat=n=").append(bgmPaths.size()).append(":v=0:a=1[aout]");
+                    cc.add("-filter_complex"); cc.add(fc.toString());
+                    cc.add("-map"); cc.add("[aout]");
+                    cc.add("-acodec"); cc.add("aac"); cc.add("-b:a"); cc.add("192k");
+                    cc.add(concat.toAbsolutePath().toString());
+                    ProcessBuilder pbc = new ProcessBuilder(cc);
+                    pbc.redirectErrorStream(true);
+                    Process pc = pbc.start();
+                    String out2 = new String(pc.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                    int rc = pc.waitFor();
+                    if (rc != 0) {
+                        log.error("BGM concat 失败 {}:\n{}", rc, out2);
+                        throw new IllegalStateException("BGM 拼接失败（ffmpeg 退出 " + rc + "）");
+                    }
+                    bgmFile = concat.toAbsolutePath().toString();
+                }
+            }
+
+            // 3. 时长 = 开局定格 + 序言(如有) + 章节×预估组数(如有分组) + 详情×N + 结尾 + 余量
+            //    （显影本身 ~8s 由开局定格覆盖；组数按每组约 3 部估算，多留无妨）
+            int introDur = (intro != null && !intro.isBlank()) ? durations.intro() : 0;
+            int groupDur = (groupBy != null && !groupBy.isBlank() && !"none".equals(groupBy))
+                    ? durations.group() * Math.max(1, (ids.size() + 2) / 3) : 0;
+            int durationSeconds = durations.opening() + introDur + groupDur
+                    + durations.detail() * ids.size() + durations.ending() + 8;
 
             // 3. 调 node render.js
-            Path out = work.resolve("recommend-" + LocalDateTime.now().format(FILE_TS) + "." + fmt);
+            Path out = exportDir().resolve("recommend-" + LocalDateTime.now().format(FILE_TS) + "." + fmt);
             var cmd = new java.util.ArrayList<String>();
             cmd.add(nodePath);
             cmd.add("render.js");
@@ -131,9 +194,9 @@ public class RecommendVideoService {
             cmd.add(chromePath);
             cmd.add("--ffmpeg");
             cmd.add(ffmpegPath);
-            if (bgmPath != null && !bgmPath.isBlank()) {
+            if (bgmFile != null) {
                 cmd.add("--bgm");
-                cmd.add(bgmPath);
+                cmd.add(bgmFile);
             }
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.directory(resolveScriptsDir().toFile());
@@ -176,6 +239,13 @@ public class RecommendVideoService {
                 }
             }
         }
+    }
+
+    /** 导出产物持久目录：data/exports（相对应用工作目录，自动创建）。产物存这里可被异步任务记录/打开/删除。 */
+    private Path exportDir() throws IOException {
+        Path d = Paths.get("data", "exports").toAbsolutePath();
+        Files.createDirectories(d);
+        return d;
     }
 
     /**

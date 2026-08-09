@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>S 形蜿蜒河流画廊 · 样板 v3</title>
+<style>
+  :root{
+    --pink:#ff4d8d; --amber:#ffd166; --sky:#4fc3f7; --violet:#a78bfa;
+    --bg:#05050d;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg);color:#fff;overflow:hidden;
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    height:100vh;
+  }
+
+  /* ---- 水波背景 + 粒子 ---- */
+  .water{
+    position:fixed;inset:0;z-index:0;
+    background:
+      radial-gradient(1200px 700px at 25% 20%, rgba(79,195,247,.10), transparent 60%),
+      radial-gradient(1000px 600px at 75% 80%, rgba(255,77,141,.10), transparent 60%),
+      radial-gradient(900px 500px at 50% 40%, rgba(167,139,250,.08), transparent 60%),
+      var(--bg);
+  }
+  .water::after{
+    content:'';position:absolute;inset:0;pointer-events:none;
+    background:
+      radial-gradient(2px 2px at 20% 30%,rgba(255,255,255,.35),transparent),
+      radial-gradient(1.5px 1.5px at 70% 60%,rgba(255,255,255,.3),transparent),
+      radial-gradient(2px 2px at 40% 80%,rgba(255,255,255,.25),transparent),
+      radial-gradient(1.5px 1.5px at 85% 20%,rgba(255,255,255,.3),transparent);
+    animation:float 14s ease-in-out infinite alternate;
+  }
+  @keyframes float{from{transform:translateY(0)}to{transform:translateY(-18px)}}
+
+  /* ---- 顶部品牌 ---- */
+  .topbar{
+    position:fixed;top:0;left:0;right:0;z-index:10;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:16px 26px;
+  }
+  .brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;letter-spacing:1px}
+  .brand .logo{
+    width:30px;height:30px;border-radius:50%;display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--sky),var(--violet),var(--pink));
+    box-shadow:0 0 18px rgba(79,195,247,.5);
+  }
+
+  /* ---- 主题标题 ---- */
+  .hero-title{
+    position:fixed;top:7%;left:0;right:0;z-index:10;text-align:center;pointer-events:none;
+  }
+  .hero-title h1{
+    font-size:clamp(24px,4.5vw,48px);font-weight:800;letter-spacing:4px;
+    background:linear-gradient(120deg,var(--sky),var(--violet) 40%,var(--pink) 70%,var(--amber));
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+    filter:drop-shadow(0 4px 22px rgba(79,195,247,.35));
+  }
+  .hero-title p{margin-top:10px;color:#8b8ba3;font-size:13px;letter-spacing:2px}
+
+  /* ---- 河流舞台 ---- */
+  .stage{
+    position:fixed;top:0;left:0;width:100%;height:100%;z-index:5;overflow:hidden;
+  }
+  svg.riverline{position:absolute;inset:0;width:100%;height:100%;z-index:4;pointer-events:none}
+  .card{
+    position:absolute;left:0;top:0;width:186px;height:264px;
+    border-radius:16px;overflow:hidden;will-change:transform,opacity,filter;
+    transform-origin:center center;
+    box-shadow:0 18px 40px rgba(0,0,0,.55);
+    border:1px solid rgba(255,255,255,.14);
+    opacity:0;
+  }
+  .card .cover{
+    position:absolute;inset:0;
+    background:
+      radial-gradient(120px 90px at 30% 25%, rgba(255,255,255,.28), transparent 60%),
+      linear-gradient(160deg, var(--c1), var(--c2));
+  }
+  .card .cover::after{
+    content:'';position:absolute;inset:0;
+    background:linear-gradient(180deg,transparent 40%,rgba(0,0,0,.55));
+  }
+  .card .name{
+    position:absolute;left:12px;right:12px;bottom:12px;z-index:2;
+    font-size:14px;font-weight:700;letter-spacing:.5px;
+    text-shadow:0 2px 8px rgba(0,0,0,.7);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .card .tag{
+    position:absolute;left:12px;top:12px;z-index:2;
+    font-size:10.5px;letter-spacing:1px;color:#ffd166;
+    background:rgba(0,0,0,.4);padding:3px 9px;border-radius:99px;border:1px solid rgba(255,209,102,.4);
+  }
+  .glow-line{
+    position:fixed;left:0;right:0;bottom:0;height:90px;z-index:3;pointer-events:none;
+    background:linear-gradient(180deg,transparent, rgba(79,195,247,.10) 60%, rgba(255,77,141,.12));
+    animation:breath 5s ease-in-out infinite alternate;
+  }
+  @keyframes breath{from{opacity:.5}to{opacity:1}}
+</style>
+</head>
+<body>
+  <div class="water"></div>
+
+  <header class="topbar">
+    <div class="brand"><span class="logo">✦</span>我的番剧推荐</div>
+  </header>
+
+  <div class="hero-title">
+    <h1>S 形蜿蜒河流 · 样板 v3</h1>
+    <p>左下 → 右上 · S 形两弯 · 由近到远渐小</p>
+  </div>
+
+  <div class="stage" id="stage">
+    <svg class="riverline" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+      <path id="riverPath" d="" fill="none" stroke="url(#riverGrad)" stroke-width="34" stroke-linecap="round" opacity=".22"/>
+      <path id="riverCore" d="" fill="none" stroke="rgba(120,220,255,.5)" stroke-width="5" stroke-linecap="round" opacity=".35"/>
+      <defs>
+        <linearGradient id="riverGrad" x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0" stop-color="#4fc3f7"/>
+          <stop offset=".55" stop-color="#a78bfa"/>
+          <stop offset="1" stop-color="#ff4d8d"/>
+        </linearGradient>
+      </defs>
+    </svg>
+  </div>
+
+  <div class="glow-line"></div>
+
+<script>
+  /* 占位番剧（渐变双色 + 标题），实际替换为封面图 */
+  const SLIDES = [
+    { n:'勇者王FINAL',      t:'热血', c1:'#ff5f6d', c2:'#ffc371' },
+    { n:'钢之炼金术师',     t:'奇幻', c1:'#667eea', c2:'#764ba2' },
+    { n:'青之芦苇',         t:'运动', c1:'#43e97b', c2:'#38f9d7' },
+    { n:'星屑与黄昏',       t:'治愈', c1:'#a18cd1', c2:'#fbc2eb' },
+    { n:'落第骑士',         t:'战斗', c1:'#f83600', c2:'#f9d423' },
+    { n:'轻松熊',           t:'日常', c1:'#ff9a9e', c2:'#fecfef' },
+    { n:'地狱模式',         t:'异世界', c1:'#5ee7df', c2:'#b490ca' },
+    { n:'螺旋境界线',       t:'科幻', c1:'#30cfd0', c2:'#330867' },
+    { n:'奇诺之旅',         t:'旅行', c1:'#84fab0', c2:'#8fd3f4' },
+    { n:'狼雨',             t:'致郁', c1:'#e0c3fc', c2:'#8ec5fc' },
+    { n:'初音岛',           t:'恋爱', c1:'#fccb90', c2:'#d57eeb' },
+    { n:'爱的魔法',         t:'搞笑', c1:'#ff758c', c2:'#ff7eb3' },
+  ];
+
+  const stage = document.getElementById('stage');
+  const riverPath = document.getElementById('riverPath');
+  const riverCore = document.getElementById('riverCore');
+  const W = () => innerWidth, H = () => innerHeight;
+
+  /* ---- 河道：左下（近）→ 右上（远），S 形两个弯 ---- */
+  function riverPos(t, w = W(), h = H()) {
+    const x0 = w * 0.05,  y0 = h * 0.86;   // 左下近处
+    const x1 = w * 0.95,  y1 = h * 0.10;   // 右上远处
+    const x = x0 + (x1 - x0) * t;
+    const line = y0 + (y1 - y0) * t;
+    const bend = Math.sin(t * Math.PI * 2);        // S 形两个弯（一个完整正弦）
+    const amp = Math.min(w, h) * 0.18 * (1 - t * 0.35); // 弯幅前段大、远端收敛
+    return { x, y: line + bend * amp };
+  }
+
+  /* ---- 透视参数（由近到远） ---- */
+  const scaleOf = t => 1 - 0.58 * t;      // 近大远小
+  const opOf    = t => 1 - 0.6 * t;       // 近清远淡
+  const blurOf  = t => t * t * 4.2;       // 远端景深虚化
+  const zOf     = t => Math.round(t * 100);
+
+  /* ---- 河道光带（SVG 采样） ---- */
+  function drawRiver() {
+    const pts = [];
+    const N = 120;
+    for (let i = 0; i <= N; i++) pts.push(riverPos(i / N));
+    const d = 'M' + pts.map((p, i) => (i ? 'L' : '') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ');
+    riverPath.setAttribute('d', d);
+    riverCore.setAttribute('d', d);
+  }
+  addEventListener('resize', drawRiver);
+
+  /* ---- 构建卡片 ---- */
+  const cards = SLIDES.map(s => {
+    const c = document.createElement('div');
+    c.className = 'card';
+    c.style.setProperty('--c1', s.c1);
+    c.style.setProperty('--c2', s.c2);
+    c.innerHTML = `<div class="cover"></div><span class="tag">${s.t}</span><span class="name">${s.n}</span>`;
+    stage.appendChild(c);
+    return { el: c };
+  });
+  const N = cards.length;
+
+  /* ---- 流动：卡从近处（t=0）沿 S 形河道流向远处（t=1），循环 ---- */
+  let flow = 0;
+  function tick() {
+    flow += 0.0016;                       // 流速（t/帧）
+    for (let i = 0; i < N; i++) {
+      const t = ((i / N) + flow) % 1;
+      const p = riverPos(t);
+      const s = scaleOf(t);
+      const fade = opOf(t);
+      cards[i].el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%,-50%) scale(${s})`;
+      cards[i].el.style.opacity = fade;
+      cards[i].el.style.filter = `blur(${blurOf(t)}px)`;
+      cards[i].el.style.zIndex = zOf(t);
+      cards[i].el.style.boxShadow = t < 0.35 ? '0 22px 50px rgba(0,0,0,.6), 0 0 34px rgba(79,195,247,.35)' : '0 18px 40px rgba(0,0,0,.55)';
+    }
+    requestAnimationFrame(tick);
+  }
+
+  drawRiver();
+  requestAnimationFrame(tick);
+</script>
+</body>
+</html>

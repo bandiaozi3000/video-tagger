@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>方案 D · 霓虹网格</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#07070d;color:#dcdcf0;overflow:hidden;height:100vh;
+    font-family:"Helvetica Neue","PingFang SC",sans-serif}
+  /* 网格底 + 光晕 */
+  .grid{position:fixed;inset:0;
+    background:
+      linear-gradient(rgba(120,130,255,.05) 1px,transparent 1px) 0 0/100% 60px,
+      linear-gradient(90deg,rgba(120,130,255,.05) 1px,transparent 1px) 0 0/60px 100%,
+      radial-gradient(120% 80% at 50% 40%, rgba(30,30,80,.35), transparent 60%),
+      #07070d;}
+  .grid::after{content:'';position:absolute;inset:0;
+    background:repeating-linear-gradient(0deg,transparent 0 40px,rgba(120,130,255,.03) 40px 41px)}
+
+  .top{position:fixed;top:0;left:0;right:0;z-index:10;display:flex;justify-content:space-between;align-items:baseline;
+    padding:22px 30px}
+  .brand{font-size:11px;letter-spacing:6px;color:#8f8fd0;text-transform:uppercase}
+  .brand b{color:#fff}
+  .hero{position:fixed;top:7%;left:0;right:0;text-align:center;z-index:10;pointer-events:none}
+  .hero h1{font-size:clamp(26px,4.5vw,48px);font-weight:700;letter-spacing:12px;color:#fff;
+    text-shadow:0 0 30px rgba(120,130,255,.5)}
+  .hero .en{display:block;font-size:10px;letter-spacing:8px;color:#6f6fa8;margin-top:10px;text-transform:uppercase}
+
+  /* 霓虹画框 + hover 发光 */
+  .frame{position:absolute;z-index:5;cursor:pointer;transition:transform .3s}
+  .frame:hover{transform:translateY(-6px)}
+  .frame .box{position:relative;overflow:hidden;background:#0c0c16;padding:8px;
+    box-shadow:0 0 0 1px rgba(120,130,255,.28), 0 0 26px rgba(120,130,255,.10);transition:box-shadow .3s}
+  .frame:hover .box{box-shadow:0 0 0 1px var(--glow), 0 0 34px var(--glow2)}
+  .frame .art{position:relative;overflow:hidden;width:100%;height:100%;background:#111}
+  .frame .cover{position:absolute;inset:0;background:linear-gradient(160deg,var(--c1),var(--c2));opacity:.9}
+  .frame .n{position:absolute;z-index:6;left:8px;bottom:6px;color:#fff;font-size:11px;letter-spacing:1px;
+    text-shadow:0 0 10px rgba(0,0,0,.8)}
+  .frame .corner{position:absolute;width:10px;height:10px;z-index:7;border:2px solid rgba(150,160,255,.7)}
+  .frame:hover .corner{border-color:#fff}
+
+  .frame{opacity:0;animation:pop .6s ease forwards}
+  .frame:nth-child(1){animation-delay:.08s}.frame:nth-child(2){animation-delay:.16s}
+  .frame:nth-child(3){animation-delay:.24s}.frame:nth-child(4){animation-delay:.32s}
+  .frame:nth-child(5){animation-delay:.4s}.frame:nth-child(6){animation-delay:.48s}
+  .frame:nth-child(7){animation-delay:.56s}.frame:nth-child(8){animation-delay:.64s}
+  @keyframes pop{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<div class="grid"></div>
+
+<div class="top"><div class="brand"><b>✦</b> 我的番剧推荐</div></div>
+<div class="hero"><h1>霓虹·展墙</h1><span class="en">Neon Gallery Wall</span></div>
+
+<script>
+  const S=[
+    {n:'勇者王FINAL',  c1:'#ff4d6d',c2:'#7a1a2a',g:'#ff4d6d',g2:'rgba(255,77,109,.35)'},
+    {n:'钢之炼金术师', c1:'#3dd6ff',c2:'#0a3550',g:'#3dd6ff',g2:'rgba(61,214,255,.35)'},
+    {n:'青之芦苇',     c1:'#6dffb0',c2:'#0a4a2a',g:'#6dffb0',g2:'rgba(109,255,176,.35)'},
+    {n:'星屑与黄昏',   c1:'#c78bff',c2:'#3a1a60',g:'#c78bff',g2:'rgba(199,139,255,.35)'},
+    {n:'落第骑士',     c1:'#ff9f43',c2:'#6a2a08',g:'#ff9f43',g2:'rgba(255,159,67,.35)'},
+    {n:'轻松熊',       c1:'#ffd166',c2:'#5a4208',g:'#ffd166',g2:'rgba(255,209,102,.35)'},
+    {n:'螺旋境界线',   c1:'#4ff0e0',c2:'#083c36',g:'#4ff0e0',g2:'rgba(79,240,224,.35)'},
+    {n:'狼雨',         c1:'#9aa5ff',c2:'#1a2050',g:'#9aa5ff',g2:'rgba(154,165,255,.35)'},
+  ];
+  const spots=[
+    {x:.06,y:.32,w:130,h:186},{x:.26,y:.18,w:120,h:172},{x:.44,y:.30,w:150,h:214},
+    {x:.66,y:.16,w:120,h:172},{x:.84,y:.28,w:130,h:186},
+    {x:.16,y:.60,w:150,h:214},{x:.40,y:.56,w:130,h:186},{x:.62,y:.62,w:150,h:214},
+  ];
+  S.forEach((s,i)=>{
+    const sp=spots[i],f=document.createElement('div');f.className='frame';
+    f.style.left=(sp.x*100)+'%';f.style.top=(sp.y*100)+'%';
+    f.style.setProperty('--glow',s.g);f.style.setProperty('--glow2',s.g2);
+    const box=document.createElement('div');box.className='box';
+    box.style.width=sp.w+'px';box.style.height=sp.h+'px';
+    const art=document.createElement('div');art.className='art';
+    art.style.setProperty('--c1',s.c1);art.style.setProperty('--c2',s.c2);
+    art.innerHTML='<div class="cover"></div><span class="n">'+s.n+'</span>';
+    box.appendChild(art);f.appendChild(box);
+    ['tl','tr','bl','br'].forEach(p=>{
+      const c=document.createElement('span');c.className='corner';c.style[p==='tl'?'left':'right']='-1px';
+      c.style[p==='tl'||p==='bl'?'left':'right']='-1px';
+      c.style[p==='tl'||p==='tr'?'top':'bottom']='-1px';f.appendChild(c);});
+    document.body.appendChild(f);
+  });
+</script>
+</body>
+</html>

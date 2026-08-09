@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>方案 G · 元气弹跳</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0f1230;color:#fff;overflow:hidden;height:100vh;
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+
+  /* 深空 + 彩虹光斑 */
+  .sky{position:fixed;inset:0;
+    background:
+      radial-gradient(60% 50% at 12% 18%, rgba(255,120,180,.20), transparent 60%),
+      radial-gradient(50% 45% at 85% 20%, rgba(90,200,255,.18), transparent 60%),
+      radial-gradient(55% 50% at 60% 90%, rgba(255,210,120,.14), transparent 60%),
+      radial-gradient(40% 40% at 35% 60%, rgba(170,120,255,.14), transparent 60%),
+      #0f1230;}
+
+  /* 星点粒子 */
+  .stars{position:fixed;inset:0;pointer-events:none;z-index:1}
+  .star{position:absolute;border-radius:50%;background:#fff;animation:twinkle var(--d) ease-in-out infinite;
+    box-shadow:0 0 6px rgba(255,255,255,.8)}
+  @keyframes twinkle{0%,100%{opacity:.15;transform:scale(.7)}50%{opacity:.9;transform:scale(1.2)}}
+
+  .top{position:fixed;top:0;left:0;right:0;z-index:10;display:flex;justify-content:space-between;align-items:center;
+    padding:20px 28px}
+  .brand{font-size:13px;font-weight:800;letter-spacing:2px;
+    background:linear-gradient(90deg,#ff6b9d,#ffd166,#6be2ff);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .badge{font-size:11px;color:#c3b8ff;background:rgba(255,255,255,.08);border:1px solid rgba(195,184,255,.4);
+    border-radius:99px;padding:5px 14px;letter-spacing:2px}
+
+  .hero{position:fixed;top:7%;left:0;right:0;text-align:center;z-index:10;pointer-events:none}
+  .hero h1{font-size:clamp(30px,5.5vw,58px);font-weight:900;letter-spacing:6px;
+    background:linear-gradient(120deg,#ff6b9d 0%,#ff9f6b 30%,#ffd166 55%,#6be2ff 85%,#c78bff 100%);
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+    filter:drop-shadow(0 4px 20px rgba(255,110,160,.35));animation:hue 6s linear infinite}
+  @keyframes hue{to{filter:drop-shadow(0 4px 20px rgba(255,110,160,.35)) hue-rotate(30deg)}}
+  .hero .en{display:block;font-size:11px;letter-spacing:8px;color:#8f8fd0;margin-top:10px}
+
+  /* 贴纸感卡片（错落 + 弹跳浮动 + 闪光 + 光晕） */
+  .sticker{position:absolute;z-index:5;text-align:center;
+    animation:bounce var(--b) ease-in-out infinite;animation-delay:var(--bd)}
+  @keyframes bounce{0%,100%{transform:translateY(0) rotate(var(--r))}50%{transform:translateY(-14px) rotate(var(--r))}}
+  .sticker .card{position:relative;overflow:hidden;border-radius:18px;border:2.5px solid #fff;
+    background:linear-gradient(160deg,var(--c1),var(--c2));
+    box-shadow:0 10px 24px rgba(0,0,0,.4), inset 0 0 0 1px rgba(255,255,255,.25);
+    animation:glow 3.2s ease-in-out infinite}
+  .sticker:nth-child(even) .card{animation-delay:.9s}
+  @keyframes glow{0%,100%{box-shadow:0 10px 24px rgba(0,0,0,.4), 0 0 18px var(--glow)}50%{box-shadow:0 10px 24px rgba(0,0,0,.4), 0 0 32px var(--glow)}}
+  .sticker .cover{position:absolute;inset:0;background:linear-gradient(160deg,var(--c1),var(--c2))}
+  .sticker .cover::before{content:'';position:absolute;inset:0;
+    background:radial-gradient(60% 40% at 30% 18%, rgba(255,255,255,.35), transparent 60%)}
+  .sticker .n{position:absolute;z-index:6;left:10px;bottom:8px;color:#fff;font-size:13px;font-weight:800;
+    text-shadow:0 2px 8px rgba(0,0,0,.5)}
+  /* 闪光扫过 */
+  .sticker .card::after{content:'';position:absolute;top:0;bottom:0;width:40%;left:-60%;z-index:4;
+    background:linear-gradient(100deg,transparent,rgba(255,255,255,.5),transparent);
+    transform:skewX(-18deg);animation:sweep 3.6s ease-in-out infinite}
+  .sticker:nth-child(odd) .card::after{animation-delay:1.8s}
+  @keyframes sweep{0%{left:-60%}45%,100%{left:130%}}
+
+  .sticker{opacity:0;animation:pop .7s cubic-bezier(.2,1.4,.4,1) forwards;animation-delay:var(--pd)}
+  @keyframes pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
+</style>
+</head>
+<body>
+<div class="sky"></div>
+<div class="stars" id="stars"></div>
+
+<div class="top">
+  <div class="brand">✦ 我的番剧推荐</div>
+  <div class="badge">2026 元气特辑</div>
+</div>
+<div class="hero">
+  <h1>元气弹跳画廊</h1>
+  <span class="en">PLAYFUL POP GALLERY</span>
+</div>
+
+<script>
+  const S=[
+    {n:'勇者王FINAL',  c1:'#ff6b9d',c2:'#ff9f6b',g:'rgba(255,107,157,.55)'},
+    {n:'钢之炼金术师', c1:'#6be2ff',c2:'#4f8fff',g:'rgba(107,226,255,.55)'},
+    {n:'青之芦苇',     c1:'#7dffb0',c2:'#2ecfa0',g:'rgba(125,255,176,.5)'},
+    {n:'星屑与黄昏',   c1:'#c78bff',c2:'#8a5aff',g:'rgba(199,139,255,.55)'},
+    {n:'落第骑士',     c1:'#ff9f6b',c2:'#ff6b4d',g:'rgba(255,159,107,.55)'},
+    {n:'轻松熊',       c1:'#ffd166',c2:'#ffb45e',g:'rgba(255,209,102,.55)'},
+    {n:'螺旋境界线',   c1:'#5effe0',c2:'#38cfa8',g:'rgba(94,255,224,.5)'},
+    {n:'狼雨',         c1:'#9aa5ff',c2:'#6a75ff',g:'rgba(154,165,255,.55)'},
+  ];
+  const spots=[
+    {x:.05,y:.32,w:128,h:184,r:5,b:3.4,bd:0},
+    {x:.24,y:.18,w:116,h:166,r:-4,b:3.8,bd:.6},
+    {x:.42,y:.30,w:142,h:204,r:3,b:3.2,bd:1.1},
+    {x:.62,y:.16,w:116,h:166,r:-5,b:3.6,bd:1.6},
+    {x:.80,y:.28,w:130,h:186,r:4,b:3.3,bd:2.1},
+    {x:.14,y:.62,w:138,h:198,r:-3,b:3.5,bd:2.5},
+    {x:.38,y:.58,w:120,h:172,r:4,b:3.7,bd:3},
+    {x:.62,y:.64,w:134,h:192,r:-4,b:3.4,bd:3.4},
+  ];
+  S.forEach((s,i)=>{
+    const sp=spots[i],p=document.createElement('div');p.className='sticker';
+    p.style.left=(sp.x*100)+'%';p.style.top=(sp.y*100)+'%';
+    p.style.setProperty('--r',sp.r+'deg');p.style.setProperty('--b',sp.b+'s');p.style.setProperty('--bd',sp.bd+'s');
+    p.style.setProperty('--pd',(i*.09)+'s');
+    const card=document.createElement('div');card.className='card';
+    card.style.width=sp.w+'px';card.style.height=sp.h+'px';
+    card.style.setProperty('--c1',s.c1);card.style.setProperty('--c2',s.c2);card.style.setProperty('--glow',s.g);
+    card.innerHTML='<div class="cover"></div><span class="n">'+s.n+'</span>';
+    p.appendChild(card);document.body.appendChild(p);
+  });
+  /* 星点 */
+  const stars=document.getElementById('stars');
+  for(let i=0;i<46;i++){
+    const st=document.createElement('div');st.className='star';
+    const size=Math.random()*3+1.5;
+    st.style.cssText=`left:${Math.random()*100}%;top:${Math.random()*100}%;width:${size}px;height:${size}px;--d:${(Math.random()*3+2).toFixed(2)}s;animation-delay:${(Math.random()*3).toFixed(2)}s`;
+    stars.appendChild(st);
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>方案 F · 像素游戏 · 标题闪回 → 像素画廊</title>
+<style>
+  :root{
+    --night:#160f38; --night2:#221452; --pink:#ff5d8f; --cyan:#2ee6c8; --lime:#c8ff2e;
+    --gold:#ffe600; --ink:#0a0620;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--night);color:#fff;overflow:hidden;height:100vh;
+    font-family:"Courier New",Consolas,monospace;
+  }
+  /* ---- 夜空 + 像素地平线 ---- */
+  .sky{position:fixed;inset:0;z-index:0;
+    background:
+      radial-gradient(900px 600px at 70% 18%, rgba(46,230,200,.10), transparent 60%),
+      radial-gradient(700px 500px at 20% 30%, rgba(255,93,143,.08), transparent 60%),
+      linear-gradient(180deg,var(--night),var(--night2) 82%,#0d0726);}
+  .ground{position:fixed;left:0;right:0;bottom:0;height:9vh;z-index:2;
+    background:repeating-linear-gradient(90deg,#0d0726 0 6px,#150d38 6px 12px);}
+  .ground::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;
+    background:repeating-linear-gradient(90deg,var(--cyan) 0 8px,transparent 8px 16px,var(--pink) 16px 20px,transparent 20px 30px);
+    opacity:.7;}
+  .star{position:absolute;width:4px;height:4px;background:#fff;z-index:1;opacity:.9;
+    box-shadow:2px 2px 0 rgba(255,255,255,.4);animation:twinkle 2.4s steps(2) infinite;}
+  @keyframes twinkle{50%{opacity:.25}}
+  .cloud{position:absolute;z-index:1;width:34px;height:12px;opacity:.5;
+    background:repeating-linear-gradient(90deg,var(--night2) 0 6px,#37247a 6px 12px);
+    animation:cloudmove 40s linear infinite;}
+  @keyframes cloudmove{from{transform:translateX(-60px)}to{transform:translateX(110vw)}}
+
+  /* ---- 顶部游戏标题 ---- */
+  .topbar{position:fixed;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
+    padding:16px 26px;pointer-events:none;}
+  .brand{font-size:11px;font-weight:bold;letter-spacing:2px;color:var(--lime);text-shadow:2px 2px 0 var(--ink)}
+  .brand .p{color:var(--pink)}
+  .hero{position:fixed;top:0;left:0;right:0;z-index:19;text-align:center;padding-top:52px;pointer-events:none}
+  .hero h1{display:inline-block;font-size:clamp(22px,4.2vw,46px);font-weight:bold;letter-spacing:3px;
+    color:#fff;background:var(--ink);padding:6px 22px 9px;border:4px solid #fff;
+    box-shadow:6px 6px 0 var(--pink),-4px -4px 0 var(--cyan);
+    text-shadow:3px 3px 0 var(--pink),6px 6px 0 rgba(0,0,0,.4);}
+  .hero .start{display:block;margin-top:14px;font-size:11px;letter-spacing:3px;color:var(--lime);
+    text-shadow:2px 2px 0 var(--ink);animation:blink 1.2s steps(2) infinite;}
+  @keyframes blink{50%{opacity:0}}
+
+  /* ---- 像素闪回遮罩（8-bit 转场） ---- */
+  .pixflash{position:fixed;inset:0;z-index:40;pointer-events:none;opacity:0;
+    background:
+      repeating-linear-gradient(90deg,var(--ink) 0 40px,#fff 40px 80px,var(--ink) 80px 120px),
+      repeating-linear-gradient(0deg,rgba(255,255,255,.2) 0 20px,transparent 20px 60px);
+    background-blend-mode:overlay;}
+  .pixflash.go{animation:pf .16s steps(2) 0s 1}
+  @keyframes pf{0%{opacity:1}100%{opacity:0}}
+
+  /* ---- 成就卡片 ---- */
+  .stage{position:fixed;inset:0;z-index:5;pointer-events:none}
+  .card{position:absolute;left:50%;top:50%;width:170px;height:238px;pointer-events:auto;cursor:pointer;
+    background:linear-gradient(160deg,var(--c1),var(--c2));
+    border:3px solid #fff;box-shadow:7px 7px 0 rgba(0,0,0,.62);
+    will-change:transform;transform-origin:center center;opacity:0;}
+  .card .pix{position:absolute;inset:-3px;pointer-events:none;opacity:.18;
+    background:repeating-linear-gradient(90deg,transparent 0 8px,rgba(0,0,0,.5) 8px 12px),
+               repeating-linear-gradient(0deg,transparent 0 8px,rgba(0,0,0,.4) 8px 12px);}
+  .card::after{content:'';position:absolute;left:6px;top:6px;width:14px;height:14px;
+    background:repeating-linear-gradient(0deg,#fff 0 4px,transparent 4px 8px);
+    mix-blend-mode:overlay;opacity:.7;}
+  .card .cap{position:absolute;left:0;right:0;bottom:0;z-index:2;display:flex;align-items:center;justify-content:space-between;
+    background:var(--ink);color:#fff;padding:7px 10px;font-size:12px;font-weight:bold;letter-spacing:1px;
+    border-top:3px solid #fff;}
+  .card .cap .s{color:var(--gold)}
+  /* 成就弹出 */
+  .card .ach{position:absolute;left:50%;top:-40px;transform:translateX(-50%) scale(0);z-index:6;
+    background:var(--ink);color:var(--gold);border:3px solid var(--gold);font-size:10px;font-weight:bold;
+    letter-spacing:1px;padding:5px 12px;white-space:nowrap;
+    box-shadow:4px 4px 0 rgba(0,0,0,.7);}
+  .card.focus .ach{animation:achpop .3s cubic-bezier(.2,1.9,.4,1.2) forwards}
+  @keyframes achpop{0%{transform:translateX(-50%) scale(0) rotate(-6deg)}100%{transform:translateX(-50%) scale(1) rotate(0)}}
+  .card.focus{filter:brightness(1.08)}
+  .card.dim{filter:brightness(.55) saturate(.7)}
+  .card.floaty{animation:floaty 3.4s ease-in-out infinite;animation-delay:calc(var(--i) * -0.5s)}
+  @keyframes floaty{50%{transform:translateY(-10px)}}
+
+  /* ---- 血条 ---- */
+  .hp-wrap{position:fixed;left:50%;bottom:5.2vh;transform:translateX(-50%);z-index:22;width:min(66vw,780px);
+    opacity:0;transition:opacity .8s ease .2s;}
+  .hp-wrap.show{opacity:1}
+  .hp-label{display:flex;justify-content:space-between;font-size:11px;font-weight:bold;letter-spacing:2px;
+    color:#fff;text-shadow:2px 2px 0 var(--ink);margin-bottom:7px;}
+  .hp-label .cur{color:var(--gold)}
+  .hp{position:relative;border:4px solid #fff;background:var(--ink);padding:3px;
+    box-shadow:6px 6px 0 rgba(0,0,0,.6);}
+  .hp .fill{height:15px;width:0%;background:repeating-linear-gradient(90deg,var(--pink) 0 16px,#c23a66 16px 20px);
+    box-shadow:inset 0 0 0 2px rgba(255,255,255,.2);transition:width .5s cubic-bezier(.2,.8,.2,1);}
+  .hp .ticks{position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(90deg,transparent 0 33.3px,rgba(255,255,255,.35) 33.3px 34px);}
+
+  /* ---- 重播 ---- */
+  .replay{position:fixed;left:22px;bottom:18px;z-index:30;font-family:inherit;font-size:11px;font-weight:bold;
+    letter-spacing:2px;color:#fff;background:var(--ink);border:3px solid #fff;padding:8px 16px;cursor:pointer;
+    box-shadow:4px 4px 0 var(--pink);transition:.15s;}
+  .replay:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--cyan)}
+  .hint{position:fixed;left:50%;bottom:12vh;transform:translateX(-50%);z-index:18;font-size:11px;font-weight:bold;
+    letter-spacing:3px;color:var(--cyan);text-shadow:2px 2px 0 var(--ink);pointer-events:none;
+    animation:blink 1.2s steps(2) infinite;}
+</style>
+</head>
+<body>
+  <div class="sky"></div>
+  <div class="ground"></div>
+
+  <header class="topbar">
+    <div class="brand">1-UP&nbsp; <span class="p">我的番剧推荐</span></div>
+  </header>
+  <div class="hero">
+    <h1>★ 番剧收藏 ★</h1>
+    <span class="start">PRESS START</span>
+  </div>
+
+  <div class="stage" id="stage"></div>
+  <div class="pixflash" id="pixflash"></div>
+
+  <div class="hp-wrap" id="hpWrap">
+    <div class="hp-label"><span class="cur" id="hpNow">PRESS START</span><span id="hpIdx">00 / 12</span></div>
+    <div class="hp">
+      <div class="fill" id="hpFill"></div>
+      <div class="ticks"></div>
+    </div>
+  </div>
+
+  <div class="hint" id="hint">PRESS START · 标题画面</div>
+  <button class="replay" id="replay">↺ RESTART</button>
+
+<script>
+  const SLIDES = [
+    { n:'勇者王FINAL',   t:'热血', c1:'#ff5f6d', c2:'#ffc371' },
+    { n:'钢之炼金术师',  t:'奇幻', c1:'#667eea', c2:'#764ba2' },
+    { n:'青之芦苇',      t:'运动', c1:'#43e97b', c2:'#38f9d7' },
+    { n:'星屑与黄昏',    t:'治愈', c1:'#a18cd1', c2:'#fbc2eb' },
+    { n:'落第骑士',      t:'战斗', c1:'#f83600', c2:'#f9d423' },
+    { n:'轻松熊',        t:'日常', c1:'#ff9a9e', c2:'#fecfef' },
+    { n:'地狱模式',      t:'异世界', c1:'#5ee7df', c2:'#b490ca' },
+    { n:'螺旋境界线',    t:'科幻', c1:'#30cfd0', c2:'#330867' },
+    { n:'奇诺之旅',      t:'旅行', c1:'#84fab0', c2:'#8fd3f4' },
+    { n:'狼雨',          t:'致郁', c1:'#e0c3fc', c2:'#8ec5fc' },
+    { n:'初音岛',        t:'恋爱', c1:'#fccb90', c2:'#d57eeb' },
+    { n:'爱的魔法',      t:'搞笑', c1:'#ff758c', c2:'#ff7eb3' },
+  ];
+  const SPOTS = [
+    { x:-42, y:-22, s:.9  }, { x:-24, y:-12, s:1.08 }, { x:-6,  y:-24, s:.86 },
+    { x: 12, y:-12, s:1.12 }, { x: 30, y:-23, s:.9  }, { x: 46, y:-13, s:1.0 },
+    { x:-34, y: 13, s:1.0  }, { x:-15, y:  4, s:.86 }, { x:  3, y: 14, s:1.1 },
+    { x: 21, y:  4, s:.92  }, { x: 38, y: 14, s:1.04 }, { x: 53, y:  1, s:.86 },
+  ];
+
+  const stage = document.getElementById('stage');
+  const pixflash = document.getElementById('pixflash');
+  const hpWrap = document.getElementById('hpWrap');
+  const hpNow = document.getElementById('hpNow');
+  const hpIdx = document.getElementById('hpIdx');
+  const hpFill = document.getElementById('hpFill');
+  const hint = document.getElementById('hint');
+
+  const N = SLIDES.length;
+  let timers = [], tourTimer = null, touring = false;
+  const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
+  const clearTour = () => { if (tourTimer) clearTimeout(tourTimer); tourTimer = null; touring = false; };
+
+  /* 像素星星 + 云 */
+  const starCols = ['#fff','#ffe600','#ff5d8f','#2ee6c8'];
+  for (let i = 0; i < 22; i++) {
+    const st = document.createElement('i');
+    st.className = 'star';
+    st.style.left = (Math.random() * 100) + '%';
+    st.style.top = (Math.random() * 46) + '%';
+    st.style.background = starCols[i % starCols.length];
+    st.style.animationDelay = (Math.random() * 2.4) + 's';
+    document.body.appendChild(st);
+  }
+  for (let i = 0; i < 3; i++) {
+    const cl = document.createElement('i');
+    cl.className = 'cloud';
+    cl.style.top = (8 + i * 11) + '%';
+    cl.style.animationDelay = (-i * 12) + 's';
+    document.body.appendChild(cl);
+  }
+
+  /* 构建成就卡片 */
+  const cards = SLIDES.map((s, i) => {
+    const c = document.createElement('div');
+    c.className = 'card';
+    c.style.setProperty('--c1', s.c1);
+    c.style.setProperty('--c2', s.c2);
+    c.style.setProperty('--i', i);
+    c.style.transform = `translate(calc(-50% + ${SPOTS[i].x}vw), calc(-50% + ${SPOTS[i].y}vh)) scale(${SPOTS[i].s})`;
+    c.innerHTML = `<div class="pix"></div><span class="ach">★ 获得成就 · ${s.t} ★</span>
+      <div class="cap"><span>${s.n}</span><span class="s">${String(i+1).padStart(2,'0')}</span></div>`;
+    stage.appendChild(c);
+    return c;
+  });
+
+  function pf() { pixflash.classList.remove('go'); void pixflash.offsetWidth; pixflash.classList.add('go'); }
+
+  /* 闪回：道具从底部弹起 */
+  function flashIn(i, dur) {
+    pf();
+    const c = cards[i];
+    c.classList.remove('floaty');
+    c.style.transition = 'none';
+    c.style.transform = `translate(calc(-50% + ${SPOTS[i].x}vw), calc(100vh)) scale(${SPOTS[i].s})`;
+    c.style.opacity = '1';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      c.style.transition = `transform ${dur}ms cubic-bezier(.25,1.6,.4,1.1), opacity 200ms ease`;
+      c.style.transform = `translate(calc(-50% + ${SPOTS[i].x}vw), calc(-50% + ${SPOTS[i].y}vh)) scale(${SPOTS[i].s})`;
+    }));
+  }
+
+  function playFlash() {
+    clearTimers(); clearTour();
+    hpWrap.classList.remove('show');
+    hint.style.display = 'block';
+    hint.textContent = 'LOADING…';
+    cards.forEach(c => { c.classList.remove('floaty', 'focus', 'dim'); c.style.opacity = '0'; });
+
+    let delay = 0, dur = 520;
+    for (let i = 0; i < N; i++) {
+      timers.push(setTimeout(() => flashIn(i, dur), delay));
+      delay += dur + 55;
+      dur = Math.max(230, dur - 26);
+    }
+    timers.push(setTimeout(openWall, delay + 600));
+  }
+
+  function openWall() {
+    hint.style.display = 'none';
+    hpWrap.classList.add('show');
+    cards.forEach((c, i) => {
+      c.classList.add('floaty');
+      c.style.transition = 'none';
+      c.style.opacity = '1';
+      c.onmouseenter = () => { clearTour(); focus(i); };
+      c.onmouseleave = () => { if (touring) return; defocus(); startTour((i + 1) % N); };
+    });
+    timers.push(setTimeout(() => startTour(0), 1200));
+  }
+
+  function startTour(from) {
+    clearTour(); touring = true;
+    if (from >= N) from = 0;
+    const step = () => {
+      if (!touring) return;
+      focus(from);
+      tourTimer = setTimeout(() => { from = (from + 1) % N; step(); }, 2800);
+    };
+    step();
+  }
+
+  function focus(i) {
+    cards.forEach((c, j) => {
+      c.classList.remove('focus', 'dim');
+      if (j === i) c.classList.add('focus'); else c.classList.add('dim');
+    });
+    hpNow.textContent = '★ ' + SLIDES[i].t + ' · ' + SLIDES[i].n;
+    hpIdx.textContent = String(i + 1).padStart(2, '0') + ' / ' + N;
+    hpFill.style.width = ((i + 1) / N * 100) + '%';
+  }
+  function defocus() {
+    cards.forEach(c => c.classList.remove('focus', 'dim'));
+    hpNow.textContent = 'PRESS START';
+    hpIdx.textContent = '00 / ' + N;
+    hpFill.style.width = '0%';
+  }
+
+  document.getElementById('replay').onclick = playFlash;
+  playFlash();
+</script>
+</body>
+</html>
