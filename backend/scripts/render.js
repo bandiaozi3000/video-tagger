@@ -103,19 +103,32 @@ let exitCode = 0;
 
     const cdp = await page.createCDPSession();
     await cdp.send('Page.enable');
+
+    // 流式写帧：边收边写盘，内存 O(1)。原实现把全部帧 base64 缓存内存数组、
+    // 最后才写盘——素材多/视频长时（上百万字节/帧 × 上万帧）会撑爆 node 堆（退出码 134 OOM）。
+    const base = path.join(tmpDir, 'f');
+    let frameCount = 0;
+    let firstTs = null, lastTs = null;
+    cdp.on('Page.screencastFrame', async ({ data, sessionId, metadata }) => {
+      try {
+        if (firstTs === null) firstTs = metadata.timestamp;
+        lastTs = metadata.timestamp;
+        fs.writeFileSync(base + '-' + String(frameCount).padStart(5, '0') + '.jpg',
+          Buffer.from(data, 'base64'));
+        frameCount++;
+      } catch (e) {
+        // 单帧写盘失败不致命：继续收帧，最后帧数不足会报错
+      }
+      // ack 尽快，避免 Chrome 暂停推帧
+      cdp.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
+    });
+
     await cdp.send('Page.startScreencast', {
       format: 'jpeg',
       quality,
       maxWidth: captureW,
       maxHeight: captureH,
       everyNthFrame: 1,
-    });
-
-    const frames = []; // {ts, data}
-    cdp.on('Page.screencastFrame', async ({ data, sessionId, metadata }) => {
-      frames.push({ ts: metadata.timestamp, data });
-      // ack 尽快，避免 Chrome 暂停推帧
-      cdp.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
     });
 
     await page.goto('file://' + htmlPath.replace(/\\/g, '/') + '?record=1', {
@@ -125,47 +138,35 @@ let exitCode = 0;
 
     // 等首帧（页面开始合成）再计时长
     const t0 = Date.now();
-    while (frames.length === 0 && Date.now() - t0 < 30 * 1000) {
+    while (frameCount === 0 && Date.now() - t0 < 30 * 1000) {
       await new Promise(r => setTimeout(r, 100));
     }
-    if (frames.length === 0) {
+    if (frameCount === 0) {
       throw new Error('未捕获到任何页面帧（30s 超时）');
     }
 
-    // 录满 duration 秒（真实时间）
-    const startedAt = frames[0].ts;
-    const deadline = Date.now() + duration * 1000;
+    // 录制：以模板导览真正结束为准（模板 finishAuto 设 data-tour-ended 标记），
+    // duration+30s 仅作兜底上限（防模板异常卡死）。时长=开局闪回+定格+各段+结尾，天然完整不缺尾。
+    const startedAt = firstTs;
+    const deadline = Date.now() + (duration + 30) * 1000;
     while (Date.now() < deadline) {
+      if (frameCount > 0) {
+        const done = await page.evaluate(
+          () => document.documentElement.dataset.tourEnded === '1').catch(() => false);
+        if (done) break;
+      }
       await new Promise(r => setTimeout(r, 150));
     }
     await cdp.send('Page.stopScreencast');
     await new Promise(r => setTimeout(r, 200));
 
-    // 兜底：若 Chrome 掉帧导致帧时间跨度不足 duration，再补抓一轮
-    const lastTs = frames[frames.length - 1].ts;
-    if (lastTs - startedAt < duration - 0.5) {
-      await cdp.send('Page.startScreencast', {
-        format: 'jpeg', quality, maxWidth: captureW, maxHeight: captureH, everyNthFrame: 1,
-      });
-      const t1 = Date.now();
-      while (Date.now() - t1 < (duration - (lastTs - startedAt)) * 1000) {
-        await new Promise(r => setTimeout(r, 150));
-      }
-      await cdp.send('Page.stopScreencast');
+    if (frameCount < 2) {
+      throw new Error('有效帧不足: ' + frameCount);
     }
 
-    if (frames.length < 2) {
-      throw new Error('有效帧不足: ' + frames.length);
-    }
-
-    // 写帧文件，固定帧率合成（CFR）：fps = 帧数 / 目标时长，总时长精确匹配。
+    // 帧已流式写盘，固定帧率合成（CFR）：fps = 帧数 / 实际录制时长（含闪回动画），总时长精确匹配导览。
     // 不用 concat demuxer——其 duration 语义对末帧处理不可控，帧稀疏时会拉长总时长。
-    const base = path.join(tmpDir, 'f');
-    for (let i = 0; i < frames.length; i++) {
-      fs.writeFileSync(base + '-' + String(i).padStart(5, '0') + '.jpg',
-        Buffer.from(frames[i].data, 'base64'));
-    }
-    const fps = frames.length / duration; // 还原录制真实帧率（约 60fps）
+    const fps = frameCount / Math.max(0.1, (lastTs - firstTs)); // 还原录制真实帧率（约 60fps）
 
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     // 抓帧降档时放大回输出分辨率（bicubic 平滑）；同尺寸直接 yuv420p
@@ -195,7 +196,7 @@ let exitCode = 0;
       throw new Error('ffmpeg 产物为空: ' + outPath);
     }
     console.log('[render] 成功: ' + path.basename(outPath) +
-      ' 帧数=' + frames.length + ' 时长≈' + (frames[frames.length - 1].ts - frames[0].ts).toFixed(1) + 's' +
+      ' 帧数=' + frameCount + ' 时长≈' + (lastTs - firstTs).toFixed(1) + 's' +
       ' fps=' + fps.toFixed(1) + (upscale ? ' (' + captureW + '→' + outW + ' 放大)' : ''));
   } catch (e) {
     exitCode = 1;

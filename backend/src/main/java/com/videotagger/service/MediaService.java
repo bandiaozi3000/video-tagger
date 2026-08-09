@@ -60,29 +60,29 @@ public class MediaService {
         this.coverService = coverService;
     }
 
-    /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/来源/媒体标签筛选；offset 分页。 */
+    /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/来源/媒体标签/q 标题模糊筛选；offset 分页。 */
     public List<MediaSummary> list(int limit, int offset, String status, String format, Long subcategoryId,
                                    Integer confirmed, Long collectionId, String sort, String order, Integer year,
-                                   String source, Long tagId) {
+                                   String source, Long tagId, String q) {
         return mediaMapper.listFiltered(status, format, subcategoryId, confirmed, collectionId, sort, order, year,
-                source, tagId,
+                source, tagId, q,
                 Math.min(Math.max(limit, 1), 200), Math.max(offset, 0));
     }
 
-    /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/format/子分类/confirmed/collectionId/year/source 筛选；offset 分页。 */
+    /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/format/子分类/confirmed/collectionId/year/source/q 筛选；offset 分页。 */
     public List<MediaSummary> recent(int limit, int offset, String status, String format, Long subcategoryId,
-                                     Integer confirmed, Long collectionId, Integer year, String source) {
+                                     Integer confirmed, Long collectionId, Integer year, String source, String q) {
         return mediaMapper.listByLatest(Math.min(Math.max(limit, 1), 200), Math.max(offset, 0),
-                status, format, subcategoryId, confirmed, collectionId, year, source);
+                status, format, subcategoryId, confirmed, collectionId, year, source, q);
     }
 
     /** 带筛选的媒体总数：全部媒体/收藏夹分支走 countFiltered，最近观看分支（latest=true）走 countLatest。 */
     public long count(String status, String format, Long subcategoryId, Integer confirmed, Long collectionId,
-                      Integer year, String source, Long tagId, boolean latest) {
+                      Integer year, String source, Long tagId, boolean latest, String q) {
         if (latest) {
-            return mediaMapper.countLatest(status, format, subcategoryId, confirmed, collectionId, year, source);
+            return mediaMapper.countLatest(status, format, subcategoryId, confirmed, collectionId, year, source, q);
         }
-        return mediaMapper.countFiltered(status, format, subcategoryId, confirmed, collectionId, year, source, tagId);
+        return mediaMapper.countFiltered(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, q);
     }
 
     /** 库中已有的全部首播年份（降序）。 */

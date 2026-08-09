@@ -53,7 +53,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "LEFT JOIN clips c ON c.episode_id = e.id "
             + "<where>"
             + "<if test='true'> AND a.deleted_at IS NULL</if>"
-            + "<if test='status != null'> a.status = #{status}</if>"
+            + "<if test='status != null'> AND a.status = #{status}</if>"
             + "<if test='format != null'> AND a.media_format = #{format}</if>"
             + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
             + "WITH RECURSIVE cte AS ("
@@ -64,6 +64,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.source = #{source}</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + "</where>"
             + "GROUP BY a.id HAVING latestAt IS NOT NULL "
             + "ORDER BY latestAt DESC LIMIT #{limit} OFFSET #{offset}"
@@ -72,7 +73,8 @@ public interface MediaMapper extends BaseMapper<Media> {
                                     @Param("status") String status, @Param("format") String format,
                                     @Param("subcategoryId") Long subcategoryId,
                                     @Param("confirmed") Integer confirmed, @Param("collectionId") Long collectionId,
-                                    @Param("year") Integer year, @Param("source") String source);
+                                    @Param("year") Integer year, @Param("source") String source,
+                                    @Param("q") String q);
 
     @Select("SELECT COUNT(*) FROM media WHERE deleted_at IS NULL")
     long countMedia();
@@ -82,7 +84,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "SELECT COUNT(DISTINCT a.id) FROM media a "
             + "<where>"
             + "<if test='true'> AND a.deleted_at IS NULL</if>"
-            + "<if test='status != null'> a.status = #{status}</if>"
+            + "<if test='status != null'> AND a.status = #{status}</if>"
             + "<if test='format != null'> AND a.media_format = #{format}</if>"
             + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
             + "WITH RECURSIVE cte AS ("
@@ -93,6 +95,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.source = #{source}</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + "<if test='tagId != null'> AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
             + "</where>"
             + "</script>")
@@ -100,14 +103,14 @@ public interface MediaMapper extends BaseMapper<Media> {
                        @Param("subcategoryId") Long subcategoryId, @Param("confirmed") Integer confirmed,
                        @Param("collectionId") Long collectionId, @Param("year") Integer year,
                        @Param("source") String source,
-                       @Param("tagId") Long tagId);
+                       @Param("tagId") Long tagId, @Param("q") String q);
 
     /** 最近观看分支总数：与 listByLatest 同条件 + 仅统计打过标记的媒体。 */
     @Select("<script>"
             + "SELECT COUNT(DISTINCT a.id) FROM media a "
             + "<where>"
             + "<if test='true'> AND a.deleted_at IS NULL</if>"
-            + "<if test='status != null'> a.status = #{status}</if>"
+            + "<if test='status != null'> AND a.status = #{status}</if>"
             + "<if test='format != null'> AND a.media_format = #{format}</if>"
             + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
             + "WITH RECURSIVE cte AS ("
@@ -118,13 +121,14 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.source = #{source}</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + " AND EXISTS (SELECT 1 FROM clips c JOIN episode e ON e.id = c.episode_id WHERE e.media_id = a.id)"
             + "</where>"
             + "</script>")
     long countLatest(@Param("status") String status, @Param("format") String format,
                      @Param("subcategoryId") Long subcategoryId, @Param("confirmed") Integer confirmed,
                      @Param("collectionId") Long collectionId, @Param("year") Integer year,
-                     @Param("source") String source);
+                     @Param("source") String source, @Param("q") String q);
 
     /** 库中已有的全部首播年份（降序，供年份筛选下拉）。 */
     @Select("SELECT DISTINCT year FROM media WHERE year IS NOT NULL AND deleted_at IS NULL ORDER BY year DESC")
@@ -141,7 +145,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "LEFT JOIN clips c ON c.episode_id = e.id "
             + "<where>"
             + "<if test='true'> AND a.deleted_at IS NULL</if>"
-            + "<if test='status != null'> a.status = #{status}</if>"
+            + "<if test='status != null'> AND a.status = #{status}</if>"
             + "<if test='format != null'> AND a.media_format = #{format}</if>"
             + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
             + "WITH RECURSIVE cte AS ("
@@ -151,6 +155,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.source = #{source}</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + "</where>"
             + "GROUP BY a.id ORDER BY a.id DESC LIMIT #{limit} OFFSET #{offset}"
             + "</script>")
@@ -159,7 +164,7 @@ public interface MediaMapper extends BaseMapper<Media> {
                                         @Param("status") String status, @Param("format") String format,
                                         @Param("subcategoryId") Long subcategoryId,
                                         @Param("confirmed") Integer confirmed, @Param("year") Integer year,
-                                        @Param("source") String source);
+                                        @Param("source") String source, @Param("q") String q);
 
     /** 媒体列表筛选：状态/格式/子分类/待确认/年份 组合，sort=latest 按最近标记倒序。 */
     @Select("<script>"
@@ -171,7 +176,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "LEFT JOIN clips c ON c.episode_id = e.id "
             + "<where>"
             + "<if test='true'> AND a.deleted_at IS NULL</if>"
-            + "<if test='status != null'> a.status = #{status}</if>"
+            + "<if test='status != null'> AND a.status = #{status}</if>"
             + "<if test='format != null'> AND a.media_format = #{format}</if>"
             + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
             + "WITH RECURSIVE cte AS ("
@@ -182,6 +187,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.source = #{source}</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + "<if test='tagId != null'> AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
             + "</where>"
             + "GROUP BY a.id "
@@ -201,6 +207,7 @@ public interface MediaMapper extends BaseMapper<Media> {
                                     @Param("year") Integer year,
                                     @Param("source") String source,
                                     @Param("tagId") Long tagId,
+                                    @Param("q") String q,
                                     @Param("limit") int limit, @Param("offset") int offset);
 
     /** 媒体关键词召回：标题/别名/备注/作品标签命中。 */

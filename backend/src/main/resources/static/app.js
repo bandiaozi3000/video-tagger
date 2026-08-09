@@ -284,7 +284,7 @@ function closeConfirmModal() {
     confirmModal.hidden = true;
     confirmModalAction = null;
 }
-let mediaFilter = { status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', source: '', sort: '', order: 'desc' };
+let mediaFilter = { q: '', status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', source: '', sort: '', order: 'desc' };
 let collSelectedId = null;           // 收藏夹 tab：当前选中的收藏夹 id
 let collectionsCache = [];           // 收藏夹列表缓存（管理视图用）
 let collPage = 1;                    // 收藏夹内媒体分页
@@ -1321,6 +1321,7 @@ async function loadMedia(resetPage = true) {
 function buildMediaUrls() {
     const base = new URLSearchParams({ limit: String(mediaPageSize), offset: String((mediaPage - 1) * mediaPageSize) });
     const addCommon = p => {
+        if (mediaFilter.q) p.set('q', mediaFilter.q);
         if (mediaFilter.status) p.set('status', mediaFilter.status);
         if (mediaFilter.format) p.set('format', mediaFilter.format);
         if (mediaFilter.subcategoryId) p.set('subcategoryId', mediaFilter.subcategoryId);
@@ -1482,24 +1483,6 @@ async function renderDetailCollections(d) {
         label.appendChild(document.createTextNode(` ${c.name}`));
         detailCollectionsEl.appendChild(label);
     }
-    const wrap = document.createElement('span');
-    wrap.className = 'tag-add-wrap';
-    const input = document.createElement('input');
-    input.className = 'tag-add-input';
-    input.placeholder = '+ 新建收藏夹';
-    input.addEventListener('keydown', async (e) => {
-        if (e.key === 'Enter' && input.value.trim()) {
-            await fetch('/api/collections', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: input.value.trim() })
-            });
-            renderDetailCollections(d);
-            fillFilterCollections();
-        }
-    });
-    wrap.appendChild(input);
-    detailCollectionsEl.appendChild(wrap);
 }
 
 // ---------- 收藏夹 tab：管理视图（左列表 + 右内容） ----------
@@ -2564,6 +2547,8 @@ async function exportRecommendVideo() {
             throw new Error(msg);
         }
         const data = await resp.json();
+        /* 用户选过导出位置 → 任务完成后自动写入所选位置 */
+        pendingExportSave = recommendDstHandle ? { taskId: data.taskId, handle: recommendDstHandle } : null;
         document.getElementById('recommend-video-modal').hidden = true;
         showToast(`已开始导出（任务 #${data.taskId}），完成后可打开文件`);
         loadExportTasks();
@@ -2575,6 +2560,31 @@ async function exportRecommendVideo() {
 
 /* ========== 导出任务列表（异步后台任务管理） ========== */
 let exportPollTimer = null, lastExportTasks = [], exportTaskSelected = new Set();
+let pendingExportSave = null; // {taskId, handle}：用户选过导出位置，任务完成后自动写入
+
+/** 任务完成后，把 data/exports 产物写入用户所选位置（File System Access API）。 */
+async function flushPendingExportSave(tasks) {
+    if (!pendingExportSave) return;
+    const t = tasks.find(x => x.id === pendingExportSave.taskId);
+    if (!t || t.status !== 'DONE') return;
+    const handle = pendingExportSave.handle;
+    pendingExportSave = null;
+    try {
+        if (!handle || !handle.createWritable) { showToast('未选择保存位置，产物在任务列表中可打开'); return; }
+        const fileName = String(t.filePath || '').split(/[\\/]/).pop();
+        if (!fileName) return;
+        const blobResp = await fetch('/exports/' + encodeURIComponent(fileName));
+        if (!blobResp.ok) throw new Error('获取产物失败');
+        const blob = await blobResp.blob();
+        const w = await handle.createWritable();
+        await w.write(blob);
+        await w.close();
+        showToast('已保存到所选位置');
+    } catch (e) {
+        /* File System Access API 授权可能因异步任务隔太久失效，降级提示从任务列表打开 */
+        showToast('自动保存到位置失败（浏览器授权可能失效），可从任务列表「打开」查看');
+    }
+}
 
 async function loadExportTasks() {
     try {
@@ -2633,16 +2643,22 @@ function updateExportTaskBatch() {
     if (all) all.checked = lastExportTasks.length > 0 && lastExportTasks.every(t => exportTaskSelected.has(t.id));
 }
 
-async function exportTaskBatchDelete() {
+function exportTaskBatchDelete() {
     if (!exportTaskSelected.size) return;
-    if (!confirm(`确定删除所选 ${exportTaskSelected.size} 个导出任务（含产物文件）？`)) return;
-    for (const id of [...exportTaskSelected]) {
-        try { await fetch(`/api/recommend/video/tasks/${id}`, { method: 'DELETE' }); } catch (e) { /* 忽略 */ }
-    }
-    exportTaskSelected.clear();
-    showToast('已删除所选任务');
-    loadExportTasks();
-    updateExportTaskBatch();
+    showConfirm({
+        title: '批量删除导出任务',
+        msg: `确定删除所选 ${exportTaskSelected.size} 个导出任务（含产物文件）？`,
+        okText: '删除所选',
+        onOk: async () => {
+            for (const id of [...exportTaskSelected]) {
+                try { await fetch(`/api/recommend/video/tasks/${id}`, { method: 'DELETE' }); } catch (e) { /* 忽略 */ }
+            }
+            exportTaskSelected.clear();
+            showToast('已删除所选任务');
+            loadExportTasks();
+            updateExportTaskBatch();
+        },
+    });
 }
 
 function fmtExportTime(ts) {
@@ -2659,12 +2675,19 @@ async function exportTaskOpen(id, folder) {
     } catch (e) { showToast('打开失败'); }
 }
 
-async function exportTaskDelete(id) {
-    try {
-        const resp = await fetch(`/api/recommend/video/tasks/${id}`, { method: 'DELETE' });
-        if (!resp.ok) { showToast('删除失败'); return; }
-        loadExportTasks();
-    } catch (e) { showToast('删除失败'); }
+function exportTaskDelete(id) {
+    showConfirm({
+        title: '删除导出任务',
+        msg: '确定删除该导出任务？其产物文件将一并删除。',
+        okText: '删除',
+        onOk: async () => {
+            try {
+                const resp = await fetch(`/api/recommend/video/tasks/${id}`, { method: 'DELETE' });
+                if (!resp.ok) { showToast('删除失败'); return; }
+                loadExportTasks();
+            } catch (e) { showToast('删除失败'); }
+        },
+    });
 }
 
 function startExportPoll() {
@@ -2675,6 +2698,7 @@ function startExportPoll() {
             if (!resp.ok) { clearInterval(exportPollTimer); exportPollTimer = null; return; }
             lastExportTasks = await resp.json();
             renderExportTasks();
+            flushPendingExportSave(lastExportTasks); // 任务完成 → 写入用户所选导出位置
             /* 弹窗已关且无进行中任务 → 停轮询 */
             if (document.getElementById('export-tasks-modal').hidden && !lastExportTasks.some(t => t.status === 'RUNNING')) {
                 clearInterval(exportPollTimer); exportPollTimer = null;
@@ -4501,7 +4525,6 @@ document.getElementById('confirm-modal-ok').addEventListener('click', () => {
     closeConfirmModal();
     if (fn) fn();
 });
-document.getElementById('collection-create').addEventListener('click', createCollectionFromToolbar);
 document.getElementById('coll-create').addEventListener('click', createCollectionFromToolbar);
 document.getElementById('collection-modal-cancel').addEventListener('click', () => { collectionModal.hidden = true; });
 document.getElementById('collection-modal-save').addEventListener('click', saveCollectionFromModal);
@@ -4527,6 +4550,13 @@ document.getElementById('detail-confirm').addEventListener('click', async () => 
 document.getElementById('detail-delete').addEventListener('click', deleteMedia);
 filterStatusEl.addEventListener('change', () => { mediaFilter.status = filterStatusEl.value; loadMedia(); });
 filterSubcategoryEl.addEventListener('change', () => { mediaFilter.subcategoryId = filterSubcategoryEl.value; loadMedia(); });
+/* 标题模糊搜索（300ms 防抖） */
+const filterQEl = document.getElementById('filter-q');
+let filterQTimer = null;
+filterQEl.addEventListener('input', () => {
+    clearTimeout(filterQTimer);
+    filterQTimer = setTimeout(() => { mediaFilter.q = filterQEl.value.trim(); loadMedia(); }, 300);
+});
 filterCollectionEl.addEventListener('change', () => { mediaFilter.collectionId = filterCollectionEl.value; loadMedia(); });
 filterUnconfirmedEl.addEventListener('change', () => { mediaFilter.unconfirmed = filterUnconfirmedEl.checked; loadMedia(); });
 filterYearEl.addEventListener('change', () => { mediaFilter.year = filterYearEl.value; loadMedia(); });
@@ -4706,3 +4736,170 @@ attachTagSuggest(episodeTagInput, () => (currentEpisode && currentEpisode.mediaI
 
 // 启动加载格式字典（格式 tab / 各筛选下拉）
 loadFormats();
+
+// ========== 设置：网站背景图（多图轮播） ==========
+let siteBgTimer = null, siteBgIndex = 0;
+let bgSettingsCache = { bgImages: [], rotationSec: 15, opacity: 0.6, blur: 30 };
+
+function openSettings() {
+    document.getElementById('settings-modal').hidden = false;
+    loadSettings(true);
+}
+
+async function loadSettings(apply) {
+    try {
+        const resp = await fetch('/api/settings');
+        if (!resp.ok) return;
+        const s = await resp.json();
+        bgSettingsCache = {
+            bgImages: s.bgImages || [],
+            rotationSec: s.rotationSec ?? 15,
+            opacity: s.opacity ?? 0.6,
+            blur: s.blur ?? 30,
+        };
+        if (apply) applySiteBackground(bgSettingsCache);
+        renderSettingsForm();
+    } catch (e) { /* 加载失败保持默认 */ }
+}
+
+function renderSettingsForm() {
+    const preview = document.getElementById('bg-preview');
+    const first = bgSettingsCache.bgImages[0];
+    if (first) {
+        preview.style.backgroundImage = "url('" + first + "')";
+        const empty = preview.querySelector('.bg-preview-empty');
+        if (empty) empty.remove();
+    } else {
+        preview.style.backgroundImage = '';
+        preview.innerHTML = '<span class="bg-preview-empty">未设置背景图</span>';
+    }
+    const listEl = document.getElementById('bg-list');
+    listEl.innerHTML = '';
+    bgSettingsCache.bgImages.forEach((src, i) => {
+        const item = document.createElement('div');
+        item.className = 'bg-list-item';
+        item.innerHTML = '<img src="' + esc(src) + '" alt="" loading="lazy"><button type="button" class="bg-rm" title="移除">×</button>';
+        item.querySelector('.bg-rm').addEventListener('click', () => removeBgImage(i));
+        listEl.appendChild(item);
+    });
+    document.getElementById('bg-rotation').value = bgSettingsCache.rotationSec;
+    document.getElementById('bg-rotation-val').textContent = bgSettingsCache.rotationSec + 's';
+    document.getElementById('bg-opacity').value = Math.round(bgSettingsCache.opacity * 100);
+    document.getElementById('bg-opacity-val').textContent = Math.round(bgSettingsCache.opacity * 100) + '%';
+    document.getElementById('bg-blur').value = bgSettingsCache.blur;
+    document.getElementById('bg-blur-val').textContent = bgSettingsCache.blur + '%';
+    document.getElementById('bg-clear-btn').hidden = bgSettingsCache.bgImages.length === 0;
+}
+
+async function uploadBgImages() {
+    const input = document.getElementById('bg-file');
+    const files = [...(input.files || [])].filter(f => f.size <= 8 * 1024 * 1024);
+    if (!files.length) { showToast('未选择背景图（单张需 ≤8MB）'); input.value = ''; return; }
+    const fd = new FormData();
+    files.forEach(f => fd.append('files', f));
+    try {
+        const resp = await fetch('/api/settings/bg', { method: 'POST', body: fd });
+        if (!resp.ok) throw new Error();
+        const s = await resp.json();
+        bgSettingsCache = { bgImages: s.bgImages || [], rotationSec: s.rotationSec ?? 15, opacity: s.opacity ?? 0.6, blur: s.blur ?? 30 };
+        applySiteBackground(bgSettingsCache);
+        renderSettingsForm();
+        showToast('已添加 ' + files.length + ' 张背景图');
+    } catch (e) { showToast('背景图上传失败'); }
+    input.value = '';
+}
+
+async function removeBgImage(i) {
+    const src = bgSettingsCache.bgImages[i];
+    if (!src) return;
+    const name = src.split('/').pop();
+    try {
+        const resp = await fetch('/api/settings/bg/' + encodeURIComponent(name), { method: 'DELETE' });
+        if (!resp.ok) throw new Error();
+        const s = await resp.json();
+        bgSettingsCache = { bgImages: s.bgImages || [], rotationSec: s.rotationSec ?? 15, opacity: s.opacity ?? 0.6, blur: s.blur ?? 30 };
+        applySiteBackground(bgSettingsCache);
+        renderSettingsForm();
+    } catch (e) { showToast('移除失败'); }
+}
+
+function clearAllBgImages() {
+    if (!bgSettingsCache.bgImages.length) return;
+    if (!confirm('移除全部背景图，恢复默认深色背景？')) return;
+    (async () => {
+        for (const src of [...bgSettingsCache.bgImages]) {
+            const name = src.split('/').pop();
+            await fetch('/api/settings/bg/' + encodeURIComponent(name), { method: 'DELETE' }).catch(() => { });
+        }
+        loadSettings(true);
+    })();
+}
+
+function previewBgChange() {
+    bgSettingsCache.rotationSec = Number(document.getElementById('bg-rotation').value);
+    bgSettingsCache.opacity = Number(document.getElementById('bg-opacity').value) / 100;
+    bgSettingsCache.blur = Number(document.getElementById('bg-blur').value);
+    document.getElementById('bg-rotation-val').textContent = bgSettingsCache.rotationSec + 's';
+    document.getElementById('bg-opacity-val').textContent = Math.round(bgSettingsCache.opacity * 100) + '%';
+    document.getElementById('bg-blur-val').textContent = bgSettingsCache.blur + '%';
+    applySiteBackground(bgSettingsCache);
+}
+
+async function saveSiteSettings() {
+    try {
+        const resp = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rotationSec: bgSettingsCache.rotationSec, opacity: bgSettingsCache.opacity, blur: bgSettingsCache.blur }),
+        });
+        if (!resp.ok) throw new Error();
+        showToast('设置已保存');
+        document.getElementById('settings-modal').hidden = true;
+    } catch (e) { showToast('保存失败'); }
+}
+
+/** 背景层应用：多图定时轮播 + 深色遮罩 + 模糊。 */
+function applySiteBackground(cfg) {
+    const wrap = document.getElementById('site-bg');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const imgs = cfg.bgImages || [];
+    if (siteBgTimer) { clearInterval(siteBgTimer); siteBgTimer = null; }
+    if (!imgs.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    /* 遮罩放 ::after（壁纸之上），透明度越大遮罩越浅 */
+    wrap.style.setProperty('--mask-opacity', (1 - (cfg.opacity ?? 0.6)).toFixed(2));
+    const blur = cfg.blur || 0;
+    imgs.forEach((src, i) => {
+        const div = document.createElement('div');
+        div.className = 'site-bg-item' + (i === 0 ? ' active' : '');
+        div.style.backgroundImage = "url('" + src + "')";
+        div.style.filter = blur > 0 ? 'blur(' + blur + 'px)' : 'none';
+        wrap.appendChild(div);
+    });
+    if (imgs.length > 1) {
+        const rot = Math.max(5, cfg.rotationSec || 15) * 1000;
+        siteBgIndex = 0;
+        siteBgTimer = setInterval(() => {
+            const items = wrap.querySelectorAll('.site-bg-item');
+            if (!items.length) return;
+            items[siteBgIndex].classList.remove('active');
+            siteBgIndex = (siteBgIndex + 1) % items.length;
+            items[siteBgIndex].classList.add('active');
+        }, rot);
+    }
+}
+
+/* 设置弹窗事件绑定 + 页面加载应用已保存背景 */
+document.getElementById('settings-btn').addEventListener('click', openSettings);
+document.getElementById('settings-cancel').addEventListener('click', () => {
+    document.getElementById('settings-modal').hidden = true;
+    loadSettings(true); // 丢弃未保存改动，恢复已存背景
+});
+document.getElementById('settings-save').addEventListener('click', saveSiteSettings);
+document.getElementById('bg-add-btn').addEventListener('click', () => document.getElementById('bg-file').click());
+document.getElementById('bg-file').addEventListener('change', uploadBgImages);
+document.getElementById('bg-clear-btn').addEventListener('click', clearAllBgImages);
+['bg-rotation', 'bg-opacity', 'bg-blur'].forEach(id =>
+    document.getElementById(id).addEventListener('input', previewBgChange));
+loadSettings(true); // 页面加载应用背景

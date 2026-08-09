@@ -2,6 +2,8 @@ package com.videotagger.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -33,6 +35,11 @@ public class VideoExportTaskService {
     private final ConcurrentHashMap<Long, VideoExportTask> tasks = new ConcurrentHashMap<>();
     private final AtomicLong seq = new AtomicLong(1);
 
+    /** 自身代理：@Async 经 Spring 代理才生效，同类自调用会绕过代理变成同步渲染（POST 卡死）。 */
+    @Lazy
+    @Autowired
+    private VideoExportTaskService self;
+
     public VideoExportTaskService(RecommendVideoService videoService) {
         this.videoService = videoService;
     }
@@ -48,7 +55,8 @@ public class VideoExportTaskService {
         VideoExportTask t = new VideoExportTask(id, title == null || title.isBlank() ? "推荐视频" : title,
                 ids == null ? 0 : ids.size(), "RUNNING", null, null, format, System.currentTimeMillis(), 0);
         tasks.put(id, t);
-        runAsync(id, ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle,
+        /* 走 self 代理调用，@Async 才切到 syncExecutor 异步渲染；直接 this.runAsync 会同步阻塞 POST */
+        self.runAsync(id, ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle,
                 subtitle, coverSize, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImage, prologueTitle);
         return t;
     }
@@ -97,16 +105,33 @@ public class VideoExportTaskService {
         return t;
     }
 
-    /** 删除记录（同步删除产物文件）。 */
+    /** 删除记录（同步删除产物文件）。文件被占用时重试数次，仍失败记日志供排查。 */
     public void delete(long id) {
         VideoExportTask t = tasks.remove(id);
         if (t == null) {
             throw new NoSuchElementException("导出任务不存在: " + id);
         }
         if (t.filePath() != null) {
-            try {
-                Files.deleteIfExists(Path.of(t.filePath()));
-            } catch (IOException ignored) {
+            Path p = Path.of(t.filePath());
+            for (int i = 0; i < 3; i++) {
+                try {
+                    Files.deleteIfExists(p);
+                    return;
+                } catch (java.nio.file.AccessDeniedException e) {
+                    // Windows：文件被播放器/资源管理器/索引服务打开时删除会失败（待删标记可能显示 0KB），短暂重试
+                    if (i < 2) {
+                        try {
+                            Thread.sleep(300);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
+                    } else {
+                        log.warn("导出产物文件被占用，删除失败（请关闭预览后手动清理）: {}", p);
+                    }
+                } catch (IOException ignored) {
+                    return;
+                }
             }
         }
     }

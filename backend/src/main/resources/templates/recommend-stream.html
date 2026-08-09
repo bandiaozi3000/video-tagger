@@ -717,6 +717,7 @@ function scheduleAuto() {
 function finishAuto() {
   autoplaying = false;
   tbBar.classList.remove('auto'); prog.classList.remove('run'); autoBadge.hidden = true;
+  document.documentElement.dataset.tourEnded = '1'; // 录制模式：render.js 检测到此标记即停止抓帧，保证结尾播完
 }
 function stopAuto() {
   clearTimeout(entryTimer); clearTimeout(autoTimer);

@@ -250,6 +250,25 @@ public class RecommendService {
         }
     }
 
+    /** 真实分组数（与 buildSlidesJson 同一套 groupOf/分组口径）——视频导出时长按此精确计算章节转场。 */
+    public int computeGroupCount(List<Long> ids, String groupBy) {
+        if (groupBy == null || groupBy.isBlank() || "none".equals(groupBy)) {
+            return 0;
+        }
+        java.util.Set<String> groups = new java.util.LinkedHashSet<>();
+        for (Long id : ids) {
+            MediaDetail d;
+            try {
+                d = mediaService.get(id);
+            } catch (RuntimeException e) {
+                continue; // 与 buildSlidesJson 一致：缺失媒体跳过
+            }
+            String g = groupOf(d, groupBy);
+            groups.add(g == null ? "未分组" : g);
+        }
+        return groups.size();
+    }
+
     private Map<String, Object> slideOf(MediaDetail d, String groupBy, List<Long> openingIds) {
         Map<String, Object> slide = new LinkedHashMap<>();
         slide.put("cover", resolveCoverDataUrl(d));

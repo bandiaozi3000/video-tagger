@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="app.css">
 </head>
 <body>
+<!-- 网站背景图层（设置里上传，多图轮播；z-index 在 bg-fx 之下） -->
+<div id="site-bg" class="site-bg" aria-hidden="true"></div>
 <!-- 背景特效层 -->
 <div class="bg-fx" aria-hidden="true">
     <div class="orb orb-1"></div>
@@ -53,6 +55,7 @@
                     推荐
                 </button>
             </div>
+            <button type="button" id="settings-btn" class="settings-btn" title="设置" aria-label="设置">⚙</button>
         </nav>
     </div>
 </header>
@@ -89,6 +92,7 @@
         </div>
         <div class="format-tabs" id="format-tabs"></div>
         <div class="media-filters" id="media-filters">
+            <input id="filter-q" type="text" placeholder="🔍 搜索标题…" autocomplete="off">
             <select id="filter-subcategory">
                 <option value="">子分类</option>
             </select>
@@ -117,7 +121,6 @@
                 <option value="rating">评分</option>
             </select>
             <button type="button" id="filter-order" class="btn-mini" title="当前降序，点击切换升序">↓</button>
-            <button type="button" id="collection-create" class="btn-mini" title="新建收藏夹">＋ 新建收藏夹</button>
             <label class="checkbox-inline"><input type="checkbox" id="filter-unconfirmed"> 待确认</label>
         </div>
         <div id="media-status" class="status"></div>
@@ -391,23 +394,23 @@
 
         <!-- 步骤1：勾选要推荐的媒体 -->
         <div class="wizard-pane" id="wizard-pane-1">
+            <div class="recommend-toolbar">
+                <div class="recommend-tag-filter">
+                    <input id="recommend-tag-input" type="text" list="tag-suggest-list"
+                           placeholder="输入媒体标签过滤（自动补全）" autocomplete="off">
+                    <button type="button" id="recommend-tag-clear" class="btn-mini" hidden>✕ 清除</button>
+                </div>
+                <select id="recommend-source" title="收藏夹来源过滤">
+                    <option value="">全部媒体</option>
+                </select>
+                <span class="wizard-hint">标签 / 收藏夹叠加过滤，勾选状态跨页保留</span>
+            </div>
             <div class="recommend-pick-head">
                 <h3>勾选要推荐的番剧</h3>
                 <div class="recommend-pick-actions">
                     <button type="button" id="recommend-select-all" class="btn-mini" title="勾选当前页全部">☑ 全选本页</button>
                     <span class="recommend-count" id="recommend-picked">已选 <b>0</b> 部</span>
                 </div>
-            </div>
-            <div class="recommend-toolbar">
-                <select id="recommend-source" title="收藏夹来源过滤">
-                    <option value="">全部媒体</option>
-                </select>
-                <div class="recommend-tag-filter">
-                    <input id="recommend-tag-input" type="text" list="tag-suggest-list"
-                           placeholder="输入媒体标签过滤（自动补全）" autocomplete="off">
-                    <button type="button" id="recommend-tag-clear" class="btn-mini" hidden>✕ 清除</button>
-                </div>
-                <span class="wizard-hint">收藏夹下拉过滤，标签输入叠加过滤；勾选状态跨页保留</span>
             </div>
             <section id="recommend-grid" class="media-grid"></section>
             <div class="media-pagination" id="recommend-pagination">
@@ -769,6 +772,55 @@
         <div class="modal-actions">
             <button id="mf-cancel" type="button">取消</button>
             <button id="mf-confirm" type="button" class="btn-primary" disabled>加入</button>
+        </div>
+    </div>
+</div>
+
+<!-- 设置弹窗：左侧分类 + 右侧内容（首个设置项 = 背景图轮播） -->
+<div id="settings-modal" class="modal-overlay" hidden>
+    <div class="modal settings-modal">
+        <div class="modal-head"><h3>⚙ 设置</h3></div>
+        <div class="settings-body">
+            <aside class="settings-side">
+                <button type="button" class="settings-cat active" data-settings-cat="appearance">外观</button>
+            </aside>
+            <div class="settings-content">
+                <div class="settings-section" id="settings-section-appearance">
+                    <h4>外观</h4>
+                    <div class="setting-group">
+                        <label class="setting-label">网站背景图（多图轮播）</label>
+                        <div class="bg-preview" id="bg-preview">
+                            <span class="bg-preview-empty">未设置背景图</span>
+                        </div>
+                        <div class="bg-actions">
+                            <button type="button" id="bg-add-btn" class="btn-mini">🖼 添加背景图</button>
+                            <button type="button" id="bg-clear-btn" class="btn-mini danger" hidden>移除全部</button>
+                        </div>
+                        <input type="file" id="bg-file" accept="image/*" multiple hidden>
+                        <div id="bg-list" class="bg-list"></div>
+                        <div class="bg-slider-row">
+                            <span class="bg-slider-label">轮换时间</span>
+                            <input type="range" id="bg-rotation" min="5" max="60" step="1" value="15">
+                            <b id="bg-rotation-val">15s</b>
+                        </div>
+                        <div class="bg-slider-row">
+                            <span class="bg-slider-label">透明度</span>
+                            <input type="range" id="bg-opacity" min="30" max="90" step="5" value="60">
+                            <b id="bg-opacity-val">60%</b>
+                        </div>
+                        <div class="bg-slider-row">
+                            <span class="bg-slider-label">模糊度</span>
+                            <input type="range" id="bg-blur" min="0" max="60" step="5" value="30">
+                            <b id="bg-blur-val">30%</b>
+                        </div>
+                        <p class="wizard-hint">添加多张图片后按轮换时间自动淡入淡出切换；透明度过高会遮挡内容，建议 50%~70%。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button type="button" id="settings-cancel">取消</button>
+            <button type="button" id="settings-save" class="btn-primary">保存</button>
         </div>
     </div>
 </div>

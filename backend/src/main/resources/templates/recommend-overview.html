@@ -791,7 +791,7 @@ function gotoTour() {
   }
   autoTimer = setTimeout(gotoTour, hold);
 }
-function finishAuto() { autoplaying = false; tbBar.classList.remove('auto'); prog.classList.remove('run'); autoBadge.hidden = true; }
+function finishAuto() { autoplaying = false; tbBar.classList.remove('auto'); prog.classList.remove('run'); autoBadge.hidden = true; document.documentElement.dataset.tourEnded = '1'; }
 function stopAuto() { clearTimeout(entryTimer); clearTimeout(autoTimer); autoTimer = null; entryTimer = null; finishAuto(); }
 
 if (!IS_RECORD) {

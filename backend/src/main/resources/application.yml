@@ -28,6 +28,8 @@ mybatis-plus:
 
 videotagger:
   cover-dir: ${COVER_DIR:data/covers}
+  site-dir: ${SITE_DIR:data/site}
+  export-dir: ${EXPORT_DIR:data/exports}
   llm:
     # LLM 后台归组（番剧别名识别）默认关闭；开启需在 .env 注入 LLM_* 环境变量
     base-url: ${LLM_BASE_URL:}

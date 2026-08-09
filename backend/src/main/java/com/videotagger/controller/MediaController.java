@@ -57,8 +57,9 @@ public class MediaController {
                                    @RequestParam(required = false) String order,
                                    @RequestParam(required = false) Integer year,
                                    @RequestParam(required = false) String source,
-                                   @RequestParam(required = false) Long tagId) {
-        return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, order, year, source, tagId);
+                                   @RequestParam(required = false) Long tagId,
+                                   @RequestParam(required = false) String q) {
+        return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, order, year, source, tagId, q);
     }
 
     @GetMapping("/recent")
@@ -70,8 +71,9 @@ public class MediaController {
                                      @RequestParam(required = false) Integer confirmed,
                                      @RequestParam(required = false) Long collectionId,
                                      @RequestParam(required = false) Integer year,
-                                     @RequestParam(required = false) String source) {
-        return mediaService.recent(limit, offset, status, format, subcategoryId, confirmed, collectionId, year, source);
+                                     @RequestParam(required = false) String source,
+                                     @RequestParam(required = false) String q) {
+        return mediaService.recent(limit, offset, status, format, subcategoryId, confirmed, collectionId, year, source, q);
     }
 
     /** 带筛选的媒体总数（分页页码导航用）；latest=true 时按「最近观看」口径只统计打过标记的媒体。 */
@@ -84,8 +86,9 @@ public class MediaController {
                       @RequestParam(required = false) Integer year,
                       @RequestParam(required = false) String source,
                       @RequestParam(required = false) Long tagId,
-                      @RequestParam(defaultValue = "false") boolean latest) {
-        return mediaService.count(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, latest);
+                      @RequestParam(defaultValue = "false") boolean latest,
+                      @RequestParam(required = false) String q) {
+        return mediaService.count(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, latest, q);
     }
 
     /** 库中已有的全部首播年份（年份筛选下拉选项）。 */

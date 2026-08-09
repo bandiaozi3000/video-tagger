@@ -63,6 +63,25 @@ class RecommendServiceTest {
     }
 
     @Test
+    void computeGroupCountUsesRealGrouping() {
+        // 按年份：2022/2024/2023 + 未知年份 → 4 组（含「未知年份」兜底组，与 buildHtml 同口径）
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", "n", "WANT", 2022));
+        when(mediaService.get(2L)).thenReturn(media(2L, "B", "n", "WANT", 2024));
+        when(mediaService.get(3L)).thenReturn(media(3L, "C", "n", "WANT", 2023));
+        when(mediaService.get(4L)).thenReturn(media(4L, "D", "n", "WANT", null));
+        assertEquals(4, service.computeGroupCount(List.of(1L, 2L, 3L, 4L), "year"));
+        // 同年合并为同一组
+        when(mediaService.get(5L)).thenReturn(media(5L, "E", "n", "WANT", 2022));
+        assertEquals(4, service.computeGroupCount(List.of(1L, 2L, 3L, 4L, 5L), "year"));
+        // 不分组 → 0 组
+        assertEquals(0, service.computeGroupCount(List.of(1L, 2L), "none"));
+        assertEquals(0, service.computeGroupCount(List.of(1L, 2L), null));
+        // 缺失媒体跳过（与 buildSlidesJson 一致），只剩 2022 一组
+        when(mediaService.get(9L)).thenThrow(new RuntimeException("not found"));
+        assertEquals(1, service.computeGroupCount(List.of(9L, 5L), "year"));
+    }
+
+    @Test
     void buildHtmlContainsDataAndBase64Cover() {
         when(mediaService.get(1L)).thenReturn(media(1L, "星屑与黄昏", "神作", "WATCHING"));
         when(mediaService.get(2L)).thenReturn(media(2L, "迷宫都市", "", "DONE"));

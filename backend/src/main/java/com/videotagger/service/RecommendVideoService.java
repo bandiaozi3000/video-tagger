@@ -165,13 +165,12 @@ public class RecommendVideoService {
                 }
             }
 
-            // 3. 时长 = 开局定格 + 序言(如有) + 章节×预估组数(如有分组) + 详情×N + 结尾 + 余量
-            //    （显影本身 ~8s 由开局定格覆盖；组数按每组约 3 部估算，多留无妨）
+            // 3. 时长 = 开局定格 + 序言(如有) + 章节×真实组数(如有分组) + 详情×N + 结尾（精确对齐显示时长配置，无缓冲）
             int introDur = (intro != null && !intro.isBlank()) ? durations.intro() : 0;
             int groupDur = (groupBy != null && !groupBy.isBlank() && !"none".equals(groupBy))
-                    ? durations.group() * Math.max(1, (ids.size() + 2) / 3) : 0;
+                    ? durations.group() * recommendService.computeGroupCount(ids, groupBy) : 0;
             int durationSeconds = durations.opening() + introDur + groupDur
-                    + durations.detail() * ids.size() + durations.ending() + 8;
+                    + durations.detail() * ids.size() + durations.ending();
 
             // 3. 调 node render.js
             Path out = exportDir().resolve("recommend-" + LocalDateTime.now().format(FILE_TS) + "." + fmt);
