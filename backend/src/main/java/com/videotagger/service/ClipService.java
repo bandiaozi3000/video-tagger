@@ -49,12 +49,13 @@ public class ClipService {
     private final CoverService coverService;
     private final EmbeddingTaskService embeddingTaskService;
     private final TagSyncService tagSyncService;
+    private final TitleMappingService titleMappingService;
 
     public ClipService(ClipMapper clipMapper, MediaMapper mediaMapper,
                        MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
                        EpisodeMapper episodeMapper, TagMapper tagMapper, ClipTagMapper clipTagMapper,
                        CoverService coverService, EmbeddingTaskService embeddingTaskService,
-                       TagSyncService tagSyncService) {
+                       TagSyncService tagSyncService, TitleMappingService titleMappingService) {
         this.clipMapper = clipMapper;
         this.mediaMapper = mediaMapper;
         this.mediaFormatMapper = mediaFormatMapper;
@@ -65,6 +66,7 @@ public class ClipService {
         this.coverService = coverService;
         this.embeddingTaskService = embeddingTaskService;
         this.tagSyncService = tagSyncService;
+        this.titleMappingService = titleMappingService;
     }
 
     @Transactional
@@ -79,10 +81,29 @@ public class ClipService {
             return new SaveClipResult(recent.getId(), true);
         }
 
-        // 媒体归属：标题前缀 + 正则解析 + URL 域名粗判格式，纯本地快路径（打标主链路不碰 LLM）
+        // 媒体归属：URL 指纹优先（同视频已有集 → 归入其媒体，不新建）> 用户勾选 mediaId > 标题映射 > 标题匹配
         TitleParser.ParsedTitle parsed = TitleParser.parse(req.title());
-        Media media = ensureMedia(parsed, detectFormat(req.url()), now);
+        boolean forceNew = Boolean.TRUE.equals(req.forceNewMedia());
+        if (forceNew) {
+            /* 用户选「新建媒体」→ 断开旧映射（下次不再自动归位），并跳过映射自动匹配 */
+            titleMappingService.deleteByTitle(parsed.mediaTitle());
+        }
+        Long preferMediaId = req.mediaId();
+        if (preferMediaId == null && !forceNew) {
+            preferMediaId = titleMappingService.getByTitle(parsed.mediaTitle());   // 标题映射自动匹配
+        }
+        if (preferMediaId == null) {
+            Episode urlEp = episodeMapper.selectByFp(VideoFingerprint.fingerprint(req.url()));
+            if (urlEp != null) {
+                preferMediaId = urlEp.getMediaId();
+            }
+        }
+        Media media = ensureMedia(parsed, detectFormat(req.url()), now, preferMediaId);
         Episode episode = ensureEpisode(parsed, req, media.getId(), now);
+        /* 用户候选指定归入（mediaId 非空）→ 存标题映射，下次同标题自动归位 */
+        if (req.mediaId() != null) {
+            titleMappingService.save(parsed.mediaTitle(), media.getId());
+        }
 
         Clip clip = new Clip();
         clip.setTitle(req.title());
@@ -265,7 +286,14 @@ public class ClipService {
     // ---------- 番剧三层归属 ----------
 
     /** 按解析出的媒体名归组：前缀命中既有媒体则复用，否则新建（confirmed=0 待确认）。 */
-    private Media ensureMedia(TitleParser.ParsedTitle parsed, String format, long now) {
+    private Media ensureMedia(TitleParser.ParsedTitle parsed, String format, long now, Long mediaId) {
+        /* 打标签确认归入（方案C）：指定 mediaId → 直接用该媒体（校验存在；无效回退自动匹配） */
+        if (mediaId != null) {
+            Media existing = mediaMapper.selectById(mediaId);
+            if (existing != null) {
+                return existing;
+            }
+        }
         String name = parsed.mediaTitle();
         Media media = name.length() >= 2 ? mediaMapper.selectByTitlePrefix(name) : null;
         if (media == null) {

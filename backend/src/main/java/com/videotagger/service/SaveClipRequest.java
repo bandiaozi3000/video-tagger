@@ -16,7 +16,9 @@ public record SaveClipRequest(
         Double videoDuration,
         @Size(max = 2048) String ogImage,
         @Size(max = 300_000) String coverDataUrl,
-        @Size(max = 900_000) String detailCoverDataUrl
+        @Size(max = 900_000) String detailCoverDataUrl,
+        Long mediaId,
+        Boolean forceNewMedia
 ) {
     public SaveClipRequest {
         if (videoDuration != null && videoDuration < 0) {
@@ -25,10 +27,10 @@ public record SaveClipRequest(
     }
 
     public SaveClipRequest(String title, String url, Double timestampSec, String tag, String note) {
-        this(title, url, timestampSec, tag, note, null, null, null, null);
+        this(title, url, timestampSec, tag, note, null, null, null, null, null, null);
     }
 
     public SaveClipRequest(String title, String url, Double timestampSec, String tag, String note, Double videoDuration) {
-        this(title, url, timestampSec, tag, note, videoDuration, null, null, null);
+        this(title, url, timestampSec, tag, note, videoDuration, null, null, null, null, null);
     }
 }

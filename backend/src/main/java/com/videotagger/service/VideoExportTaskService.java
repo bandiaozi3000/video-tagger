@@ -49,15 +49,21 @@ public class VideoExportTaskService {
                                   List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
                                   String groupBy, String groupStyle, String subtitle, String coverSize,
                                   List<Long> openingIds, String intro, RecommendService.Durations durations,
-                                  String endingTitle, String endingText, String bgColor, String bgImage,
-                                  String prologueTitle) {
+                                  String endingTitle, String endingText, String bgColor, List<String> bgImages,
+                                  Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
+                                  String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
+                                  Integer bgmScale,
+                                  Integer bgmX, Integer bgmY) {
         long id = seq.getAndIncrement();
         VideoExportTask t = new VideoExportTask(id, title == null || title.isBlank() ? "推荐视频" : title,
                 ids == null ? 0 : ids.size(), "RUNNING", null, null, format, System.currentTimeMillis(), 0);
         tasks.put(id, t);
         /* 走 self 代理调用，@Async 才切到 syncExecutor 异步渲染；直接 this.runAsync 会同步阻塞 POST */
         self.runAsync(id, ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle,
-                subtitle, coverSize, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImage, prologueTitle);
+                subtitle, coverSize, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages,
+                bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle,
+                groupSort, openingSpeed, endingScrollSpeed,
+                bgmScale, bgmX, bgmY);
         return t;
     }
 
@@ -66,12 +72,17 @@ public class VideoExportTaskService {
                          List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
                          String groupBy, String groupStyle, String subtitle, String coverSize,
                          List<Long> openingIds, String intro, RecommendService.Durations durations,
-                         String endingTitle, String endingText, String bgColor, String bgImage,
-                         String prologueTitle) {
+                         String endingTitle, String endingText, String bgColor, List<String> bgImages,
+                                  Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
+                         String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
+                         Integer bgmScale,
+                         Integer bgmX, Integer bgmY) {
         try {
             Path out = videoService.render(ids, title, format, resolution, bgmPaths, bgmTracks,
                     groupBy, groupStyle, subtitle, coverSize, openingIds, intro, durations,
-                    endingTitle, endingText, bgColor, bgImage, prologueTitle);
+                    endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle,
+                    groupSort, openingSpeed, endingScrollSpeed,
+                    bgmScale, bgmX, bgmY);
             finish(id, "DONE", null, out.toString());
             log.info("视频导出任务 {} 完成: {}", id, out);
         } catch (Exception e) {

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff4d8d"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <linearGradient id="play" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#ffe4ef"/>
+    </linearGradient>
+  </defs>
+  <!-- 霓虹渐变圆角底 -->
+  <rect width="64" height="64" rx="15" fill="url(#bg)"/>
+  <!-- 白色播放三角（视频） -->
+  <path d="M25 19.5 L45 32 L25 44.5 Z" fill="url(#play)"/>
+  <!-- 金色小星（打标 / 标记） -->
+  <path d="M47.5 7.5 l2 4.2 4.6 .7 -3.3 3.2 .8 4.6 -4.1 -2.2 -4.1 2.2 .8 -4.6 -3.3 -3.2 4.6 -.7 z" fill="#ffd166"/>
+</svg>

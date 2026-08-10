@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>推荐工具箱 UI 设计（待确认）</title>
+<style>
+  :root {
+    --bg: #0a0a15; --bg-deep: #07070f;
+    --surface: #141426; --surface-2: #1b1b31; --surface-3: #22223b;
+    --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.15);
+    --pink: #ff4d8d; --pink-soft: rgba(255,77,141,.16);
+    --violet: #a78bfa; --violet-soft: rgba(167,139,250,.16);
+    --cyan: #35d6f2; --amber: #fbbf24;
+    --text: #edeaf7; --text-dim: #9d9bb8; --text-faint: #6a6886;
+    --grad: linear-gradient(135deg,#ff4d8d,#a78bfa 55%,#35d6f2);
+    --font-body: "PingFang SC","Hiragino Sans GB","Microsoft YaHei UI",system-ui,sans-serif;
+    --font-mono: "Cascadia Code",ui-monospace,Consolas,monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(167,139,250,.10), transparent 60%),
+      radial-gradient(900px 500px at 0% 0%, rgba(255,77,141,.08), transparent 55%),
+      var(--bg);
+    color: var(--text); font-family: var(--font-body); min-height: 100vh; padding: 28px 32px;
+  }
+  .note {
+    max-width: 860px; margin: 0 auto 20px; padding: 13px 18px;
+    background: linear-gradient(180deg, rgba(26,26,46,.85), rgba(19,19,34,.85));
+    border: 1px solid var(--border-strong); border-radius: 14px; font-size: 12.5px; color: var(--text-dim); line-height: 1.7;
+  }
+  .note b { color: var(--pink); }
+
+  .wrap { max-width: 860px; margin: 0 auto; }
+  /* 模拟推荐页顶部工具条 */
+  .rec-toolbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 18px;
+    background: linear-gradient(180deg, rgba(26,26,46,.9), rgba(19,19,34,.9));
+    border: 1px solid var(--border-strong); border-radius: 14px;
+  }
+  .rec-toolbar .l { font-size: 15px; font-weight: 800; letter-spacing: 2px; }
+  .rec-toolbar .l small { color: var(--text-faint); font-weight: 400; margin-left: 10px; font-size: 12px; }
+
+  .toolbox { position: relative; }
+  .tb-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: rgba(255,255,255,.05); border: 1px solid var(--border-strong); color: var(--text-dim);
+    border-radius: 11px; padding: 9px 15px; font-size: 13px; cursor: pointer; font-family: inherit;
+    transition: all .15s;
+  }
+  .tb-btn:hover { border-color: rgba(255,77,141,.5); color: var(--text); box-shadow: 0 0 18px rgba(255,77,141,.18); }
+  .tb-btn.active { border-color: rgba(255,77,141,.55); background: var(--pink-soft); color: var(--text); }
+  .tb-btn .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--amber);
+    box-shadow: 0 0 8px var(--amber); flex-shrink: 0;
+  }
+
+  /* 工具箱面板 */
+  .tb-panel {
+    position: absolute; right: 0; top: calc(100% + 8px); z-index: 50;
+    width: 300px;
+    background: linear-gradient(180deg, rgba(26,26,46,.98), rgba(15,15,28,.98));
+    border: 1px solid var(--border-strong); border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.6), 0 0 40px rgba(255,77,141,.12);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    padding: 10px;
+    animation: tbIn .18s cubic-bezier(.22,1,.36,1);
+  }
+  @keyframes tbIn { from { opacity:0; transform: translateY(-6px) scale(.98); } to { opacity:1; transform:none; } }
+
+  .tb-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 10px; cursor: pointer;
+    transition: background .15s; font-size: 13px;
+  }
+  .tb-item:hover { background: rgba(255,255,255,.06); }
+  .tb-item .ic { font-size: 16px; width: 22px; text-align: center; }
+  .tb-item .name { flex: 1; }
+  .tb-item .st { font-size: 11px; color: var(--text-faint); }
+  .tb-item .st.amber { color: var(--amber); }
+  .tb-item .st.green { color: #4ade80; }
+  .tb-divider { height: 1px; background: var(--border); margin: 6px 10px; }
+
+  .tb-label { font-size: 11px; color: var(--text-faint); letter-spacing: 2px; padding: 8px 12px 4px; }
+  .tb-tpl {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-radius: 10px; cursor: pointer;
+    transition: background .15s; font-size: 13px;
+  }
+  .tb-tpl:hover { background: rgba(255,255,255,.05); }
+  .tb-tpl .tpl-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tb-tpl .tpl-meta { font-size: 10.5px; color: var(--text-faint); }
+  .tb-tpl .btn {
+    background: rgba(255,255,255,.06); border: 1px solid var(--border); color: var(--text-dim);
+    border-radius: 7px; font-size: 11px; padding: 3px 9px; cursor: pointer; font-family: inherit;
+    transition: all .12s;
+  }
+  .tb-tpl .btn:hover { color: var(--text); border-color: rgba(255,77,141,.5); }
+  .tb-tpl .btn.danger:hover { color: var(--red, #fb7185); border-color: rgba(251,113,133,.5); }
+  .tb-new {
+    display: block; width: 100%; text-align: left;
+    background: transparent; border: 1px dashed rgba(255,255,255,.2); color: var(--text-dim);
+    border-radius: 10px; font-size: 12.5px; padding: 9px 12px; margin-top: 4px;
+    cursor: pointer; font-family: inherit; transition: all .12s;
+  }
+  .tb-new:hover { color: var(--pink); border-color: rgba(255,77,141,.5); background: var(--pink-soft); }
+</style>
+</head>
+<body>
+
+  <div class="note">
+    <b>推荐工具箱 UI 设计（待确认）</b><br>
+    导出任务 / 草稿 / 模板收进一个「🧰 工具箱」按钮，点开展开毛玻璃面板。后续再加推荐相关工具都收进这里，不占 tab。
+    纯静态预览：点按钮展开/收起，点外部关闭。
+  </div>
+
+  <div class="wrap">
+    <div class="rec-toolbar">
+      <div class="l">推荐导出 <small>步骤 ① 勾选媒体 → ② 内容 · 主题 → ③ 页面 · 交互 → ④ 预览导出</small></div>
+      <div class="toolbox" id="toolbox">
+        <button class="tb-btn" id="toolboxBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;flex-shrink:0">
+            <circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>
+          </svg>
+          更多 <span class="dot"></span>
+        </button>
+        <div class="tb-panel" id="toolboxPanel" hidden>
+          <div class="tb-item">
+            <span class="ic">🗂</span>
+            <span class="name">导出任务</span>
+            <span class="st amber">2 个进行中</span>
+          </div>
+          <div class="tb-item">
+            <span class="ic">💾</span>
+            <span class="name">草稿</span>
+            <span class="st green">已自动保存 14:32</span>
+          </div>
+          <div class="tb-item">
+            <span class="ic">↺</span>
+            <span class="name">恢复草稿</span>
+            <span class="st">刷新后自动恢复</span>
+          </div>
+          <div class="tb-divider"></div>
+          <div class="tb-label">模 板</div>
+          <div class="tb-tpl">
+            <span class="tpl-name">年度回顾</span>
+            <span class="tpl-meta">12 部 · 2026-08-10</span>
+            <button class="btn">载入</button>
+            <button class="btn danger">✕</button>
+          </div>
+          <div class="tb-tpl">
+            <span class="tpl-name">新人安利</span>
+            <span class="tpl-meta">6 部 · 2026-08-09</span>
+            <button class="btn">载入</button>
+            <button class="btn danger">✕</button>
+          </div>
+          <button class="tb-new">＋ 另存当前为模板</button>
+        </div>
+      </div>
+    </div>
+    <div class="note" style="margin-top:16px">
+      <b>交互说明：</b>「工具箱」按钮带状态点（有进行中任务/未恢复草稿时点亮）；面板里：
+      导出任务 → 打开现有任务面板；草稿 → 显示自动保存时间，可恢复；模板 → 列表（载入/删除）+ 另存当前为模板。后续工具（如模板草稿管理）都往这里加。
+    </div>
+  </div>
+
+<script>
+  const btn = document.getElementById('toolboxBtn');
+  const panel = document.getElementById('toolboxPanel');
+  btn.addEventListener('click', e => { e.stopPropagation(); panel.hidden = !panel.hidden; btn.classList.toggle('active', !panel.hidden); });
+  document.addEventListener('click', () => { panel.hidden = true; btn.classList.remove('active'); });
+  panel.addEventListener('click', e => e.stopPropagation());
+</script>
+</body>
+</html>

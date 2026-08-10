@@ -35,6 +35,7 @@ public interface MediaMapper extends BaseMapper<Media> {
     /** 番剧卡片墙：含片段数与最新标记时间，按创建倒序。 */
     @Select("SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, a.source,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
+            + "(SELECT COUNT(*) FROM media_collection mc WHERE mc.media_id = a.id) AS collectionCount, "
             + FALLBACK_COVER + " "
             + "FROM media a "
             + "LEFT JOIN episode e ON e.media_id = a.id "
@@ -47,6 +48,7 @@ public interface MediaMapper extends BaseMapper<Media> {
     @Select("<script>"
             + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, a.source,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
+            + "(SELECT COUNT(*) FROM media_collection mc WHERE mc.media_id = a.id) AS collectionCount, "
             + FALLBACK_COVER + " "
             + "FROM media a "
             + "LEFT JOIN episode e ON e.media_id = a.id "
@@ -134,10 +136,11 @@ public interface MediaMapper extends BaseMapper<Media> {
     @Select("SELECT DISTINCT year FROM media WHERE year IS NOT NULL AND deleted_at IS NULL ORDER BY year DESC")
     List<Integer> listDistinctYears();
 
-    /** 某收藏夹下的番剧列表；支持 status/format/子分类（子树收敛）/confirmed/year 筛选。 */
+    /** 某收藏夹下的番剧列表；支持 status/format/子分类（子树收敛）/confirmed/year/source/q 筛选；sort=year 按首播年份排序（null 年份排最后），默认按 id 排序；order 控制升降序。 */
     @Select("<script>"
             + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, a.source,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
+            + "(SELECT COUNT(*) FROM media_collection mc WHERE mc.media_id = a.id) AS collectionCount, "
             + FALLBACK_COVER + " "
             + "FROM media a "
             + "JOIN media_collection ac ON ac.media_id = a.id AND ac.collection_id = #{collectionId} "
@@ -157,19 +160,29 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='source != null'> AND a.source = #{source}</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + "</where>"
-            + "GROUP BY a.id ORDER BY a.id DESC LIMIT #{limit} OFFSET #{offset}"
+            + "GROUP BY a.id "
+            + "<choose>"
+            + "<when test='sort != null and sort == \"latest\"'>ORDER BY latestAt DESC</when>"
+            + "<when test='sort != null and sort == \"year\"'>ORDER BY (a.year IS NULL), a.year "
+            + "<choose><when test='order != null and order == \"asc\"'>ASC</when><otherwise>DESC</otherwise></choose></when>"
+            + "<otherwise>ORDER BY a.id "
+            + "<choose><when test='order != null and order == \"asc\"'>ASC</when><otherwise>DESC</otherwise></choose></otherwise>"
+            + "</choose>"
+            + " LIMIT #{limit} OFFSET #{offset}"
             + "</script>")
     List<MediaSummary> listByCollection(@Param("collectionId") long collectionId, @Param("limit") int limit,
                                         @Param("offset") int offset,
                                         @Param("status") String status, @Param("format") String format,
                                         @Param("subcategoryId") Long subcategoryId,
                                         @Param("confirmed") Integer confirmed, @Param("year") Integer year,
-                                        @Param("source") String source, @Param("q") String q);
+                                        @Param("source") String source, @Param("q") String q,
+                                        @Param("sort") String sort, @Param("order") String order);
 
     /** 媒体列表筛选：状态/格式/子分类/待确认/年份 组合，sort=latest 按最近标记倒序。 */
     @Select("<script>"
             + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, a.source,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
+            + "(SELECT COUNT(*) FROM media_collection mc WHERE mc.media_id = a.id) AS collectionCount, "
             + FALLBACK_COVER + " "
             + "FROM media a "
             + "LEFT JOIN episode e ON e.media_id = a.id "

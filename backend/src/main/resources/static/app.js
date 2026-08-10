@@ -83,7 +83,7 @@ const mediaSubcategorySelect = document.getElementById('media-subcategory');
 const mediaNewSubInput = document.getElementById('media-new-sub');
 const mediaAddSubBtn = document.getElementById('media-add-sub-btn');
 const mediaInlineAddBtn = document.getElementById('media-inline-add');
-const mediaStatusSelect = document.getElementById('media-status');
+const mediaStatusSelect = document.getElementById('media-status-select');
 const mediaRatingInput = document.getElementById('media-rating');
 const mediaYearInput = document.getElementById('media-year');
 const mediaNoteInput = document.getElementById('media-note');
@@ -129,11 +129,22 @@ const coverUrlInput = document.getElementById('cover-url');
 const coverFileInput = document.getElementById('cover-file');
 const renameModal = document.getElementById('rename-modal');
 const renameTitleInput = document.getElementById('rename-title');
-const mergeIntoSelect = document.getElementById('merge-into');
+const mergeSearchEl = document.getElementById('merge-search');
+const mergeCandidatesEl = document.getElementById('merge-candidates');
+const renameDupeModal = document.getElementById('rename-dupe-modal');
+const renameDupeMsg = document.getElementById('rename-dupe-msg');
+let mergeTargetId = null;         // 合并目标 id（搜索选择器选中）
+let mergeTargetTitle = '';        // 选中目标的标题（input 回填检测）
+let renameDupeResolve = null;     // 重名弹窗：{ dup, title } 待用户三选一
+let mergeSearchTimer = null;      // 合并目标搜索防抖
 const collectionModal = document.getElementById('collection-modal');
 const collectionNameInput = document.getElementById('collection-name');
 const collectionModalSaveBtn = document.getElementById('collection-modal-save');
 const collListEl = document.getElementById('coll-list');
+const collQEl = document.getElementById('coll-q');
+const collYearEl = document.getElementById('coll-year');
+const collSortEl = document.getElementById('coll-sort');
+const collOrderBtn = document.getElementById('coll-order');
 const collContentHeadEl = document.getElementById('coll-content-head');
 const collMediaGridEl = document.getElementById('coll-media-grid');
 const collStatusEl = document.getElementById('coll-status');
@@ -142,7 +153,12 @@ const collPagePrevEl = document.getElementById('coll-page-prev');
 const collPageNextEl = document.getElementById('coll-page-next');
 const collPageInfoEl = document.getElementById('coll-page-info');
 const collTotalEl = document.getElementById('coll-total');
+const collPaginationEl = document.getElementById('coll-pagination');
+const collGroupedEl = document.getElementById('coll-grouped');
 const recommendSourceEl = document.getElementById('recommend-source');
+const recommendYearEl = document.getElementById('recommend-year');
+const recommendGroupedEl = document.getElementById('recommend-grouped');
+const recommendPaginationEl = document.getElementById('recommend-pagination');
 const recommendTagInputEl = document.getElementById('recommend-tag-input');
 const recommendTagClearEl = document.getElementById('recommend-tag-clear');
 const recommendGridEl = document.getElementById('recommend-grid');
@@ -285,10 +301,13 @@ function closeConfirmModal() {
     confirmModalAction = null;
 }
 let mediaFilter = { q: '', status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', source: '', sort: '', order: 'desc' };
+let displayView = 'card';   // 全局视图偏好：card 卡片 / list 列表（媒体页/收藏夹/推荐页共用，单按钮切换）
 let collSelectedId = null;           // 收藏夹 tab：当前选中的收藏夹 id
 let collectionsCache = [];           // 收藏夹列表缓存（管理视图用）
 let collPage = 1;                    // 收藏夹内媒体分页
 let collPageSize = 30;
+let collFilter = { q: '', year: '', sort: '', order: 'desc' };   // 收藏夹 tab 内容筛选：标题/年份/排序
+let collGrouped = true;   // 收藏夹分组显示开关（按首播年份分组，默认开）
 let collTotal = 0;
 let recommendPage = 1;               // 推荐向导来源网格分页
 let recommendPageSize = 30;
@@ -298,6 +317,8 @@ let recommendSourceId = null;
 let recommendTagId = null;           // 标签过滤（已解析的 tag id）
 let recommendTagName = '';           // 已应用的标签名（防 Enter+blur 双触发）
 let currentRecommendList = [];       // 推荐向导当前页媒体（全选本页用）
+let recommendYear = '';       // 推荐页年份筛选（空=全部）
+let recommendGrouped = true;  // 推荐页分组显示（按首播年份，默认开）
 let collectionModalMode = 'create';  // collection-modal：create / rename
 let collectionRenameId = null;       // rename 模式的目标收藏夹 id
 let favOverlay = null;               // 卡片快捷收藏浮层
@@ -1378,6 +1399,42 @@ async function fillYearFilter() {
     } catch (e) { /* 忽略 */ }
 }
 
+/** 收藏夹 tab 年份筛选下拉：库中已有的首播年份（降序）。 */
+async function fillCollYearFilter() {
+    try {
+        const resp = await fetch('/api/media/years');
+        if (!resp.ok) return;
+        const years = await resp.json();
+        const cur = collYearEl.value;
+        collYearEl.innerHTML = '<option value="">全部年份</option>';
+        for (const y of years) {
+            const opt = document.createElement('option');
+            opt.value = y;
+            opt.textContent = `${y} 年`;
+            collYearEl.appendChild(opt);
+        }
+        collYearEl.value = cur;
+    } catch (e) { /* 忽略 */ }
+}
+
+/** 推荐页年份筛选下拉：库中已有的首播年份（降序）。 */
+async function fillRecommendYearFilter() {
+    try {
+        const resp = await fetch('/api/media/years');
+        if (!resp.ok) return;
+        const years = await resp.json();
+        const cur = recommendYearEl.value;
+        recommendYearEl.innerHTML = '<option value="">全部年份</option>';
+        for (const y of years) {
+            const opt = document.createElement('option');
+            opt.value = y;
+            opt.textContent = `${y} 年`;
+            recommendYearEl.appendChild(opt);
+        }
+        recommendYearEl.value = cur;
+    } catch (e) { /* 忽略 */ }
+}
+
 async function fillFilterCollections() {
     try {
         const resp = await fetch('/api/collections');
@@ -1609,11 +1666,37 @@ async function loadCollMedia(id, resetPage = true) {
     if (resetPage) collPage = 1;
     collMediaGridEl.innerHTML = '';
     collContentHeadEl.textContent = '';
+    const coll = collectionsCache.find(c => c.id === id);
     try {
+        if (collGrouped) {
+            // 分组视图：一次拉全量（循环取完），按首播年份分组渲染，隐藏分页
+            const list = await loadAllCollMedia(id);
+            collTotal = list.length;
+            collContentHeadEl.textContent = coll
+                ? `${coll.name} · ${collTotal} 个媒体 · 按首播年份分 ${new Set(list.map(a => a.year || '未知年份')).size} 组`
+                : '';
+            collStatusEl.textContent = '';
+            collPaginationEl.hidden = true;
+            if (list.length === 0) {
+                collStatusEl.textContent = '这个收藏夹还没有媒体，可在媒体卡片点 ♡ 加入';
+                return;
+            }
+            renderCollGrouped(list);
+            return;
+        }
+        collPaginationEl.hidden = false;
+        collMediaGridEl.className = 'media-grid';   // 平铺：复位容器（分组模式会改成 coll-group-wrap）
         const base = new URLSearchParams({ limit: String(collPageSize), offset: String((collPage - 1) * collPageSize) });
+        if (collFilter.q) base.set('q', collFilter.q);
+        if (collFilter.year) base.set('year', collFilter.year);
+        if (collFilter.sort) base.set('sort', collFilter.sort);
+        base.set('order', collFilter.order);
+        const countParams = new URLSearchParams({ collectionId: String(id) });
+        if (collFilter.q) countParams.set('q', collFilter.q);
+        if (collFilter.year) countParams.set('year', collFilter.year);
         const [listResp, countResp] = await Promise.all([
             fetch(`/api/collections/${id}/media?${base.toString()}`),
-            fetch(`/api/media/count?collectionId=${id}`)
+            fetch(`/api/media/count?${countParams.toString()}`)
         ]);
         if (!listResp.ok) throw new Error();
         const list = await listResp.json();
@@ -1621,7 +1704,6 @@ async function loadCollMedia(id, resetPage = true) {
         const totalPages = Math.max(1, Math.ceil(collTotal / collPageSize));
         if (collPage > totalPages) { collPage = totalPages; return loadCollMedia(id, false); }
         if (collPage < 1) collPage = 1;
-        const coll = collectionsCache.find(c => c.id === id);
         collContentHeadEl.textContent = coll ? `${coll.name} · ${collTotal} 个媒体` : '';
         collStatusEl.textContent = '';
         if (collTotal === 0) {
@@ -1634,6 +1716,139 @@ async function loadCollMedia(id, resetPage = true) {
     } catch (e) {
         collStatusEl.textContent = '加载失败：后端未响应';
     }
+}
+
+/** 分组视图全量拉取：循环按 200/页 取完该收藏夹全部媒体（带筛选），直到不足一页。 */
+async function loadAllCollMedia(id) {
+    const all = [];
+    const size = 200;
+    for (let offset = 0; ; offset += size) {
+        const base = new URLSearchParams({ limit: String(size), offset: String(offset) });
+        if (collFilter.q) base.set('q', collFilter.q);
+        if (collFilter.year) base.set('year', collFilter.year);
+        if (collFilter.sort) base.set('sort', collFilter.sort);
+        base.set('order', collFilter.order);
+        const resp = await fetch(`/api/collections/${id}/media?${base.toString()}`);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const list = await resp.json();
+        all.push(...list);
+        if (list.length < size) break;
+    }
+    return all;
+}
+
+/** 瀑布式懒加载分组（收藏夹/推荐页共用）：首批按累计卡片数 ≤ TARGET 渲染前几组，滚动到底哨兵自动加载下一批；
+ *  年份导航显示全部组，点未加载组自动加载到该组再跳转；组内跟随全局卡片/列表视图。 */
+function renderGroupedLazy(container, list, itemRenderer, idPrefix, onChunkDone) {
+    const TARGET = 60;   // 首批/每批累计卡片数目标
+    container.className = 'coll-group-wrap';
+    container.innerHTML = '';   // 每次渲染独立清空（loadCollMedia 有 await，并发调用会叠加，必须在此兜底）
+    const groups = new Map();
+    for (const a of list) {
+        const key = a.year ? String(a.year) : '未知年份';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(a);
+    }
+    const keys = [...groups.keys()].sort((x, y) => {
+        if (x === '未知年份') return 1;
+        if (y === '未知年份') return -1;
+        return Number(y) - Number(x);
+    });
+    // 年份导航（显示全部组，点未加载组自动加载到该组再跳转）
+    const nav = document.createElement('div');
+    nav.className = 'coll-group-nav';
+    keys.forEach((k) => {
+        const chip = document.createElement('div');
+        chip.className = 'group-nav-chip' + (k === keys[0] ? ' active' : '');
+        chip.dataset.year = k;
+        chip.textContent = k;
+        chip.addEventListener('click', () => loadUpTo(k));
+        nav.appendChild(chip);
+    });
+    const listEl = document.createElement('div');
+    listEl.className = 'coll-group-list';
+    let loadedUpTo = -1;   // 已渲染到的 key 索引
+
+    function createSection(k) {
+        const sec = document.createElement('section');
+        sec.className = 'coll-group';
+        sec.id = idPrefix + k;
+        sec.dataset.year = k;
+        const head = document.createElement('header');
+        head.className = 'group-head';
+        head.innerHTML = `<span class="group-year">${esc(k)}</span><span class="group-count">${groups.get(k).length} 部</span><span class="group-collapse">▾</span>`;
+        head.addEventListener('click', () => sec.classList.toggle('collapsed'));
+        sec.appendChild(head);
+        const wrap = document.createElement('div');
+        wrap.className = displayView === 'list' ? 'media-list' : 'group-grid';
+        itemRenderer(groups.get(k), wrap);
+        sec.appendChild(wrap);
+        return sec;
+    }
+
+    // 滚动高亮当前组
+    const groupIo = new IntersectionObserver((entries) => {
+        entries.forEach(en => {
+            if (en.isIntersecting) {
+                nav.querySelectorAll('.group-nav-chip').forEach(c => c.classList.toggle('active', c.dataset.year === en.target.dataset.year));
+            }
+        });
+    }, { rootMargin: '-80px 0px -65% 0px' });
+
+    let sentinelIo = null;
+    function setupSentinel() {
+        if (sentinelIo) { sentinelIo.disconnect(); sentinelIo = null; }
+        listEl.querySelectorAll('.group-sentinel').forEach(el => el.remove());
+        const more = loadedUpTo + 1 < keys.length;
+        const sentinel = document.createElement('div');
+        sentinel.className = 'group-sentinel';
+        sentinel.textContent = more ? '⤓ 加载更多分组' : '— 已全部加载 —';
+        listEl.appendChild(sentinel);
+        if (more) {
+            sentinelIo = new IntersectionObserver((es) => {
+                es.forEach(en => { if (en.isIntersecting) renderChunk(); });
+            }, { rootMargin: '300px 0px' });
+            sentinelIo.observe(sentinel);
+        }
+    }
+
+    function renderChunk() {
+        let count = 0;
+        while (loadedUpTo + 1 < keys.length) {
+            const k = keys[loadedUpTo + 1];
+            const items = groups.get(k);
+            if (count + items.length > TARGET && count > 0) break;   // 至少渲染一组
+            loadedUpTo++;
+            const sec = createSection(k);
+            listEl.appendChild(sec);
+            groupIo.observe(sec);
+            count += items.length;
+            if (count >= TARGET) break;
+        }
+        setupSentinel();
+        if (onChunkDone) onChunkDone();
+    }
+
+    function loadUpTo(k) {
+        const idx = keys.indexOf(k);
+        while (loadedUpTo < idx) {
+            loadedUpTo++;
+            const sec = createSection(keys[loadedUpTo]);
+            listEl.appendChild(sec);
+            groupIo.observe(sec);
+        }
+        setupSentinel();
+        document.getElementById(idPrefix + k)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    renderChunk();
+    container.appendChild(nav);
+    container.appendChild(listEl);
+}
+
+/** 收藏夹分组视图：瀑布式懒加载（首批 ~60 张卡片），组内走收藏夹卡片/列表渲染。 */
+function renderCollGrouped(list) {
+    renderGroupedLazy(collMediaGridEl, list, (group, wrap) => renderMediaGrid(group, wrap, 'collection'), 'grp-', null);
 }
 
 /** 收藏夹内媒体分页条：总数 + 页信息 + 上/下页可用态。 */
@@ -1743,6 +1958,8 @@ async function loadFavOptions(mediaId, overlay) {
 }
 
 function renderMediaGrid(list, container = mediaGridEl, mode = 'media') {
+    if (displayView === 'list') { renderMediaRow(list, container, mode); return; }
+    container.classList.remove('media-list');   // 卡片视图：清掉列表视图残留 class，恢复 grid 布局
     for (const a of list) {
         mediaById.set(a.id, a);
         const card = document.createElement('div');
@@ -1763,7 +1980,7 @@ function renderMediaGrid(list, container = mediaGridEl, mode = 'media') {
                 ${mode === 'collection'
                     ? `<button type="button" class="media-remove-btn" title="移出收藏夹">⇤</button>`
                     : `<button type="button" class="media-del-btn" title="删除媒体">×</button>`}
-                <button type="button" class="media-fav-btn" title="收藏到收藏夹">♡</button>
+                <button type="button" class="media-fav-btn${(a.collectionCount || 0) > 0 ? ' fav-active' : ''}" title="收藏到收藏夹">${(a.collectionCount || 0) > 0 ? '❤' : '♡'}</button>
             </div>
             <div class="media-card-body">
                 <div class="media-card-title"></div>
@@ -1819,6 +2036,62 @@ function renderMediaGrid(list, container = mediaGridEl, mode = 'media') {
             openMediaDetail(a.id);
         });
         container.appendChild(card);
+    }
+}
+
+/** 列表视图行渲染（媒体页 / 收藏夹平铺共用）：缩略图 + 标题/元信息 + 操作（收藏 / 删除|移出）。
+ *  与卡片分支同事件：批量勾选、收藏浮层、点击进详情。 */
+function renderMediaRow(list, container, mode = 'media') {
+    container.classList.add('media-list');
+    for (const a of list) {
+        mediaById.set(a.id, a);
+        const row = document.createElement('div');
+        row.className = 'media-row' + (mediaBatchMode && mediaSelected.has(a.id) ? ' selected' : '');
+        const cover = (a.coverPath || a.fallbackCoverPath)
+            ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" loading="lazy" onerror="this.style.display='none'">`
+            : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
+        const fmtBadge = a.mediaFormat
+            ? `<span class="media-format-badge fmt-${esc(a.mediaFormat)}">${esc(formatName(a.mediaFormat))}</span>`
+            : '';
+        row.innerHTML = `
+            <div class="row-thumb">${fmtBadge}${cover}
+                <input type="checkbox" class="media-batch-cb" title="勾选后可批量删除或导出推荐" ${mediaSelected.has(a.id) ? 'checked' : ''}>
+            </div>
+            <div class="row-body">
+                <div class="row-title"></div>
+                <div class="row-meta"></div>
+            </div>
+            <div class="row-actions">
+                <button type="button" class="row-btn fav${(a.collectionCount || 0) > 0 ? ' active' : ''}" title="收藏到收藏夹">${(a.collectionCount || 0) > 0 ? '❤' : '♡'}</button>
+                ${mode === 'collection'
+                    ? `<button type="button" class="row-btn remove" title="移出收藏夹">⇤</button>`
+                    : `<button type="button" class="row-btn del" title="删除媒体">🗑</button>`}
+            </div>`;
+        row.querySelector('.row-title').textContent = a.title;
+        const meta = [];
+        if (a.year) meta.push(String(a.year));
+        if (a.status) meta.push(MEDIA_STATUS_LABEL[a.status] || a.status);
+        if (a.rating != null) meta.push(`★ ${a.rating}`);
+        meta.push(`${a.clipCount || 0} 条片段`);
+        row.querySelector('.row-meta').textContent = meta.join(' · ');
+        const cb = row.querySelector('.media-batch-cb');
+        cb.addEventListener('click', (e) => e.stopPropagation());
+        cb.addEventListener('change', () => {
+            if (cb.checked) { mediaSelected.add(a.id); row.classList.add('selected'); }
+            else { mediaSelected.delete(a.id); row.classList.remove('selected'); }
+            updateMediaBatchConfirm();
+        });
+        if (mode === 'collection') {
+            row.querySelector('.row-btn.remove').addEventListener('click', (e) => { e.stopPropagation(); removeFromCollection(a.id); });
+        } else {
+            row.querySelector('.row-btn.del').addEventListener('click', (e) => { e.stopPropagation(); openBatchDelModal([a.id]); });
+        }
+        row.querySelector('.row-btn.fav').addEventListener('click', (e) => { e.stopPropagation(); openFavPicker(a.id, e.currentTarget); });
+        row.addEventListener('click', () => {
+            if (mediaBatchMode) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); return; }
+            openMediaDetail(a.id);
+        });
+        container.appendChild(row);
     }
 }
 
@@ -1993,28 +2266,42 @@ async function restoreTrash(id) {
 
 /** 彻底删除单条（不可恢复，级联清集/片段/封面）。 */
 async function purgeTrash(id) {
-    if (!confirm('彻底删除该媒体？其下集/片段/封面将一并删除，不可恢复。')) return;
-    try {
-        const resp = await fetch(`/api/media/purge?ids=${id}`, { method: 'DELETE' });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        showToast('已彻底删除');
-        loadTrash();
-    } catch (e) {
-        showToast('删除失败：后端未响应');
-    }
+    showConfirm({
+        title: '彻底删除媒体',
+        msg: '彻底删除该媒体？其下集/片段/封面将一并删除，不可恢复。',
+        okText: '彻底删除',
+        danger: true,
+        onOk: async () => {
+            try {
+                const resp = await fetch(`/api/media/purge?ids=${id}`, { method: 'DELETE' });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                showToast('已彻底删除');
+                loadTrash();
+            } catch (e) {
+                showToast('删除失败：后端未响应');
+            }
+        },
+    });
 }
 
 /** 清空回收站：全部彻底删除。 */
 async function clearTrash() {
-    if (!confirm('清空回收站？全部媒体将彻底删除，不可恢复。')) return;
-    try {
-        const resp = await fetch('/api/media/trash', { method: 'DELETE' });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        showToast('回收站已清空');
-        loadTrash();
-    } catch (e) {
-        showToast('清空失败：后端未响应');
-    }
+    showConfirm({
+        title: '清空回收站',
+        msg: '清空回收站？全部媒体将彻底删除，不可恢复。',
+        okText: '清空回收站',
+        danger: true,
+        onOk: async () => {
+            try {
+                const resp = await fetch('/api/media/trash', { method: 'DELETE' });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                showToast('回收站已清空');
+                loadTrash();
+            } catch (e) {
+                showToast('清空失败：后端未响应');
+            }
+        },
+    });
 }
 
 /** 轻提示：全局唯一 toast，2.5s 自动消失，可打断重显。 */
@@ -2041,6 +2328,17 @@ async function loadRecommend(resetPage = true) {
     if (resetPage) recommendPage = 1;
     recommendGridEl.innerHTML = '';
     try {
+        if (recommendGrouped) {
+            // 分组视图：一次拉全量，按首播年份分组渲染（瀑布式懒加载控 DOM，首批仅 60 张），隐藏分页
+            const all = await loadAllRecommend();
+            recommendTotal = all.length;
+            recommendPaginationEl.hidden = true;
+            if (all.length === 0) { renderRecommendPagination(1); return; }
+            renderRecommendGrouped(all);
+            return;
+        }
+        recommendPaginationEl.hidden = false;
+        recommendGridEl.className = 'media-grid';   // 复位容器（分组模式改成 coll-group-wrap）
         const params = new URLSearchParams({ limit: String(recommendPageSize), offset: String((recommendPage - 1) * recommendPageSize) });
         const filters = new URLSearchParams();
         if (recommendSourceType === 'collection') {
@@ -2050,6 +2348,10 @@ async function loadRecommend(resetPage = true) {
         if (recommendTagId) {
             params.set('tagId', String(recommendTagId));
             filters.set('tagId', String(recommendTagId));
+        }
+        if (recommendYear) {
+            params.set('year', String(recommendYear));
+            filters.set('year', String(recommendYear));
         }
         const qs = filters.toString();
         const [listResp, countResp] = await Promise.all([
@@ -2068,6 +2370,29 @@ async function loadRecommend(resetPage = true) {
         showToast('加载媒体失败');
         renderRecommendPagination(1);
     }
+}
+
+/** 推荐页分组视图全量拉取：循环按 200/页 取完（带收藏夹/标签/年份筛选）。 */
+async function loadAllRecommend() {
+    const all = [];
+    const size = 200;
+    for (let offset = 0; ; offset += size) {
+        const params = new URLSearchParams({ limit: String(size), offset: String(offset) });
+        if (recommendSourceType === 'collection') params.set('collectionId', String(recommendSourceId));
+        if (recommendTagId) params.set('tagId', String(recommendTagId));
+        if (recommendYear) params.set('year', String(recommendYear));
+        const resp = await fetch(`/api/media?${params.toString()}`);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const list = await resp.json();
+        all.push(...list);
+        if (list.length < size) break;
+    }
+    return all;
+}
+
+/** 推荐页分组视图：瀑布式懒加载（首批 ~60 张卡片）；组内渲染会覆盖 currentRecommendList，完成后恢复全量。 */
+function renderRecommendGrouped(list) {
+    renderGroupedLazy(recommendGridEl, list, (group, wrap) => renderRecommendGrid(group, wrap), 'rgrp-', () => { currentRecommendList = list; });
 }
 
 /** 标签名 → tag id：manage?q 模糊查后精确匹配词条名（零后端改动）。查不到返回 null。 */
@@ -2132,9 +2457,11 @@ async function fillRecommendSources() {
 }
 
 /** 渲染推荐勾选网格：复用 .media-card/.media-batch-cb 样式，勾选走 recommendSelected。 */
-function renderRecommendGrid(list) {
+function renderRecommendGrid(list, container = recommendGridEl) {
+    if (displayView === 'list') { renderRecommendRow(list, container); return; }
+    container.classList.remove('media-list');
     currentRecommendList = list;
-    const grid = recommendGridEl;
+    const grid = container;
     grid.innerHTML = '';
     for (const a of list) {
         mediaById.set(a.id, a);
@@ -2153,7 +2480,7 @@ function renderRecommendGrid(list) {
         card.innerHTML = `
             <div class="media-cover">${fmtBadge}${srcBadge}${cover}
                 <input type="checkbox" class="media-batch-cb" title="勾选后进入推荐导出" ${recommendSelected.has(a.id) ? 'checked' : ''}>
-                <button type="button" class="media-fav-btn" title="收藏到收藏夹">♡</button>
+                <button type="button" class="media-fav-btn${(a.collectionCount || 0) > 0 ? ' fav-active' : ''}" title="收藏到收藏夹">${(a.collectionCount || 0) > 0 ? '❤' : '♡'}</button>
             </div>
             <div class="media-card-body">
                 <div class="media-card-title"></div>
@@ -2181,6 +2508,54 @@ function renderRecommendGrid(list) {
     }
 }
 
+/** 推荐勾选页列表视图：缩略图 + 标题/元信息 + 收藏；勾选跨页保留。 */
+function renderRecommendRow(list, container = recommendGridEl) {
+    currentRecommendList = list;
+    const grid = container;
+    grid.innerHTML = '';
+    grid.classList.add('media-list');
+    for (const a of list) {
+        mediaById.set(a.id, a);
+        const row = document.createElement('div');
+        row.className = 'media-row' + (recommendSelected.has(a.id) ? ' selected' : '');
+        const cover = (a.coverPath || a.fallbackCoverPath)
+            ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" loading="lazy" onerror="this.style.display='none'">`
+            : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
+        const fmtBadge = a.mediaFormat
+            ? `<span class="media-format-badge fmt-${esc(a.mediaFormat)}">${esc(formatName(a.mediaFormat))}</span>`
+            : '';
+        const srcBadge = (a.source === 'ANILIST' || a.source === 'OMOFUNA')
+            ? `<span class="media-source-badge">${esc(a.source === 'ANILIST' ? 'AniList' : 'omofuna')}</span>`
+            : '';
+        row.innerHTML = `
+            <div class="row-thumb">${fmtBadge}${srcBadge}${cover}
+                <input type="checkbox" class="media-batch-cb" title="勾选后进入推荐导出" ${recommendSelected.has(a.id) ? 'checked' : ''}>
+            </div>
+            <div class="row-body">
+                <div class="row-title"></div>
+                <div class="row-meta"></div>
+            </div>
+            <div class="row-actions">
+                <button type="button" class="row-btn fav${(a.collectionCount || 0) > 0 ? ' active' : ''}" title="收藏到收藏夹">${(a.collectionCount || 0) > 0 ? '❤' : '♡'}</button>
+            </div>`;
+        row.querySelector('.row-title').textContent = a.title;
+        const meta = [];
+        if (a.status) meta.push(MEDIA_STATUS_LABEL[a.status] || a.status);
+        meta.push(`${a.clipCount || 0} 条片段`);
+        row.querySelector('.row-meta').textContent = meta.join(' · ');
+        const cb = row.querySelector('.media-batch-cb');
+        cb.addEventListener('click', (e) => e.stopPropagation());
+        cb.addEventListener('change', () => {
+            if (cb.checked) { recommendSelected.add(a.id); row.classList.add('selected'); }
+            else { recommendSelected.delete(a.id); row.classList.remove('selected'); }
+            updateRecommendCount();
+        });
+        row.querySelector('.row-btn.fav').addEventListener('click', (e) => { e.stopPropagation(); openFavPicker(a.id, e.currentTarget); });
+        row.addEventListener('click', () => openMediaDetail(a.id));
+        grid.appendChild(row);
+    }
+}
+
 /** 自动预选开场子集：按评分从高到低取前 10，无评分随机补足。 */
 function autoOpeningIds() {
     const rated = [...recommendSelected].map(id => ({ id, r: Number((mediaById.get(id) || {}).rating) || 0 }));
@@ -2203,8 +2578,9 @@ function initRecommendOpening() {
         pickBtn.hidden = !toggle.checked;
         updateOpeningStatus();
     });
-    pickBtn.addEventListener('click', () => {
+    pickBtn.addEventListener('click', async () => {
         if (recommendSelected.size === 0) { showToast('请先在步骤1勾选推荐媒体'); return; }
+        await ensureMediaByIds([...recommendSelected]);   // 草稿恢复/跨页勾选的媒体可能不在 mediaById，先补齐
         const grid = document.getElementById('recommend-opening-grid');
         const preset = openingSelected.size ? new Set(openingSelected) : new Set(autoOpeningIds());
         grid.innerHTML = '';
@@ -2240,6 +2616,20 @@ function initRecommendOpening() {
         showToast(`开局封面已设为 ${openingSelected.size} 张`);
     });
     updateOpeningStatus();
+}
+
+/** 确保 mediaById 含这些 id 的媒体数据（推荐网格未加载的，从后端逐个补——草稿恢复/跨页勾选场景）。 */
+async function ensureMediaByIds(ids) {
+    const missing = ids.filter(id => !mediaById.has(id));
+    await Promise.all(missing.map(async id => {
+        try {
+            const resp = await fetch(`/api/media/${id}`);
+            if (resp.ok) {
+                const d = await resp.json();
+                mediaById.set(id, d);
+            }
+        } catch (e) { /* 忽略 */ }
+    }));
 }
 
 /** 步骤2 开局封面状态：自动 N 张 / 自定义 N 张。 */
@@ -2316,9 +2706,24 @@ function recommendSubtitle() {
     return document.getElementById('recommend-subtitle').value.trim();
 }
 
-/** 开场封面大小：sm/md/lg（预览弹窗下拉）。 */
+/** 开场封面大小：0-100 滑块（预览弹窗；50 = 中）。 */
 function recommendCoverSize() {
     return document.getElementById('preview-cover-size').value;
+}
+
+/** 开场图片加载速度：0-100 滑块（50 = 当前）。 */
+function recommendOpeningSpeed() {
+    return document.getElementById('preview-opening-speed').value;
+}
+
+/** 结尾滚动速度：0-100 滑块（50 = 当前）。 */
+function recommendEndingSpeed() {
+    return document.getElementById('preview-ending-speed').value;
+}
+
+/** 分组排序：date-desc 新→旧 / date-asc 旧→新 / none 原序。 */
+function recommendGroupSort() {
+    return document.getElementById('preview-group-sort').value;
 }
 
 /** 主题简介（可空；空 → 模板不显示序言页）。 */
@@ -2340,45 +2745,157 @@ function recommendPrologueTitle() {
 }
 
 /** 背景图 base64（自定义图片时用）。 */
-let recommendBgImage = null;
+let recommendBgImages = [];   // 自定义背景图多选（base64）
 
-/** 背景设置：default/color/image → {bgColor|bgImage}（不选 → 空对象用默认）。 */
+/** 背景设置：default/color/image → {bgColor | bgImages + 轮换/透明度/模糊度}（不选 → 空对象用默认）。 */
 function recommendBg() {
     const t = document.getElementById('recommend-bg-type').value;
     if (t === 'color') return { bgColor: document.getElementById('recommend-bg-color').value };
-    if (t === 'image' && recommendBgImage) return { bgImage: recommendBgImage };
+    if (t === 'image' && recommendBgImages.length) {
+        return {
+            bgImages: recommendBgImages,
+            bgRotationSec: Number(document.getElementById('recommend-bg-rotation').value) || 8,
+            bgOpacity: Number(document.getElementById('recommend-bg-opacity').value),   // 0 也有效，勿用 || 默认
+            bgBlur: Number(document.getElementById('recommend-bg-blur').value) || 0,
+            bgBrightness: Number(document.getElementById('recommend-bg-brightness').value)   // 0 也有效，勿用 || 默认
+        };
+    }
     return {};
 }
 
-/** 初始化背景：类型切换 + 图片上传/移除。 */
+/** 音乐条样式：整体缩放 + 坐标 X/Y（视口百分比；0 也有效，勿用 || 默认）。 */
+function recommendBgmStyle() {
+    return {
+        bgmScale: Number(document.getElementById('recommend-bgm-scale').value),
+        bgmX: Number(document.getElementById('recommend-bgm-x').value),
+        bgmY: Number(document.getElementById('recommend-bgm-y').value),
+    };
+}
+
+/** 音乐条滑块值标签同步（缩放%）。 */
+function syncBgmStyleLabels() {
+    const map = {
+        'recommend-bgm-scale': 'recommend-bgm-scale-val',
+    };
+    for (const [inputId, valId] of Object.entries(map)) {
+        const el = document.getElementById(inputId), v = document.getElementById(valId);
+        if (el && v) v.textContent = el.value + '%';
+    }
+}
+
+/** 初始化音乐条配置（配置弹窗）：滑块 input → 实时预览 + 存草稿；X/Y 数字输入 change → 同上。 */
+function initRecommendBgmStyle() {
+    const regen = () => {
+        syncBgmStyleLabels();
+        if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+        markRecommendDirty();
+    };
+    ['recommend-bgm-scale'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', regen);
+    });
+    ['recommend-bgm-x', 'recommend-bgm-y'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', regen);
+    });
+    syncBgmStyleLabels();
+}
+
+/** 配置弹窗：四组折叠（默认全折叠，点标题展开/收起）+ 显示时长输入实时生效（同其他配置滑块）。 */
+function initConfigGroups() {
+    document.querySelectorAll('.config-group').forEach(g => {
+        const t = g.querySelector('.config-group-title');
+        if (t) t.addEventListener('click', () => g.classList.toggle('collapsed'));
+    });
+    ['recommend-dur-opening', 'recommend-dur-intro', 'recommend-dur-group', 'recommend-dur-detail', 'recommend-dur-ending'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', () => {
+            if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+            markRecommendDirty();
+            updateRecommendDuration();   // 时长改动即时重算总时长
+        });
+    });
+}
+
+/** 渲染背景图列表（多图，可移除）。 */
+function renderRecommendBgList() {
+    const el = document.getElementById('recommend-bg-images');
+    if (!el) return;
+    el.innerHTML = recommendBgImages.map((img, i) => `
+        <span class="recommend-bg-thumb-wrap">${i + 1}<img src="${img}" class="recommend-bg-thumb" alt="">
+            <button type="button" class="btn-mini danger" data-idx="${i}" title="移除">✕</button>
+        </span>`).join('');
+    el.querySelectorAll('[data-idx]').forEach(b => b.addEventListener('click', () => {
+        recommendBgImages.splice(Number(b.dataset.idx), 1);
+        renderRecommendBgList();
+        if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+        markRecommendDirty();
+    }));
+}
+
+/** 初始化背景（配置弹窗）：类型联动（仅自定义图片显示滑块）+ 多图上传 + 轮换/透明度/模糊度滑块。 */
 function initRecommendBg() {
     const typeEl = document.getElementById('recommend-bg-type');
     const colorRow = document.getElementById('recommend-bg-color-row');
     const imageRow = document.getElementById('recommend-bg-image-row');
     const fileInput = document.getElementById('recommend-bg-file');
-    const nameEl = document.getElementById('recommend-bg-image-name');
-    const removeBtn = document.getElementById('recommend-bg-image-remove');
-    const sync = () => { colorRow.hidden = typeEl.value !== 'color'; imageRow.hidden = typeEl.value !== 'image'; };
-    typeEl.addEventListener('change', sync);
+    const sync = () => {
+        colorRow.hidden = typeEl.value !== 'color';
+        imageRow.hidden = typeEl.value !== 'image';   // 联动：仅「自定义图片」显示图片配置（含滑块）
+    };
+    typeEl.addEventListener('change', () => {
+        sync();
+        if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+        markRecommendDirty();
+    });
+    /* 主题色 input：防抖实时预览（改颜色立即生效，不必切走再切回） */
+    const colorInput = document.getElementById('recommend-bg-color');
+    let colorPreviewTimer = null;
+    if (colorInput) {
+        colorInput.addEventListener('input', () => {
+            clearTimeout(colorPreviewTimer);
+            colorPreviewTimer = setTimeout(() => {
+                if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+                markRecommendDirty();
+            }, 200);
+        });
+    }
     document.getElementById('recommend-bg-image-pick').addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', () => {
-        const f = fileInput.files && fileInput.files[0];
-        if (!f) return;
-        if (f.size > 8 * 1024 * 1024) { showToast('背景图过大（>8MB）'); fileInput.value = ''; return; }
-        const r = new FileReader();
-        r.onload = () => {
-            recommendBgImage = String(r.result);
-            nameEl.textContent = `🖼 ${f.name}`;
-            removeBtn.hidden = false;
-            showToast(`已添加背景图：${f.name}`);
-        };
-        r.readAsDataURL(f);
-    });
-    removeBtn.addEventListener('click', () => {
-        recommendBgImage = null;
+        const files = [...(fileInput.files || [])].filter(f => f.size <= 8 * 1024 * 1024);
+        if (!files.length) { showToast('未添加背景图（每张需 ≤8MB）'); fileInput.value = ''; return; }
+        Promise.all(files.map(f => new Promise(res => {
+            const r = new FileReader();
+            r.onload = () => res(String(r.result));
+            r.readAsDataURL(f);
+        }))).then(imgs => {
+            recommendBgImages.push(...imgs);
+            renderRecommendBgList();
+            if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+            markRecommendDirty();
+            showToast(`已添加 ${imgs.length} 张背景图`);
+        });
         fileInput.value = '';
-        nameEl.textContent = '';
-        removeBtn.hidden = true;
+    });
+    /* 轮换/透明度/模糊度滑块：值联动 + 预览弹窗开着时重生成 */
+    const sliders = [
+        ['recommend-bg-rotation', 'recommend-bg-rotation-val', v => v + 's'],
+        ['recommend-bg-opacity', 'recommend-bg-opacity-val', v => v + '%'],
+        ['recommend-bg-brightness', 'recommend-bg-brightness-val', v => v + '%'],
+        ['recommend-bg-blur', 'recommend-bg-blur-val', v => String(v)]
+    ];
+    sliders.forEach(([id, valId, fmt]) => {
+        const s = document.getElementById(id);
+        const v = document.getElementById(valId);
+        const upd = () => { if (v) v.textContent = fmt(Number(s.value)); };
+        if (!s) return;
+        s.addEventListener('input', upd);
+        s.addEventListener('change', () => {
+            upd();
+            if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+            markRecommendDirty();
+        });
+        upd();
     });
     sync();
 }
@@ -2427,18 +2944,313 @@ function initRecommendBgm() {
             r.onload = () => res({ name: f.name, base64: String(r.result).split(',')[1] || '' });
             r.readAsDataURL(f);
         }))).then(tracks => {
+            /* BGM 总 base64 ≤60MB（后端 Jackson 上限已调大到 100MB 兜底；60MB 防超大 body 拖垮预览/导出） */
+            const cur = recommendBgmList.reduce((s, t) => s + (t.base64?.length || 0), 0);
+            const add = tracks.reduce((s, t) => s + (t.base64?.length || 0), 0);
+            const MAX_BGM_B64 = 60 * 1024 * 1024;
+            if (cur + add > MAX_BGM_B64) {
+                showToast(`BGM 总量超过 60MB（当前 ${(cur / 1048576).toFixed(1)}MB + 新增 ${(add / 1048576).toFixed(1)}MB），请减少曲目`);
+                return;
+            }
             recommendBgmList.push(...tracks);
             render();
             showToast(`已添加 ${tracks.length} 首 BGM`);
         });
         fileInput.value = '';
     });
-    /* 封面大小改选 → 重新生成预览 */
-    document.getElementById('preview-cover-size').addEventListener('change', () => {
+    /* 预览弹窗三滑块 + 分组排序：改值 → 重新生成预览（滑块值即时联动显示） */
+    function bindPreviewSlider(sliderId, valId, fmt) {
+        const s = document.getElementById(sliderId);
+        const v = document.getElementById(valId);
+        const upd = () => { v.textContent = fmt(Number(s.value)); updateRecommendDuration(); };   // 拖拽即时重算总时长
+        s.addEventListener('input', upd);
+        s.addEventListener('change', () => { if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview(); });
+        upd();
+    }
+    bindPreviewSlider('preview-cover-size', 'preview-cover-val', n => n + ' · ' + (n < 34 ? '小' : n > 66 ? '大' : '中'));
+    bindPreviewSlider('preview-opening-speed', 'preview-opening-val', n => String(n));
+    bindPreviewSlider('preview-ending-speed', 'preview-ending-val', n => String(n));
+    document.getElementById('preview-group-sort').addEventListener('change', () => {
         if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
     });
     render();
 }
+
+/* ========== 推荐草稿 + 模板（「更多」面板，后端存储） ========== */
+
+/** 收集当前推荐配置（含 BGM，草稿用）。 */
+function collectRecommendConfig() {
+    const durs = recommendDurations();
+    return {
+        ids: [...recommendSelected],
+        title: recommendTitle(),
+        subtitle: recommendSubtitle(),
+        intro: recommendIntro(),
+        prologueTitle: recommendPrologueTitle(),
+        groupBy: recommendGroupBy(),
+        groupStyle: recommendGroupStyle(),
+        groupSort: recommendGroupSort(),
+        coverSize: recommendCoverSize(),
+        openingSpeed: recommendOpeningSpeed(),
+        endingScrollSpeed: recommendEndingSpeed(),
+        ...recommendEnding(),
+        bgType: document.getElementById('recommend-bg-type').value,
+        ...recommendBg(), ...recommendBgmStyle(),
+        ...durs,
+        openingIds: currentOpeningIds(),   // 开局封面（开场代表秀）：当前开场子集
+        openingCustom: document.getElementById('recommend-opening-toggle').checked,
+        bgmTracks: recommendBgmList
+    };
+}
+
+/** 模板配置：同草稿（**含 BGM**，整套复用含音乐）。 */
+function collectTemplateConfig() {
+    return collectRecommendConfig();
+}
+
+function setCfgVal(id, v) {
+    const el = document.getElementById(id);
+    if (el && v != null && String(v) !== '') el.value = v;
+}
+
+function renderRecommendBgmList() {
+    const countEl = document.getElementById('recommend-bgm-count');
+    const listEl = document.getElementById('recommend-bgm-list');
+    if (countEl) countEl.textContent = recommendBgmList.length ? `🎵 ${recommendBgmList.length} 首` : '';
+    if (listEl) listEl.innerHTML = recommendBgmList.map((t, i) => `
+        <span class="recommend-bgm-item">${i + 1}. ${esc(t.name)}
+            <button type="button" class="btn-mini danger" data-idx="${i}">✕</button>
+        </span>`).join('');
+    if (listEl) listEl.querySelectorAll('[data-idx]').forEach(b => b.addEventListener('click', () => {
+        recommendBgmList.splice(Number(b.dataset.idx), 1);
+        renderRecommendBgmList();
+        markRecommendDirty();
+    }));
+}
+
+function syncPreviewSliders() {
+    const cover = document.getElementById('preview-cover-size');
+    const cv = document.getElementById('preview-cover-val');
+    if (cover && cv) cv.textContent = Number(cover.value) + ' · ' + (Number(cover.value) < 34 ? '小' : Number(cover.value) > 66 ? '大' : '中');
+    const os = document.getElementById('preview-opening-speed');
+    const ov = document.getElementById('preview-opening-val');
+    if (os && ov) ov.textContent = String(os.value);
+    const es = document.getElementById('preview-ending-speed');
+    const ev = document.getElementById('preview-ending-val');
+    if (es && ev) ev.textContent = String(es.value);
+}
+
+/** 还原配置到推荐向导（草稿/模板载入共用）。返回是否成功应用。 */
+function applyRecommendConfig(cfg) {
+    if (!cfg) return false;
+    recommendSelected.clear();
+    (cfg.ids || []).forEach(id => recommendSelected.add(Number(id)));
+    setCfgVal('recommend-title', cfg.title);
+    setCfgVal('recommend-subtitle', cfg.subtitle);
+    setCfgVal('recommend-intro', cfg.intro);
+    setCfgVal('recommend-prologue-title', cfg.prologueTitle);
+    setCfgVal('recommend-ending-title', cfg.endingTitle);
+    setCfgVal('recommend-ending-text', cfg.endingText);
+    setCfgVal('recommend-group-by', cfg.groupBy);
+    setCfgVal('recommend-group-style', cfg.groupStyle);
+    setCfgVal('preview-group-sort', cfg.groupSort);
+    setCfgVal('preview-cover-size', cfg.coverSize);
+    setCfgVal('preview-opening-speed', cfg.openingSpeed);
+    setCfgVal('preview-ending-speed', cfg.endingScrollSpeed);
+    setCfgVal('recommend-dur-opening', cfg.openingSec);
+    setCfgVal('recommend-dur-intro', cfg.introSec);
+    setCfgVal('recommend-dur-group', cfg.groupSec);
+    setCfgVal('recommend-dur-detail', cfg.detailSec);
+    setCfgVal('recommend-dur-ending', cfg.endingSec);
+    setCfgVal('recommend-bg-type', cfg.bgType);
+    setCfgVal('recommend-bg-color', cfg.bgColor);
+    recommendBgmList = Array.isArray(cfg.bgmTracks) ? cfg.bgmTracks : [];
+    /* 开局封面（开场代表秀）：还原自定义开场子集 + toggle 状态 */
+    if (cfg.openingIds) {
+        openingSelected.clear();
+        cfg.openingIds.forEach(id => openingSelected.add(Number(id)));
+        const ot = document.getElementById('recommend-opening-toggle');
+        if (ot) ot.checked = !!cfg.openingCustom;
+        updateOpeningStatus();
+    }
+    recommendBgImages = Array.isArray(cfg.bgImages) ? cfg.bgImages : [];
+    setCfgVal('recommend-bg-rotation', cfg.bgRotationSec);
+    setCfgVal('recommend-bg-opacity', cfg.bgOpacity);
+    setCfgVal('recommend-bg-blur', cfg.bgBlur);
+    setCfgVal('recommend-bg-brightness', cfg.bgBrightness);
+    setCfgVal('recommend-bgm-scale', cfg.bgmScale);
+    setCfgVal('recommend-bgm-x', cfg.bgmX);
+    setCfgVal('recommend-bgm-y', cfg.bgmY);
+    syncBgmStyleLabels();
+    renderRecommendBgList();
+    renderRecommendBgmList();
+    syncPreviewSliders();
+    const typeEl = document.getElementById('recommend-bg-type');
+    if (typeEl) typeEl.dispatchEvent(new Event('change'));   // 触发背景行显示
+    if (currentViewName === 'recommend') { try { loadRecommend(); } catch (e) { /* 忽略 */ } }
+    updateRecommendCount();
+    return true;
+}
+
+/* 自动保存草稿（防抖 1s） */
+let recommendDirtyTimer = null;
+function markRecommendDirty() {
+    clearTimeout(recommendDirtyTimer);
+    recommendDirtyTimer = setTimeout(saveRecommendDraft, 1000);
+}
+async function saveRecommendDraft() {
+    try {
+        const resp = await fetch('/api/recommend/draft', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config: JSON.stringify(collectRecommendConfig()) })
+        });
+        if (resp.ok) {
+            const st = document.getElementById('rec-draft-status');
+            if (st) st.textContent = '已保存 ' + new Date().toTimeString().slice(0, 5);
+        }
+    } catch (e) { /* 忽略 */ }
+}
+
+async function restoreRecommendDraft(silent) {
+    try {
+        const resp = await fetch('/api/recommend/draft');
+        if (!resp.ok) return false;
+        const d = await resp.json();
+        if (!d || !d.config) return false;
+        const ok = applyRecommendConfig(JSON.parse(d.config));
+        if (ok && !silent) showToast('已恢复推荐草稿');
+        return ok;
+    } catch (e) { return false; }
+}
+
+/* 模板：列表渲染 / 载入 / 删除 / 另存 */
+async function renderRecommendTemplateList() {
+    const el = document.getElementById('rec-template-list');
+    if (!el) return;
+    try {
+        const resp = await fetch('/api/recommend/templates');
+        if (!resp.ok) return;
+        const list = await resp.json();
+        el.innerHTML = '';
+        if (!list.length) { el.innerHTML = '<div class="more-panel-empty">暂无模板</div>'; return; }
+        list.forEach(t => {
+            const row = document.createElement('div');
+            row.className = 'more-panel-tpl';
+            const name = document.createElement('span');
+            name.className = 'tpl-name';
+            name.textContent = t.name;
+            row.appendChild(name);
+            const loadBtn = document.createElement('button');
+            loadBtn.type = 'button'; loadBtn.className = 'btn-mini'; loadBtn.textContent = '载入';
+            loadBtn.addEventListener('click', async () => {
+                try {
+                    const r = await fetch(`/api/recommend/templates/${t.id}`);
+                    const td = await r.json();
+                    if (td.config && applyRecommendConfig(JSON.parse(td.config))) showToast(`已载入模板「${t.name}」`);
+                } catch (e) { showToast('载入模板失败'); }
+            });
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button'; delBtn.className = 'btn-mini danger'; delBtn.textContent = '✕';
+            delBtn.addEventListener('click', async () => {
+                await fetch(`/api/recommend/templates/${t.id}`, { method: 'DELETE' });
+                renderRecommendTemplateList();
+            });
+            const updBtn = document.createElement('button');
+            updBtn.type = 'button'; updBtn.className = 'btn-mini'; updBtn.textContent = '更新';
+            updBtn.title = '用当前推荐配置更新此模板';
+            updBtn.addEventListener('click', () => {
+                showConfirm({
+                    title: `更新模板「${t.name}」`,
+                    msg: '用当前推荐配置覆盖更新此模板？',
+                    okText: '更新',
+                    onOk: async () => {
+                        try {
+                            const resp = await fetch(`/api/recommend/templates/${t.id}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ name: t.name, config: JSON.stringify(collectTemplateConfig()) })
+                            });
+                            if (resp.ok) showToast(`已更新模板「${t.name}」`);
+                        } catch (e) { showToast('更新模板失败'); }
+                    }
+                });
+            });
+            row.appendChild(loadBtn);
+            row.appendChild(updBtn);
+            row.appendChild(delBtn);
+            el.appendChild(row);
+        });
+    } catch (e) { /* 忽略 */ }
+}
+
+/** 另存为模板：打开网站风格输入弹窗（替代原生 prompt，见记忆 ui-style-consistent）。 */
+function saveRecommendAsTemplate() {
+    document.getElementById('template-name-input').value = '';
+    document.getElementById('template-save-modal').hidden = false;
+    document.getElementById('template-name-input').focus();
+}
+document.getElementById('template-save-confirm').addEventListener('click', async () => {
+    const name = document.getElementById('template-name-input').value.trim();
+    if (!name) { showToast('请输入模板名'); return; }
+    try {
+        const resp = await fetch('/api/recommend/templates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, config: JSON.stringify(collectTemplateConfig()) })
+        });
+        if (resp.ok) { showToast(`已另存为模板「${name}」`); renderRecommendTemplateList(); }
+        document.getElementById('template-save-modal').hidden = true;
+    } catch (e) { showToast('另存模板失败'); }
+});
+document.getElementById('template-save-cancel').addEventListener('click', () => {
+    document.getElementById('template-save-modal').hidden = true;
+});
+
+/* 「更多」面板：导出任务 / 草稿 / 模板；向导内改动自动存草稿 */
+(function initRecMorePanel() {
+    const btn = document.getElementById('rec-more-btn');
+    const panel = document.getElementById('rec-more-panel');
+    if (!btn || !panel) return;
+    btn.addEventListener('click', e => { e.stopPropagation(); panel.hidden = !panel.hidden; });
+    document.addEventListener('click', () => { panel.hidden = true; });
+    panel.addEventListener('click', e => e.stopPropagation());
+    document.getElementById('rec-export-tasks').addEventListener('click', () => openExportTasks());
+    document.getElementById('rec-restore-draft').addEventListener('click', async () => {
+        const ok = await restoreRecommendDraft(false);
+        if (!ok) showToast('暂无草稿');
+    });
+    document.getElementById('rec-save-template').addEventListener('click', saveRecommendAsTemplate);
+    renderRecommendTemplateList();
+    /* 推荐向导内任何改动 → 防抖自动存草稿 */
+    document.getElementById('view-recommend').addEventListener('change', markRecommendDirty);
+    document.getElementById('view-recommend').addEventListener('input', markRecommendDirty);
+    /* 页面加载静默恢复草稿 */
+    restoreRecommendDraft(true);
+})();
+
+/* 推荐配置弹窗（齿轮）：打开/关闭；打开时刷新滑块显示值 */
+function refreshBgSliderVals() {
+    const map = [
+        ['recommend-bg-rotation', 'recommend-bg-rotation-val', v => v + 's'],
+        ['recommend-bg-opacity', 'recommend-bg-opacity-val', v => v + '%'],
+        ['recommend-bg-brightness', 'recommend-bg-brightness-val', v => v + '%'],
+        ['recommend-bg-blur', 'recommend-bg-blur-val', v => String(v)]
+    ];
+    map.forEach(([id, valId, fmt]) => {
+        const s = document.getElementById(id);
+        const v = document.getElementById(valId);
+        if (s && v) v.textContent = fmt(Number(s.value));
+    });
+}
+document.getElementById('rec-config-btn').addEventListener('click', () => {
+    syncPreviewSliders();
+    refreshBgSliderVals();
+    document.getElementById('recommend-config-modal').hidden = false;
+});
+document.getElementById('recommend-config-close').addEventListener('click', () => {
+    document.getElementById('recommend-config-modal').hidden = true;
+});
 
 async function generateRecommendPreview() {
     const ids = [...recommendSelected];
@@ -2450,12 +3262,19 @@ async function generateRecommendPreview() {
         const resp = await fetch('/api/recommend/html', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendDurations(), ...recommendBgmBody() }),
+            body: JSON.stringify({ ids, title, subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDurations(), ...recommendBgmBody() }),
         });
         if (!resp.ok) throw new Error(`生成失败 (${resp.status})`);
         const html = await resp.text();
         const frame = document.getElementById('recommend-preview-frame');
         frame.srcdoc = html;
+        /* 预览就绪后启用配置模式（BGM 条拖拽 + 右侧导航）+ 同步自动播放开关 */
+        frame.onload = () => {
+            try {
+                frame.contentWindow.postMessage({ type: 'bgm-config', enable: true }, '*');
+                frame.contentWindow.postMessage({ type: 'bgm-autoplay', on: document.getElementById('preview-autoplay').checked }, '*');
+            } catch (e) { /* 忽略 */ }
+        };
         document.getElementById('preview-title-note').textContent = `「${title}」· ${ids.length} 部`;
         document.getElementById('recommend-preview-modal').hidden = false;
         statusEl.textContent = '';
@@ -2474,7 +3293,7 @@ async function downloadRecommendHtml() {
         const resp = await fetch('/api/recommend/html', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendDurations(), ...recommendBgmBody() }),
+            body: JSON.stringify({ ids, title, subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDurations(), ...recommendBgmBody() }),
         });
         if (!resp.ok) throw new Error(`生成失败 (${resp.status})`);
         const blob = await resp.blob();
@@ -2539,7 +3358,7 @@ async function exportRecommendVideo() {
         const resp = await fetch('/api/recommend/video', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, format, resolution, subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendDurations(), ...recommendBgmBody() }),
+            body: JSON.stringify({ ids, title, format, resolution, subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDurations(), ...recommendBgmBody() }),
         });
         if (!resp.ok) {
             let msg = `创建导出任务失败 (${resp.status})`;
@@ -2904,6 +3723,8 @@ async function loadFormats() {
     fillSubcategoryFilter();
     fillSearchFilters();
     fillYearFilter();
+    fillCollYearFilter();
+    fillRecommendYearFilter();
 }
 
 function renderFormatTabs() {
@@ -3724,45 +4545,99 @@ async function saveCover() {
     refreshMediaDetail();
 }
 
-async function openRenameModal() {
+function openRenameModal() {
     renameTitleInput.value = '';
-    mergeIntoSelect.innerHTML = '<option value="">— 不合并 —</option>';
-    try {
-        const resp = await fetch('/api/media?limit=100');
-        if (resp.ok) {
-            const list = await resp.json();
-            for (const a of list) {
-                if (a.id === currentMedia.id) continue;
-                const opt = document.createElement('option');
-                opt.value = a.id;
-                opt.textContent = a.title;
-                mergeIntoSelect.appendChild(opt);
-            }
-        }
-    } catch (e) { /* 忽略 */ }
+    mergeSearchEl.value = '';
+    mergeCandidatesEl.hidden = true;
+    mergeCandidatesEl.innerHTML = '';
+    mergeTargetId = null;
+    mergeTargetTitle = '';
     renameModal.hidden = false;
     renameTitleInput.focus();
 }
 
+/** 合并目标搜索：输入防抖 300ms → /api/media?q= 模糊搜索候选（排除当前媒体），点选回填。 */
+mergeSearchEl.addEventListener('input', () => {
+    if (mergeSearchEl.value !== mergeTargetTitle) { mergeTargetId = null; mergeTargetTitle = ''; }
+    clearTimeout(mergeSearchTimer);
+    mergeSearchTimer = setTimeout(async () => {
+        const q = mergeSearchEl.value.trim();
+        if (!q) { mergeCandidatesEl.hidden = true; mergeCandidatesEl.innerHTML = ''; return; }
+        try {
+            const resp = await fetch(`/api/media?q=${encodeURIComponent(q)}&limit=8`);
+            if (!resp.ok) return;
+            const list = await resp.json();
+            mergeCandidatesEl.innerHTML = '';
+            const items = list.filter(a => a.id !== (currentMedia && currentMedia.id));
+            if (items.length === 0) {
+                mergeCandidatesEl.innerHTML = '<div class="merge-cand-empty">无匹配媒体</div>';
+            }
+            for (const a of items) {
+                const item = document.createElement('div');
+                item.className = 'merge-cand-item';
+                const meta = [];
+                if (a.year) meta.push(`${a.year} 年`);
+                if (a.subcategory) meta.push(a.subcategory);
+                item.innerHTML = `<span class="merge-cand-title">${esc(a.title)}</span>`
+                    + (meta.length ? `<span class="merge-cand-meta">${meta.join(' · ')}</span>` : '');
+                item.addEventListener('click', () => {
+                    mergeTargetId = a.id;
+                    mergeTargetTitle = a.title;
+                    mergeSearchEl.value = a.title;
+                    mergeCandidatesEl.hidden = true;
+                });
+                mergeCandidatesEl.appendChild(item);
+            }
+            mergeCandidatesEl.hidden = false;
+        } catch (e) { /* 忽略 */ }
+    }, 300);
+});
+mergeSearchEl.addEventListener('blur', () => setTimeout(() => { mergeCandidatesEl.hidden = true; }, 150));
+
 async function saveRename() {
     if (!currentMedia) return;
-    const into = mergeIntoSelect.value;
     const title = renameTitleInput.value.trim();
-    if (into) {
-        await fetch(`/api/media/${currentMedia.id}/merge?into=${into}`, { method: 'POST' });
+    if (mergeTargetId) {
+        // 优先合并
+        await fetch(`/api/media/${currentMedia.id}/merge?into=${mergeTargetId}`, { method: 'POST' });
         renameModal.hidden = true;
         showView('media');
     } else if (title) {
-        await fetch(`/api/media/${currentMedia.id}/rename`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title })
-        });
-        renameModal.hidden = true;
-        refreshMediaDetail();
+        // 改名：先查重名（标题有变化才查），命中弹三选一
+        if (title !== currentMedia.title) {
+            const dup = await findExactDuplicate(title);
+            if (dup) { showRenameDupe(dup, title); return; }
+        }
+        await doRename(title);
     } else {
         renameModal.hidden = true;
     }
+}
+
+/** 精确同名检测：/api/media?q= 模糊命中后精确比较 title，排除当前媒体。 */
+async function findExactDuplicate(title) {
+    try {
+        const resp = await fetch(`/api/media?q=${encodeURIComponent(title)}&limit=20`);
+        if (!resp.ok) return null;
+        const list = await resp.json();
+        return list.find(a => a.title === title && a.id !== currentMedia.id) || null;
+    } catch (e) { return null; }
+}
+
+async function doRename(title) {
+    await fetch(`/api/media/${currentMedia.id}/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title })
+    });
+    renameModal.hidden = true;
+    refreshMediaDetail();
+}
+
+function showRenameDupe(dup, title) {
+    renameDupeMsg.textContent = `库中已有同名媒体「${dup.title}」${dup.year ? '（' + dup.year + ' 年）' : ''}，怎么处理？`;
+    renameDupeResolve = { dup, title };
+    renameDupeModal.hidden = false;
 }
 
 function deleteMedia() {
@@ -4435,6 +5310,8 @@ recommendSourceEl.addEventListener('change', () => {
     recommendSourceId = v ? Number(v) : null;
     loadRecommend();
 });
+recommendYearEl.addEventListener('change', () => { recommendYear = recommendYearEl.value; loadRecommend(); });
+recommendGroupedEl.addEventListener('change', () => { recommendGrouped = recommendGroupedEl.checked; loadRecommend(); });
 recommendTagInputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); applyRecommendTagFilter(); } });
 recommendTagInputEl.addEventListener('blur', () => applyRecommendTagFilter());
 recommendTagClearEl.addEventListener('click', () => {
@@ -4469,11 +5346,72 @@ document.getElementById('recommend-title').addEventListener('input', () => {
     document.getElementById('recommend-title-preview').textContent = recommendTitle();
 });
 // 预览导出
+let recommendPreviewStructure = null;   // 模板上报的导览结构（须在任何 init 调用前声明，避免 TDZ——initRecommendBgm→bindPreviewSlider→updateRecommendDuration 会读它）
+initConfigGroups(); // 配置弹窗四组折叠 + 显示时长实时生效
+initRecommendBgmStyle(); // 音乐条样式（配置弹窗滑块/坐标，拖拽回填）
 initRecommendBgm(); // BGM 选择（选本地音频 → base64 内嵌 HTML / 混入导出视频）
 initRecommendOpening(); // 开局封面（步骤3 自定义 toggle + 选择器弹窗）
 initRecommendBg(); // 背景（步骤3 主题色/图片选择）
+
+/* 预览 iframe 拖 BGM 条松手 → 回填 X/Y 输入并存草稿；缩放手柄松手 → 回填缩放滑块；模板上报结构 → 算总时长 */
+window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'bgm-moved') {
+        const x = Number(e.data.x), y = Number(e.data.y);
+        if (Number.isFinite(x)) setCfgVal('recommend-bgm-x', String(x));
+        if (Number.isFinite(y)) setCfgVal('recommend-bgm-y', String(y));
+        markRecommendDirty();
+    }
+    if (e.data && e.data.type === 'bgm-scaled') {
+        const s = Number(e.data.scale);
+        if (Number.isFinite(s)) {
+            setCfgVal('recommend-bgm-scale', String(s));
+            syncBgmStyleLabels();
+        }
+        markRecommendDirty();
+    }
+    if (e.data && e.data.type === 'preview-structure') {
+        recommendPreviewStructure = e.data;
+        updateRecommendDuration();
+    }
+});
+
+/* 预览总时长：模板上报结构后，按当前配置即时计算（与模板 playDevelop/startEnding 同口径，含开场/结尾速度）。改速度/时长滑块本地重算，秒出。 */
+function computeRecommendDuration() {
+    const s = recommendPreviewStructure;
+    if (!s) return null;
+    const v = id => document.getElementById(id).value;
+    const openingSec = Number(v('recommend-dur-opening')) || 10;
+    const introSec = Number(v('recommend-dur-intro')) || 5;
+    const groupSec = Number(v('recommend-dur-group')) || 5;
+    const detailSec = Number(v('recommend-dur-detail')) || 10;
+    const endingSec = Number(v('recommend-dur-ending')) || 5;
+    const openingSpeed = Number(v('preview-opening-speed')) || 50;
+    const endingSpeed = Number(v('preview-ending-speed')) || 50;
+    const spMult = (120 - openingSpeed) / 70;   // 与模板一致：50→1, 100→~0.29(快), 0→~1.71(慢)
+    const flashMs = s.openingCount * (520 * spMult) + Math.max(0, s.openingCount - 1) * (40 * spMult) + 300;
+    const endingStep = 0.8 + endingSpeed / 12;   // 结尾滚动 px/帧（模板 startEnding 同口径）
+    const endingScrollMs = s.endingScroll > 0 ? s.endingScroll / endingStep * 16 : 0;
+    const totalMs = flashMs
+        + openingSec * 1000
+        + (s.hasPrologue ? introSec * 1000 : 0)
+        + s.chapterCount * groupSec * 1000
+        + s.storyCount * detailSec * 1000
+        + endingScrollMs
+        + endingSec * 1000;
+    return totalMs / 1000;
+}
+function fmtDur(sec) {
+    const r = Math.max(0, Math.round(sec || 0));
+    return Math.floor(r / 60) + ':' + String(r % 60).padStart(2, '0');
+}
+function updateRecommendDuration() {
+    const el = document.getElementById('preview-duration');
+    if (!el) return;
+    const sec = computeRecommendDuration();
+    el.textContent = sec == null ? '总时长 --:--' : '总时长 ' + fmtDur(sec);
+}
 loadExportTasks(); // 导出任务列表（异步后台任务管理）
-document.getElementById('export-tasks-btn').addEventListener('click', openExportTasks);
+/* 导出任务入口已收进「更多」面板（initRecMorePanel 里绑定 rec-export-tasks） */
 document.getElementById('export-tasks-close').addEventListener('click', closeExportTasks);
 document.getElementById('export-task-search').addEventListener('input', renderExportTasks);
 document.getElementById('export-task-status').addEventListener('change', renderExportTasks);
@@ -4497,6 +5435,11 @@ document.getElementById('recommend-export-html').addEventListener('click', downl
 document.getElementById('recommend-export-video').addEventListener('click', openVideoExport);
 // 预览弹窗
 document.getElementById('preview-close').addEventListener('click', () => { document.getElementById('recommend-preview-modal').hidden = true; });
+/* 自动播放开关（预览界面，默认开）：切换即同步到 iframe 导览 */
+document.getElementById('preview-autoplay').addEventListener('change', () => {
+    const frame = document.getElementById('recommend-preview-frame');
+    try { frame.contentWindow.postMessage({ type: 'bgm-autoplay', on: document.getElementById('preview-autoplay').checked }, '*'); } catch (err) { /* 忽略 */ }
+});
 document.getElementById('preview-export-video').addEventListener('click', () => {
     document.getElementById('recommend-preview-modal').hidden = true;
     openVideoExport();
@@ -4568,6 +5511,48 @@ filterOrderBtn.addEventListener('click', () => {
     filterOrderBtn.title = mediaFilter.order === 'desc' ? '当前降序，点击切换升序' : '当前升序，点击切换降序';
     loadMedia();
 });
+/* 收藏夹 tab 内容筛选：标题模糊搜索（300ms 防抖）/ 年份 / 排序维度 + 升降序 */
+let collQTimer = null;
+collQEl.addEventListener('input', () => {
+    clearTimeout(collQTimer);
+    collQTimer = setTimeout(() => { collFilter.q = collQEl.value.trim(); if (collSelectedId != null) loadCollMedia(collSelectedId); }, 300);
+});
+collYearEl.addEventListener('change', () => { collFilter.year = collYearEl.value; if (collSelectedId != null) loadCollMedia(collSelectedId); });
+collSortEl.addEventListener('change', () => { collFilter.sort = collSortEl.value; if (collSelectedId != null) loadCollMedia(collSelectedId); });
+collOrderBtn.addEventListener('click', () => {
+    collFilter.order = collFilter.order === 'desc' ? 'asc' : 'desc';
+    collOrderBtn.textContent = collFilter.order === 'desc' ? '↓' : '↑';
+    collOrderBtn.title = collFilter.order === 'desc' ? '当前降序，点击切换升序' : '当前升序，点击切换降序';
+    if (collSelectedId != null) loadCollMedia(collSelectedId);
+});
+collGroupedEl.addEventListener('change', () => {
+    collGrouped = collGroupedEl.checked;
+    if (collSelectedId != null) loadCollMedia(collSelectedId);
+});
+/* 回到顶部：滚动超过阈值显示，点击平滑回顶（主流右下角圆钮） */
+const backTopBtn = document.getElementById('back-top');
+window.addEventListener('scroll', () => {
+    backTopBtn.classList.toggle('show', window.scrollY > 400);
+}, { passive: true });
+backTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+/* 全局卡片/列表视图切换：单个按钮，图标随状态变；媒体页/收藏夹/推荐页共用同一偏好 */
+function syncViewToggleButtons() {
+    document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+        btn.textContent = displayView === 'card' ? '☰ 列表' : '▦ 卡片';
+        btn.title = displayView === 'card' ? '切换到列表视图' : '切换到卡片视图';
+    });
+}
+function toggleDisplayView() {
+    displayView = displayView === 'card' ? 'list' : 'card';
+    syncViewToggleButtons();
+    if (currentViewName === 'media') loadMedia(false);
+    else if (currentViewName === 'collections') { if (collSelectedId != null) loadCollMedia(collSelectedId, false); }
+    else if (currentViewName === 'recommend' && currentRecommendList) {
+        if (recommendGrouped) renderRecommendGrouped(currentRecommendList);
+        else renderRecommendGrid(currentRecommendList);
+    }
+}
+document.querySelectorAll('.view-toggle-btn').forEach(btn => btn.addEventListener('click', toggleDisplayView));
 // 回收站：返回/清空/搜索（input 防抖 300ms；打开走媒体 tab 的 trash 分支）
 trashBackBtn.addEventListener('click', () => {
     // 返回媒体列表：切回「全部媒体」tab（含主区恢复）
@@ -4632,6 +5617,25 @@ document.getElementById('cover-modal-save').addEventListener('click', saveCover)
 renameModal.addEventListener('click', (e) => { if (e.target === renameModal) renameModal.hidden = true; });
 document.getElementById('rename-cancel').addEventListener('click', () => { renameModal.hidden = true; });
 document.getElementById('rename-save').addEventListener('click', saveRename);
+/* 重名处理弹窗：合并到它 / 仅改名 / 取消 */
+document.getElementById('rename-dupe-merge').addEventListener('click', async () => {
+    if (!renameDupeResolve) return;
+    const { dup } = renameDupeResolve;
+    renameDupeModal.hidden = true;
+    renameModal.hidden = true;
+    renameDupeResolve = null;
+    await fetch(`/api/media/${currentMedia.id}/merge?into=${dup.id}`, { method: 'POST' });
+    showView('media');
+});
+document.getElementById('rename-dupe-keep').addEventListener('click', async () => {
+    if (!renameDupeResolve) return;
+    const { title } = renameDupeResolve;
+    renameDupeModal.hidden = true;
+    renameDupeResolve = null;
+    await doRename(title);
+});
+document.getElementById('rename-dupe-cancel').addEventListener('click', () => { renameDupeModal.hidden = true; renameDupeResolve = null; });
+renameDupeModal.addEventListener('click', (e) => { if (e.target === renameDupeModal) { renameDupeModal.hidden = true; renameDupeResolve = null; } });
 episodeTagModal.addEventListener('click', (e) => { if (e.target === episodeTagModal) episodeTagModal.hidden = true; });
 document.getElementById('episode-tag-cancel').addEventListener('click', () => { episodeTagModal.hidden = true; });
 document.getElementById('episode-tag-save').addEventListener('click', saveEpisodeTag);
@@ -4739,7 +5743,7 @@ loadFormats();
 
 // ========== 设置：网站背景图（多图轮播） ==========
 let siteBgTimer = null, siteBgIndex = 0;
-let bgSettingsCache = { bgImages: [], rotationSec: 15, opacity: 0.6, blur: 30 };
+let bgSettingsCache = { bgImages: [], rotationSec: 15, opacity: 0.6, blur: 30, brightness: 50 };
 
 function openSettings() {
     document.getElementById('settings-modal').hidden = false;
@@ -4756,6 +5760,7 @@ async function loadSettings(apply) {
             rotationSec: s.rotationSec ?? 15,
             opacity: s.opacity ?? 0.6,
             blur: s.blur ?? 30,
+            brightness: s.brightness ?? 50,
         };
         if (apply) applySiteBackground(bgSettingsCache);
         renderSettingsForm();
@@ -4788,6 +5793,8 @@ function renderSettingsForm() {
     document.getElementById('bg-opacity-val').textContent = Math.round(bgSettingsCache.opacity * 100) + '%';
     document.getElementById('bg-blur').value = bgSettingsCache.blur;
     document.getElementById('bg-blur-val').textContent = bgSettingsCache.blur + '%';
+    document.getElementById('bg-brightness').value = bgSettingsCache.brightness ?? 50;
+    document.getElementById('bg-brightness-val').textContent = (bgSettingsCache.brightness ?? 50) + '%';
     document.getElementById('bg-clear-btn').hidden = bgSettingsCache.bgImages.length === 0;
 }
 
@@ -4801,7 +5808,7 @@ async function uploadBgImages() {
         const resp = await fetch('/api/settings/bg', { method: 'POST', body: fd });
         if (!resp.ok) throw new Error();
         const s = await resp.json();
-        bgSettingsCache = { bgImages: s.bgImages || [], rotationSec: s.rotationSec ?? 15, opacity: s.opacity ?? 0.6, blur: s.blur ?? 30 };
+        bgSettingsCache = { bgImages: s.bgImages || [], rotationSec: s.rotationSec ?? 15, opacity: s.opacity ?? 0.6, blur: s.blur ?? 30, brightness: s.brightness ?? 50 };
         applySiteBackground(bgSettingsCache);
         renderSettingsForm();
         showToast('已添加 ' + files.length + ' 张背景图');
@@ -4825,23 +5832,30 @@ async function removeBgImage(i) {
 
 function clearAllBgImages() {
     if (!bgSettingsCache.bgImages.length) return;
-    if (!confirm('移除全部背景图，恢复默认深色背景？')) return;
-    (async () => {
-        for (const src of [...bgSettingsCache.bgImages]) {
-            const name = src.split('/').pop();
-            await fetch('/api/settings/bg/' + encodeURIComponent(name), { method: 'DELETE' }).catch(() => { });
-        }
-        loadSettings(true);
-    })();
+    showConfirm({
+        title: '移除全部背景图',
+        msg: '移除全部背景图，恢复默认深色背景？',
+        okText: '移除全部',
+        danger: true,
+        onOk: async () => {
+            for (const src of [...bgSettingsCache.bgImages]) {
+                const name = src.split('/').pop();
+                await fetch('/api/settings/bg/' + encodeURIComponent(name), { method: 'DELETE' }).catch(() => { });
+            }
+            loadSettings(true);
+        },
+    });
 }
 
 function previewBgChange() {
     bgSettingsCache.rotationSec = Number(document.getElementById('bg-rotation').value);
     bgSettingsCache.opacity = Number(document.getElementById('bg-opacity').value) / 100;
     bgSettingsCache.blur = Number(document.getElementById('bg-blur').value);
+    bgSettingsCache.brightness = Number(document.getElementById('bg-brightness').value);
     document.getElementById('bg-rotation-val').textContent = bgSettingsCache.rotationSec + 's';
     document.getElementById('bg-opacity-val').textContent = Math.round(bgSettingsCache.opacity * 100) + '%';
     document.getElementById('bg-blur-val').textContent = bgSettingsCache.blur + '%';
+    document.getElementById('bg-brightness-val').textContent = bgSettingsCache.brightness + '%';
     applySiteBackground(bgSettingsCache);
 }
 
@@ -4850,7 +5864,7 @@ async function saveSiteSettings() {
         const resp = await fetch('/api/settings', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ rotationSec: bgSettingsCache.rotationSec, opacity: bgSettingsCache.opacity, blur: bgSettingsCache.blur }),
+            body: JSON.stringify({ rotationSec: bgSettingsCache.rotationSec, opacity: bgSettingsCache.opacity, blur: bgSettingsCache.blur, brightness: bgSettingsCache.brightness ?? 50 }),
         });
         if (!resp.ok) throw new Error();
         showToast('设置已保存');
@@ -4870,11 +5884,15 @@ function applySiteBackground(cfg) {
     /* 遮罩放 ::after（壁纸之上），透明度越大遮罩越浅 */
     wrap.style.setProperty('--mask-opacity', (1 - (cfg.opacity ?? 0.6)).toFixed(2));
     const blur = cfg.blur || 0;
+    const brightness = cfg.brightness ?? 50;
     imgs.forEach((src, i) => {
         const div = document.createElement('div');
         div.className = 'site-bg-item' + (i === 0 ? ' active' : '');
         div.style.backgroundImage = "url('" + src + "')";
-        div.style.filter = blur > 0 ? 'blur(' + blur + 'px)' : 'none';
+        const filters = [];
+        if (brightness !== 50) filters.push('brightness(' + (0.2 + brightness * 0.016) + ')');
+        if (blur > 0) filters.push('blur(' + blur + 'px)');
+        div.style.filter = filters.length ? filters.join(' ') : 'none';
         wrap.appendChild(div);
     });
     if (imgs.length > 1) {
@@ -4900,6 +5918,6 @@ document.getElementById('settings-save').addEventListener('click', saveSiteSetti
 document.getElementById('bg-add-btn').addEventListener('click', () => document.getElementById('bg-file').click());
 document.getElementById('bg-file').addEventListener('change', uploadBgImages);
 document.getElementById('bg-clear-btn').addEventListener('click', clearAllBgImages);
-['bg-rotation', 'bg-opacity', 'bg-blur'].forEach(id =>
+['bg-rotation', 'bg-opacity', 'bg-blur', 'bg-brightness'].forEach(id =>
     document.getElementById(id).addEventListener('input', previewBgChange));
 loadSettings(true); // 页面加载应用背景

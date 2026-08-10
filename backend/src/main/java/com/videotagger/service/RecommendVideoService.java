@@ -67,18 +67,18 @@ public class RecommendVideoService {
 
     /** 渲染推荐媒体为视频（MP4/WebM），返回临时文件路径（调用方负责删除）。 */
     public Path render(List<Long> ids, String resolution) {
-        return render(ids, null, null, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return render(ids, null, null, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8);
     }
 
     /** 渲染推荐媒体为视频（无 BGM）。 */
     public Path render(List<Long> ids, String title, String format, String resolution) {
-        return render(ids, title, format, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        return render(ids, title, format, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8);
     }
 
     /** 渲染推荐媒体为视频（单曲 BGM，兼容旧签名）。 */
     public Path render(List<Long> ids, String title, String format, String resolution, String bgmPath) {
         return render(ids, title, format, resolution,
-                bgmPath == null || bgmPath.isBlank() ? null : List.of(bgmPath), null, null, null, null, null, null, null, null, null, null, null, null, null);
+                bgmPath == null || bgmPath.isBlank() ? null : List.of(bgmPath), null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8);
     }
 
     /**
@@ -102,7 +102,11 @@ public class RecommendVideoService {
                        List<RecommendService.BgmTrack> bgmTracks, String groupBy, String groupStyle,
                        String subtitle, String coverSize, List<Long> openingIds, String intro,
                        RecommendService.Durations durations, String endingTitle, String endingText,
-                       String bgColor, String bgImage, String prologueTitle) {
+                       String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
+                       String prologueTitle,
+                       String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
+                       Integer bgmScale,
+                       Integer bgmX, Integer bgmY) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
@@ -121,7 +125,7 @@ public class RecommendVideoService {
         Path html = null;
         try {
             // 1. 生成自包含 HTML → 临时文件
-            String htmlContent = recommendService.buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImage, prologueTitle);
+            String htmlContent = recommendService.buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY);
             Path work = Files.createTempDirectory("vt-recommend-");
             html = work.resolve("recommend.html");
             Files.writeString(html, htmlContent, StandardCharsets.UTF_8);

@@ -146,9 +146,10 @@ let exitCode = 0;
     }
 
     // 录制：以模板导览真正结束为准（模板 finishAuto 设 data-tour-ended 标记），
-    // duration+30s 仅作兜底上限（防模板异常卡死）。时长=开局闪回+定格+各段+结尾，天然完整不缺尾。
+    // duration+120s 仅作兜底上限（防模板异常卡死）。结尾为分组连续滚动（耗时随组数自适应，后端无法精确算），
+    // 故兜底放宽到 120s；正常由 data-tour-ended（滚到底 + ENDING_SEC）提前停止。
     const startedAt = firstTs;
-    const deadline = Date.now() + (duration + 30) * 1000;
+    const deadline = Date.now() + (duration + 120) * 1000;
     while (Date.now() < deadline) {
       if (frameCount > 0) {
         const done = await page.evaluate(

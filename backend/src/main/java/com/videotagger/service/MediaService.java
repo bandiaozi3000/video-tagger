@@ -16,9 +16,11 @@ import com.videotagger.mapper.ClipTagMapper;
 import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.EpisodeTagMapper;
 import com.videotagger.mapper.TagMapper;
+import com.videotagger.util.MediaTitleNormalizer;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 
@@ -142,6 +144,27 @@ public class MediaService {
         mediaMapper.updateById(a);
         embeddingTaskService.enqueue(EntityType.MEDIA, id);
         return a;
+    }
+
+    /** 打标签候选匹配：归一化 + 相似度（识别「爱你宝贝」≈「我爱你BABY」），相似度≥0.6 返回（降序，limit 个）。
+     *  扩展候选区提示用——用户勾选才归入（不自动归入）。 */
+    public List<MediaMatchCandidate> matchCandidates(String title, int limit) {
+        if (MediaTitleNormalizer.normalize(title).isEmpty()) {
+            return List.of();
+        }
+        List<Media> all = mediaMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<Media>()
+                .select("id", "title", "year", "subcategory", "confirmed", "source")
+                .isNull("deleted_at"));
+        List<MediaMatchCandidate> out = new ArrayList<>();
+        for (Media m : all) {
+            double score = MediaTitleNormalizer.similarity(title, m.getTitle());
+            if (score >= 0.6) {
+                out.add(new MediaMatchCandidate(m.getId(), m.getTitle(), m.getYear(), m.getSubcategory(),
+                        clipMapper.countByMedia(m.getId()), score));
+            }
+        }
+        out.sort((a, b) -> Double.compare(b.score(), a.score()));
+        return out.size() > limit ? out.subList(0, limit) : out;
     }
 
     /** 手工确认：自动识别为低置信的番剧经审核后置 confirmed=1。 */

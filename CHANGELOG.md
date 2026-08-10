@@ -3,6 +3,14 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 每版演进的**叙事脉络**（为什么做 → 做了什么 → 延续）见 [docs/story.md](docs/story.md)，这里只列功能事实。
 
+## [0.18.1] - 2026-08-10
+
+### 新增
+- **收藏夹内容筛选与排序**：收藏夹 tab 内容区新增工具条（贴媒体页 `.media-filters` 风格）——**标题模糊搜索**（300ms 防抖）、**首播年份下拉**、**排序下拉**（默认排序 / 首播年份）与**升降序切换按钮**；按首播年份排序时未知年份排最后。接口：`GET /api/collections/{id}/media` 新增 `sort`/`order` 参数（`sort=year` 按首播年份），`GET /api/media/count` 支持 `collectionId+q+year` 组合计数。
+
+### 工程化
+- 版本 0.18.0 → **0.18.1**。
+
 ## [0.18.0] - 2026-08-09
 
 ### 新增

@@ -4,6 +4,7 @@ import com.videotagger.entity.Media;
 import com.videotagger.service.AniListSyncService;
 import com.videotagger.service.MediaDetail;
 import com.videotagger.service.MediaRequest;
+import com.videotagger.service.MediaMatchCandidate;
 import com.videotagger.service.MediaService;
 import com.videotagger.service.MediaSummary;
 import com.videotagger.service.CoverService;
@@ -98,6 +99,13 @@ public class MediaController {
     }
 
     /** 补下缺失封面：遍历留存了 AniList 封面 URL 但尚无封面的媒体，重新触发异步下载。 */
+    /** 打标签候选匹配：归一化 + 相似度（识别中英混写/词序差异），扩展候选区提示用。 */
+    @GetMapping("/match")
+    public List<MediaMatchCandidate> match(@RequestParam String title,
+                                           @RequestParam(defaultValue = "5") int limit) {
+        return mediaService.matchCandidates(title, limit);
+    }
+
     @PostMapping("/retry-covers")
     public Map<String, Object> retryCovers() {
         int n = mediaService.retryCovers();

@@ -3,7 +3,7 @@
 > **开始日期**：2026-08-06
 > **当前版本**：0.8.0（`3c50f41`，分支 feature/v1）
 > **维护约定**：用户测试/使用中提出的**功能需求**（当前缺失的能力，非缺陷）统一记录于此；
-> bug 走 `docs/test-issues.md`，疑问走 `docs/test-qa.md`。
+> bug 走 `docs/testing/issues.md`，疑问走 `docs/testing/test-qa.md`。
 
 ## 记录模板（新需求按此格式追加）
 

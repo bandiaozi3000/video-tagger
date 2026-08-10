@@ -46,9 +46,14 @@
     }
   }
 
-  async function getBackendBase() {
-    const { videoTaggerPrefs } = await chrome.storage.sync.get('videoTaggerPrefs');
-    return (videoTaggerPrefs && videoTaggerPrefs.backendBaseUrl) || VT_DEFAULT_BACKEND;
+  /** 走 background 代理调后端：content script 直连会被页面 CORS 拦（页面 Origin 是视频站，后端只放行 chrome-extension 与 localhost），background 的 fetch 是扩展 origin 可通。返回 {ok,status,data} 或 null。 */
+  function bgApi(path, method, body) {
+    return new Promise(resolve => {
+      chrome.runtime.sendMessage({ type: 'api', path, method: method || 'GET', body }, resp => {
+        if (chrome.runtime.lastError) { resolve(null); return; }
+        resolve(resp);
+      });
+    });
   }
 
   async function getPrefs() {
@@ -224,6 +229,38 @@
       cursor: pointer; font-family: inherit; transition: background .12s;
     }
     .dup-hint button:hover { background: rgba(251, 191, 36, .2); }
+    /* 相似媒体候选（方案C：打标签时确认归入/新建） */
+    .cand-wrap {
+      margin-bottom: 10px; padding: 9px 12px; border-radius: 10px;
+      background: rgba(255, 77, 141, .06); border: 1px solid rgba(255, 77, 141, .3);
+      font-size: 12px; color: var(--text, #edeaf7);
+    }
+    .cand-label { color: #ff8fb8; font-size: 11.5px; margin-bottom: 7px; letter-spacing: .5px; }
+    .cand-item {
+      display: block; width: 100%; text-align: left;
+      background: rgba(255, 255, 255, .05); border: 1px solid rgba(255, 255, 255, .12);
+      border-radius: 8px; color: #edeaf7; font-size: 12px; padding: 6px 10px; margin-bottom: 5px;
+      cursor: pointer; font-family: inherit; transition: background .12s, border-color .12s;
+    }
+    .cand-item:hover { background: rgba(255, 77, 141, .15); }
+    .cand-item.on { background: rgba(255, 77, 141, .2); border-color: rgba(255, 77, 141, .55); }
+    .cand-meta { color: #9d9bb8; font-size: 10.5px; margin-left: 6px; }
+    .cand-new {
+      display: block; width: 100%; text-align: left;
+      background: transparent; border: 1px dashed rgba(255, 255, 255, .2);
+      border-radius: 8px; color: #9d9bb8; font-size: 12px; padding: 6px 10px; margin-top: 2px;
+      cursor: pointer; font-family: inherit; transition: color .12s, border-color .12s;
+    }
+    .cand-new:hover { color: #edeaf7; border-color: rgba(255, 77, 141, .5); }
+    /* 标题映射提示（已记住归入 + 解除） */
+    .map-hint { background: rgba(139, 92, 246, .08); border-color: rgba(139, 92, 246, .35); }
+    .map-row { display: flex; align-items: center; gap: 8px; color: #cdc4f4; }
+    .map-remove {
+      margin-left: auto; flex-shrink: 0; background: transparent;
+      border: 1px solid rgba(255, 255, 255, .18); border-radius: 6px;
+      color: #9d9bb8; font-size: 11px; padding: 3px 9px; cursor: pointer; transition: all .12s;
+    }
+    .map-remove:hover { color: #ff6b6b; border-color: rgba(255, 107, 107, .5); }
     .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
     button {
       border-radius: 10px; padding: 8px 16px; font-size: 13px;
@@ -278,6 +315,8 @@
         </div>
         <input id="vt-note" placeholder="备注（可选）" autocomplete="off">
         <div class="dup-hint" id="vt-dup" hidden></div>
+        <div class="cand-wrap map-hint" id="vt-map" hidden></div>
+        <div class="cand-wrap" id="vt-cand" hidden></div>
         <div class="actions">
           <button class="cancel" id="vt-cancel">取消</button>
           <button class="toggle" id="vt-cont" title="连续打标：保存后浮层不关，时间戳跟随播放进度">连续</button>
@@ -309,6 +348,107 @@
 
     titleEl.textContent = info.title;
     timeEl.textContent = String(Math.round(info.timestampSec));
+
+    /* 方案C：打标签时确认归入——查相似媒体候选，命中则浮层显示，默认归入第一个，可改/新建 */
+    let candMediaId = null;
+    let forceNewMedia = false;   // 用户选「＋ 新建媒体」：断开映射 + 跳过自动匹配
+    async function fetchCandidates() {
+      try {
+        const q = (titleEl.textContent || '').trim();
+        if (!q) return [];
+        /* 归一化 + 相似度匹配（识别「爱你宝贝」≈「我爱你BABY」），返回 [{id,title,year,subcategory,clipCount,score}]；走 background 代理绕 CORS */
+        const resp = await bgApi(`/api/media/match?title=${encodeURIComponent(q)}&limit=5`);
+        if (!resp || !resp.ok) return [];
+        const list = resp.data;
+        return (Array.isArray(list) ? list : []).filter(m => m.id !== (lastMediaId || -1));
+      } catch (e) { return []; }
+    }
+    function renderCandidates(cands) {
+      const el = shadow.getElementById('vt-cand');
+      if (!cands.length) { el.hidden = true; return; }
+      el.hidden = false;
+      candMediaId = null;   // 不自动归入：用户点选才归入（未勾选 = 新建）
+      el.innerHTML = '';
+      const label = document.createElement('div');
+      label.className = 'cand-label';
+      label.textContent = '检测到相似媒体，勾选要归入的（不勾选 = 新建）：';
+      el.appendChild(label);
+      cands.forEach(m => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cand-item';
+        b.dataset.id = m.id;
+        const meta = [m.year ? m.year + ' 年' : '', m.subcategory || '未分类', (m.clipCount || 0) + ' 条'].filter(Boolean).join(' · ');
+        b.textContent = m.title;
+        if (meta) {
+          const sp = document.createElement('span');
+          sp.className = 'cand-meta';
+          sp.textContent = meta;
+          b.appendChild(sp);
+        }
+        b.addEventListener('click', () => {
+          candMediaId = Number(b.dataset.id);
+          forceNewMedia = false;
+          shadow.getElementById('vt-map').hidden = true;   // 用户已主动改选，隐藏映射提示
+          el.querySelectorAll('.cand-item').forEach(x => x.classList.remove('on'));
+          b.classList.add('on');
+        });
+        el.appendChild(b);
+      });
+      const nb = document.createElement('button');
+      nb.type = 'button';
+      nb.className = 'cand-new';
+      nb.textContent = '＋ 新建媒体';
+      nb.addEventListener('click', () => {
+        candMediaId = null;
+        forceNewMedia = true;   // 断开映射并新建：后端收到后删映射 + 跳过自动匹配
+        el.querySelectorAll('.cand-item').forEach(x => x.classList.remove('on'));
+      });
+      el.appendChild(nb);
+    }
+    fetchCandidates().then(cands => { if (cands.length) renderCandidates(cands); });
+    /* 标题映射：已记住归入 → 浮层显示提示 + 可解除（解除后本次保存重新匹配/新建） */
+    async function checkMapping() {
+      const el = shadow.getElementById('vt-map');
+      const q = (titleEl.textContent || '').trim();
+      if (!q) { el.hidden = true; return; }
+      try {
+        const resp = await bgApi(`/api/title-mappings?title=${encodeURIComponent(q)}`);
+        if (!resp || !resp.ok) { el.hidden = true; return; }
+        const m = resp.data;
+        if (!m || !m.mediaId) { el.hidden = true; return; }
+        el.hidden = false;
+        el.innerHTML = '';
+        const row = document.createElement('div');
+        row.className = 'map-row';
+        const label = document.createElement('span');
+        label.textContent = m.mediaTitle ? `已记住归入：${m.mediaTitle}` : '已记住归入（原媒体已删除）';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'map-remove';
+        btn.textContent = '解除';
+        btn.addEventListener('click', async () => {
+          try {
+            await bgApi(`/api/title-mappings?title=${encodeURIComponent(q)}`, 'DELETE');
+          } catch (e) { /* 网络失败也继续：本次仍可保存 */ }
+          el.hidden = true;
+          toast.textContent = '已解除映射，本次保存将重新匹配/新建';
+          toast.classList.add('show');
+          setTimeout(() => toast.classList.remove('show'), 2000);
+        });
+        row.appendChild(label);
+        row.appendChild(btn);
+        el.appendChild(row);
+      } catch (e) { el.hidden = true; }
+    }
+    checkMapping();
+    /* 用户改标题 → 候选/归入失效，清空（避免归错媒体） */
+    titleEl.addEventListener('input', () => {
+      candMediaId = null;
+      forceNewMedia = false;
+      shadow.getElementById('vt-cand').hidden = true;
+      shadow.getElementById('vt-map').hidden = true;
+    });
     timeEl.title = `点击可编辑（秒）· 当前 ${fmtTime(info.timestampSec)}`;
     if (info.presetTag) tagInput.value = info.presetTag;
     document.body.appendChild(host);
@@ -459,7 +599,9 @@
         videoDuration: currentVideoDuration(),
         ogImage: currentOgImage(),
         coverDataUrl,
-        detailCoverDataUrl
+        detailCoverDataUrl,
+        mediaId: candMediaId || null,   // 方案C：候选确认归入（null = 自动匹配/新建）
+        forceNewMedia: forceNewMedia || false   // 用户选「＋ 新建媒体」：断开映射 + 跳过自动匹配
       };
       const resp = await chrome.runtime.sendMessage({ type: 'save-clip', payload });
       if (!resp || !resp.ok) {
@@ -556,12 +698,11 @@
     const video = findVideo();
     if (!video) return;
     try {
-      const base = await getBackendBase();
       const url = normalizeUrl(location.href);
-      const resp = await fetch(`${base}/api/jump/pending?url=${encodeURIComponent(url)}`);
-      if (!resp.ok) return; // 204 或后端未启动
-      const data = await resp.json();
-      if (typeof data.timestampSec === 'number') {
+      const resp = await bgApi(`/api/jump/pending?url=${encodeURIComponent(url)}`);
+      if (!resp || !resp.ok) return; // 204 或后端未启动
+      const data = resp.data;
+      if (data && typeof data.timestampSec === 'number') {
         seekWhenReady(video, data.timestampSec);
       }
     } catch (e) { /* 后端未启动，静默 */ }
@@ -612,13 +753,8 @@
     const doSave = async () => {
       const tag = input.value.trim();
       if (!tag) { input.focus(); return; }
-      const base = await getBackendBase();
       try {
-        await fetch(`${base}/api/episodes/by-url/tags`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: location.href, tag })
-        });
+        await bgApi('/api/episodes/by-url/tags', 'POST', { url: location.href, tag });
         showToast(`已给本集添加标签「${tag}」`);
       } catch (e) {
         showToast('保存失败：后端未启动？');

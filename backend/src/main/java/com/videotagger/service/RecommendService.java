@@ -121,19 +121,24 @@ public class RecommendService {
                             String coverSize, String groupBy, String groupStyle, List<Long> openingIds,
                             String intro) {
         return buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro,
-                new Durations(10, 5, 5, 10, 5), null, null, null, null, null);
+                new Durations(10, 5, 5, 10, 5), null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
+                100, 1, 8);
     }
 
     public String buildHtml(List<Long> ids, String title, List<BgmTrack> bgmTracks, String subtitle,
                             String coverSize, String groupBy, String groupStyle, List<Long> openingIds,
                             String intro, Durations durations, String endingTitle, String endingText,
-                            String bgColor, String bgImage, String prologueTitle) {
+                            String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
+                            String prologueTitle,
+                            String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
+                            Integer bgmScale,
+                            Integer bgmX, Integer bgmY) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
         String resolved = (title == null || title.isBlank()) ? DEFAULT_TITLE : title.trim();
         String template = readTemplate(groupStyle);
-        String slidesJson = buildSlidesJson(ids, groupBy, openingIds);
+        String slidesJson = buildSlidesJson(ids, groupBy, openingIds, groupSort);
         String bgmTracksJson = buildBgmTracksJson(bgmTracks);
         String sub = (subtitle == null || subtitle.isBlank()) ? "" : esc(subtitle.trim());
         String size = normalizeCoverSize(coverSize);
@@ -141,8 +146,16 @@ public class RecommendService {
         String endTitle = (endingTitle == null || endingTitle.isBlank()) ? "" : esc(endingTitle.trim());
         String endText = (endingText == null || endingText.isBlank()) ? "" : esc(endingText.trim());
         String bgC = (bgColor == null || bgColor.isBlank()) ? "" : esc(bgColor.trim());
-        String bgI = (bgImage == null || bgImage.isBlank()) ? "" : esc(bgImage.trim());
+        String bgImgsJson = buildBgImagesJson(bgImages);
+        int bgRot = clamp(bgRotationSec, 1, 60, 8);
+        int bgOp = clamp(bgOpacity, 0, 100, 100);
+        int bgBright = clamp(bgBrightness, 0, 100, 50);
+        int bgBl = clamp(bgBlur, 0, 100, 0);
+        int bmScale = clamp(bgmScale, 50, 200, 100);   // 音乐条整体缩放 %：50~200，默认 100
+        int bmX = clamp(bgmX, 0, 100, 1);
+        int bmY = clamp(bgmY, 0, 100, 8);
         String proT = (prologueTitle == null || prologueTitle.isBlank()) ? "" : esc(prologueTitle.trim());
+        String sort = (groupSort == null || groupSort.isBlank()) ? "date-desc" : groupSort.trim();
         Durations dur = normalizeDurations(durations);
         return template
                 .replace("__TITLE__", esc(resolved))
@@ -153,8 +166,18 @@ public class RecommendService {
                 .replace("__ENDING_TITLE__", endTitle)
                 .replace("__ENDING_TEXT__", endText)
                 .replace("__BG_COLOR__", bgC)
-                .replace("__BG_IMAGE__", bgI)
+                .replace("__BG_IMAGES__", bgImgsJson)
+                .replace("__BG_ROTATION_SEC__", String.valueOf(bgRot))
+                .replace("__BG_OPACITY__", String.valueOf(bgOp))
+                .replace("__BG_BLUR__", String.valueOf(bgBl))
+                .replace("__BG_BRIGHTNESS__", String.valueOf(bgBright))
+                .replace("__BGM_SCALE__", String.valueOf(bmScale))
+                .replace("__BGM_X__", String.valueOf(bmX))
+                .replace("__BGM_Y__", String.valueOf(bmY))
                 .replace("__PROLOGUE_TITLE__", proT)
+                .replace("__GROUP_SORT__", esc(sort))
+                .replace("__OPENING_SPEED__", String.valueOf(clampSpeed(openingSpeed)))
+                .replace("__ENDING_SPEED__", String.valueOf(clampSpeed(endingScrollSpeed)))
                 .replace("__OPENING_SEC__", String.valueOf(dur.opening()))
                 .replace("__INTRO_SEC__", String.valueOf(dur.intro()))
                 .replace("__DETAIL_SEC__", String.valueOf(dur.detail()))
@@ -163,6 +186,23 @@ public class RecommendService {
                 .replace("__BGM_TRACKS__", bgmTracksJson)
                 .replace("__BGM_SRC__", "")
                 .replace("__BGM_NAME__", "");
+    }
+
+    /** 速度滑块归一化：0-100，空/越界 → 50（当前速度）。 */
+    private static int clampSpeed(Integer v) {
+        return v == null ? 50 : Math.max(0, Math.min(100, v));
+    }
+
+    /** 背景图多选：base64 数组 → JSON（模板 __BG_IMAGES__ 轮换用）。 */
+    private String buildBgImagesJson(List<String> bgImages) {
+        if (bgImages == null || bgImages.isEmpty()) {
+            return "[]";
+        }
+        try {
+            return objectMapper.writeValueAsString(bgImages);
+        } catch (IOException e) {
+            return "[]";
+        }
     }
 
     /** 显示时长归一化：空/越界 → 默认（开局 10 / 序言 5 / 章节 5 / 详情 10 / 结尾 5）。 */
@@ -205,16 +245,17 @@ public class RecommendService {
         }
     }
 
-    /** 封面大小归一化：未知/空 → md。 */
+    /** 封面大小归一化：0-100 数值（滑块），空/非法 → 50（= 中档，模板按此算缩放系数）。 */
     private static String normalizeCoverSize(String coverSize) {
         if (coverSize == null || coverSize.isBlank()) {
-            return "md";
+            return "50";
         }
-        String s = coverSize.trim().toLowerCase();
-        return switch (s) {
-            case "sm", "lg" -> s;
-            default -> "md";
-        };
+        try {
+            int v = Integer.parseInt(coverSize.trim());
+            return String.valueOf(Math.max(0, Math.min(100, v)));
+        } catch (NumberFormatException e) {
+            return "50";
+        }
     }
 
     /** 按 BGM 文件名推断音频 mime（未知 → audio/mpeg）。 */
@@ -228,7 +269,7 @@ public class RecommendService {
         return "audio/mpeg";
     }
 
-    private String buildSlidesJson(List<Long> ids, String groupBy, List<Long> openingIds) {
+    private String buildSlidesJson(List<Long> ids, String groupBy, List<Long> openingIds, String groupSort) {
         List<Map<String, Object>> slides = new ArrayList<>();
         for (Long id : ids) {
             MediaDetail d;
@@ -241,7 +282,7 @@ public class RecommendService {
             slides.add(slideOf(d, groupBy, openingIds));
         }
         if (groupBy != null && !groupBy.isBlank() && !"none".equals(groupBy)) {
-            slides = groupOrdered(slides, groupBy);
+            slides = groupOrdered(slides, groupBy, groupSort);
         }
         try {
             return objectMapper.writeValueAsString(slides);
@@ -316,21 +357,23 @@ public class RecommendService {
         };
     }
 
-    /** 按组排序：year 组按年份数字降序（未知年份排最后）；其余维度按首次出现顺序；组内保持原序。 */
-    private List<Map<String, Object>> groupOrdered(List<Map<String, Object>> slides, String groupBy) {
+    /** 按组排序：year 组按年份升降序（groupSort=date-asc 升序 / date-desc 或默认降序 / none 保持出现顺序；未知年份排最后）；
+     *  其余维度按首次出现顺序；组内保持原序。 */
+    private List<Map<String, Object>> groupOrdered(List<Map<String, Object>> slides, String groupBy, String groupSort) {
         Map<String, List<Map<String, Object>>> groups = new LinkedHashMap<>();
         for (Map<String, Object> s : slides) {
             String g = (String) s.get("group");
             groups.computeIfAbsent(g == null ? "未分组" : g, k -> new ArrayList<>()).add(s);
         }
         List<String> keys = new ArrayList<>(groups.keySet());
-        if ("year".equals(groupBy)) {
+        if ("year".equals(groupBy) && !"none".equals(groupSort)) {
+            final boolean desc = !"date-asc".equals(groupSort);
             keys.sort((a, b) -> {
                 int an = yearOf(a), bn = yearOf(b);
                 if (an == Integer.MIN_VALUE && bn == Integer.MIN_VALUE) return a.compareTo(b);
                 if (an == Integer.MIN_VALUE) return 1;
                 if (bn == Integer.MIN_VALUE) return -1;
-                return Integer.compare(bn, an);
+                return desc ? Integer.compare(bn, an) : Integer.compare(an, bn);
             });
         }
         List<Map<String, Object>> out = new ArrayList<>();

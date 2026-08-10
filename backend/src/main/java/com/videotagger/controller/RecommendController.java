@@ -53,8 +53,12 @@ public class RecommendController {
                                          Integer openingSec, Integer introSec, Integer groupSec,
                                          Integer detailSec, Integer endingSec,
                                          String endingTitle, String endingText,
-                                         String bgColor, String bgImage,
-                                         String prologueTitle) {
+                                         String bgColor, List<String> bgImages,
+                                         Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
+                                         String prologueTitle,
+                                         String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
+                                         Integer bgmScale,
+                                         Integer bgmX, Integer bgmY) {
     }
 
     /** 生成自包含推荐 HTML（附件下载）。标题（主题）自定义，空 → 默认。BGM 可选（base64 内嵌）。 */
@@ -65,7 +69,10 @@ public class RecommendController {
         byte[] html = recommendService.buildHtml(body.ids(), body.title(), body.bgmTracks(),
                 body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(),
                 body.openingIds(), body.intro(), dur, body.endingTitle(), body.endingText(),
-                body.bgColor(), body.bgImage(), body.prologueTitle())
+                body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(),
+                body.prologueTitle(),
+                body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(),
+                body.bgmScale(), body.bgmX(), body.bgmY())
                 .getBytes(StandardCharsets.UTF_8);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
@@ -102,7 +109,10 @@ public class RecommendController {
                 body.ids(), body.title(), fmt, body.resolution(), bgmPaths, bgmTracks,
                 body.groupBy(), body.groupStyle(), body.subtitle(), body.coverSize(),
                 body.openingIds(), body.intro(), dur, body.endingTitle(), body.endingText(),
-                body.bgColor(), body.bgImage(), body.prologueTitle());
+                body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(),
+                body.prologueTitle(),
+                body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(),
+                body.bgmScale(), body.bgmX(), body.bgmY());
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("taskId", t.id());
         resp.put("status", t.status());

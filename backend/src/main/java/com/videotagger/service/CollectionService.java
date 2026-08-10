@@ -81,12 +81,13 @@ public class CollectionService {
         mediaCollectionMapper.deleteLink(mediaId, collectionId);
     }
 
-    /** 收藏夹内容（整体浏览）；支持 status/format/子分类/confirmed/year/source/q 标题筛选；offset 分页。 */
+    /** 收藏夹内容（整体浏览）；支持 status/format/子分类/confirmed/year/source/q 标题筛选，sort=year 按首播年份排序；offset 分页。 */
     public List<MediaSummary> media(Long collectionId, int limit, int offset, String status, String format,
-                                    Long subcategoryId, Integer confirmed, Integer year, String source, String q) {
+                                    Long subcategoryId, Integer confirmed, Integer year, String source, String q,
+                                    String sort, String order) {
         requireCollection(collectionId);
         return mediaMapper.listByCollection(collectionId, Math.min(Math.max(limit, 1), 200), Math.max(offset, 0),
-                status, format, subcategoryId, confirmed, year, source, q);
+                status, format, subcategoryId, confirmed, year, source, q, sort, order);
     }
 
     private Collection requireCollection(Long id) {

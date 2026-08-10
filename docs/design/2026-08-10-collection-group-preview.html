@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>收藏夹 · 按年份分组 — UI 预览</title>
+<style>
+  :root {
+    --bg: #0a0a15; --bg-deep: #07070f;
+    --surface: #141426; --surface-2: #1b1b31; --surface-3: #22223b;
+    --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.15);
+    --pink: #ff4d8d; --pink-soft: rgba(255,77,141,.16);
+    --violet: #a78bfa; --violet-soft: rgba(167,139,250,.16);
+    --cyan: #35d6f2; --amber: #fbbf24; --red: #fb7185;
+    --text: #edeaf7; --text-dim: #9d9bb8; --text-faint: #6a6886;
+    --grad: linear-gradient(135deg,#ff4d8d,#a78bfa 55%,#35d6f2);
+    --font-body: "PingFang SC","Hiragino Sans GB","Microsoft YaHei UI",system-ui,sans-serif;
+    --font-display: "Yuanti SC","YouYuan","PingFang SC","Microsoft YaHei UI",sans-serif;
+    --font-mono: "Cascadia Code",ui-monospace,Consolas,monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(167,139,250,.10), transparent 60%),
+      radial-gradient(900px 500px at 0% 0%, rgba(255,77,141,.08), transparent 55%),
+      var(--bg);
+    color: var(--text); font-family: var(--font-body); min-height: 100vh; padding: 28px 32px 80px;
+  }
+  .note {
+    max-width: 1240px; margin: 0 auto 18px; padding: 14px 18px;
+    background: linear-gradient(180deg, rgba(26,26,46,.85), rgba(19,19,34,.85));
+    border: 1px solid var(--border-strong); border-radius: 14px; font-size: 12.5px; color: var(--text-dim); line-height: 1.7;
+  }
+  .note b { color: var(--pink); }
+  .note .tag { color: var(--cyan); font-family: var(--font-mono); font-size: 11px; }
+
+  .coll-layout { display: flex; gap: 22px; max-width: 1240px; margin: 0 auto; }
+  .coll-list { width: 220px; flex-shrink: 0; }
+  .coll-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px;
+    background: rgba(255,255,255,.02); cursor: pointer; margin-bottom: 8px;
+    transition: border-color .18s, background .18s; font-size: 13.5px;
+  }
+  .coll-item:hover { border-color: rgba(167,139,250,.4); }
+  .coll-item.selected {
+    border-color: rgba(255,77,141,.55); background: var(--pink-soft);
+    box-shadow: 0 0 0 2px rgba(255,77,141,.18), 0 10px 26px rgba(0,0,0,.35);
+  }
+  .coll-item .cnt { font-size: 11px; color: var(--text-faint); }
+
+  .coll-content { flex: 1; min-width: 0; }
+
+  /* 工具条（沿用现有 .media-filters） */
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  .toolbar input[type=text] {
+    background: rgba(255,255,255,.05); border: 1px solid var(--border-strong); color: var(--text);
+    border-radius: 10px; padding: 8px 14px; font-size: 12.5px; outline: none; width: 200px; font-family: inherit;
+  }
+  .toolbar input[type=text]:focus { border-color: var(--pink); }
+  .toolbar select {
+    background: rgba(255,255,255,.05); border: 1px solid var(--border-strong); color: var(--text);
+    border-radius: 10px; padding: 8px 32px 8px 14px; font-size: 12.5px; font-family: inherit; outline: none; cursor: pointer;
+    appearance: none;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
+      linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+    background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+    background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+  }
+  .toolbar select:focus { border-color: var(--pink); }
+  .btn-mini {
+    background: rgba(255,255,255,.05); border: 1px solid var(--border-strong); color: var(--text-dim);
+    border-radius: 10px; padding: 8px 13px; font-size: 12.5px; cursor: pointer; font-family: inherit;
+    transition: border-color .15s, color .15s;
+  }
+  .btn-mini:hover { border-color: rgba(255,77,141,.45); color: var(--text); }
+
+  .coll-head { display: flex; align-items: baseline; gap: 10px; margin: 2px 0 12px; }
+  .coll-head .name { font-size: 17px; font-weight: 700; font-family: var(--font-display); }
+  .coll-head .sub { font-size: 12px; color: var(--text-faint); }
+  .group-toggle-wrap { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .group-toggle {
+    font-size: 12px; color: var(--text-dim); display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    padding: 6px 12px; border: 1px solid var(--border); border-radius: 99px; background: rgba(255,255,255,.03); user-select: none;
+  }
+  .group-toggle:hover { border-color: rgba(255,77,141,.4); color: var(--text); }
+  .group-toggle input { accent-color: var(--pink); }
+
+  /* 年份快速导航（sticky） */
+  .group-nav {
+    position: sticky; top: 0; z-index: 30;
+    display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; overflow-x: auto;
+    padding: 10px 2px; margin-bottom: 6px;
+    background: linear-gradient(180deg, rgba(10,10,21,.92), rgba(10,10,21,.72));
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  .group-nav-chip {
+    flex-shrink: 0; padding: 6px 14px; border-radius: 99px; cursor: pointer;
+    border: 1px solid var(--border); background: rgba(255,255,255,.03);
+    font-size: 12px; font-weight: 600; color: var(--text-dim);
+    transition: all .18s; font-family: var(--font-mono);
+  }
+  .group-nav-chip:hover { border-color: rgba(167,139,250,.5); color: var(--text); }
+  .group-nav-chip.active { color: #fff; border-color: transparent; background: var(--grad); box-shadow: 0 6px 18px rgba(255,77,141,.35); }
+  .group-nav-chip .gcnt { font-size: 10px; opacity: .8; margin-left: 3px; }
+
+  /* 分组块 */
+  .coll-group { margin-bottom: 26px; }
+  .group-head {
+    display: flex; align-items: baseline; gap: 12px; cursor: pointer; user-select: none;
+    padding: 10px 2px 12px; border-bottom: 1px solid var(--border);
+    transition: border-color .18s;
+  }
+  .group-head:hover { border-color: rgba(255,77,141,.35); }
+  .group-year {
+    font-family: var(--font-display); font-size: 26px; font-weight: 800; letter-spacing: 1px;
+    background: var(--grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    line-height: 1;
+  }
+  .group-count { font-size: 12px; color: var(--text-faint); }
+  .group-collapse { margin-left: auto; font-size: 13px; color: var(--text-faint); transition: transform .22s; }
+  .group-head:hover .group-collapse { color: var(--text-dim); }
+  .group-head.collapsed .group-collapse { transform: rotate(-90deg); }
+  .group-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; padding-top: 16px;
+  }
+  .group-head.collapsed + .group-grid { display: none; }
+
+  /* 媒体卡片（复用项目 .media-card 视觉） */
+  .media-card {
+    position: relative; background: linear-gradient(180deg, rgba(26,26,46,.9), rgba(19,19,34,.9));
+    border: 1px solid var(--border); border-radius: 16px; overflow: hidden; cursor: pointer;
+    transition: transform .2s cubic-bezier(.22,1,.36,1), box-shadow .2s, border-color .2s;
+    animation: cardIn .3s ease-out both;
+  }
+  .media-card:hover { transform: translateY(-6px); border-color: rgba(255,77,141,.4); box-shadow: 0 18px 42px rgba(0,0,0,.5), 0 0 34px rgba(255,77,141,.16); }
+  .media-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background: var(--grad); opacity:0; transition:opacity .22s; z-index:3; }
+  .media-card:hover::before { opacity: 1; }
+  .media-cover { width:100%; aspect-ratio:3/4; overflow:hidden; position:relative; background:linear-gradient(160deg,#1c1c36,#101021); }
+  .media-cover .ph {
+    width:100%; height:100%; display:flex; align-items:center; justify-content:center;
+    font-size:44px; font-weight:900; color:#fff; font-family:var(--font-display);
+    text-shadow:0 4px 20px rgba(255,77,141,.4);
+  }
+  .media-cover::after { content:''; position:absolute; inset:0; background:linear-gradient(180deg,transparent 55%,rgba(10,10,21,.55)); pointer-events:none; }
+  .fmt-badge {
+    position:absolute; top:8px; left:8px; z-index:2; font-size:10px; font-weight:800; letter-spacing:.5px;
+    font-family:var(--font-mono); color:#ff9cc0; border:1px solid rgba(255,77,141,.5);
+    background:rgba(36,10,28,.72); border-radius:99px; padding:3px 9px; backdrop-filter:blur(6px);
+  }
+  .remove-btn {
+    position:absolute; bottom:8px; right:8px; z-index:2; width:24px; height:24px; border-radius:50%;
+    border:1px solid rgba(255,255,255,.25); background:rgba(10,10,21,.72); color:#fff; font-size:13px; line-height:1;
+    cursor:pointer; display:flex; align-items:center; justify-content:center; opacity:0;
+    transition:opacity .2s, background .2s; backdrop-filter:blur(6px);
+  }
+  .media-card:hover .remove-btn { opacity:1; }
+  .remove-btn:hover { background: rgba(251,191,36,.3); color: var(--amber); }
+  .fav-btn {
+    position:absolute; top:10px; right:10px; z-index:2; width:24px; height:24px; border-radius:50%;
+    border:1px solid rgba(255,255,255,.25); background:rgba(10,10,21,.72); color:#fff; font-size:12px; line-height:1;
+    cursor:pointer; display:flex; align-items:center; justify-content:center; opacity:.7;
+    transition:opacity .2s; backdrop-filter:blur(6px);
+  }
+  .media-card:hover .fav-btn { opacity:1; }
+  .fav-btn.active { color:#ff4d8d; border-color:rgba(255,77,141,.55); background:rgba(255,77,141,.16); }
+  .media-card-body { padding: 12px 12px 14px; }
+  .media-card-title {
+    font-size:14px; font-weight:700; color:var(--text); line-height:1.4;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:40px;
+  }
+  .media-card-meta { font-size:11.5px; color:var(--text-faint); margin-top:7px; }
+
+  /* 视图切换（卡片 / 列表） */
+  .view-toggle { display: inline-flex; gap: 4px; }
+  .view-toggle .btn-mini { padding: 8px 12px; }
+  .view-toggle .btn-mini.active { color:#fff; border-color:transparent; background: var(--grad); box-shadow:0 6px 18px rgba(255,77,141,.3); }
+
+  /* 列表视图行 */
+  .group-rows { display:flex; flex-direction:column; gap:8px; padding-top:14px; }
+  .media-row {
+    display:flex; align-items:center; gap:14px;
+    background: linear-gradient(180deg, rgba(26,26,46,.9), rgba(19,19,34,.9));
+    border:1px solid var(--border); border-radius:12px; padding:10px 14px;
+    transition: border-color .18s, transform .2s, box-shadow .2s; cursor:pointer;
+    animation: cardIn .3s ease-out both;
+  }
+  .media-row:hover { border-color: rgba(255,77,141,.4); transform: translateX(4px); box-shadow:0 10px 26px rgba(0,0,0,.4); }
+  .row-thumb { width:48px; aspect-ratio:3/4; border-radius:8px; overflow:hidden; flex-shrink:0; }
+  .row-thumb .ph { width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:900; color:#fff; font-family:var(--font-display); }
+  .row-body { min-width:0; flex:1; }
+  .row-title { font-size:14px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row-meta { font-size:12px; color:var(--text-faint); margin-top:3px; }
+  .row-actions { display:flex; gap:6px; flex-shrink:0; }
+  .row-btn {
+    width:28px; height:28px; border-radius:50%; border:1px solid rgba(255,255,255,.2);
+    background:rgba(10,10,21,.7); color:var(--text-dim); cursor:pointer; font-size:13px; line-height:1;
+    display:flex; align-items:center; justify-content:center; transition:all .18s;
+  }
+  .row-btn:hover { border-color:rgba(255,77,141,.5); color:var(--text); }
+  .row-btn.fav.active { color:#ff4d8d; border-color:rgba(255,77,141,.55); background:rgba(255,77,141,.16); }
+  .row-btn.remove:hover { color:var(--amber); border-color:rgba(251,191,36,.45); }
+
+  @keyframes cardIn { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform:none; } }
+  @media (max-width: 900px) { .coll-list { display:none; } body { padding: 16px; } }
+</style>
+</head>
+<body>
+
+  <div class="note">
+    <b>收藏夹 · 按年份分组 — UI 预览（待确认）</b><br>
+    模拟「收藏夹 tab 内容」按<b>首播年份</b>分组展示：每组一个大号年份标题 + 该年卡片网格；顶部 <span class="tag">sticky</span> 年份导航可点击跳转，分组标题可折叠。<br>
+    <b>卡片/列表</b>由工具条<b>单个按钮</b>切换（☰ 列表 ↔ ▦ 卡片），图标随状态变——参考主流视频网站；切换状态<b>全局共享</b>：媒体页、收藏夹、推荐页（勾选网格）等所有列表展示场景均生效。<br>
+    卡片沿用现有 <span class="tag">.media-card</span> 视觉（封面/标题/meta/移出⇤/收藏♡）。纯静态预览，无后端。
+  </div>
+
+  <div class="coll-layout">
+    <aside class="coll-list">
+      <div class="coll-item selected">补番 <span class="cnt">62 部</span></div>
+      <div class="coll-item">推荐 <span class="cnt">22 部</span></div>
+      <div class="coll-item">追番生涯 <span class="cnt">28 部</span></div>
+    </aside>
+
+    <div class="coll-content">
+      <div class="toolbar">
+        <input type="text" placeholder="🔍 搜索标题…">
+        <select><option value="">全部年份</option><option>2026 年</option><option>2024 年</option><option>2022 年</option></select>
+        <select><option value="">默认排序</option><option>首播年份</option></select>
+        <button class="btn-mini" title="当前降序，点击切换升序">↓</button>
+        <button type="button" id="viewToggle" class="btn-mini" title="切换到列表视图">☰ 列表</button>
+        <div class="group-toggle-wrap">
+          <label class="group-toggle"><input type="checkbox" id="group-on" checked> 分组显示</label>
+        </div>
+      </div>
+
+      <div class="coll-head">
+        <span class="name">补番</span><span class="sub">62 部 · 按首播年份分 9 组</span>
+      </div>
+
+      <!-- sticky 年份导航：点击滚动到对应组，随滚动高亮 -->
+      <div class="group-nav" id="groupNav"></div>
+
+      <div id="groupList" class="group-list"><!-- 由 JS 渲染 --></div>
+    </div>
+  </div>
+
+<script>
+// ===== 假数据：按年份分组 =====
+const SAMPLE = [
+  { year: 2026, items: [
+    { t: '某部 A', sub: '番剧 · 12 条片段', hue: 330 },
+    { t: '原创剧场', sub: '动画电影 · 3 条', hue: 280 },
+  ]},
+  { year: 2024, items: [
+    { t: '奇幻冒险录', sub: '番剧 · 45 条', hue: 15 },
+    { t: '机战传说', sub: '番剧 · 28 条', hue: 200 },
+    { t: '恋恋樱花时', sub: '恋爱 · 16 条', hue: 350 },
+    { t: '科幻前夜', sub: 'OVA · 9 条', hue: 220 },
+  ]},
+  { year: 2022, items: [
+    { t: '热血格斗王', sub: '番剧 · 61 条', hue: 350 },
+    { t: '异世界食堂', sub: '番剧 · 22 条', hue: 30 },
+    { t: '悬疑迷宫', sub: '悬疑 · 14 条', hue: 260 },
+  ]},
+  { year: 2019, items: [
+    { t: '复古动作片', sub: '番剧 · 18 条', hue: 0 },
+    { t: '轻音日常', sub: '日常 · 33 条', hue: 160 },
+  ]},
+  { year: 2015, items: [
+    { t: '经典机甲番', sub: '番剧 · 77 条', hue: 220 },
+    { t: '年代神作', sub: '剧场版 · 5 条', hue: 40 },
+    { t: '冷门佳作', sub: '番剧 · 8 条', hue: 300 },
+  ]},
+];
+
+const nav = document.getElementById('groupNav');
+const list = document.getElementById('groupList');
+const groupOn = document.getElementById('group-on');
+let view = 'card';   // card | list（卡片 / 列表 双视图）
+
+function card(it, year) {
+  return `<div class="media-card">
+    <div class="media-cover">
+      <div class="ph" style="background:radial-gradient(120% 120% at 30% 20%, hsl(${it.hue} 60% 32%), #1a1a30 60%, #101021)">${it.t[0]}</div>
+      <span class="fmt-badge">视频</span>
+      <button class="remove-btn" title="移出收藏夹">⇤</button>
+      <button class="fav-btn active" title="已收藏">❤</button>
+    </div>
+    <div class="media-card-body">
+      <div class="media-card-title">${it.t}</div>
+      <div class="media-card-meta">${year} · ${it.sub}</div>
+    </div>
+  </div>`;
+}
+function row(it, year) {
+  return `<div class="media-row">
+    <div class="row-thumb"><div class="ph" style="background:radial-gradient(120% 120% at 30% 20%, hsl(${it.hue} 60% 32%), #1a1a30 60%, #101021)">${it.t[0]}</div></div>
+    <div class="row-body">
+      <div class="row-title">${it.t}</div>
+      <div class="row-meta">${year} · ${it.sub}</div>
+    </div>
+    <div class="row-actions">
+      <button class="row-btn fav active" title="已收藏">❤</button>
+      <button class="row-btn remove" title="移出收藏夹">⇤</button>
+    </div>
+  </div>`;
+}
+
+// 滚动时高亮当前年份 chip（需在 render 前定义）
+const io = new IntersectionObserver((entries) => {
+  entries.forEach(en => {
+    if (en.isIntersecting) {
+      nav.querySelectorAll('.group-nav-chip').forEach(c => c.classList.toggle('active', Number(c.dataset.i) === SAMPLE.findIndex(g => g.year === Number(en.target.dataset.year))));
+    }
+  });
+}, { rootMargin: '-70px 0px -60% 0px' });
+
+function render() {
+  // 年份导航
+  nav.innerHTML = SAMPLE.map((g, i) =>
+    `<div class="group-nav-chip" data-i="${i}" onclick="scrollToGroup(${i})">${g.year}<span class="gcnt">${g.items.length}</span></div>`
+  ).join('');
+  // 分组列表（视图切换：卡片网格 / 列表行）
+  const containerClass = view === 'list' ? 'group-rows' : 'group-grid';
+  const itemHtml = view === 'list' ? row : card;
+  list.innerHTML = SAMPLE.map((g, i) => {
+    const inner = g.items.map(it => itemHtml(it, g.year)).join('');
+    return `<section class="coll-group" id="grp-${g.year}" data-year="${g.year}">
+      <header class="group-head" onclick="this.classList.toggle('collapsed')">
+        <span class="group-year">${g.year}</span>
+        <span class="group-count">${g.items.length} 部</span>
+        <span class="group-collapse">▾</span>
+      </header>
+      <div class="${containerClass}">${inner}</div>
+    </section>`;
+  }).join('');
+  // 重新观察分组（滚动高亮）
+  document.querySelectorAll('.coll-group').forEach(el => io.observe(el));
+}
+
+// 单个按钮在 卡片/列表 间切换（主流视频网站样式：图标随状态变）
+function toggleView() {
+  view = view === 'card' ? 'list' : 'card';
+  const btn = document.getElementById('viewToggle');
+  btn.textContent = view === 'card' ? '☰ 列表' : '▦ 卡片';
+  btn.title = view === 'card' ? '切换到列表视图' : '切换到卡片视图';
+  render();
+}
+document.getElementById('viewToggle').addEventListener('click', toggleView);
+
+render();
+
+// 点击导航滚动到组
+function scrollToGroup(i) {
+  document.getElementById('grp-' + SAMPLE[i].year).scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+</script>
+</body>
+</html>

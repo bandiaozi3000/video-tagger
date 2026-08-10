@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Tagger · 二次元打标库</title>
-    <link rel="stylesheet" href="app.css">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="stylesheet" href="app.css?v=20260811">
 </head>
 <body>
 <!-- 网站背景图层（设置里上传，多图轮播；z-index 在 bg-fx 之下） -->
@@ -121,6 +122,7 @@
                 <option value="rating">评分</option>
             </select>
             <button type="button" id="filter-order" class="btn-mini" title="当前降序，点击切换升序">↓</button>
+            <button type="button" class="btn-mini view-toggle-btn" title="切换到列表视图">☰ 列表</button>
             <label class="checkbox-inline"><input type="checkbox" id="filter-unconfirmed"> 待确认</label>
         </div>
         <div id="media-status" class="status"></div>
@@ -361,6 +363,20 @@
         <div class="collection-manage-layout">
             <aside class="coll-list" id="coll-list"></aside>
             <div class="coll-content">
+                <div class="media-filters coll-filters">
+                    <input id="coll-q" type="text" placeholder="🔍 搜索标题…" autocomplete="off">
+                    <select id="coll-year" title="按首播年份筛选">
+                        <option value="">全部年份</option>
+                    </select>
+                    <select id="coll-sort" title="排序方式">
+                        <option value="">默认排序</option>
+                        <option value="latest">最近观看</option>
+                        <option value="year">首播年份</option>
+                    </select>
+                    <button type="button" id="coll-order" class="btn-mini" title="当前降序，点击切换升序">↓</button>
+                    <button type="button" class="btn-mini view-toggle-btn" title="切换到列表视图">☰ 列表</button>
+                    <label class="group-toggle" title="按首播年份分组展示"><input type="checkbox" id="coll-grouped" checked> 分组</label>
+                </div>
                 <div class="coll-content-head" id="coll-content-head"></div>
                 <section id="coll-media-grid" class="media-grid"></section>
                 <div class="media-pagination" id="coll-pagination">
@@ -382,14 +398,25 @@
 
     <!-- 推荐导出视图（分步向导：勾选 → 主题 → 预览导出） -->
     <section id="view-recommend" class="view" hidden>
-        <div class="recommend-toolbar">
-            <button type="button" id="export-tasks-btn" class="btn-mini">🗂 导出任务</button>
-        </div>
         <div class="wizard-steps">
             <button type="button" class="wizard-step" data-wstep="1"><span class="wstep-num">1</span>勾选媒体</button>
             <button type="button" class="wizard-step" data-wstep="2"><span class="wstep-num">2</span>内容 · 主题</button>
             <button type="button" class="wizard-step" data-wstep="3"><span class="wstep-num">3</span>页面 · 交互</button>
             <button type="button" class="wizard-step" data-wstep="4"><span class="wstep-num">4</span>预览导出</button>
+            <div class="more-wrap" id="rec-more">
+                <button type="button" id="rec-more-btn" class="btn-mini" title="导出任务 / 草稿 / 模板" aria-label="更多">⋯</button>
+                <div id="rec-more-panel" class="more-panel" hidden>
+                    <button type="button" id="rec-export-tasks" class="more-panel-item">🗂 导出任务</button>
+                    <div class="more-panel-item more-panel-static">
+                        <span>💾 草稿</span><span id="rec-draft-status" class="rec-draft-status">未保存</span>
+                    </div>
+                    <button type="button" id="rec-restore-draft" class="more-panel-item">↺ 恢复草稿</button>
+                    <div class="more-panel-divider"></div>
+                    <div class="more-panel-label">模板</div>
+                    <div id="rec-template-list" class="rec-template-list"></div>
+                    <button type="button" id="rec-save-template" class="more-panel-item">＋ 另存当前为模板</button>
+                </div>
+            </div>
         </div>
 
         <!-- 步骤1：勾选要推荐的媒体 -->
@@ -403,6 +430,11 @@
                 <select id="recommend-source" title="收藏夹来源过滤">
                     <option value="">全部媒体</option>
                 </select>
+                <select id="recommend-year" title="按首播年份筛选">
+                    <option value="">全部年份</option>
+                </select>
+                <button type="button" class="btn-mini view-toggle-btn" title="切换到列表视图">☰ 列表</button>
+                <label class="group-toggle" title="按首播年份分组展示"><input type="checkbox" id="recommend-grouped" checked> 分组</label>
                 <span class="wizard-hint">标签 / 收藏夹叠加过滤，勾选状态跨页保留</span>
             </div>
             <div class="recommend-pick-head">
@@ -516,37 +548,8 @@
                     </span>
                 </label>
                 <p class="wizard-hint">开场代表秀：不勾选则自动选评分高的 10 部（无评分随机补足）；勾选后手动指定进开场的封面，防止推荐多时开场太挤。</p>
-
-                <label class="recommend-theme-field">背景
-                    <select id="recommend-bg-type">
-                        <option value="default">默认（深色霓虹）</option>
-                        <option value="color">主题色</option>
-                        <option value="image">自定义图片</option>
-                    </select>
-                </label>
-                <span id="recommend-bg-color-row" class="recommend-bg-row" hidden>
-                    <input type="color" id="recommend-bg-color" value="#0d1530">
-                    <span class="wizard-hint">选择背景主题色</span>
-                </span>
-                <span id="recommend-bg-image-row" class="recommend-bg-row" hidden>
-                    <button type="button" id="recommend-bg-image-pick" class="btn-mini">🖼 选择背景图</button>
-                    <span id="recommend-bg-image-name" class="recommend-bgm-name"></span>
-                    <button type="button" id="recommend-bg-image-remove" class="btn-mini danger" hidden>移除</button>
-                </span>
-                <p class="wizard-hint">选择背景主题色或自定义图片（≤8MB）；不选则用默认深色霓虹背景。</p>
-                <input type="file" id="recommend-bg-file" accept="image/*" hidden>
-
-                <label class="recommend-theme-field">显示时长（秒）
-                    <span class="recommend-dur-row">
-                        <span>开局<input type="number" id="recommend-dur-opening" min="2" max="20" value="10"></span>
-                        <span>序言<input type="number" id="recommend-dur-intro" min="1" max="10" value="5"></span>
-                        <span>章节<input type="number" id="recommend-dur-group" min="1" max="10" value="5"></span>
-                        <span>详情<input type="number" id="recommend-dur-detail" min="3" max="15" value="10"></span>
-                        <span>结尾<input type="number" id="recommend-dur-ending" min="1" max="10" value="5"></span>
-                    </span>
-                </label>
-                <p class="wizard-hint">各阶段停留秒数：开局定格 / 序言页 / 章节转场 / 每部详情 / 结尾页。</p>
             </div>
+
             <div class="wizard-nav">
                 <button type="button" id="recommend-step-3-back" class="btn-mini">上一步</button>
                 <button type="button" id="recommend-step-3-next" class="btn-primary">下一步：预览导出</button>
@@ -622,7 +625,7 @@
             </span>
         </label>
         <label>状态
-            <select id="media-status">
+            <select id="media-status-select">
                 <option value="WANT">想看</option>
                 <option value="WATCHING">在看</option>
                 <option value="DONE">看完</option>
@@ -721,11 +724,40 @@
         <h2>改名 / 合并</h2>
         <label>新标题（改名用，可为空）<input id="rename-title" autocomplete="off"></label>
         <label>合并到（选填，优先于改名）
-            <select id="merge-into"><option value="">— 不合并 —</option></select>
+            <span class="merge-pick">
+                <input id="merge-search" type="text" placeholder="🔍 输入标题搜索合并目标" autocomplete="off">
+                <span id="merge-candidates" class="merge-cand-list" hidden></span>
+            </span>
         </label>
         <div class="modal-actions">
             <button id="rename-cancel" type="button">取消</button>
             <button id="rename-save" type="button">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 重名处理：改名撞名时三选一（合并到它 / 仅改名 / 取消） -->
+<div id="rename-dupe-modal" class="modal-overlay" hidden>
+    <div class="modal modal-sm">
+        <h2>检测到同名媒体</h2>
+        <p id="rename-dupe-msg" class="modal-hint"></p>
+        <div class="modal-actions">
+            <button id="rename-dupe-cancel" type="button">取消</button>
+            <button id="rename-dupe-keep" type="button">仅改名</button>
+            <button id="rename-dupe-merge" type="button" class="danger">合并到它</button>
+        </div>
+    </div>
+</div>
+
+<!-- 另存为模板（网站风格输入弹窗，替代原生 prompt） -->
+<div id="template-save-modal" class="modal-overlay" hidden>
+    <div class="modal modal-sm">
+        <h2>另存为模板</h2>
+        <p class="modal-hint">把当前推荐配置存为命名模板，下次可直接载入复用（不含 BGM）。</p>
+        <label>模板名<input id="template-name-input" autocomplete="off" placeholder="如：年度回顾"></label>
+        <div class="modal-actions">
+            <button id="template-save-cancel" type="button">取消</button>
+            <button id="template-save-confirm" type="button">保存</button>
         </div>
     </div>
 </div>
@@ -804,9 +836,14 @@
                             <b id="bg-rotation-val">15s</b>
                         </div>
                         <div class="bg-slider-row">
-                            <span class="bg-slider-label">透明度</span>
-                            <input type="range" id="bg-opacity" min="30" max="90" step="5" value="60">
+                            <span class="bg-slider-label">不透明度</span>
+                            <input type="range" id="bg-opacity" min="0" max="100" step="1" value="60">
                             <b id="bg-opacity-val">60%</b>
+                        </div>
+                        <div class="bg-slider-row">
+                            <span class="bg-slider-label">明亮度</span>
+                            <input type="range" id="bg-brightness" min="0" max="100" step="1" value="50">
+                            <b id="bg-brightness-val">50%</b>
                         </div>
                         <div class="bg-slider-row">
                             <span class="bg-slider-label">模糊度</span>
@@ -857,15 +894,13 @@
             <div class="preview-modal-title">
                 <h2>推荐预览</h2>
                 <span id="preview-title-note" class="preview-title-note"></span>
+                <span id="preview-duration" class="preview-duration">总时长 --:--</span>
             </div>
             <div class="preview-modal-tools">
-                <label class="preview-size-label">封面大小
-                    <select id="preview-cover-size">
-                        <option value="sm">小</option>
-                        <option value="md" selected>中</option>
-                        <option value="lg">大</option>
-                    </select>
+                <label class="preview-autoplay" title="自动导览开关">
+                    <input type="checkbox" id="preview-autoplay" checked> 自动播放
                 </label>
+                <button id="rec-config-btn" type="button" class="preview-expand-btn" title="推荐配置" aria-label="推荐配置">⚙</button>
                 <button id="preview-expand" type="button" class="preview-expand-btn" title="全屏 / 还原">全屏 ⇱</button>
             </div>
         </div>
@@ -1018,6 +1053,123 @@
 <div id="vt-hover-preview" class="hover-preview" hidden>
     <img src="" alt="">
 </div>
-<script src="app.js"></script>
+<!-- 推荐配置弹窗（齿轮）：收纳封面大小/开场加载/结尾滚动/分组排序 + 背景多选/轮换/透明度/模糊度 -->
+<!-- 推荐配置浮动面板（齿轮）：浮动不遮预览，改配置实时刷新预览 -->
+<div id="recommend-config-modal" class="config-overlay" hidden>
+    <div class="config-panel">
+        <div class="config-head">
+            <h2>推荐配置</h2>
+            <button type="button" id="recommend-config-close" class="config-close" aria-label="关闭">✕</button>
+        </div>
+        <div class="config-body">
+            <div class="config-group collapsed">
+                <div class="config-group-title">预览效果</div>
+                <div class="config-grid">
+                    <label class="config-item">
+                        <span class="config-item-name">封面大小</span>
+                        <input type="range" id="preview-cover-size" min="0" max="100" value="50">
+                        <span class="config-item-val" id="preview-cover-val">50 · 中</span>
+                    </label>
+                    <label class="config-item">
+                        <span class="config-item-name">开场加载</span>
+                        <input type="range" id="preview-opening-speed" min="0" max="100" value="50">
+                        <span class="config-item-val" id="preview-opening-val">50</span>
+                    </label>
+                    <label class="config-item">
+                        <span class="config-item-name">结尾滚动</span>
+                        <input type="range" id="preview-ending-speed" min="0" max="100" value="50">
+                        <span class="config-item-val" id="preview-ending-val">50</span>
+                    </label>
+                    <label class="config-item">
+                        <span class="config-item-name">分组排序</span>
+                        <select id="preview-group-sort">
+                            <option value="date-desc">新→旧</option>
+                            <option value="date-asc">旧→新</option>
+                            <option value="none">原序</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+            <div class="config-group collapsed">
+                <div class="config-group-title">背景</div>
+                <div class="config-bg-type">
+                    <span class="config-item-name">背景类型</span>
+                    <select id="recommend-bg-type">
+                        <option value="default">默认（深色霓虹）</option>
+                        <option value="color">主题色</option>
+                        <option value="image">自定义图片</option>
+                    </select>
+                </div>
+                <div id="recommend-bg-color-row" class="config-row" hidden>
+                    <input type="color" id="recommend-bg-color" value="#0d1530">
+                    <span class="config-hint">背景主题色</span>
+                </div>
+                <div id="recommend-bg-image-row" class="config-bg-image" hidden>
+                    <div class="config-bg-pick">
+                        <button type="button" id="recommend-bg-image-pick" class="btn-mini">🖼 添加背景图</button>
+                        <input type="file" id="recommend-bg-file" accept="image/*" multiple hidden>
+                    </div>
+                    <div id="recommend-bg-images" class="recommend-bg-images"></div>
+                    <div class="config-grid">
+                        <label class="config-item">
+                            <span class="config-item-name">轮换时间</span>
+                            <input type="range" id="recommend-bg-rotation" min="1" max="30" value="8">
+                            <span class="config-item-val" id="recommend-bg-rotation-val">8s</span>
+                        </label>
+                        <label class="config-item">
+                            <span class="config-item-name">不透明度</span>
+                            <input type="range" id="recommend-bg-opacity" min="0" max="100" value="100">
+                            <span class="config-item-val" id="recommend-bg-opacity-val">100%</span>
+                        </label>
+                        <label class="config-item">
+                            <span class="config-item-name">明亮度</span>
+                            <input type="range" id="recommend-bg-brightness" min="0" max="100" value="50">
+                            <span class="config-item-val" id="recommend-bg-brightness-val">50%</span>
+                        </label>
+                        <label class="config-item">
+                            <span class="config-item-name">模糊度</span>
+                            <input type="range" id="recommend-bg-blur" min="0" max="100" value="0">
+                            <span class="config-item-val" id="recommend-bg-blur-val">0</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="config-group collapsed">
+                <div class="config-group-title">音乐条</div>
+                <div class="config-grid">
+                    <label class="config-item">
+                        <span class="config-item-name">缩放</span>
+                        <input type="range" id="recommend-bgm-scale" min="50" max="200" step="5" value="100">
+                        <span class="config-item-val" id="recommend-bgm-scale-val">100%</span>
+                    </label>
+                    <label class="config-item">
+                        <span class="config-item-name">横向位置 X</span>
+                        <input type="number" id="recommend-bgm-x" min="0" max="100" step="0.5" value="1">
+                        <span class="config-item-val">%</span>
+                    </label>
+                    <label class="config-item">
+                        <span class="config-item-name">纵向位置 Y</span>
+                        <input type="number" id="recommend-bgm-y" min="0" max="100" step="0.5" value="8">
+                        <span class="config-item-val">%</span>
+                    </label>
+                </div>
+                <div class="config-hint">可在预览中直接拖动音乐条调整位置，松开自动回填</div>
+            </div>
+            <div class="config-group collapsed">
+                <div class="config-group-title">显示时长</div>
+                <span class="recommend-dur-row">
+                    <span>开局<input type="number" id="recommend-dur-opening" min="2" max="20" value="10"></span>
+                    <span>序言<input type="number" id="recommend-dur-intro" min="1" max="10" value="5"></span>
+                    <span>章节<input type="number" id="recommend-dur-group" min="1" max="10" value="5"></span>
+                    <span>详情<input type="number" id="recommend-dur-detail" min="3" max="15" value="10"></span>
+                    <span>结尾<input type="number" id="recommend-dur-ending" min="1" max="10" value="5"></span>
+                </span>
+                <div class="config-hint">各阶段停留秒数：开局定格 / 序言页 / 章节转场 / 每部详情 / 结尾页。</div>
+            </div>
+        </div>
+    </div>
+</div>
+<button type="button" id="back-top" title="回到顶部" aria-label="回到顶部">↑</button>
+<script src="app.js?v=20260811"></script>
 </body>
 </html>

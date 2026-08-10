@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>推荐预览 · 三滑块 UI 设计（待确认）</title>
+<style>
+  :root {
+    --bg: #0a0a15; --bg-deep: #07070f;
+    --surface: #141426; --surface-2: #1b1b31; --surface-3: #22223b;
+    --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.15);
+    --pink: #ff4d8d; --pink-soft: rgba(255,77,141,.16);
+    --violet: #a78bfa; --violet-soft: rgba(167,139,250,.16);
+    --cyan: #35d6f2; --amber: #fbbf24;
+    --text: #edeaf7; --text-dim: #9d9bb8; --text-faint: #6a6886;
+    --grad: linear-gradient(135deg,#ff4d8d,#a78bfa 55%,#35d6f2);
+    --font-body: "PingFang SC","Hiragino Sans GB","Microsoft YaHei UI",system-ui,sans-serif;
+    --font-display: "Yuanti SC","YouYuan","PingFang SC","Microsoft YaHei UI",sans-serif;
+    --font-mono: "Cascadia Code",ui-monospace,Consolas,monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(167,139,250,.10), transparent 60%),
+      radial-gradient(900px 500px at 0% 0%, rgba(255,77,141,.08), transparent 55%),
+      var(--bg);
+    color: var(--text); font-family: var(--font-body); min-height: 100vh; padding: 28px 32px;
+  }
+  .note {
+    max-width: 900px; margin: 0 auto 20px; padding: 13px 18px;
+    background: linear-gradient(180deg, rgba(26,26,46,.85), rgba(19,19,34,.85));
+    border: 1px solid var(--border-strong); border-radius: 14px; font-size: 12.5px; color: var(--text-dim); line-height: 1.7;
+  }
+  .note b { color: var(--pink); }
+
+  /* ===== 模拟预览弹窗 ===== */
+  .preview-wrap { max-width: 900px; margin: 0 auto; }
+  .modal-overlay {
+    background: rgba(6,6,14,.82); border-radius: 20px; padding: 10px;
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--border-strong);
+  }
+  .preview-modal {
+    background: linear-gradient(180deg, rgba(26,26,46,.97), rgba(15,15,28,.97));
+    border: 1px solid var(--border-strong); border-radius: 16px; overflow: hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,.6), 0 0 60px rgba(255,77,141,.10);
+  }
+  .preview-modal-head {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+  }
+  .preview-modal-title h2 { font-size: 16px; font-weight: 800; letter-spacing: 2px; font-family: var(--font-display); }
+  .preview-modal-title .sub { font-size: 11.5px; color: var(--text-faint); margin-top: 2px; }
+
+  /* 工具区：三滑块 + 全屏 */
+  .preview-modal-tools {
+    margin-left: auto; display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  }
+  .preview-slider { display: flex; align-items: center; gap: 10px; }
+  .preview-slider .sl { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+  .preview-slider .sv {
+    min-width: 52px; text-align: right; font-size: 12px; font-weight: 700;
+    font-family: var(--font-mono); color: var(--text);
+  }
+  .preview-slider .sv .unit { color: var(--text-faint); font-weight: 400; margin-left: 3px; }
+
+  /* 滑块：渐变轨道 + 圆形光晕滑块头 */
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 130px; height: 4px; border-radius: 99px;
+    background: linear-gradient(90deg, var(--pink) 0%, var(--violet) 50%, var(--cyan) 100%);
+    outline: none; cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; border: 3px solid var(--pink);
+    box-shadow: 0 0 0 4px rgba(255,77,141,.18), 0 4px 12px rgba(0,0,0,.4);
+    transition: box-shadow .18s, transform .18s;
+  }
+  input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.12); box-shadow: 0 0 0 6px rgba(255,77,141,.25), 0 0 16px rgba(255,77,141,.5); }
+  input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.18); }
+  input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; border: 3px solid var(--pink);
+    box-shadow: 0 0 0 4px rgba(255,77,141,.18), 0 4px 12px rgba(0,0,0,.4);
+  }
+  input[type="range"]:focus-visible { box-shadow: 0 0 0 3px rgba(255,77,141,.3); }
+
+  .preview-expand-btn {
+    background: rgba(255,255,255,.05); border: 1px solid var(--border-strong);
+    color: var(--text-dim); border-radius: 10px; padding: 8px 12px; font-size: 12px;
+    cursor: pointer; font-family: inherit; transition: all .15s;
+  }
+  .preview-expand-btn:hover { border-color: rgba(255,77,141,.5); color: var(--text); }
+
+  /* iframe 占位 */
+  .preview-frame {
+    width: 100%; height: 460px; border: none; display: block; background: #0b0b18;
+  }
+  .preview-frame .ph {
+    height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    color: var(--text-faint); font-size: 13px; letter-spacing: 3px;
+  }
+  .preview-frame .ph .dot { font-size: 30px; animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity:.35; } 50% { opacity:1; } }
+
+  .modal-actions {
+    display: flex; justify-content: flex-end; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--border);
+  }
+  .modal-actions button {
+    padding: 9px 18px; border-radius: 11px; font-size: 13px; cursor: pointer; font-family: inherit;
+    background: rgba(255,255,255,.05); border: 1px solid var(--border-strong); color: var(--text-dim);
+    transition: all .15s;
+  }
+  .modal-actions button:hover { border-color: rgba(255,77,141,.5); color: var(--text); }
+  .modal-actions .primary { background: var(--grad); color: #fff; border: none; font-weight: 700; }
+  .modal-actions .primary:hover { filter: brightness(1.1); }
+</style>
+</head>
+<body>
+
+  <div class="note">
+    <b>推荐预览弹窗 · 三滑块 UI 设计（待确认）</b><br>
+    封面大小（原「小/中/大」下拉）改为滑块 0-100，默认 <b>50 = 中</b>；开场加载速度、结尾滚动速度同为 0-100 滑块，默认 50 = 当前速度。
+    三滑块统一在预览弹窗头部工具区，改值即重新生成预览。纯静态预览。
+  </div>
+
+  <div class="preview-wrap">
+    <div class="modal-overlay">
+      <div class="preview-modal">
+        <div class="preview-modal-head">
+          <div class="preview-modal-title">
+            <h2>推荐预览</h2>
+            <div class="sub">共 12 部 · 按年份分组 · 开场 6 部</div>
+          </div>
+          <div class="preview-modal-tools">
+            <label class="preview-slider">
+              <span class="sl">封面大小</span>
+              <input type="range" id="sl-cover" min="0" max="100" value="50">
+              <span class="sv" id="sv-cover">50<span class="unit">中</span></span>
+            </label>
+            <label class="preview-slider">
+              <span class="sl">开场加载</span>
+              <input type="range" id="sl-open" min="0" max="100" value="50">
+              <span class="sv" id="sv-open">50<span class="unit">当前</span></span>
+            </label>
+            <label class="preview-slider">
+              <span class="sl">结尾滚动</span>
+              <input type="range" id="sl-end" min="0" max="100" value="50">
+              <span class="sv" id="sv-end">50<span class="unit">当前</span></span>
+            </label>
+            <button class="preview-expand-btn" type="button">全屏 ⇱</button>
+          </div>
+        </div>
+        <div class="preview-frame"><div class="ph"><span class="dot">✦</span>预览区域（iframe）</div></div>
+        <div class="modal-actions">
+          <button type="button">关闭</button>
+          <button type="button" class="primary">导出视频</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+// 滑块联动显示值；封面大小 0-100 → 小/中/大
+function coverLabel(v) {
+  if (v < 34) return '小';
+  if (v > 66) return '大';
+  return '中';
+}
+function bindSlider(id, valId, labelFn) {
+  const s = document.getElementById(id);
+  const sv = document.getElementById(valId);
+  const upd = () => {
+    const v = Number(s.value);
+    sv.innerHTML = v + '<span class="unit">' + (labelFn ? labelFn(v) : '当前') + '</span>';
+  };
+  s.addEventListener('input', upd);
+  upd();
+}
+bindSlider('sl-cover', 'sv-cover', coverLabel);
+bindSlider('sl-open', 'sv-open');
+bindSlider('sl-end', 'sv-end');
+</script>
+</body>
+</html>

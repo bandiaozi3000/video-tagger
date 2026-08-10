@@ -51,7 +51,8 @@ public class SettingsService {
         SettingsDTO next = new SettingsDTO(cur.bgImages(),
                 req.rotationSec() == null ? cur.rotationSec() : req.rotationSec(),
                 req.opacity() == null ? cur.opacity() : req.opacity(),
-                req.blur() == null ? cur.blur() : req.blur());
+                req.blur() == null ? cur.blur() : req.blur(),
+                req.brightness() == null ? cur.brightness() : req.brightness());
         persist(next);
         return next;
     }
@@ -74,7 +75,7 @@ public class SettingsService {
         } catch (IOException e) {
             throw new RuntimeException("背景图保存失败: " + e.getMessage(), e);
         }
-        SettingsDTO next = new SettingsDTO(bgImages, cur.rotationSec(), cur.opacity(), cur.blur());
+        SettingsDTO next = new SettingsDTO(bgImages, cur.rotationSec(), cur.opacity(), cur.blur(), cur.brightness());
         persist(next);
         return next;
     }
@@ -92,7 +93,7 @@ public class SettingsService {
             Files.deleteIfExists(Paths.get(siteDir, "bg", clean));
         } catch (IOException ignored) {
         }
-        SettingsDTO next = new SettingsDTO(bgImages, cur.rotationSec(), cur.opacity(), cur.blur());
+        SettingsDTO next = new SettingsDTO(bgImages, cur.rotationSec(), cur.opacity(), cur.blur(), cur.brightness());
         persist(next);
         return next;
     }

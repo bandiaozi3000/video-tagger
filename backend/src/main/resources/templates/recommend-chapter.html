@@ -121,7 +121,10 @@
     opacity:0;transform:translateY(16px);transition:opacity .55s ease,transform .55s ease;}
   .ending.in-view .en-wall img{opacity:1;transform:none;transition-delay:calc(var(--i,0) * 45ms)}
   /* 分组总结 + 分页 */
-  .ending .en-groups{display:flex;flex-direction:column;gap:20px;margin:32px 0;max-width:920px;width:100%}
+  /* 结尾分组回顾：内部滚动容器（全排 + 连续自动滚动，滚到底收尾） */
+  .ending .en-scroll{height:66vh;overflow-y:auto;overflow-x:hidden;max-width:920px;width:100%;margin:26px 0;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .ending .en-scroll::-webkit-scrollbar{display:none}
+  .ending .en-groups{display:flex;flex-direction:column;gap:20px;max-width:920px;width:100%}
   .ending .en-group{border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:14px 16px;background:rgba(10,10,22,.45)}
   .ending .en-group-name{font-size:13px;letter-spacing:2px;color:var(--sky);font-weight:700;margin-bottom:12px}
   .ending .en-group-covers{display:flex;gap:10px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding:4px 2px}
@@ -233,21 +236,39 @@
   @keyframes tbprog{from{width:0}to{width:100%}}
 
   /* BGM 胶囊 */
-  .bgm-bar{position:fixed;left:14px;bottom:14px;z-index:50;display:flex;align-items:center;gap:8px;
-    background:rgba(8,8,18,.82);border:1px solid rgba(255,255,255,.14);border-radius:999px;padding:6px 12px;
-    backdrop-filter:blur(10px);max-width:min(92vw,600px);box-shadow:0 6px 20px rgba(0,0,0,.45);}
+  .bgm-bar{position:fixed;left:14px;bottom:8%;z-index:50;display:flex;align-items:center;gap:9px;
+    max-width:min(92vw,600px);
+    text-shadow:0 1px 10px rgba(0,0,0,.75),0 0 26px rgba(0,0,0,.45);}   /* 无框融入背景：无底/边/影/圆点，仅文字投影保证可读 */
   .bgm-bar[hidden]{display:none}
-  .bgm-bar::before{content:'';width:6px;height:6px;border-radius:50%;flex:none;
-    background:linear-gradient(135deg,var(--pink),var(--gold));box-shadow:0 0 10px rgba(255,143,184,.7);}
-  .bgm-play,.bgm-mute{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);
-    border-radius:50%;color:#fff;cursor:pointer;width:26px;height:26px;font-size:11px;line-height:1;flex:none;transition:all .2s;}
-  .bgm-play:hover,.bgm-mute:hover{background:rgba(255,255,255,.15)}
-  .bgm-mute.muted{color:#5a5a70}
-  .bgm-name{font-size:12px;color:#fff;flex:0 1 auto;min-width:0;max-width:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bgm-resize{display:none;flex:none;font-size:11px;color:var(--faint);cursor:ew-resize;padding:2px 3px;
+    user-select:none;line-height:1;transition:color .2s;}
+  .bgm-bar.config .bgm-resize{display:inline-block}   /* 配置模式显示缩放手柄 */
+  .bgm-resize:hover{color:var(--ink)}
+  .bgm-play,.bgm-mute{background:transparent;border:0;color:var(--muted);cursor:pointer;font-size:12px;
+    padding:2px 5px;line-height:1;flex:none;transition:color .2s;}
+  .bgm-play:hover,.bgm-mute:hover{color:var(--ink)}
+  .bgm-mute.muted{color:var(--faint)}
+  .bgm-name{font-size:12.5px;color:var(--ink);letter-spacing:.5px;flex:0 1 auto;min-width:0;max-width:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .bgm-bar.next .bgm-name{color:var(--gold)}
-  .bgm-progress{width:90px;height:4px;background:rgba(255,255,255,.12);border-radius:999px;overflow:hidden;cursor:pointer;flex:none}
-  .bgm-progress i{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--pink),var(--gold))}
-  .bgm-time{font-size:11px;color:#8b8ba3;white-space:nowrap;font-variant-numeric:tabular-nums;flex:none}
+  .bgm-progress{width:110px;height:3px;background:rgba(255,255,255,.09);border-radius:999px;overflow:hidden;cursor:pointer;flex:none}
+  .bgm-progress i{display:block;height:100%;width:0;border-radius:999px;
+    background:linear-gradient(90deg,var(--sky),var(--blue),var(--pink));box-shadow:0 0 12px rgba(79,195,247,.8);}
+  .bgm-time{font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;flex:none;letter-spacing:.5px}
+  /* 右侧章节导航（仅配置/预览显示；市面常用做法：竖排圆点+章节名，当前高亮） */
+  .side-nav{position:fixed;right:16px;top:50%;transform:translateY(-50%);z-index:60;
+    display:flex;flex-direction:column;align-items:flex-end;gap:4px;}
+  .side-nav[hidden]{display:none}
+  .side-nav-item{display:flex;align-items:center;gap:8px;cursor:pointer;font-family:inherit;
+    border:0;background:transparent;padding:5px 0;font-size:11px;letter-spacing:2px;color:var(--muted);
+    opacity:.55;transition:opacity .2s;}
+  .side-nav-item:hover{opacity:1}
+  .side-nav-item .sn-label{opacity:0;transform:translateX(8px);transition:.2s;color:var(--muted);}
+  .side-nav-item:hover .sn-label{opacity:1;transform:none;color:var(--ink)}
+  .side-nav-item .sn-dot{width:8px;height:8px;border-radius:50%;flex:none;
+    background:rgba(255,255,255,.28);box-shadow:0 0 8px rgba(0,0,0,.5);transition:background .2s,box-shadow .2s;}
+  .side-nav-item.on{opacity:1}
+  .side-nav-item.on .sn-dot{background:var(--pink);box-shadow:0 0 12px var(--pink);}
+  .side-nav-item.on .sn-label{opacity:1;transform:none;color:var(--ink)}
 
   @media (max-width:860px){
     .hero-plate{padding:20px 24px 18px}.hero-plate h1{font-size:24px;letter-spacing:4px}
@@ -287,8 +308,10 @@
     <div class="bgm-progress" id="bgmProgTrack" title="点击跳转进度"><i id="bgmProg"></i></div>
     <span class="bgm-time" id="bgmTime">0:00 / 0:00</span>
     <button class="bgm-mute" id="bgmMuteBtn" title="静音/取消静音">♪</button>
+    <span class="bgm-resize" id="bgmResize" title="拖拽缩放（配置模式）">↗</span>
   </div>
-  <audio id="bgmAudio" loop preload="auto"></audio>
+  <nav class="side-nav" id="sideNav" aria-label="章节导航" hidden></nav>
+  <audio id="bgmAudio" preload="auto"></audio>
 </div>
 
 <script>
@@ -298,13 +321,37 @@ const SLIDES = __SLIDES_JSON__;
 const IS_RECORD = new URLSearchParams(location.search).get('record') === '1';
 const INTRO = "__INTRO__";   /* 主题简介（后端注入；空 → 不显示序言页） */
 const BG_COLOR = "__BG_COLOR__";   /* 背景主题色（后端注入；空 → 用默认） */
-const BG_IMAGE = "__BG_IMAGE__";   /* 背景图 dataURI（后端注入；空 → 用默认） */
-if (BG_IMAGE) {
-  /* 独立固定背景层：锁视口不随内容滚动、沉底(z-index:-1)、半透明(0.4)不喧宾夺主 */
+const BG_IMAGES = __BG_IMAGES__;                 /* 背景图多选 dataURI 数组（后端注入） */
+/* _fnum：后端注入数值解析，0 有效（勿用 || 默认，0 是 falsy 会被替换）；空/NaN 才用默认 */
+const _fnum = (s, d) => { const v = Number(s); return Number.isFinite(v) ? v : d; };
+const BG_ROTATION_SEC = _fnum("__BG_ROTATION_SEC__", 8);
+const BG_OPACITY = _fnum("__BG_OPACITY__", 100);   /* 不透明度：0=透明, 100=不透明（清晰） */
+const BG_BRIGHTNESS = _fnum("__BG_BRIGHTNESS__", 50);   /* 明亮度：50=正常 */
+const BG_BLUR = _fnum("__BG_BLUR__", 0);
+if (Array.isArray(BG_IMAGES) && BG_IMAGES.length) {
+  /* 独立固定背景层：多图轮换 + 透明度/模糊度，锁视口沉底不喧宾夺主 */
+  let bgIdx = 0;
   const bg = document.createElement('div');
   bg.className = 'bg-image-layer';
-  bg.style.cssText = 'position:fixed;inset:0;z-index:-1;background-image:url("' + BG_IMAGE + '");background-size:cover;background-position:center;opacity:.4;pointer-events:none;';
+  bg.style.cssText = 'position:fixed;inset:0;z-index:-1;background-size:cover;background-position:center;transition:opacity .8s;pointer-events:none;';
+  bg.style.backgroundImage = 'url("' + BG_IMAGES[0] + '")';
+  bg.style.opacity = BG_OPACITY / 100;   // 不透明度：0=透明, 100=不透明
+  const bgFilters = [];
+  if (BG_BRIGHTNESS !== 50) bgFilters.push('brightness(' + (0.2 + BG_BRIGHTNESS * 0.016) + ')');
+  if (BG_BLUR > 0) bgFilters.push('blur(' + (BG_BLUR / 20) + 'px)');
+  if (bgFilters.length) bg.style.filter = bgFilters.join(' ');
   document.body.appendChild(bg);
+  if (BG_IMAGES.length > 1) {
+    /* 多图轮换：先淡出当前图 → 换新图 → 淡入（transition opacity .8s 已有） */
+    setInterval(() => {
+      bgIdx = (bgIdx + 1) % BG_IMAGES.length;
+      bg.style.opacity = 0;
+      setTimeout(() => {
+        bg.style.backgroundImage = 'url("' + BG_IMAGES[bgIdx] + '")';
+        bg.style.opacity = BG_OPACITY / 100;
+      }, 800);
+    }, Math.max(1, BG_ROTATION_SEC) * 1000);
+  }
 } else if (BG_COLOR) {
   document.body.style.background = BG_COLOR;
 }
@@ -317,6 +364,9 @@ const INTRO_SEC = Number("__INTRO_SEC__") || 5;
 const GROUP_SEC = Number("__GROUP_SEC__") || 5;
 const DETAIL_SEC = Number("__DETAIL_SEC__") || 10;
 const ENDING_SEC = Number("__ENDING_SEC__") || 5;
+const OPEN_SPEED = _fnum("__OPENING_SPEED__", 50);    /* 开场显影速度 0-100（50 = 当前；0 有效） */
+const END_SPEED = _fnum("__ENDING_SPEED__", 50);      /* 结尾滚动速度 0-100（50 = 当前；0 有效） */
+const SP_MULT = (120 - (OPEN_SPEED > 100 ? 50 : OPEN_SPEED)) / 70;   /* 速度→节奏倍数：50→1, 100→~0.29(快), 0→~1.71(慢) */
 
 /* 副题占位：注入为空 → 隐藏 */
 (() => { const hs = document.getElementById('heroSub'); if (hs && !hs.textContent.trim()) hs.style.display = 'none'; })();
@@ -333,17 +383,98 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
   const bgmNameEl = document.getElementById('bgmName');
   let bgmIndex = 0, upNext = null;
   bgmBar.hidden = false;
+
+  /* 音乐条样式（后端注入）：整体缩放 + 坐标 X/Y（视口百分比，0 有效） */
+  const _num = v => { const x = Number(v); return Number.isFinite(x) ? x : NaN; };
+  const BGM_X = _num("__BGM_X__"), BGM_Y = _num("__BGM_Y__"), BGM_SCALE = _num("__BGM_SCALE__");
+  if (!Number.isNaN(BGM_X)) bgmBar.style.left = BGM_X + '%';
+  if (!Number.isNaN(BGM_Y)) bgmBar.style.bottom = BGM_Y + '%';
+  if (!Number.isNaN(BGM_SCALE)) bgmBar.style.transform = 'scale(' + (BGM_SCALE / 100) + ')';
+
+  /* 配置模式拖拽（父页预览 postMessage 启用；导出/录屏不启用）：拖到哪松手即回填位置 */
+  let bmDragEnabled = false, bmDragging = false, bmSX = 0, bmSY = 0, bmSL = 0, bmSB = 0;
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'bgm-config') {
+      bmDragEnabled = !!e.data.enable;
+      bgmBar.classList.toggle('config', bmDragEnabled);   // 显示缩放手柄
+      bgmBar.style.cursor = bmDragEnabled ? 'grab' : '';
+    }
+  });
+  bgmBar.addEventListener('pointerdown', (e) => {
+    if (!bmDragEnabled) return;
+    if (e.target.closest('.bgm-progress') || e.target.closest('.bgm-play') || e.target.closest('.bgm-mute') || e.target.closest('.bgm-resize')) return;
+    e.preventDefault();
+    bmDragging = true; bmSX = e.clientX; bmSY = e.clientY;
+    const r = bgmBar.getBoundingClientRect();
+    bmSL = r.left; bmSB = window.innerHeight - r.bottom;
+    try { bgmBar.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+    bgmBar.style.cursor = 'grabbing';
+  });
+  bgmBar.addEventListener('pointermove', (e) => {
+    if (!bmDragging) return;
+    let left = bmSL + (e.clientX - bmSX);
+    let bottom = bmSB - (e.clientY - bmSY);
+    const bw = bgmBar.offsetWidth, bh = bgmBar.offsetHeight;   // 钳制在屏内（保持完整可见）
+    left = Math.max(0, Math.min(left, window.innerWidth - bw));
+    bottom = Math.max(0, Math.min(bottom, window.innerHeight - bh));
+    bgmBar.style.left = left + 'px';
+    bgmBar.style.bottom = bottom + 'px';
+  });
+  const bmEnd = () => {
+    if (!bmDragging) return;
+    bmDragging = false;
+    bgmBar.style.cursor = bmDragEnabled ? 'grab' : '';
+    const r = bgmBar.getBoundingClientRect();
+    const x = +(r.left / window.innerWidth * 100).toFixed(1);
+    const y = +((window.innerHeight - r.bottom) / window.innerHeight * 100).toFixed(1);
+    try { parent.postMessage({ type: 'bgm-moved', x, y }, '*'); } catch (err) { /* 忽略 */ }
+  };
+  bgmBar.addEventListener('pointerup', bmEnd);
+  bgmBar.addEventListener('pointercancel', bmEnd);
+
+  /* 缩放手柄：拖拽直接调整整体缩放（配置模式），松手回填缩放滑块 */
+  const bgmResize = document.getElementById('bgmResize');
+  let bmResizing = false, bmRX = 0, bmRScale = 100;
+  bgmResize.addEventListener('pointerdown', (e) => {
+    if (!bmDragEnabled) return;
+    e.preventDefault(); e.stopPropagation();
+    bmResizing = true; bmRX = e.clientX;
+    const m = bgmBar.style.transform.match(/scale\(([\d.]+)\)/);
+    bmRScale = m ? Math.round(parseFloat(m[1]) * 100) : 100;
+    try { bgmResize.setPointerCapture(e.pointerId); } catch (err) { /* 忽略 */ }
+    bgmBar.style.cursor = 'ew-resize';
+  });
+  bgmResize.addEventListener('pointermove', (e) => {
+    if (!bmResizing) return;
+    const dx = e.clientX - bmRX;
+    const s = Math.max(50, Math.min(200, bmRScale + dx * 0.4));   // 每像素 0.4% 缩放，50~200 钳制
+    bgmBar.style.transform = 'scale(' + (s / 100) + ')';
+  });
+  const bmResizeEnd = () => {
+    if (!bmResizing) return;
+    bmResizing = false;
+    bgmBar.style.cursor = bmDragEnabled ? 'grab' : '';
+    const m = bgmBar.style.transform.match(/scale\(([\d.]+)\)/);
+    const s = m ? Math.round(parseFloat(m[1]) * 100) : 100;
+    try { parent.postMessage({ type: 'bgm-scaled', scale: s }, '*'); } catch (err) { /* 忽略 */ }
+  };
+  bgmResize.addEventListener('pointerup', bmResizeEnd);
+  bgmResize.addEventListener('pointercancel', bmResizeEnd);
   const fmtT = s => { if (!isFinite(s) || s <= 0) return '0:00'; return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0'); };
   const setPlay = playing => { bgmPlayBtn.textContent = playing ? '❚❚' : '▶'; bgmPlayBtn.title = playing ? '暂停' : '播放'; };
   const updateTime = () => { const d = bgmAudio.duration || 0; bgmProg.style.width = (d ? (bgmAudio.currentTime / d) * 100 : 0) + '%'; bgmTimeEl.textContent = fmtT(bgmAudio.currentTime) + ' / ' + fmtT(d); };
-  const scheduleNext = () => {
-    if (upNext) clearTimeout(upNext);
-    if (!(bgmAudio.duration > 0)) return;   // metadata 未就绪：等 loadedmetadata 拿到真实时长再排
-    upNext = setTimeout(() => {
+  /* 快结束前 4s 提示下一首：timeupdate 实时检测（data URI 音频 duration 可能迟就绪，setTimeout 排不准） */
+  const updateBgmHint = () => {
+    const d = bgmAudio.duration || 0;
+    const remain = d > 0 ? d - bgmAudio.currentTime : -1;
+    if (remain >= 0 && remain <= 4) {
       const n = BGM_TRACKS[(bgmIndex + 1) % BGM_TRACKS.length];
       bgmNameEl.textContent = '即将播放：' + n.name;
       bgmBar.classList.add('next');
-    }, Math.max(0, bgmAudio.duration * 1000 - 4000));
+    } else {
+      bgmNameEl.textContent = BGM_TRACKS[bgmIndex].name;
+      bgmBar.classList.remove('next');
+    }
   };
   const loadTrack = autoplay => {
     const t = BGM_TRACKS[bgmIndex];
@@ -370,13 +501,16 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
     }, 100);
     loadTrack(false);
   } else {
-    bgmAudio.addEventListener('timeupdate', updateTime);
-    bgmAudio.addEventListener('loadedmetadata', () => { updateTime(); scheduleNext(); });
-    bgmAudio.addEventListener('ended', () => { bgmIndex = (bgmIndex + 1) % BGM_TRACKS.length; loadTrack(true); });
+    bgmAudio.addEventListener('timeupdate', () => { updateTime(); updateBgmHint(); });
+    bgmAudio.addEventListener('loadedmetadata', () => { updateTime(); updateBgmHint(); });
+    bgmAudio.addEventListener('ended', () => {
+      if (BGM_TRACKS.length > 1) { bgmIndex = (bgmIndex + 1) % BGM_TRACKS.length; loadTrack(true); }
+      else { bgmAudio.currentTime = 0; bgmAudio.play().catch(() => {}); }   // 单曲循环
+    });
     bgmPlayBtn.addEventListener('click', () => { if (bgmAudio.paused) { bgmAudio.play().catch(() => {}); setPlay(true); } else { bgmAudio.pause(); setPlay(false); } });
     bgmMuteBtn.addEventListener('click', () => { bgmAudio.muted = !bgmAudio.muted; bgmMuteBtn.classList.toggle('muted', bgmAudio.muted); bgmMuteBtn.textContent = bgmAudio.muted ? '🔇' : '♪'; });
     document.getElementById('bgmProgTrack').addEventListener('click', e => { const rect = e.currentTarget.getBoundingClientRect(); if (bgmAudio.duration) bgmAudio.currentTime = ((e.clientX - rect.left) / rect.width) * bgmAudio.duration; });
-    loadTrack(false);
+    loadTrack(true);   // 预览自动播放（浏览器 autoplay 策略可能拦截，拦截则手动点播）
   }
 }
 
@@ -434,7 +568,7 @@ const skipBtn = document.getElementById('skipBtn');
 const GLOWS = ['#4fc3f7', '#ff8fb8', '#a78bfa', '#ffd166', '#34d399'];
 const glowOf = i => GLOWS[i % GLOWS.length];
 /* 开场封面大小系数：sm/md/lg（后端注入 __COVER_SIZE__） */
-const COVER_COEF = { sm: .85, md: 1.15, lg: 1.4 }['__COVER_SIZE__'] || 1.15;
+const COVER_COEF = 0.65 + Number('__COVER_SIZE__') / 100;
 const SPOTS = [
   { x:-44, y:-14, s:1.0, r:-7 }, { x:-26, y:-30, s:.64, r: 5 }, { x:-8,  y:-25, s:.92, r:-3 },
   { x: 18, y:-32, s:.6,  r: 9 }, { x: 38, y:-20, s:.86, r:-5 }, { x: 42, y:-6,  s:1.12, r: 3 },
@@ -501,7 +635,7 @@ function playDevelop() {
     p.querySelector('.cover').classList.remove('develop', 'done'); });
   const order = OPENING.map((_, i) => i);
   for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
-  const DUR = 520, GAP = 40;
+  const DUR = 520 * SP_MULT, GAP = 40 * SP_MULT;
   let delay = 0;
   for (const idx of order) { devTimers.push(setTimeout(() => develop(idx, DUR), delay)); delay += DUR + GAP; }
   devTimers.push(setTimeout(openWall, delay + 300));
@@ -511,6 +645,7 @@ function openWall() {
   pols.forEach((p, i) => { p.classList.add('mount'); p.onclick = () => { stopAuto(); goto(OPENING_SLIDE[i]); }; });
   /* 开局定格 OPENING_SEC 后开始自动导览 */
   entryTimer = setTimeout(beginAutoGuide, OPENING_SEC * 1000);
+  setSideActive('opening');
 }
 function skipFlash() {
   devTimers.forEach(clearTimeout); devTimers = [];
@@ -559,37 +694,21 @@ function buildEnding() {
   const heading = `<div class="en-kicker">THE END</div>
     <h2>${ENDING_TITLE || '这一季的 ' + N + ' 部'}</h2>`;
   if (hasGroup) {
-    /* 分组总结 + 按组分页（每页 3 组，组内封面横排滚动） */
+    /* 分组回顾：所有组全排 + 连续自动滚动（录制无需点击；滚到底停留 ENDING_SEC 后结束，速度 END_SPEED） */
     const gmap = new Map(), groups = [];
     SLIDES.forEach(s => {
       if (!gmap.has(s.group)) { gmap.set(s.group, groups.length); groups.push({ name: s.group, list: [] }); }
       groups[gmap.get(s.group)].list.push(s);
     });
-    const PER_PAGE = 3, totalPages = Math.ceil(groups.length / PER_PAGE);
-    let page = 0;
-    e.innerHTML = `${heading}<div class="en-groups" id="enGroups"></div>
-      <div class="en-pager" id="enPager"></div>`;
-    const render = () => {
-      const wrap = e.querySelector('#enGroups');
-      wrap.innerHTML = groups.slice(page * PER_PAGE, (page + 1) * PER_PAGE).map(g => `
+    e.innerHTML = `${heading}
+      <div class="en-scroll" id="enScroll"><div class="en-groups">
+        ${groups.map(g => `
         <div class="en-group">
           <div class="en-group-name">${g.name} · ${g.list.length} 部</div>
           <div class="en-group-covers">${g.list.map(s => `<img src="${s.cover}" alt="" onerror="this.style.display='none'">`).join('')}</div>
-        </div>`).join('');
-      wrap.querySelectorAll('.en-group-covers').forEach(el => autoScroll(el, 1));
-      const pg = e.querySelector('#enPager');
-      pg.innerHTML = totalPages > 1
-        ? `<button data-dir="prev" ${page === 0 ? 'disabled' : ''}>‹ 上一页</button>
-           <span>第 ${page + 1}/${totalPages} 页</span>
-           <button data-dir="next" ${page === totalPages - 1 ? 'disabled' : ''}>下一页 ›</button>` : '';
-    };
-    e.querySelector('#enPager').addEventListener('click', ev => {
-      const b = ev.target.closest('button'); if (!b) return;
-      if (b.dataset.dir === 'prev' && page > 0) page--;
-      if (b.dataset.dir === 'next' && page < totalPages - 1) page++;
-      render();
-    });
-    render();
+        </div>`).join('')}
+      </div></div>`;
+    e.querySelectorAll('.en-group-covers').forEach(el => autoScroll(el, 1));
   } else {
     e.innerHTML = `${heading}<div class="en-wall">${SLIDES.map((s, i) => `<img src="${s.cover}" alt="" style="--i:${i % 12}" onerror="this.style.display='none'">`).join('')}</div>`;
   }
@@ -643,7 +762,87 @@ if (hasGroup) {
     items.push({ el: buildStory(s, i, null, 0, 0), type: 'story', hold: DETAIL_SEC * 1000, idx: i + 1, total: N });
   });
 }
-items.push({ el: buildEnding(), type: 'ending', hold: ENDING_SEC * 1000, total: N });
+items.push({ el: buildEnding(), type: 'ending', hold: 3600 * 1000, total: N });   // hold 仅兜底；实际结束由 startEnding 滚到底+ENDING_SEC 控制
+
+/* 右侧章节导航 + 自动播放开关（仅配置/预览；父页 postMessage 控制，导出/录屏不启用） */
+let AUTO_PLAY = true;
+const sideNav = document.getElementById('sideNav');
+function buildSideNav() {
+  if (!sideNav) return;
+  const secs = [];
+  const add = (type, label) => secs.push({ type, label, idx: type === 'opening' ? -1 : items.findIndex(it => it.type === type) });
+  add('opening', '开局');
+  if (INTRO) add('prologue', '序言');
+  if (hasGroup) add('chapter', '章节');
+  add('story', '详情');
+  add('ending', '结尾');
+  sideNav.innerHTML = secs.map(s =>
+    `<button type="button" class="side-nav-item" data-sec="${s.type}"><span class="sn-label">${s.label}</span><span class="sn-dot"></span></button>`).join('');
+  sideNav.querySelectorAll('.side-nav-item').forEach(b => b.addEventListener('click', () => navJump(b.dataset.sec)));
+}
+function navJump(sec) {
+  if (sec === 'opening') {   // 开局：回 hero + 重放闪回动画（按配置速度），自动导览按配置续
+    stopAuto();
+    const hero = document.getElementById('hero');
+    if (hero) hero.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    playDevelop();   // 重放显影动画（可看开场加载速度）；skipFlash 只跳到完成态，看不到速度
+    setSideActive('opening');
+    return;
+  }
+  const idx = items.findIndex(it => it.type === sec);
+  if (idx >= 0) jumpTo(idx);
+}
+function jumpTo(i) {
+  stopAuto();
+  autoIndex = i;
+  goto(i);
+  if (AUTO_PLAY) startAutoFrom(i);   // 跳转后按配置自动播放
+}
+function startAutoFrom(i) {
+  autoplaying = true;
+  tbBar.classList.add('auto'); autoBadge.hidden = IS_RECORD;
+  scheduleAuto();
+}
+function setAutoPlay(on) {
+  AUTO_PLAY = on;
+  if (!on) { stopAuto(); }
+  else if (!autoplaying && items.length) {
+    if (autoIndex >= items.length) autoIndex = 0;
+    autoplaying = true; tbBar.classList.add('auto'); autoBadge.hidden = IS_RECORD;
+    scheduleAuto();
+  }
+}
+function setSideActive(sec) {
+  if (!sideNav) return;
+  sideNav.querySelectorAll('.side-nav-item').forEach(b => b.classList.toggle('on', b.dataset.sec === sec));
+}
+window.addEventListener('message', (e) => {
+  const d = e.data;
+  if (!d) return;
+  if (d.type === 'bgm-config') {           // 配置模式：显示右侧导航（拖拽启用由 BGM 块另一监听处理）
+    sideNav.hidden = !d.enable;
+  } else if (d.type === 'bgm-autoplay') {  // 自动播放开关（预览界面，默认开）
+    setAutoPlay(!!d.on);
+  }
+});
+buildSideNav();   // 右侧导航（items 就绪 + sideNav 声明后构建；仅配置模式显示）
+
+/* 预览总时长：向父页上报结构数据（父页据此按当前配置即时计算总时长，含开场/结尾速度）。window load 后结尾图片已定尺寸。 */
+function reportStructure() {
+  const sc = document.getElementById('enScroll');
+  try {
+    parent.postMessage({
+      type: 'preview-structure',
+      openingCount: OPENING.length,
+      storyCount: items.filter(it => it.type === 'story').length,
+      chapterCount: items.filter(it => it.type === 'chapter').length,
+      hasPrologue: items.some(it => it.type === 'prologue'),
+      endingScroll: sc ? Math.max(0, sc.scrollHeight - sc.clientHeight) : 0
+    }, '*');
+  } catch (err) { /* 忽略 */ }
+}
+reportStructure();   // 立即上报（结构已知；结尾滚动高度此时可能未含图片完整尺寸）
+window.addEventListener('load', reportStructure);   // 图片就绪后再报一次，覆盖准确结尾高度
 
 /* 进入视野 → in-view + trackbar 更新 */
 const io = new IntersectionObserver(entries => {
@@ -685,6 +884,7 @@ let entryTimer = null, autoTimer = null, autoIndex = 0, autoplaying = false;
 
 function resetProg() { prog.classList.remove('run'); void prog.offsetWidth; prog.classList.add('run'); }
 function beginAutoGuide() {
+  if (!AUTO_PLAY) return;   // 自动播放关闭时不自动推进（右侧导航手动跳转）
   if (autoplaying) return;
   autoplaying = true; autoIndex = 0;
   tbBar.classList.add('auto'); autoBadge.hidden = IS_RECORD;
@@ -707,14 +907,40 @@ function finishAuto() {
 function stopAuto() {
   clearTimeout(entryTimer); clearTimeout(autoTimer);
   autoTimer = null; entryTimer = null;
+  clearEndingTimers();
   finishAuto();
 }
 function goto(i) {
   if (autoplaying) resetProg();
   const it = items[i];
   prog.style.animationDuration = (it.hold / 1000) + 's';
-  it.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // 结尾用瞬时定位（smooth 异步滚动会覆盖 startEnding 的容器复位，看不到匀速滚动）
+  it.el.scrollIntoView({ behavior: it.type === 'ending' ? 'auto' : 'smooth', block: 'start' });
+  if (it.type === 'ending') startEnding();   // 结尾：启动连续滚动/收尾停留（滚到底 + ENDING_SEC → finishAuto）
   updateTrackbar(it);
+  setSideActive(it.type);   // 右侧导航当前阶段高亮
+}
+/* 结尾收尾：有分组 → 连续滚动到底后停留 ENDING_SEC；无分组 → 直接停留 ENDING_SEC 结束 */
+let endingTimers = [];
+function clearEndingTimers() { endingTimers.forEach(t => { clearInterval(t); clearTimeout(t); }); endingTimers = []; }
+function startEnding() {
+  clearEndingTimers();
+  const scrollEl = document.getElementById('enScroll');
+  if (!scrollEl) {
+    endingTimers.push(setTimeout(finishAuto, ENDING_SEC * 1000));
+    return;
+  }
+  scrollEl.scrollTop = 0;   // 从顶部开始匀速滚动（跳转/导览进入结尾都能看到滚动速度）
+  const step = 0.8 + END_SPEED / 12;   // 速度 0-100 → 0.8~9.1px/帧（0 ≈ 50px/s 慢速，50 ≈ 5px/帧，100 ≈ 570px/s 快速）
+  const timer = setInterval(() => {
+    if (scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2) {
+      clearInterval(timer);
+      endingTimers.push(setTimeout(finishAuto, ENDING_SEC * 1000));
+      return;
+    }
+    scrollEl.scrollTop += step;
+  }, 16);
+  endingTimers.push(timer);
 }
 
 if (!IS_RECORD) {
