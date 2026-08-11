@@ -10,9 +10,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
-/** 标题映射 API：查询（扩展浮层「已记住归入」提示用）/ 保存（手动映射用）/ 删除（解除映射）。 */
+/** 标题映射 API：查询（扩展浮层「已记住归入」提示用）/ 保存（手动映射用）/ 删除（解除映射）/ 别名列表（媒体详情管理用）。 */
 @RestController
 @RequestMapping("/api/title-mappings")
 public class TitleMappingController {
@@ -21,6 +22,12 @@ public class TitleMappingController {
 
     public TitleMappingController(TitleMappingService titleMappingService) {
         this.titleMappingService = titleMappingService;
+    }
+
+    /** 某媒体的全部别名（映射键），供媒体详情「别名管理」展示。 */
+    @GetMapping("/aliases")
+    public List<String> aliases(@RequestParam long mediaId) {
+        return titleMappingService.listAliasesByMedia(mediaId);
     }
 
     /** 查询映射：按原始标题解析后查，返回 {parsedTitle, mediaId, mediaTitle}；无映射 mediaId=null。 */

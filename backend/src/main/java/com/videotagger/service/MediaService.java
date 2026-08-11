@@ -17,6 +17,7 @@ import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.EpisodeTagMapper;
 import com.videotagger.mapper.TagMapper;
 import com.videotagger.util.MediaTitleNormalizer;
+import com.videotagger.util.TitleParser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,13 +42,15 @@ public class MediaService {
     private final MediaSubcategoryMapper mediaSubcategoryMapper;
     private final EmbeddingTaskService embeddingTaskService;
     private final CoverService coverService;
+    private final TitleMappingService titleMappingService;
 
     public MediaService(MediaMapper mediaMapper, EpisodeMapper episodeMapper,
                         MediaTagMapper mediaTagMapper, EpisodeTagMapper episodeTagMapper,
                         ClipTagMapper clipTagMapper, ClipMapper clipMapper,
                         TagMapper tagMapper, MediaCollectionMapper mediaCollectionMapper,
                         MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
-                        EmbeddingTaskService embeddingTaskService, CoverService coverService) {
+                        EmbeddingTaskService embeddingTaskService, CoverService coverService,
+                        TitleMappingService titleMappingService) {
         this.mediaMapper = mediaMapper;
         this.episodeMapper = episodeMapper;
         this.mediaTagMapper = mediaTagMapper;
@@ -60,6 +63,7 @@ public class MediaService {
         this.mediaSubcategoryMapper = mediaSubcategoryMapper;
         this.embeddingTaskService = embeddingTaskService;
         this.coverService = coverService;
+        this.titleMappingService = titleMappingService;
     }
 
     /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/来源/媒体标签/q 标题模糊筛选；ids 精确圈选（仅显示已勾选用）；offset 分页。 */
@@ -191,6 +195,11 @@ public class MediaService {
         mediaTagMapper.deleteByMedia(fromId);
         mediaCollectionMapper.deleteByMedia(fromId);
         embeddingTaskService.deleteFor(EntityType.MEDIA, from.getId());
+        /* 合并即记住别名：被合并媒体的识别名 → 目标媒体；下次保存同标题直接归位，不再重复合并 */
+        String fromName = from.getTitle();
+        if (fromName != null && !fromName.isBlank()) {
+            titleMappingService.save(TitleParser.parse(fromName).mediaTitle(), intoId);
+        }
         mediaMapper.deleteById(from.getId());
         // 合并后目标番剧的文本变化，重嵌入
         embeddingTaskService.enqueue(EntityType.MEDIA, intoId);

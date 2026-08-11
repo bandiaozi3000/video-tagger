@@ -1,11 +1,14 @@
 package com.videotagger.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.videotagger.entity.Media;
 import com.videotagger.entity.TitleMapping;
 import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.TitleMappingMapper;
 import com.videotagger.util.TitleParser;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 
 /** 标题映射：打标签识别标题 → 已归入媒体；映射后下次同标题自动归位。
  *  映射键 = TitleParser 解析出的媒体名（与打标归属链路同一口径），因此
@@ -92,6 +95,15 @@ public class TitleMappingService {
             return;
         }
         deleteByTitle(TitleParser.parse(rawTitle).mediaTitle());
+    }
+
+    /** 某媒体的全部别名（映射键列表，按别名排序），供媒体详情「别名管理」展示/删除。 */
+    public List<String> listAliasesByMedia(Long mediaId) {
+        if (mediaId == null) {
+            return List.of();
+        }
+        return mapper.selectList(new QueryWrapper<TitleMapping>().eq("media_id", mediaId))
+                .stream().map(TitleMapping::getTitle).sorted().toList();
     }
 
     /** 映射视图：识别标题 + 归入媒体 id + 媒体标题（媒体在回收站/已删时为 null）。 */

@@ -155,9 +155,11 @@ const collPageInfoEl = document.getElementById('coll-page-info');
 const collTotalEl = document.getElementById('coll-total');
 const collPaginationEl = document.getElementById('coll-pagination');
 const collGroupedEl = document.getElementById('coll-grouped');
+const collGroupSizeEl = document.getElementById('coll-group-size');
 const recommendSourceEl = document.getElementById('recommend-source');
 const recommendYearEl = document.getElementById('recommend-year');
 const recommendGroupedEl = document.getElementById('recommend-grouped');
+const recommendGroupSizeEl = document.getElementById('recommend-group-size');
 const recommendOnlySelectedEl = document.getElementById('recommend-only-selected');
 const recommendPaginationEl = document.getElementById('recommend-pagination');
 const recommendTagInputEl = document.getElementById('recommend-tag-input');
@@ -310,9 +312,21 @@ let collPageSize = 30;
 let collFilter = { q: '', year: '', sort: '', order: 'desc' };   // 收藏夹 tab 内容筛选：标题/年份/排序
 let collGrouped = true;   // 收藏夹分组显示开关（按首播年份分组，默认开）
 let collTotal = 0;
+let collGroupPage = 1;             // 收藏夹分组视图当前页（组打包分页）
+let collGroupPerPage = 500;        // 分组每页媒体数上限（档位：200/300/500/1000/不限=Infinity）
+let collGroupPages = [];           // 组打包结果：每页 = 组数组 [{year,items,chunk,...}]
+let collGroupTotalPages = 1;
+let collGroupNav = {};             // year → 该年首个切片所在页 index（导航跨页跳转）
+let collGroupNavYears = [];        // [{year}] 全部年份（导航显示顺序）
 let recommendPage = 1;               // 推荐向导来源网格分页
 let recommendPageSize = 30;
 let recommendTotal = 0;
+let recommendGroupPage = 1;        // 推荐页分组视图当前页（组打包分页）
+let recommendGroupPerPage = 500;   // 分组每页媒体数上限（档位，同上）
+let recommendGroupPages = [];
+let recommendGroupTotalPages = 1;
+let recommendGroupNav = {};
+let recommendGroupNavYears = [];
 let recommendSourceType = '';        // 推荐来源过滤：'' | 'collection'
 let recommendSourceId = null;
 let recommendTagId = null;           // 标签过滤（已解析的 tag id）
@@ -1647,7 +1661,7 @@ async function confirmMediaFavPick() {
         showToast(`已把 ${ids.length} 个媒体加入收藏夹`);
         exitMediaBatchMode();
         loadMedia(); // 重渲染媒体列表，退出勾选模式
-        loadCollList(); // 刷新收藏夹列表的媒体数
+        loadCollections(); // 刷新收藏夹列表的媒体数
         if (collSelectedId === Number(collId)) loadCollMedia(Number(collId));
     } catch (e) { showToast('加入收藏夹失败'); }
 }
@@ -1671,16 +1685,18 @@ async function loadCollMedia(id, resetPage = true) {
     const coll = collectionsCache.find(c => c.id === id);
     try {
         if (collGrouped) {
-            // 分组视图：一次拉全量（循环取完），按首播年份分组渲染，隐藏分页
+            // 分组视图：拉全量 → 组打包分页（每页媒体数 ≤ 上限、组不跨页切碎；巨型组切片），复用分页条
             const list = await loadAllCollMedia(id);
             collTotal = list.length;
             collContentHeadEl.textContent = coll
-                ? `${coll.name} · ${collTotal} 个媒体 · 按首播年份分 ${new Set(list.map(a => a.year || '未知年份')).size} 组`
+                ? `${coll.name} · ${collTotal} 个媒体 · 按首播年份分组，每页最多 ${collGroupPerPage === Infinity ? '不限' : collGroupPerPage} 部`
                 : '';
             collStatusEl.textContent = '';
-            collPaginationEl.hidden = true;
+            collPaginationEl.hidden = false;
             if (list.length === 0) {
                 collStatusEl.textContent = '这个收藏夹还没有媒体，可在媒体卡片点 ♡ 加入';
+                collGroupPages = []; collGroupTotalPages = 1; collGroupPage = 1;
+                renderCollGroupPagination();
                 return;
             }
             renderCollGrouped(list);
@@ -1739,118 +1755,150 @@ async function loadAllCollMedia(id) {
     return all;
 }
 
-/** 瀑布式懒加载分组（收藏夹/推荐页共用）：首批按累计卡片数 ≤ TARGET 渲染前几组，滚动到底哨兵自动加载下一批；
- *  年份导航显示全部组，点未加载组自动加载到该组再跳转；组内跟随全局卡片/列表视图。 */
-function renderGroupedLazy(container, list, itemRenderer, idPrefix, onChunkDone) {
-    const TARGET = 60;   // 首批/每批累计卡片数目标
-    container.className = 'coll-group-wrap';
-    container.innerHTML = '';   // 每次渲染独立清空（loadCollMedia 有 await，并发调用会叠加，必须在此兜底）
+/* ========== 分组「组打包分页」通用渲染器（收藏夹/推荐页共用；替代 renderGroupedLazy 全量懒加载） ========== */
+
+/** 组打包分页：按首播年份分组 → 组按序打包进页，每页媒体总数 ≤ perPage（组不跨页切碎）；
+ *  巨型组（单组 > perPage）按 perPage 切片成连续页；perPage=Infinity 时「不限」= 全量一页。
+ *  返回 { pages, yearToPage, years }：pages 每页 = 组数组 [{year,items,chunk,chunkIndex,chunkTotal,total}]；
+ *  yearToPage = year → 首个切片所在页 index（导航跨页）；years = 全部年份（降序，未知年份兜底）。 */
+function buildGroupedPages(list, perPage) {
     const groups = new Map();
     for (const a of list) {
         const key = a.year ? String(a.year) : '未知年份';
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(a);
     }
-    const keys = [...groups.keys()].sort((x, y) => {
+    const years = [...groups.keys()].sort((x, y) => {
         if (x === '未知年份') return 1;
         if (y === '未知年份') return -1;
         return Number(y) - Number(x);
     });
-    // 年份导航（显示全部组，点未加载组自动加载到该组再跳转）
+    const pages = [];
+    const yearToPage = {};
+    let cur = [];          // 当前页组数组
+    let curCount = 0;      // 当前页媒体总数
+    for (const key of years) {
+        const items = groups.get(key);
+        if (items.length > perPage) {
+            // 巨型组：先结算当前页，再按 perPage 切片成连续页
+            if (cur.length) { pages.push(cur); cur = []; curCount = 0; }
+            const chunks = Math.ceil(items.length / perPage);
+            for (let i = 0; i < chunks; i++) {
+                pages.push([{ year: key, items: items.slice(i * perPage, (i + 1) * perPage), chunk: true, chunkIndex: i, chunkTotal: chunks, total: items.length }]);
+            }
+            yearToPage[key] = pages.length - chunks;
+            continue;
+        }
+        if (curCount + items.length > perPage && cur.length) {
+            pages.push(cur); cur = []; curCount = 0;
+        }
+        cur.push({ year: key, items, total: items.length });
+        if (yearToPage[key] === undefined) yearToPage[key] = pages.length;
+        curCount += items.length;
+    }
+    if (cur.length) pages.push(cur);
+    return { pages, yearToPage, years };
+}
+
+/** 渲染一个年份组 section：组头（年份 + 计数/切片进度 + 折叠）+ 内容容器（跟随全局卡片/列表视图）。 */
+function createGroupSection(g, idPrefix, itemRenderer) {
+    const sec = document.createElement('section');
+    sec.className = 'coll-group';
+    sec.id = idPrefix + g.year;
+    sec.dataset.year = g.year;
+    const head = document.createElement('header');
+    head.className = 'group-head';
+    const countTxt = g.chunk
+        ? `${g.total} 部 · 第 ${g.chunkIndex + 1}/${g.chunkTotal} 页`
+        : `${g.items.length} 部`;
+    head.innerHTML = `<span class="group-year">${esc(g.year)}</span><span class="group-count">${countTxt}</span><span class="group-collapse">▾</span>`;
+    head.addEventListener('click', () => sec.classList.toggle('collapsed'));
+    sec.appendChild(head);
+    const wrap = document.createElement('div');
+    wrap.className = displayView === 'list' ? 'media-list' : 'group-grid';
+    itemRenderer(g.items, wrap);
+    sec.appendChild(wrap);
+    return sec;
+}
+
+/** 渲染分组页：sticky 年份导航（全部年，当前页所在年高亮，点击跨页/页内跳转）+ 当前页各组。 */
+function renderGroupedPage(container, pageGroups, opts) {
+    const { idPrefix, navYears, currentPageYears, onNavYear, itemRenderer } = opts;
+    container.className = 'coll-group-wrap';
+    container.innerHTML = '';   // 每次渲染独立清空（loadCollMedia 有 await，并发调用会叠加，必须在此兜底）
     const nav = document.createElement('div');
     nav.className = 'coll-group-nav';
-    keys.forEach((k) => {
+    navYears.forEach((year) => {
         const chip = document.createElement('div');
-        chip.className = 'group-nav-chip' + (k === keys[0] ? ' active' : '');
-        chip.dataset.year = k;
-        chip.textContent = k;
-        chip.addEventListener('click', () => loadUpTo(k));
+        chip.className = 'group-nav-chip' + (currentPageYears.has(year) ? ' active' : '');
+        chip.dataset.year = year;
+        chip.textContent = year;
+        chip.addEventListener('click', () => onNavYear(year));
         nav.appendChild(chip);
     });
+    container.appendChild(nav);
     const listEl = document.createElement('div');
     listEl.className = 'coll-group-list';
-    let loadedUpTo = -1;   // 已渲染到的 key 索引
-
-    function createSection(k) {
-        const sec = document.createElement('section');
-        sec.className = 'coll-group';
-        sec.id = idPrefix + k;
-        sec.dataset.year = k;
-        const head = document.createElement('header');
-        head.className = 'group-head';
-        head.innerHTML = `<span class="group-year">${esc(k)}</span><span class="group-count">${groups.get(k).length} 部</span><span class="group-collapse">▾</span>`;
-        head.addEventListener('click', () => sec.classList.toggle('collapsed'));
-        sec.appendChild(head);
-        const wrap = document.createElement('div');
-        wrap.className = displayView === 'list' ? 'media-list' : 'group-grid';
-        itemRenderer(groups.get(k), wrap);
-        sec.appendChild(wrap);
-        return sec;
+    for (const g of pageGroups || []) {
+        const sec = createGroupSection(g, idPrefix, itemRenderer);
+        listEl.appendChild(sec);
     }
-
-    // 滚动高亮当前组
-    const groupIo = new IntersectionObserver((entries) => {
+    container.appendChild(listEl);
+    // 页内滚动高亮当前组
+    const io = new IntersectionObserver((entries) => {
         entries.forEach(en => {
             if (en.isIntersecting) {
                 nav.querySelectorAll('.group-nav-chip').forEach(c => c.classList.toggle('active', c.dataset.year === en.target.dataset.year));
             }
         });
     }, { rootMargin: '-80px 0px -65% 0px' });
-
-    let sentinelIo = null;
-    function setupSentinel() {
-        if (sentinelIo) { sentinelIo.disconnect(); sentinelIo = null; }
-        listEl.querySelectorAll('.group-sentinel').forEach(el => el.remove());
-        const more = loadedUpTo + 1 < keys.length;
-        const sentinel = document.createElement('div');
-        sentinel.className = 'group-sentinel';
-        sentinel.textContent = more ? '⤓ 加载更多分组' : '— 已全部加载 —';
-        listEl.appendChild(sentinel);
-        if (more) {
-            sentinelIo = new IntersectionObserver((es) => {
-                es.forEach(en => { if (en.isIntersecting) renderChunk(); });
-            }, { rootMargin: '300px 0px' });
-            sentinelIo.observe(sentinel);
-        }
-    }
-
-    function renderChunk() {
-        let count = 0;
-        while (loadedUpTo + 1 < keys.length) {
-            const k = keys[loadedUpTo + 1];
-            const items = groups.get(k);
-            if (count + items.length > TARGET && count > 0) break;   // 至少渲染一组
-            loadedUpTo++;
-            const sec = createSection(k);
-            listEl.appendChild(sec);
-            groupIo.observe(sec);
-            count += items.length;
-            if (count >= TARGET) break;
-        }
-        setupSentinel();
-        if (onChunkDone) onChunkDone();
-    }
-
-    function loadUpTo(k) {
-        const idx = keys.indexOf(k);
-        while (loadedUpTo < idx) {
-            loadedUpTo++;
-            const sec = createSection(keys[loadedUpTo]);
-            listEl.appendChild(sec);
-            groupIo.observe(sec);
-        }
-        setupSentinel();
-        document.getElementById(idPrefix + k)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-
-    renderChunk();
-    container.appendChild(nav);
-    container.appendChild(listEl);
+    listEl.querySelectorAll('.coll-group').forEach(sec => io.observe(sec));
 }
 
-/** 收藏夹分组视图：瀑布式懒加载（首批 ~60 张卡片），组内走收藏夹卡片/列表渲染。 */
+/** 分组年份跳转：pageIndex 目标页 0 基。不在当前页 → renderToPage(pageIndex+1, year) 由调用方切页并滚动；在当前页 → 页内直接滚动。 */
+function gotoGroupYear(year, pageIndex, currentPage, renderToPage) {
+    if (pageIndex === undefined) return;
+    if (pageIndex !== currentPage - 1) {
+        renderToPage(pageIndex + 1, year);
+    } else {
+        document.getElementById('grp-' + year)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+/** 收藏夹分组视图：组打包分页（打包全部组 → 渲染当前页 + 分组分页条）。 */
 function renderCollGrouped(list) {
-    renderGroupedLazy(collMediaGridEl, list, (group, wrap) => renderMediaGrid(group, wrap, 'collection'), 'grp-', null);
+    const { pages, yearToPage, years } = buildGroupedPages(list, collGroupPerPage);
+    collGroupPages = pages;
+    collGroupTotalPages = pages.length;
+    collGroupNav = yearToPage;
+    collGroupNavYears = years;
+    if (collGroupPage > collGroupTotalPages) collGroupPage = 1;
+    renderCollGroupPage();
+}
+
+/** 渲染收藏夹分组当前页（onDone 渲染完成后回调，用于导航跨页后滚动到目标组）。 */
+function renderCollGroupPage(onDone) {
+    const page = collGroupPages[collGroupPage - 1];
+    renderGroupedPage(collMediaGridEl, page, {
+        idPrefix: 'grp-',
+        navYears: collGroupNavYears,
+        currentPageYears: new Set((page || []).map(g => g.year)),
+        onNavYear: (year) => gotoGroupYear(year, collGroupNav[year], collGroupPage, (pg, y) => {
+            collGroupPage = pg;
+            renderCollGroupPage(() => document.getElementById('grp-' + y)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        }),
+        itemRenderer: (group, wrap) => renderMediaGrid(group, wrap, 'collection'),
+    });
+    renderCollGroupPagination();
+    if (onDone) requestAnimationFrame(onDone);
+}
+
+/** 收藏夹分组分页条（复用平铺分页条 DOM；info 显示「分组第 X/N 页」）。 */
+function renderCollGroupPagination() {
+    collTotalEl.textContent = `共 ${collTotal} 部`;
+    collPageInfoEl.textContent = `分组第 ${collGroupPage}/${collGroupTotalPages} 页`;
+    collPagePrevEl.disabled = collGroupPage <= 1;
+    collPageNextEl.disabled = collGroupPage >= collGroupTotalPages;
 }
 
 /** 收藏夹内媒体分页条：总数 + 页信息 + 上/下页可用态。 */
@@ -2346,11 +2394,15 @@ async function loadRecommend(resetPage = true) {
             return;
         }
         if (recommendGrouped) {
-            // 分组视图：一次拉全量，按首播年份分组渲染（瀑布式懒加载控 DOM，首批仅 60 张），隐藏分页
+            // 分组视图：拉全量 → 组打包分页（每页媒体数 ≤ 上限、组不跨页切碎；巨型组切片），复用分页条
             const all = await loadAllRecommend();
             recommendTotal = all.length;
-            recommendPaginationEl.hidden = true;
-            if (all.length === 0) { renderRecommendPagination(1); return; }
+            recommendPaginationEl.hidden = false;
+            if (all.length === 0) {
+                recommendGroupPages = []; recommendGroupTotalPages = 1; recommendGroupPage = 1;
+                renderRecommendGroupPagination();
+                return;
+            }
             renderRecommendGrouped(all);
             return;
         }
@@ -2426,9 +2478,41 @@ function renderRecommendEmpty() {
     recommendGridEl.innerHTML = '<div class="recommend-empty">暂无勾选的媒体，去上方勾选一些吧</div>';
 }
 
-/** 推荐页分组视图：瀑布式懒加载（首批 ~60 张卡片）；组内渲染会覆盖 currentRecommendList，完成后恢复全量。 */
+/** 推荐页分组视图：组打包分页（打包全部组 → 渲染当前页 + 分组分页条）；渲染后保持 currentRecommendList。 */
 function renderRecommendGrouped(list) {
-    renderGroupedLazy(recommendGridEl, list, (group, wrap) => renderRecommendGrid(group, wrap), 'rgrp-', () => { currentRecommendList = list; });
+    currentRecommendList = list;
+    const { pages, yearToPage, years } = buildGroupedPages(list, recommendGroupPerPage);
+    recommendGroupPages = pages;
+    recommendGroupTotalPages = pages.length;
+    recommendGroupNav = yearToPage;
+    recommendGroupNavYears = years;
+    if (recommendGroupPage > recommendGroupTotalPages) recommendGroupPage = 1;
+    renderRecommendGroupPage();
+}
+
+/** 渲染推荐页分组当前页（onDone 回调用于导航跨页后滚动）。 */
+function renderRecommendGroupPage(onDone) {
+    const page = recommendGroupPages[recommendGroupPage - 1];
+    renderGroupedPage(recommendGridEl, page, {
+        idPrefix: 'rgrp-',
+        navYears: recommendGroupNavYears,
+        currentPageYears: new Set((page || []).map(g => g.year)),
+        onNavYear: (year) => gotoGroupYear(year, recommendGroupNav[year], recommendGroupPage, (pg, y) => {
+            recommendGroupPage = pg;
+            renderRecommendGroupPage(() => document.getElementById('rgrp-' + y)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        }),
+        itemRenderer: (group, wrap) => renderRecommendGrid(group, wrap),
+    });
+    renderRecommendGroupPagination();
+    if (onDone) requestAnimationFrame(onDone);
+}
+
+/** 推荐页分组分页条（复用推荐分页条 DOM；info 显示「分组第 X/N 页」）。 */
+function renderRecommendGroupPagination() {
+    recommendTotalEl.textContent = `共 ${recommendTotal} 部`;
+    recommendPageInfoEl.textContent = `分组第 ${recommendGroupPage}/${recommendGroupTotalPages} 页`;
+    recommendPagePrevEl.disabled = recommendGroupPage <= 1;
+    recommendPageNextEl.disabled = recommendGroupPage >= recommendGroupTotalPages;
 }
 
 /** 标签名 → tag id：manage?q 模糊查后精确匹配词条名（零后端改动）。查不到返回 null。 */
@@ -3674,12 +3758,39 @@ function renderMediaDetail(d, eps) {
     if (d.note) mediaDetailHeadEl.querySelector('.ad-note').textContent = `备注：${d.note}`;
     renderDetailTags(d);
     renderDetailCollections(d);
+    renderDetailAliases(d);
     // 仅视频格式展示「集列表」；图片/文字为单层媒体
     const epListTitle = document.getElementById('episode-list-title');
     episodeListEl.hidden = !isVideo;
     if (epListTitle) epListTitle.hidden = !isVideo;
     renderEpisodeList(eps);
     detailConfirmBtn.hidden = d.confirmed !== 0;
+}
+
+/** 别名管理：该媒体全部标题映射（合并自动记的），逐个可解除。 */
+async function renderDetailAliases(d) {
+    const titleEl = document.getElementById('detail-aliases-title');
+    const el = document.getElementById('detail-aliases');
+    let aliases = [];
+    try {
+        const resp = await fetch(`/api/title-mappings/aliases?mediaId=${d.id}`);
+        if (resp.ok) aliases = await resp.json();
+    } catch (e) { /* 忽略 */ }
+    titleEl.hidden = aliases.length === 0;
+    el.innerHTML = aliases.length
+        ? aliases.map(a => `
+            <span class="alias-chip" title="保存标题为「${esc(a)}」的片段时自动归入「${esc(d.title)}」">${esc(a)}
+                <button type="button" class="alias-del" data-alias="${esc(a)}" aria-label="解除别名">✕</button>
+            </span>`).join('')
+        : '';
+    el.querySelectorAll('.alias-del').forEach(btn => btn.addEventListener('click', async () => {
+        const alias = btn.dataset.alias;
+        try {
+            const resp = await fetch(`/api/title-mappings?title=${encodeURIComponent(alias)}`, { method: 'DELETE' });
+            if (resp.ok) { showToast(`已解除别名「${alias}」`); renderDetailAliases(d); }
+            else showToast('解除别名失败');
+        } catch (e) { showToast('解除别名失败'); }
+    }));
 }
 
 /** 标签池：三级聚合热度视图（次数降序 + 分级配色）。作品级已挂标签可删，保留添加；聚合接口失败兜底回作品级。 */
@@ -4711,7 +4822,10 @@ function deleteMedia() {
         okText: '删除',
         onOk: async () => {
             await fetch(`/api/media/${currentMedia.id}`, { method: 'DELETE' });
-            showView('media');
+            // 从哪来回哪去：详情页来源已由 pushView 入栈，删除后返回来源视图并自动刷新（收藏夹/媒体/搜索/时间线）
+            // 栈空（深链/刷新后无来源）兜底回媒体页
+            if (viewHistory.length > 0) goBack();
+            else showView('media');
         }
     });
 }
@@ -5364,8 +5478,21 @@ mediaPageSizeEl.addEventListener('change', () => { mediaPageSize = Number(mediaP
 mediaPagePrevEl.addEventListener('click', () => { if (mediaPage > 1) { mediaPage--; loadMedia(false); } });
 mediaPageNextEl.addEventListener('click', () => { mediaPage++; loadMedia(false); });
 collPageSizeEl.addEventListener('change', () => { collPageSize = Number(collPageSizeEl.value); if (collSelectedId != null) loadCollMedia(collSelectedId); });
-collPagePrevEl.addEventListener('click', () => { if (collPage > 1 && collSelectedId != null) { collPage--; loadCollMedia(collSelectedId, false); } });
-collPageNextEl.addEventListener('click', () => { if (collSelectedId != null) { collPage++; loadCollMedia(collSelectedId, false); } });
+collGroupSizeEl.addEventListener('change', () => {
+    collGroupPerPage = collGroupSizeEl.value === 'inf' ? Infinity : Number(collGroupSizeEl.value);
+    collGroupPage = 1;   // 档位变 → 页结构重排，回到第 1 页
+    if (collSelectedId != null) loadCollMedia(collSelectedId);
+});
+collPagePrevEl.addEventListener('click', () => {
+    if (collSelectedId == null) return;
+    if (collGrouped) { if (collGroupPage > 1) { collGroupPage--; renderCollGroupPage(); } }
+    else { if (collPage > 1) { collPage--; loadCollMedia(collSelectedId, false); } }
+});
+collPageNextEl.addEventListener('click', () => {
+    if (collSelectedId == null) return;
+    if (collGrouped) { if (collGroupPage < collGroupTotalPages) { collGroupPage++; renderCollGroupPage(); } }
+    else { collPage++; loadCollMedia(collSelectedId, false); }
+});
 // 推荐向导来源网格：收藏夹过滤 / 标签过滤 / 页大小 / 翻页
 recommendSourceEl.addEventListener('change', () => {
     const v = recommendSourceEl.value;
@@ -5374,7 +5501,11 @@ recommendSourceEl.addEventListener('change', () => {
     loadRecommend();
 });
 recommendYearEl.addEventListener('change', () => { recommendYear = recommendYearEl.value; loadRecommend(); });
-recommendGroupedEl.addEventListener('change', () => { recommendGrouped = recommendGroupedEl.checked; loadRecommend(); });
+recommendGroupedEl.addEventListener('change', () => {
+    recommendGrouped = recommendGroupedEl.checked;
+    syncRecommendGroupControls();
+    loadRecommend();
+});
 recommendOnlySelectedEl.addEventListener('change', () => { recommendOnlySelected = recommendOnlySelectedEl.checked; loadRecommend(); });
 recommendTagInputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); applyRecommendTagFilter(); } });
 recommendTagInputEl.addEventListener('blur', () => applyRecommendTagFilter());
@@ -5386,8 +5517,19 @@ recommendTagClearEl.addEventListener('click', () => {
     loadRecommend();
 });
 recommendPageSizeEl.addEventListener('change', () => { recommendPageSize = Number(recommendPageSizeEl.value); loadRecommend(); });
-recommendPagePrevEl.addEventListener('click', () => { if (recommendPage > 1) { recommendPage--; loadRecommend(false); } });
-recommendPageNextEl.addEventListener('click', () => { recommendPage++; loadRecommend(false); });
+recommendGroupSizeEl.addEventListener('change', () => {
+    recommendGroupPerPage = recommendGroupSizeEl.value === 'inf' ? Infinity : Number(recommendGroupSizeEl.value);
+    recommendGroupPage = 1;   // 档位变 → 页结构重排，回到第 1 页
+    loadRecommend();
+});
+recommendPagePrevEl.addEventListener('click', () => {
+    if (recommendGrouped) { if (recommendGroupPage > 1) { recommendGroupPage--; renderRecommendGroupPage(); } }
+    else if (recommendPage > 1) { recommendPage--; loadRecommend(false); }
+});
+recommendPageNextEl.addEventListener('click', () => {
+    if (recommendGrouped) { if (recommendGroupPage < recommendGroupTotalPages) { recommendGroupPage++; renderRecommendGroupPage(); } }
+    else { recommendPage++; loadRecommend(false); }
+});
 // 推荐标签输入框挂全局补全（复用打标输入补全的数据源 /api/tags?prefix=）
 attachTagSuggest(recommendTagInputEl, () => null);
 document.getElementById('recommend-select-all').addEventListener('click', selectRecommendAll);
@@ -5590,8 +5732,18 @@ collOrderBtn.addEventListener('click', () => {
     collOrderBtn.title = collFilter.order === 'desc' ? '当前降序，点击切换升序' : '当前升序，点击切换降序';
     if (collSelectedId != null) loadCollMedia(collSelectedId);
 });
+/** 分组开关联动分页条：分组模式显示「分组每页上限」档位 select、隐藏平铺每页条数 select（反之亦然）。 */
+function syncCollGroupControls() {
+    collGroupSizeEl.hidden = !collGrouped;
+    collPageSizeEl.hidden = collGrouped;
+}
+function syncRecommendGroupControls() {
+    recommendGroupSizeEl.hidden = !recommendGrouped;
+    recommendPageSizeEl.hidden = recommendGrouped;
+}
 collGroupedEl.addEventListener('change', () => {
     collGrouped = collGroupedEl.checked;
+    syncCollGroupControls();
     if (collSelectedId != null) loadCollMedia(collSelectedId);
 });
 /* 回到顶部：滚动超过阈值显示，点击平滑回顶（主流右下角圆钮） */
@@ -5613,10 +5765,13 @@ function toggleDisplayView() {
     if (currentViewName === 'media') loadMedia(false);
     else if (currentViewName === 'collections') { if (collSelectedId != null) loadCollMedia(collSelectedId, false); }
     else if (currentViewName === 'recommend' && currentRecommendList) {
-        if (recommendGrouped) renderRecommendGrouped(currentRecommendList);
+        if (recommendGrouped) renderRecommendGroupPage();
         else renderRecommendGrid(currentRecommendList);
     }
 }
+// 分组开关初始态同步（collGrouped/recommendGrouped 默认开 → 显示分组档位、隐藏平铺每页条数）
+syncCollGroupControls();
+syncRecommendGroupControls();
 document.querySelectorAll('.view-toggle-btn').forEach(btn => btn.addEventListener('click', toggleDisplayView));
 // 回收站：返回/清空/搜索（input 防抖 300ms；打开走媒体 tab 的 trash 分支）
 trashBackBtn.addEventListener('click', () => {

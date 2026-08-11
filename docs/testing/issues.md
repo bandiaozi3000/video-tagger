@@ -13,9 +13,9 @@
 
 ## 计数
 
-- **当前待修复**：0 个（批量阈值：满 5 个一起修）
+- **当前待修复**：1 个（批量阈值：满 5 个一起修）
 - **问题编号**：#1 起**全局递增**（跨日连续，不按日重置），紧急/批量不影响编号
-- 已累计处理：#1、#2、#3、#4、#5（已修复）
+- 已累计处理：#1、#2、#3、#4、#5、#7（已修复）、#6（待修复）
 
 ## 目录（按日期）
 
@@ -82,6 +82,8 @@
 - **修复方式**：把两个 IT 的调用签名更新为当前方法签名——`CollectionServiceIT` 的 `media(...)` 补第 10 参 `q`（与 `CollectionService.media` 10 参对齐），`CoverServiceIT` 的 `list(...)` 补第 13 参 `tagId`（与 `MediaService.list` 13 参对齐）。
 - **变更记录**：2026-08-10 修复。改动在工作区（未提交）：`CollectionServiceIT.java:33,36` + `CoverServiceIT.java:188` 各补一个 `null`。验证：`mvn -o test-compile` 通过；`-Dtest='CollectionServiceIT,CoverServiceIT'` 单独跑 14 测全绿（Collection 1 + Cover 13，BUILD SUCCESS）。
 
+## 2026-08-11
+
 ### [#5] RecommendServiceTest 封面大小断言过期（v0.18 改 0-100 滑块后测试没跟上）
 - **日期**：2026-08-11
 - **状态**：已修复
@@ -91,3 +93,33 @@
 - **原因**：封面大小 v0.18 从 sm/md/lg 三档改为 **0-100 滑块**（模板 `COVER_COEF = 0.65 + Number('__COVER_SIZE__') / 100`，后端 `normalizeCoverSize` 归一 0-100），旧断言仍按三档格式写。测试传 `"lg"` 非法 → `normalizeCoverSize` 回退 `"50"`。
 - **修复方式**：断言改为 `html.contains("COVER_COEF = 0.65 + Number('50') / 100")`，与当前模板/归一逻辑对齐。
 - **变更记录**：2026-08-11 修复。`RecommendServiceTest.java` 断言更新；验证 `-Dtest='RecommendServiceTest'` 19 测全绿。
+
+### [#6] 改名/合并搜索 `limit=8` 截断：公共词搜不到老媒体
+- **日期**：2026-08-11
+- **状态**：待修复
+- **紧急**：否
+- **严重程度**：🟨 轻微（搜索截断，可手写标题规避；用户已选择暂不修）
+- **现象**：媒体详情「改名/合并」弹窗的合并搜索，搜公共词搜不到库里已存在的媒体。例：从媒体 39 详情搜「骑士」→ 只显示 8 条（皇家国教骑士团、梦幻骑士Ⅳ…），**搜不到「落第骑士英雄谭」(4855)**；搜「落第」反而能搜到。
+- **原因**：合并搜索 `GET /api/media?q=&limit=8` 只取前 8 条，且默认按 `id DESC`（新媒体在前）。「骑士」全库 50 条匹配，4855（落第骑士英雄谭）按 id 排在第 **22** 位 → 被 `limit=8` 截掉。媒体页搜索有分页能翻到，但合并搜索下拉无翻页、无「更多」入口。
+- **修复方式**（待做）：合并搜索 limit 提到 30 + 候选下拉可滚动 + 截断提示「还有更多，输入更精确标题」；可选做相关性排序（精确>前缀>子串）。用户当前选择「搜不到直接手写标题」规避，暂缓。
+- **变更记录**：未修复（用户决定暂缓，2026-08-11 记档）。
+
+### [#7] 批量加入收藏夹假失败提示（`loadCollList` 未定义，ReferenceError）
+- **日期**：2026-08-11
+- **状态**：已修复
+- **紧急**：否
+- **严重程度**：🟨 轻微（提示误导，数据实际已保存）
+- **现象**：媒体页批量勾选「全选本页」加入收藏夹 → 提示「加入收藏夹失败」，但收藏夹里其实已保存成功。
+- **原因**：`confirmMediaFavPick`（app.js:1650）保存成功后调 `loadCollList()`，**该函数全文件不存在**（真实函数为 `loadCollections()`）→ `ReferenceError` → 跳进 catch 弹失败。数据在 POST 时已落库（后端恒 204 + `INSERT IGNORE` 幂等），纯提示骗人；收藏夹列表媒体数也未刷新。
+- **修复方式**：`loadCollList()` → `loadCollections()`（与快捷收藏浮层同款用法）；核对批量删除路径无同类 typo。
+- **变更记录**：2026-08-11 修复，`app.js` + cache-bust `20260811c→d`，已复制 `target/classes/static`。
+
+### [#8] 新建媒体 POST /api/media 不传 status → NPE 500
+- **日期**：2026-08-11
+- **状态**：待修复
+- **紧急**：否
+- **严重程度**：🟨 轻微（手动创建显式带 status 即正常；UI 新建媒体若带 status 不受影响）
+- **现象**：`curl -X POST /api/media -d '{"title":"X","mediaFormat":"VIDEO"}'`（不带 status）→ 500 `服务器内部错误`。
+- **原因**：`MediaService.apply:335` `a.setStatus(STATUSES.contains(req.status()) ? req.status() : "WANT")` —— `STATUSES` 是 `List.of(...)`（不可变 ListN），`contains(null)` 内部 `indexOf(null)` 直接抛 NPE。
+- **修复方式**（待做）：判空短路——`req.status() != null && STATUSES.contains(req.status()) ? req.status() : "WANT"`。
+- **变更记录**：2026-08-11 发现（E2E 验证详情页删除跳转、创建测试媒体时撞见）。未修复。
