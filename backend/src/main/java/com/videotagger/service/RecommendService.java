@@ -102,6 +102,7 @@ public class RecommendService {
      * @param ids         媒体 id 列表（保持顺序），空 → IllegalArgumentException
      * @param title       推荐页标题文案（主题），空/null → 默认「我的番剧推荐」
      * @param bgmTracks   背景音乐列表（顺序连续播放），null/空 → 无 BGM
+     * @param brandTitle  左上角角标文案（可空；空 → 默认「我的番剧推荐」）
      * @param subtitle    副标题（可空；空 → 模板隐藏副题）
      * @param coverSize   开场封面大小：sm/md/lg（空 → md）
      * @param groupBy     分组维度：none/year/subcategory/collection（空 → 不分组）
@@ -122,7 +123,7 @@ public class RecommendService {
                             String intro) {
         return buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro,
                 new Durations(10, 5, 5, 10, 5), null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
-                100, 1, 8);
+                100, 1, 8, null, 1);
     }
 
     public String buildHtml(List<Long> ids, String title, List<BgmTrack> bgmTracks, String subtitle,
@@ -132,7 +133,7 @@ public class RecommendService {
                             String prologueTitle,
                             String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
                             Integer bgmScale,
-                            Integer bgmX, Integer bgmY) {
+                            Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
@@ -156,9 +157,13 @@ public class RecommendService {
         int bmY = clamp(bgmY, 0, 100, 8);
         String proT = (prologueTitle == null || prologueTitle.isBlank()) ? "" : esc(prologueTitle.trim());
         String sort = (groupSort == null || groupSort.isBlank()) ? "date-desc" : groupSort.trim();
+        String brandT = (brandTitle == null || brandTitle.isBlank()) ? DEFAULT_TITLE : esc(brandTitle.trim());
+        int perScreenN = perScreen == null ? 1 : Math.max(1, Math.min(10, perScreen));   // 每屏同时展示 N 部（1-10）
         Durations dur = normalizeDurations(durations);
         return template
                 .replace("__TITLE__", esc(resolved))
+                .replace("__BRAND_TITLE__", brandT)
+                .replace("__PER_SCREEN__", String.valueOf(perScreenN))
                 .replace("__SLIDES_JSON__", slidesJson)
                 .replace("__SUBTITLE__", sub)
                 .replace("__COVER_SIZE__", size)

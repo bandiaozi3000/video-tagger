@@ -263,8 +263,49 @@ class RecommendServiceTest {
         // group + open 标记（开场子集）
         assertTrue(html.contains("\"group\":\"2004 年\""));
         assertTrue(html.contains("\"open\":true"));
-        // 封面大小
-        assertTrue(html.contains("{ sm: .85, md: 1.15, lg: 1.4 }['lg']"));
+        // 封面大小（0-100 滑块；"lg" 非法 → 回退 50 中档）
+        assertTrue(html.contains("COVER_COEF = 0.65 + Number('50') / 100"));
+    }
+
+    @Test
+    void buildHtmlInjectsBrandTitle() {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", "n", "WANT"));
+        when(coverService.base64ForCoverPath(any())).thenReturn(null);
+        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
+
+        // 默认（brandTitle 空）→ 占位符回退「我的番剧推荐」
+        String html = service.buildHtml(List.of(1L), null);
+        assertTrue(html.contains("<span class=\"logo\">✦</span><span>我的番剧推荐</span>"));
+
+        // 自定义角标注入（完整签名，groupStyle=chapter）
+        String custom = service.buildHtml(List.of(1L), "标题", null, null, null, null, "chapter",
+                null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
+                100, 1, 8, "我的补番推荐", 1);
+        assertTrue(custom.contains("<span class=\"logo\">✦</span><span>我的补番推荐</span>"));
+
+        // 结尾落定后先停 1s 再轮播（chapter 模板 startEnding 同口径）
+        assertTrue(custom.contains("setTimeout(() => {"));
+    }
+
+    @Test
+    void buildHtmlInjectsPerScreen() {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", "n", "WANT"));
+        when(coverService.base64ForCoverPath(any())).thenReturn(null);
+        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
+
+        // 每屏 N 部注入（chapter 模板才有 __PER_SCREEN__ 占位符）：默认空 → 1；自定义 4 → 4；越界 99 → clamp 10
+        String def = service.buildHtml(List.of(1L), "标题", null, null, null, null, "chapter",
+                null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
+                100, 1, 8, null, null);
+        assertTrue(def.contains("_fnum(\"1\", 1)"));
+        String custom = service.buildHtml(List.of(1L), "标题", null, null, null, null, "chapter",
+                null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
+                100, 1, 8, null, 4);
+        assertTrue(custom.contains("_fnum(\"4\", 1)"));
+        String clamped = service.buildHtml(List.of(1L), "标题", null, null, null, null, "chapter",
+                null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
+                100, 1, 8, null, 99);
+        assertTrue(clamped.contains("_fnum(\"10\", 1)"));
     }
 
     @Test

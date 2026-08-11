@@ -158,6 +158,7 @@ const collGroupedEl = document.getElementById('coll-grouped');
 const recommendSourceEl = document.getElementById('recommend-source');
 const recommendYearEl = document.getElementById('recommend-year');
 const recommendGroupedEl = document.getElementById('recommend-grouped');
+const recommendOnlySelectedEl = document.getElementById('recommend-only-selected');
 const recommendPaginationEl = document.getElementById('recommend-pagination');
 const recommendTagInputEl = document.getElementById('recommend-tag-input');
 const recommendTagClearEl = document.getElementById('recommend-tag-clear');
@@ -319,6 +320,7 @@ let recommendTagName = '';           // 已应用的标签名（防 Enter+blur �
 let currentRecommendList = [];       // 推荐向导当前页媒体（全选本页用）
 let recommendYear = '';       // 推荐页年份筛选（空=全部）
 let recommendGrouped = true;  // 推荐页分组显示（按首播年份，默认开）
+let recommendOnlySelected = false;  // 仅显示已勾选：网格只列出 recommendSelected 里的媒体（无视来源/标签/年份筛选）
 let collectionModalMode = 'create';  // collection-modal：create / rename
 let collectionRenameId = null;       // rename 模式的目标收藏夹 id
 let favOverlay = null;               // 卡片快捷收藏浮层
@@ -2328,6 +2330,21 @@ async function loadRecommend(resetPage = true) {
     if (resetPage) recommendPage = 1;
     recommendGridEl.innerHTML = '';
     try {
+        if (recommendOnlySelected) {
+            // 仅显示已勾选：按 id 精确圈选（无视来源/标签/年份筛选），隐藏分页
+            recommendPaginationEl.hidden = true;
+            if (recommendSelected.size === 0) {
+                recommendTotal = 0;
+                renderRecommendPagination(1);
+                renderRecommendEmpty();
+                return;
+            }
+            const all = await loadRecommendByIds([...recommendSelected]);
+            recommendTotal = all.length;
+            if (recommendGrouped) { renderRecommendGrouped(all); return; }
+            renderRecommendGrid(all);
+            return;
+        }
         if (recommendGrouped) {
             // 分组视图：一次拉全量，按首播年份分组渲染（瀑布式懒加载控 DOM，首批仅 60 张），隐藏分页
             const all = await loadAllRecommend();
@@ -2388,6 +2405,25 @@ async function loadAllRecommend() {
         if (list.length < size) break;
     }
     return all;
+}
+
+/** 仅显示已勾选：按 id 分页拉取所选媒体（listFiltered 的 ids 过滤；服务端 limit 上限 200，超出分页取全）。 */
+async function loadRecommendByIds(ids) {
+    const all = [];
+    const size = 200;
+    for (let offset = 0; offset < ids.length; offset += size) {
+        const chunk = ids.slice(offset, offset + size);
+        const resp = await fetch(`/api/media?ids=${chunk.join(',')}&limit=${size}&offset=${offset}`);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const list = await resp.json();
+        all.push(...list);
+    }
+    return all;
+}
+
+/** 仅显示已勾选且勾选为空：网格空态提示。 */
+function renderRecommendEmpty() {
+    recommendGridEl.innerHTML = '<div class="recommend-empty">暂无勾选的媒体，去上方勾选一些吧</div>';
 }
 
 /** 推荐页分组视图：瀑布式懒加载（首批 ~60 张卡片）；组内渲染会覆盖 currentRecommendList，完成后恢复全量。 */
@@ -2498,6 +2534,7 @@ function renderRecommendGrid(list, container = recommendGridEl) {
             if (cb.checked) { recommendSelected.add(a.id); card.classList.add('selected'); }
             else { recommendSelected.delete(a.id); card.classList.remove('selected'); }
             updateRecommendCount();
+            if (recommendOnlySelected) loadRecommend();   // 仅显示已勾选：取消勾选后从网格移除
         });
         card.querySelector('.media-fav-btn').addEventListener('click', (e) => {
             e.stopPropagation();
@@ -2549,6 +2586,7 @@ function renderRecommendRow(list, container = recommendGridEl) {
             if (cb.checked) { recommendSelected.add(a.id); row.classList.add('selected'); }
             else { recommendSelected.delete(a.id); row.classList.remove('selected'); }
             updateRecommendCount();
+            if (recommendOnlySelected) loadRecommend();   // 仅显示已勾选：取消勾选后从列表移除
         });
         row.querySelector('.row-btn.fav').addEventListener('click', (e) => { e.stopPropagation(); openFavPicker(a.id, e.currentTarget); });
         row.addEventListener('click', () => openMediaDetail(a.id));
@@ -2663,6 +2701,7 @@ function selectRecommendAll() {
         cb.closest('.media-card').classList.toggle('selected', !allSelected);
     });
     updateRecommendCount();
+    if (recommendOnlySelected) { loadRecommend(); showToast('已清空全部勾选'); return; }   // 仅显示已勾选：本页全勾即全清，重载成空态
     showToast(allSelected
         ? `已取消本页 ${currentRecommendList.length} 部全选`
         : `已全选本页 ${currentRecommendList.length} 部`);
@@ -2691,6 +2730,11 @@ function recommendTitle() {
     return t === '' ? '我的番剧推荐' : t;
 }
 
+/** 左上角角标文案（可空；空 → 后端用默认「我的番剧推荐」）。 */
+function recommendBrandTitle() {
+    return document.getElementById('recommend-brand-title').value.trim();
+}
+
 /** 分组方式：none/year/subcategory/collection（步骤2下拉）。 */
 function recommendGroupBy() {
     return document.getElementById('recommend-group-by').value;
@@ -2699,6 +2743,18 @@ function recommendGroupBy() {
 /** 分组呈现样式：stream/chapter/overview（步骤2下拉）。 */
 function recommendGroupStyle() {
     return document.getElementById('recommend-group-style').value;
+}
+
+/** 每屏同时展示 N 部：1-10 滑块（步骤3；1 = 逐部展示）。 */
+function recommendPerScreen() {
+    return Math.max(1, Math.min(10, Number(document.getElementById('recommend-per-screen').value) || 1));
+}
+
+/** 步骤3「每屏同时展示」滑块 → 值标签同步。 */
+function syncRecommendPerScreenVal() {
+    const el = document.getElementById('recommend-per-screen');
+    const v = document.getElementById('recommend-per-screen-val');
+    if (el && v) v.textContent = `${recommendPerScreen()} 部`;
 }
 
 /** 副标题（可空；空 → 模板隐藏副题）。 */
@@ -2970,6 +3026,7 @@ function initRecommendBgm() {
     bindPreviewSlider('preview-cover-size', 'preview-cover-val', n => n + ' · ' + (n < 34 ? '小' : n > 66 ? '大' : '中'));
     bindPreviewSlider('preview-opening-speed', 'preview-opening-val', n => String(n));
     bindPreviewSlider('preview-ending-speed', 'preview-ending-val', n => String(n));
+    bindPreviewSlider('recommend-per-screen', 'recommend-per-screen-val', n => n + ' 部');
     document.getElementById('preview-group-sort').addEventListener('change', () => {
         if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
     });
@@ -2984,11 +3041,13 @@ function collectRecommendConfig() {
     return {
         ids: [...recommendSelected],
         title: recommendTitle(),
+        brandTitle: recommendBrandTitle(),
         subtitle: recommendSubtitle(),
         intro: recommendIntro(),
         prologueTitle: recommendPrologueTitle(),
         groupBy: recommendGroupBy(),
         groupStyle: recommendGroupStyle(),
+        perScreen: recommendPerScreen(),
         groupSort: recommendGroupSort(),
         coverSize: recommendCoverSize(),
         openingSpeed: recommendOpeningSpeed(),
@@ -3046,6 +3105,7 @@ function applyRecommendConfig(cfg) {
     recommendSelected.clear();
     (cfg.ids || []).forEach(id => recommendSelected.add(Number(id)));
     setCfgVal('recommend-title', cfg.title);
+    setCfgVal('recommend-brand-title', cfg.brandTitle);
     setCfgVal('recommend-subtitle', cfg.subtitle);
     setCfgVal('recommend-intro', cfg.intro);
     setCfgVal('recommend-prologue-title', cfg.prologueTitle);
@@ -3053,6 +3113,8 @@ function applyRecommendConfig(cfg) {
     setCfgVal('recommend-ending-text', cfg.endingText);
     setCfgVal('recommend-group-by', cfg.groupBy);
     setCfgVal('recommend-group-style', cfg.groupStyle);
+    setCfgVal('recommend-per-screen', cfg.perScreen);
+    syncRecommendPerScreenVal();
     setCfgVal('preview-group-sort', cfg.groupSort);
     setCfgVal('preview-cover-size', cfg.coverSize);
     setCfgVal('preview-opening-speed', cfg.openingSpeed);
@@ -3246,6 +3308,7 @@ function refreshBgSliderVals() {
 document.getElementById('rec-config-btn').addEventListener('click', () => {
     syncPreviewSliders();
     refreshBgSliderVals();
+    syncRecommendPerScreenVal();
     document.getElementById('recommend-config-modal').hidden = false;
 });
 document.getElementById('recommend-config-close').addEventListener('click', () => {
@@ -3262,7 +3325,7 @@ async function generateRecommendPreview() {
         const resp = await fetch('/api/recommend/html', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDurations(), ...recommendBgmBody() }),
+            body: JSON.stringify({ ids, title, brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDurations(), ...recommendBgmBody() }),
         });
         if (!resp.ok) throw new Error(`生成失败 (${resp.status})`);
         const html = await resp.text();
@@ -3293,7 +3356,7 @@ async function downloadRecommendHtml() {
         const resp = await fetch('/api/recommend/html', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDurations(), ...recommendBgmBody() }),
+            body: JSON.stringify({ ids, title, brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDurations(), ...recommendBgmBody() }),
         });
         if (!resp.ok) throw new Error(`生成失败 (${resp.status})`);
         const blob = await resp.blob();
@@ -3358,7 +3421,7 @@ async function exportRecommendVideo() {
         const resp = await fetch('/api/recommend/video', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, format, resolution, subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDurations(), ...recommendBgmBody() }),
+            body: JSON.stringify({ ids, title, format, resolution, brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDurations(), ...recommendBgmBody() }),
         });
         if (!resp.ok) {
             let msg = `创建导出任务失败 (${resp.status})`;
@@ -5312,6 +5375,7 @@ recommendSourceEl.addEventListener('change', () => {
 });
 recommendYearEl.addEventListener('change', () => { recommendYear = recommendYearEl.value; loadRecommend(); });
 recommendGroupedEl.addEventListener('change', () => { recommendGrouped = recommendGroupedEl.checked; loadRecommend(); });
+recommendOnlySelectedEl.addEventListener('change', () => { recommendOnlySelected = recommendOnlySelectedEl.checked; loadRecommend(); });
 recommendTagInputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); applyRecommendTagFilter(); } });
 recommendTagInputEl.addEventListener('blur', () => applyRecommendTagFilter());
 recommendTagClearEl.addEventListener('click', () => {
@@ -5396,6 +5460,7 @@ function computeRecommendDuration() {
         + (s.hasPrologue ? introSec * 1000 : 0)
         + s.chapterCount * groupSec * 1000
         + s.storyCount * detailSec * 1000
+        + 1000   // 结尾落定后先停 1s 看清开头（模板 startEnding 同口径）
         + endingScrollMs
         + endingSec * 1000;
     return totalMs / 1000;

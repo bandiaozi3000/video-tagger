@@ -15,10 +15,11 @@
 
 - **当前待修复**：0 个（批量阈值：满 5 个一起修）
 - **问题编号**：#1 起**全局递增**（跨日连续，不按日重置），紧急/批量不影响编号
-- 已累计处理：#1、#2、#3、#4（已修复）
+- 已累计处理：#1、#2、#3、#4、#5（已修复）
 
 ## 目录（按日期）
 
+- [2026-08-11](#2026-08-11)
 - [2026-08-10](#2026-08-10)
 
 ---
@@ -80,3 +81,13 @@
 - **原因**：两个 IT 引用的是**老签名**——v0.8~v0.10 给 list/media 查询加筛选参数（q/collectionId/tagId 等）后，这两个测试未同步更新（当时用 `-Dtest` 指定单测绕过了全量编译，问题被掩盖）。
 - **修复方式**：把两个 IT 的调用签名更新为当前方法签名——`CollectionServiceIT` 的 `media(...)` 补第 10 参 `q`（与 `CollectionService.media` 10 参对齐），`CoverServiceIT` 的 `list(...)` 补第 13 参 `tagId`（与 `MediaService.list` 13 参对齐）。
 - **变更记录**：2026-08-10 修复。改动在工作区（未提交）：`CollectionServiceIT.java:33,36` + `CoverServiceIT.java:188` 各补一个 `null`。验证：`mvn -o test-compile` 通过；`-Dtest='CollectionServiceIT,CoverServiceIT'` 单独跑 14 测全绿（Collection 1 + Cover 13，BUILD SUCCESS）。
+
+### [#5] RecommendServiceTest 封面大小断言过期（v0.18 改 0-100 滑块后测试没跟上）
+- **日期**：2026-08-11
+- **状态**：已修复
+- **紧急**：否
+- **严重程度**：🟨 轻微（仅单测红，功能正常）
+- **现象**：`RecommendServiceTest.buildHtmlInjectsBgmTracksSubtitleAndOpen:267` 断言 `html.contains("{ sm: .85, md: 1.15, lg: 1.4 }['lg']")` 恒 false，跑 `-Dtest='RecommendServiceTest'` 时红（改动前就已失败，非本次引入）。
+- **原因**：封面大小 v0.18 从 sm/md/lg 三档改为 **0-100 滑块**（模板 `COVER_COEF = 0.65 + Number('__COVER_SIZE__') / 100`，后端 `normalizeCoverSize` 归一 0-100），旧断言仍按三档格式写。测试传 `"lg"` 非法 → `normalizeCoverSize` 回退 `"50"`。
+- **修复方式**：断言改为 `html.contains("COVER_COEF = 0.65 + Number('50') / 100")`，与当前模板/归一逻辑对齐。
+- **变更记录**：2026-08-11 修复。`RecommendServiceTest.java` 断言更新；验证 `-Dtest='RecommendServiceTest'` 19 测全绿。

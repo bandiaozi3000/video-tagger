@@ -53,7 +53,7 @@ public class VideoExportTaskService {
                                   Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
                                   String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
                                   Integer bgmScale,
-                                  Integer bgmX, Integer bgmY) {
+                                  Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen) {
         long id = seq.getAndIncrement();
         VideoExportTask t = new VideoExportTask(id, title == null || title.isBlank() ? "推荐视频" : title,
                 ids == null ? 0 : ids.size(), "RUNNING", null, null, format, System.currentTimeMillis(), 0);
@@ -63,7 +63,7 @@ public class VideoExportTaskService {
                 subtitle, coverSize, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages,
                 bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle,
                 groupSort, openingSpeed, endingScrollSpeed,
-                bgmScale, bgmX, bgmY);
+                bgmScale, bgmX, bgmY, brandTitle, perScreen);
         return t;
     }
 
@@ -76,13 +76,13 @@ public class VideoExportTaskService {
                                   Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
                          String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
                          Integer bgmScale,
-                         Integer bgmX, Integer bgmY) {
+                         Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen) {
         try {
             Path out = videoService.render(ids, title, format, resolution, bgmPaths, bgmTracks,
                     groupBy, groupStyle, subtitle, coverSize, openingIds, intro, durations,
                     endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle,
                     groupSort, openingSpeed, endingScrollSpeed,
-                    bgmScale, bgmX, bgmY);
+                    bgmScale, bgmX, bgmY, brandTitle, perScreen);
             finish(id, "DONE", null, out.toString());
             log.info("视频导出任务 {} 完成: {}", id, out);
         } catch (Exception e) {

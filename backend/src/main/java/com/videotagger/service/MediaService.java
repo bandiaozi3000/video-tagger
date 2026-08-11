@@ -62,12 +62,12 @@ public class MediaService {
         this.coverService = coverService;
     }
 
-    /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/来源/媒体标签/q 标题模糊筛选；offset 分页。 */
+    /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/来源/媒体标签/q 标题模糊筛选；ids 精确圈选（仅显示已勾选用）；offset 分页。 */
     public List<MediaSummary> list(int limit, int offset, String status, String format, Long subcategoryId,
                                    Integer confirmed, Long collectionId, String sort, String order, Integer year,
-                                   String source, Long tagId, String q) {
+                                   String source, Long tagId, String q, List<Long> ids) {
         return mediaMapper.listFiltered(status, format, subcategoryId, confirmed, collectionId, sort, order, year,
-                source, tagId, q,
+                source, tagId, q, ids,
                 Math.min(Math.max(limit, 1), 200), Math.max(offset, 0));
     }
 

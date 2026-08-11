@@ -186,6 +186,31 @@
     animation:kenburns 18s ease-in-out infinite alternate;animation-play-state:paused;}
   .story-card.in-view .sc-poster img{animation-play-state:running}
   @keyframes kenburns{from{transform:scale(1)}to{transform:scale(1.12)}}
+  /* 每屏多部网格（PER_SCREEN ≥ 2）：封面高度按视口 clamp，N 大自动缩；N=1 走上面的 story-card */
+  .grid-screen{scroll-snap-align:start;position:relative;min-height:100vh;
+    display:flex;align-items:center;justify-content:center;padding:72px 6vw 44px;}
+  .gs-grid{position:relative;display:flex;flex-wrap:wrap;justify-content:center;gap:18px;
+    width:min(1120px,94vw);align-items:stretch;}
+  .gs-card{position:relative;border-radius:16px;overflow:hidden;background:var(--card);
+    border:1px solid var(--line);display:flex;flex-direction:column;min-width:0;
+    width:calc((100% - (var(--cols) - 1) * 18px) / var(--cols));
+    transition:border-color .2s,box-shadow .2s;}
+  .gs-card:hover{border-color:rgba(255,255,255,.3);box-shadow:0 18px 44px rgba(5,8,30,.55);}
+  .gs-cover{position:relative;height:clamp(100px,26vh,300px);overflow:hidden;
+    background:linear-gradient(160deg,#221a3a,#0d0a18);}
+  /* 毛玻璃全图：模糊放大封面铺满格子做底，完整清晰海报居中（任何格子形状都不裁图） */
+  .gs-blur{position:absolute;inset:-15%;width:130%;height:130%;object-fit:cover;
+    filter:blur(14px) brightness(.6) saturate(1.25);transform:scale(1.08);pointer-events:none;}
+  .gs-poster{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;}
+  /* 序号：与单部屏 sc-no 同款透明描边样式，放卡片区域右上角（badge 在屏幕右上不冲突） */
+  .gs-no{position:absolute;right:0;top:-72px;z-index:3;font-size:64px;font-weight:900;line-height:1;
+    color:transparent;-webkit-text-stroke:1.5px rgba(111,139,255,.3);pointer-events:none;letter-spacing:4px;}
+  .gs-info{padding:11px 13px 15px;}
+  .gs-title{font-size:15px;font-weight:700;color:#fff;letter-spacing:.4px;line-height:1.35;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .gs-note{margin-top:7px;font-size:12.5px;color:var(--muted);line-height:1.5;
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word;}
+  .gs-tags{margin-top:9px;display:flex;flex-wrap:wrap;gap:5px;}
   .sc-poster .flag{position:absolute;left:12px;top:12px;z-index:2;
     font-size:11px;letter-spacing:1px;padding:4px 10px;border-radius:999px;
     color:#ffd9a6;background:rgba(255,143,77,.14);border:1px solid rgba(255,143,77,.35);
@@ -276,6 +301,12 @@
     .story-card{grid-template-columns:1fr;gap:20px;padding:36px 8px;text-align:center}
     .sc-poster{max-height:44vh}.sc-no{font-size:70px}
     .group-badge{top:2%;font-size:10px}
+    .grid-screen{padding:60px 4vw 32px}
+    .gs-grid{gap:12px;width:100%}
+    .gs-card{width:calc((100% - 12px) / 2)!important}
+    .gs-cover{height:clamp(90px,22vh,200px)}
+    .gs-title{font-size:13px}.gs-note{font-size:11.5px}.gs-info{padding:8px 10px 12px}
+    .gs-no{font-size:36px;padding:0;left:auto;top:-44px}
   }
 </style>
 </head>
@@ -283,7 +314,7 @@
 <canvas id="stars"></canvas>
 <div id="clouds"></div>
 <div class="content">
-  <header class="topbar"><div class="brand"><span class="logo">✦</span><span>我的番剧推荐</span></div>
+  <header class="topbar"><div class="brand"><span class="logo">✦</span><span>__BRAND_TITLE__</span></div>
     <span class="auto-badge" id="autoBadge" hidden>✦ 自动导览中</span></header>
 
   <section class="hero" id="hero">
@@ -560,6 +591,7 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
 
 /* ========== 暗房闪回开场（封面乱序缓缓浮现） ========== */
 const N = SLIDES.length;
+const PER_SCREEN = Math.max(1, Math.min(10, _fnum("__PER_SCREEN__", 1) | 0));   /* 每屏同时展示 N 部（1-10）；1 → 单部一屏 */
 const pad = n => String(n).padStart(2, '0');
 const darkroom = document.getElementById('darkroom');
 const devCount = document.getElementById('devCount');
@@ -733,6 +765,54 @@ function buildStory(s, idx, g, j, total) {
 
 if (INTRO) items.push({ el: buildPrologue(), type: 'prologue', hold: INTRO_SEC * 1000 });
 
+/* 每屏多部网格：N=1 → 单部 story-card；N≥2 → 一屏 PER_SCREEN 张卡（封面+标题+备注+标签）。
+   列数：≤4 一行 N 列（单张保底 2 列避免通栏）；>4 两行、列数=ceil(N/2)（9→上5下4、7→上4下3）。
+   末行不足整行时由 .gs-grid 的 flex justify-content:center 居中。 */
+function buildGridScreen(chunk, g, gi, globalFrom, groupFrom, total) {
+  const sc = document.createElement('section');
+  sc.className = 'grid-screen'; sc.id = 'item-' + items.length;
+  if (g) sc.style.setProperty('--cg', glowOf(gi));
+  const from = groupFrom + 1, to = groupFrom + chunk.length;
+  const badge = g ? `<span class="group-badge"><span class="p">${g.name}</span> · 第 ${from}-${to}/${total} 部</span>` : '';
+  const cols = chunk.length <= 4 ? Math.max(chunk.length, 2) : Math.ceil(chunk.length / 2);
+  /* 序号 1 起点（与徽标/单部屏一致）；紧凑小号置顶，不遮卡片 */
+  const gNo = chunk.length > 1 ? pad(globalFrom + 1) + '–' + pad(globalFrom + chunk.length) : pad(globalFrom + 1);
+  sc.innerHTML = `${badge}
+    <div class="gs-grid" style="--cols:${cols}">
+      <span class="gs-no">${gNo}</span>
+      ${chunk.map(s => `
+      <div class="gs-card">
+        <div class="gs-cover">
+          <img class="gs-blur" src="${s.cover}" alt="" aria-hidden="true" onerror="this.style.display='none'">
+          <img class="gs-poster" src="${s.cover}" alt="${s.title}" onerror="this.style.display='none'">
+        </div>
+        <div class="gs-info">
+          <div class="gs-title">${s.title}</div>
+          ${s.note ? `<div class="gs-note">${s.note}</div>` : ''}
+          ${(s.tags || []).length ? `<div class="gs-tags">${s.tags.map(chip).join('')}</div>` : ''}
+        </div>
+      </div>`).join('')}
+    </div>`;
+  story.appendChild(sc);
+  return sc;
+}
+/* 组内详情：按 PER_SCREEN 分块渲染（分组/无分组共用），返回下一个全局序号 */
+function pushStoryScreens(list, g, gi, globalStart, total) {
+  let glob = globalStart;
+  if (PER_SCREEN <= 1) {
+    list.forEach((s, j) => {
+      items.push({ el: buildStory(s, glob++, g, j, total), type: 'story', hold: DETAIL_SEC * 1000, group: g ? g.name : null, gi, idx: j + 1, total, cnt: 1 });
+    });
+    return glob;
+  }
+  for (let start = 0; start < list.length; start += PER_SCREEN) {
+    const chunk = list.slice(start, start + PER_SCREEN);
+    items.push({ el: buildGridScreen(chunk, g, gi, glob, start, total), type: 'story', hold: DETAIL_SEC * 1000, group: g ? g.name : null, gi, idx: start + 1, total, cnt: chunk.length });
+    glob += chunk.length;
+  }
+  return glob;
+}
+
 if (hasGroup) {
   const groups = []; const gmap = new Map();
   SLIDES.forEach(s => {
@@ -752,15 +832,11 @@ if (hasGroup) {
     story.appendChild(ch);
     items.push({ el: ch, type: 'chapter', hold: GROUP_SEC * 1000, group: g.name, gi: g.gi, total: g.list.length });
     autoScroll(ch.querySelector('.ch-thumbs'), 1.2);
-    /* 组内 Story */
-    g.list.forEach((s, j) => {
-      items.push({ el: buildStory(s, idx++, g, j, g.list.length), type: 'story', hold: DETAIL_SEC * 1000, group: g.name, idx: j + 1, total: g.list.length });
-    });
+    /* 组内 Story：每屏 PER_SCREEN 部（1 → 单部一屏） */
+    idx = pushStoryScreens(g.list, g, g.gi, idx, g.list.length);
   });
 } else {
-  SLIDES.forEach((s, i) => {
-    items.push({ el: buildStory(s, i, null, 0, 0), type: 'story', hold: DETAIL_SEC * 1000, idx: i + 1, total: N });
-  });
+  pushStoryScreens(SLIDES, null, null, 0, N);
 }
 items.push({ el: buildEnding(), type: 'ending', hold: 3600 * 1000, total: N });   // hold 仅兜底；实际结束由 startEnding 滚到底+ENDING_SEC 控制
 
@@ -807,6 +883,9 @@ function setAutoPlay(on) {
   AUTO_PLAY = on;
   if (!on) { stopAuto(); }
   else if (!autoplaying && items.length) {
+    /* 开场显影+停留未完成时（openWall 的 beginAutoGuide 还没触发）不抢跑：
+       否则自动导览从 t=0 就按序言/章节停留计时，会盖掉开场停留并跳过序言。 */
+    if (!openingEnded) return;
     if (autoIndex >= items.length) autoIndex = 0;
     autoplaying = true; tbBar.classList.add('auto'); autoBadge.hidden = IS_RECORD;
     scheduleAuto();
@@ -863,9 +942,11 @@ function updateTrackbar(it) {
   if (it.type === 'chapter') {
     tbLabel.innerHTML = `<b class="cur">${it.group}</b> · 章节页`;
   } else if (it.group) {
-    tbLabel.innerHTML = `<b class="cur">${it.group}</b> · 第 ${it.idx}/${it.total} 部`;
+    const r = it.cnt > 1 ? `${it.idx}-${it.idx + it.cnt - 1}` : String(it.idx);
+    tbLabel.innerHTML = `<b class="cur">${it.group}</b> · 第 ${r}/${it.total} 部`;
   } else {
-    tbLabel.innerHTML = `第 <b class="cur">${it.idx}</b> 部 / 共 ${it.total} 部`;
+    const r = it.cnt > 1 ? `${it.idx}-${it.idx + it.cnt - 1}` : String(it.idx);
+    tbLabel.innerHTML = `第 <b class="cur">${r}</b> 部 / 共 ${it.total} 部`;
   }
 }
 
@@ -881,9 +962,11 @@ const prog = document.getElementById('tbProg');
 const autoBadge = document.getElementById('autoBadge');
 const AUTOPLAY_HOLD = 6000;
 let entryTimer = null, autoTimer = null, autoIndex = 0, autoplaying = false;
+let openingEnded = false;   // 开场显影+停留是否已完成（beginAutoGuide 触发或开场被用户中断）
 
 function resetProg() { prog.classList.remove('run'); void prog.offsetWidth; prog.classList.add('run'); }
 function beginAutoGuide() {
+  openingEnded = true;
   if (!AUTO_PLAY) return;   // 自动播放关闭时不自动推进（右侧导航手动跳转）
   if (autoplaying) return;
   autoplaying = true; autoIndex = 0;
@@ -909,14 +992,33 @@ function stopAuto() {
   autoTimer = null; entryTimer = null;
   clearEndingTimers();
   finishAuto();
+  openingEnded = true;   // 开场被用户操作中断：后续手动开自动播放从当前位置续，避免死锁
+}
+/* 平滑滚动到元素并回调完成（自绘动画；scrollIntoView smooth 无完成回调，
+   且其异步滚动会覆盖 startEnding 的容器复位，看不到匀速滚动） */
+function smoothScrollTo(el, done) {
+  const startY = window.scrollY;
+  const targetY = el.getBoundingClientRect().top + window.scrollY;
+  const total = targetY - startY;
+  const dur = Math.min(900, 300 + Math.abs(total) * 0.0015);   // 最长 ~900ms
+  const t0 = performance.now();
+  const ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;   // easeInOutQuad
+  (function step(now) {
+    const p = Math.min(1, (now - t0) / dur);
+    window.scrollTo(0, startY + total * ease(p));
+    if (p < 1) requestAnimationFrame(step); else done && done();
+  })(t0);
 }
 function goto(i) {
   if (autoplaying) resetProg();
   const it = items[i];
   prog.style.animationDuration = (it.hold / 1000) + 's';
-  // 结尾用瞬时定位（smooth 异步滚动会覆盖 startEnding 的容器复位，看不到匀速滚动）
-  it.el.scrollIntoView({ behavior: it.type === 'ending' ? 'auto' : 'smooth', block: 'start' });
-  if (it.type === 'ending') startEnding();   // 结尾：启动连续滚动/收尾停留（滚到底 + ENDING_SEC → finishAuto）
+  if (it.type === 'ending') {
+    // 结尾：平滑滚动看到跳转过程 → 完成后启动收尾（落定后先停 1s 看清开头再轮播）
+    smoothScrollTo(it.el, () => startEnding());
+  } else {
+    it.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
   updateTrackbar(it);
   setSideActive(it.type);   // 右侧导航当前阶段高亮
 }
@@ -932,15 +1034,18 @@ function startEnding() {
   }
   scrollEl.scrollTop = 0;   // 从顶部开始匀速滚动（跳转/导览进入结尾都能看到滚动速度）
   const step = 0.8 + END_SPEED / 12;   // 速度 0-100 → 0.8~9.1px/帧（0 ≈ 50px/s 慢速，50 ≈ 5px/帧，100 ≈ 570px/s 快速）
-  const timer = setInterval(() => {
-    if (scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2) {
-      clearInterval(timer);
-      endingTimers.push(setTimeout(finishAuto, ENDING_SEC * 1000));
-      return;
-    }
-    scrollEl.scrollTop += step;
-  }, 16);
-  endingTimers.push(timer);
+  /* 落定后先停 1s 看清结尾页开头，再开始匀速滚动（录制/预览一致） */
+  endingTimers.push(setTimeout(() => {
+    const timer = setInterval(() => {
+      if (scrollEl.scrollTop + scrollEl.clientHeight >= scrollEl.scrollHeight - 2) {
+        clearInterval(timer);
+        endingTimers.push(setTimeout(finishAuto, ENDING_SEC * 1000));
+        return;
+      }
+      scrollEl.scrollTop += step;
+    }, 16);
+    endingTimers.push(timer);
+  }, 1000));
 }
 
 if (!IS_RECORD) {

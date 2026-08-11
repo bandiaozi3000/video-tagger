@@ -980,6 +980,7 @@ input[type="checkbox"] { accent-color: var(--pink); width: 15px; height: 15px; c
 .trash-card .trash-actions { display: flex; gap: 8px; margin-top: 8px; }
 .trash-card .trash-actions .btn-mini { padding: 5px 12px; font-size: 12px; }
 .trash-empty { color: var(--text-dim); font-size: 13px; padding: 48px 0; text-align: center; }
+.recommend-empty { color: var(--text-dim); font-size: 13px; padding: 48px 0; text-align: center; }
 
 /* 媒体详情 */
 .media-detail-head { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 14px; }

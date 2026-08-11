@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Tagger · 二次元打标库</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="app.css?v=20260811">
+    <link rel="stylesheet" href="app.css?v=20260811c">
 </head>
 <body>
 <!-- 网站背景图层（设置里上传，多图轮播；z-index 在 bg-fx 之下） -->
@@ -23,7 +23,7 @@
     <div class="container header-inner">
         <div class="logo-wrap">
             <span class="logo-mark">✦</span>
-            <h1 class="logo">Video<span class="logo-accent">Tagger</span><span class="ver-chip">v0.15.0</span></h1>
+            <h1 class="logo">Video<span class="logo-accent">Tagger</span><span class="ver-chip">v0.18.2</span></h1>
         </div>
         <nav class="nav">
             <div class="nav-tabs">
@@ -435,6 +435,7 @@
                 </select>
                 <button type="button" class="btn-mini view-toggle-btn" title="切换到列表视图">☰ 列表</button>
                 <label class="group-toggle" title="按首播年份分组展示"><input type="checkbox" id="recommend-grouped" checked> 分组</label>
+                <label class="group-toggle" title="只显示当前已勾选的媒体（无视上方来源/标签/年份筛选）"><input type="checkbox" id="recommend-only-selected"> 仅显示已勾选</label>
                 <span class="wizard-hint">标签 / 收藏夹叠加过滤，勾选状态跨页保留</span>
             </div>
             <div class="recommend-pick-head">
@@ -473,6 +474,11 @@
                            placeholder="我的番剧推荐" autocomplete="off">
                 </label>
                 <p class="wizard-hint">将作为推荐页 <code>&lt;title&gt;</code> 与中心主标题显示，如「我的番剧推荐」。留空则用默认文案。</p>
+                <label class="recommend-theme-field">左上角角标（可选）
+                    <input id="recommend-brand-title" type="text" maxlength="20"
+                           placeholder="如：我的番剧推荐" autocomplete="off">
+                </label>
+                <p class="wizard-hint">推荐页左上角的角标文字；留空则用默认文案。</p>
                 <label class="recommend-theme-field">副标题（可选）
                     <input id="recommend-subtitle" type="text" maxlength="40"
                            placeholder="如：2026 春季补番清单" autocomplete="off">
@@ -1081,6 +1087,12 @@
                         <span class="config-item-val" id="preview-ending-val">50</span>
                     </label>
                     <label class="config-item">
+                        <span class="config-item-name">每屏展示</span>
+                        <input type="range" id="recommend-per-screen" min="1" max="10" value="1">
+                        <span class="config-item-val" id="recommend-per-screen-val">1 部</span>
+                    </label>
+                    <p class="wizard-hint" style="grid-column:1/-1;margin:2px 0 0">组内详情每屏同时展示的媒体数：大组设大值可几屏播完，每屏停留时长不变（1 = 逐部展示）。媒体多时布局会偏挤，可调小 N 或精简备注。</p>
+                    <label class="config-item">
                         <span class="config-item-name">分组排序</span>
                         <select id="preview-group-sort">
                             <option value="date-desc">新→旧</option>
@@ -1170,6 +1182,6 @@
     </div>
 </div>
 <button type="button" id="back-top" title="回到顶部" aria-label="回到顶部">↑</button>
-<script src="app.js?v=20260811"></script>
+<script src="app.js?v=20260811c"></script>
 </body>
 </html>

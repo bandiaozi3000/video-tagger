@@ -202,6 +202,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='source != null'> AND a.source = #{source}</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + "<if test='tagId != null'> AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
+            + "<if test='ids != null and !ids.isEmpty()'> AND a.id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></if>"
             + "</where>"
             + "GROUP BY a.id "
             + "<choose>"
@@ -221,6 +222,7 @@ public interface MediaMapper extends BaseMapper<Media> {
                                     @Param("source") String source,
                                     @Param("tagId") Long tagId,
                                     @Param("q") String q,
+                                    @Param("ids") List<Long> ids,
                                     @Param("limit") int limit, @Param("offset") int offset);
 
     /** 媒体关键词召回：标题/别名/备注/作品标签命中。 */

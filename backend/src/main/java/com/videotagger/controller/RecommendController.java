@@ -58,7 +58,8 @@ public class RecommendController {
                                          String prologueTitle,
                                          String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
                                          Integer bgmScale,
-                                         Integer bgmX, Integer bgmY) {
+                                         Integer bgmX, Integer bgmY,
+                                         String brandTitle, Integer perScreen) {
     }
 
     /** 生成自包含推荐 HTML（附件下载）。标题（主题）自定义，空 → 默认。BGM 可选（base64 内嵌）。 */
@@ -72,7 +73,7 @@ public class RecommendController {
                 body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(),
                 body.prologueTitle(),
                 body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(),
-                body.bgmScale(), body.bgmX(), body.bgmY())
+                body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen())
                 .getBytes(StandardCharsets.UTF_8);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
@@ -112,7 +113,7 @@ public class RecommendController {
                 body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(),
                 body.prologueTitle(),
                 body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(),
-                body.bgmScale(), body.bgmX(), body.bgmY());
+                body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen());
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("taskId", t.id());
         resp.put("status", t.status());

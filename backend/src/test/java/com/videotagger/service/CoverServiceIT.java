@@ -185,7 +185,7 @@ class CoverServiceIT extends AbstractMySqlIT {
         assertEquals("/covers/clip/" + c.id() + ".jpg", detail.fallbackCoverPath());
 
         // 番剧卡片墙（MediaSummary SQL 按位映射）同样返回兜底封面
-        MediaSummary row = mediaService.list(10, 0, null, null, null, null, null, null, null, null, null, null, null).stream()
+        MediaSummary row = mediaService.list(10, 0, null, null, null, null, null, null, null, null, null, null, null, null).stream()
                 .filter(s -> s.id().equals(a.getId())).findFirst().orElse(null);
         assertNotNull(row);
         assertEquals("/covers/clip/" + c.id() + ".jpg", row.fallbackCoverPath());
