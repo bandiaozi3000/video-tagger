@@ -1601,21 +1601,21 @@ input[type="checkbox"] { accent-color: var(--pink); width: 15px; height: 15px; c
 }
 .group-size-sel:hover { border-color: rgba(167,139,250,.5); color: var(--text); }
 
-/* 回到顶部（主流右下角毛玻璃圆钮，滚动超过 400px 出现） */
-#back-top {
-    position: fixed; right: 22px; bottom: 26px; z-index: 90;
+/* 去底/回顶智能导航（屏幕右缘垂直居中毛玻璃圆钮，滚动后出现；箭头随位置：近顶↓去底/近底↑回顶/中间↕双向） */
+#back-nav {
+    position: fixed; right: 22px; top: 50%; z-index: 90;
     width: 44px; height: 44px; border-radius: 50%;
     border: 1px solid var(--border-strong);
     background: rgba(18, 18, 32, .82); color: var(--text-dim);
     font-size: 18px; line-height: 1; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    opacity: 0; transform: translateY(10px); pointer-events: none;
+    opacity: 0; transform: translateY(calc(-50% + 10px)); pointer-events: none;
     transition: opacity .25s, transform .25s, color .2s, border-color .2s, box-shadow .2s;
     box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
 }
-#back-top.show { opacity: 1; transform: none; pointer-events: auto; }
-#back-top:hover {
+#back-nav.show { opacity: 1; transform: translateY(-50%); pointer-events: auto; }
+#back-nav:hover {
     color: #fff; border-color: rgba(255, 77, 141, .55);
     background: linear-gradient(135deg, rgba(255, 77, 141, .25), rgba(167, 139, 250, .25));
     box-shadow: 0 0 22px rgba(255, 77, 141, .35);

@@ -426,20 +426,49 @@ function pushView(name) {
     if (activeView() === 'media-detail' && currentMedia) id = currentMedia.id;
     else if (activeView() === 'episode-detail' && currentEpisode) id = currentEpisode.id;
     else if (activeView() === 'clip-detail' && currentClip) id = currentClip.id;
-    viewHistory.push({ view: activeView(), id });
+    viewHistory.push({ view: activeView(), id, scrollY: window.scrollY });
     showView(name);
 }
+
+/** 返回需恢复滚动的列表视图（媒体/收藏夹/推荐：showView 会自动重新加载列表）。 */
+const SCROLL_RESTORE_VIEWS = new Set(['media', 'collections', 'recommend']);
 
 function goBack() {
     const prev = viewHistory.pop();
     if (!prev) { showView('search'); return; }
     showView(prev.view);
+    // 从列表进详情返回：恢复离开时的滚动位置（轮询等列表渲染完成，避免异步加载后落回顶部）
+    if (SCROLL_RESTORE_VIEWS.has(prev.view) && prev.scrollY > 0) restoreListScroll(prev.scrollY, prev.view);
     if (prev.view === 'search' && currentQuery) runSearch(currentQuery);
     else if (prev.view === 'media-detail' && prev.id != null) loadMediaDetail(prev.id);
     else if (prev.view === 'timeline' && currentVideo) openTimeline(currentVideo);
     else if (prev.view === 'episode-detail' && prev.id != null) loadEpisodeDetail(prev.id);
     else if (prev.view === 'clip-detail' && prev.id != null) renderClipDetail(prev.id);
     // 'media' / 'videos' / 'stats' 由 showView 自动重新加载
+}
+
+/** 列表返回后恢复滚动：按目标视图容器轮询等渲染稳定（scrollHeight 不再增长且已有卡片/分组）再滚回离开位置。
+ *  viewName 用于限定查询容器（避免全局 querySelector 误判 hidden 的其他视图旧卡片）。 */
+function restoreListScroll(y, viewName) {
+    const gridSel = viewName === 'media' ? '#media-grid'
+        : viewName === 'collections' ? '#coll-media-grid'
+        : '#recommend-grid';
+    const grid = document.querySelector(gridSel);
+    if (grid) grid.innerHTML = '';   // 先清空旧内容：避免返回瞬间 section 里残留上次列表被 poll 误判「已渲染」
+    let tries = 0, lastH = -1;
+    (function poll() {
+        if (tries++ > 120) return;   // 最多 ~6s 超时放弃（内容加载异常时不硬跳）
+        const h = document.documentElement.scrollHeight;
+        const hasItem = grid && grid.querySelector('.media-card, .media-row, .coll-group') != null;
+        if (hasItem && h > window.innerHeight) {
+            if (h === lastH) {       // 高度稳定 → 渲染完成，恢复
+                window.scrollTo(0, Math.min(y, h - window.innerHeight));
+                return;
+            }
+            lastH = h;
+        }
+        setTimeout(poll, 50);
+    })();
 }
 
 // ---------- 片段详情 ----------
@@ -2379,9 +2408,10 @@ async function loadRecommend(resetPage = true) {
     recommendGridEl.innerHTML = '';
     try {
         if (recommendOnlySelected) {
-            // 仅显示已勾选：按 id 精确圈选（无视来源/标签/年份筛选），隐藏分页
-            recommendPaginationEl.hidden = true;
+            // 仅显示已勾选：按 id 精确圈选（无视来源/标签/年份筛选）
+            // 分组走组打包分页；平铺前端切片分页（复用分页条）——不再一次渲染全部勾选
             if (recommendSelected.size === 0) {
+                recommendPaginationEl.hidden = true;
                 recommendTotal = 0;
                 renderRecommendPagination(1);
                 renderRecommendEmpty();
@@ -2389,8 +2419,13 @@ async function loadRecommend(resetPage = true) {
             }
             const all = await loadRecommendByIds([...recommendSelected]);
             recommendTotal = all.length;
+            recommendPaginationEl.hidden = false;
             if (recommendGrouped) { renderRecommendGrouped(all); return; }
-            renderRecommendGrid(all);
+            const totalPages = Math.max(1, Math.ceil(all.length / recommendPageSize));
+            if (recommendPage > totalPages) recommendPage = 1;
+            if (recommendPage < 1) recommendPage = 1;
+            renderRecommendGrid(all.slice((recommendPage - 1) * recommendPageSize, recommendPage * recommendPageSize));
+            renderRecommendPagination(totalPages);
             return;
         }
         if (recommendGrouped) {
@@ -2465,7 +2500,8 @@ async function loadRecommendByIds(ids) {
     const size = 200;
     for (let offset = 0; offset < ids.length; offset += size) {
         const chunk = ids.slice(offset, offset + size);
-        const resp = await fetch(`/api/media?ids=${chunk.join(',')}&limit=${size}&offset=${offset}`);
+        // ids 已精确圈定本 chunk，offset 必须为 0——否则 ids 过滤后结果集 ≤200 再 offset 会整段跳空（勾选 >200 丢失）
+        const resp = await fetch(`/api/media?ids=${chunk.join(',')}&limit=${size}&offset=0`);
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const list = await resp.json();
         all.push(...list);
@@ -5746,12 +5782,36 @@ collGroupedEl.addEventListener('change', () => {
     syncCollGroupControls();
     if (collSelectedId != null) loadCollMedia(collSelectedId);
 });
-/* 回到顶部：滚动超过阈值显示，点击平滑回顶（主流右下角圆钮） */
-const backTopBtn = document.getElementById('back-top');
+/* 去底/回顶智能导航：屏幕右缘垂直居中单按钮，滚动后出现；
+ *  箭头随位置：近顶 ↓（点→去底）/ 近底 ↑（点→回顶）/ 中间 ↕（点→去更远那端） */
+const backNavBtn = document.getElementById('back-nav');
+const NEAR_EDGE = 800;   // 距顶/距底 < 此值判定「近顶/近底」，其余为中间显示双向
+function setBackNav(dir, icon, tip) {
+    backNavBtn.dataset.dir = dir;
+    if (backNavBtn.textContent !== icon) backNavBtn.textContent = icon;
+    if (backNavBtn.title !== tip) { backNavBtn.title = tip; backNavBtn.setAttribute('aria-label', tip); }
+}
 window.addEventListener('scroll', () => {
-    backTopBtn.classList.toggle('show', window.scrollY > 400);
+    const y = window.scrollY;
+    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+    if (y > 400 && maxScroll > 0) {
+        backNavBtn.classList.add('show');
+        const distBottom = maxScroll - y;
+        if (distBottom < NEAR_EDGE) setBackNav('top', '↑', '回到顶部');        // 近底 → 回顶
+        else if (y < NEAR_EDGE) setBackNav('bottom', '↓', '去底部');           // 近顶 → 去底
+        else setBackNav('both', '↕', '上下滚动');                               // 中间 → 双向
+    } else {
+        backNavBtn.classList.remove('show');
+    }
 }, { passive: true });
-backTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+backNavBtn.addEventListener('click', () => {
+    const dir = backNavBtn.dataset.dir || 'bottom';
+    const y = window.scrollY;
+    const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+    // 单向箭头直接去目标；中间 ↕ 去更远那端
+    const goTop = dir === 'top' || (dir === 'both' && y > maxScroll / 2);
+    window.scrollTo({ top: goTop ? 0 : maxScroll, behavior: 'smooth' });
+});
 /* 全局卡片/列表视图切换：单个按钮，图标随状态变；媒体页/收藏夹/推荐页共用同一偏好 */
 function syncViewToggleButtons() {
     document.querySelectorAll('.view-toggle-btn').forEach(btn => {
