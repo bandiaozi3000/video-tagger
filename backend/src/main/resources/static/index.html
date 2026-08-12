@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Tagger · 二次元打标库</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="app.css?v=20260811m">
+    <link rel="stylesheet" href="app.css?v=20260812l">
 </head>
 <body>
 <!-- 网站背景图层（设置里上传，多图轮播；z-index 在 bg-fx 之下） -->
@@ -458,6 +458,7 @@
                 <h3>勾选要推荐的番剧</h3>
                 <div class="recommend-pick-actions">
                     <button type="button" id="recommend-select-all" class="btn-mini" title="勾选当前页全部">☑ 全选本页</button>
+                    <button type="button" id="recommend-box-select" class="btn-mini" title="框选取消：拖拽画框，把框内已勾选媒体批量取消勾选（按住 Alt 拖拽 = 框选勾选）">✂ 框选取消</button>
                     <span class="recommend-count" id="recommend-picked">已选 <b>0</b> 部</span>
                 </div>
             </div>
@@ -939,6 +940,10 @@
     <div class="modal modal-wide">
         <div class="modal-head"><h3>选择开局封面</h3></div>
         <p class="wizard-hint">从已勾选的推荐媒体里，勾选进「开局代表秀」的封面（默认评分高优先）。</p>
+        <input id="recommend-opening-search" class="opening-search" type="text" placeholder="搜索标题…" autocomplete="off">
+        <label class="group-toggle opening-only-selected" title="只显示已勾选的封面">
+            <input type="checkbox" id="recommend-opening-only-selected"> 仅显示已勾选
+        </label>
         <div id="recommend-opening-grid" class="recommend-opening-grid"></div>
         <div class="modal-actions">
             <button id="recommend-opening-cancel" type="button">取消</button>
@@ -1198,6 +1203,6 @@
     </div>
 </div>
 <button type="button" id="back-nav" title="去底部" aria-label="去底部">↓</button>
-<script src="app.js?v=20260811m"></script>
+<script src="app.js?v=20260812l"></script>
 </body>
 </html>

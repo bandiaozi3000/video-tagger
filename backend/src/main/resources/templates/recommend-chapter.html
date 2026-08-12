@@ -413,6 +413,8 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
   const bgmTimeEl = document.getElementById('bgmTime');
   const bgmNameEl = document.getElementById('bgmName');
   let bgmIndex = 0, upNext = null;
+  const BGM_TRACK_DURS = __BGM_TRACK_DURS__;   // 每曲时长秒（后端探测注入；HTML 导出/预览为空数组）
+  const recordStartTs = performance.now();      // 音频从录制起点铺开，近似页面加载时刻
   bgmBar.hidden = false;
 
   /* 音乐条样式（后端注入）：整体缩放 + 坐标 X/Y（视口百分比，0 有效） */
@@ -531,6 +533,17 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
       else bgmBar.classList.remove('next');
     }, 100);
     loadTrack(false);
+    /* 当前曲目剩余秒数（墙钟 + 后端注入时长，headless 下 audio.duration 不可靠）：录制模式导览结束时等它放完再结束 */
+    window.__bgmRemainSec = () => {
+      const durs = BGM_TRACK_DURS;
+      if (!durs || !durs.length) return 0;
+      const total = durs.reduce((a, b) => a + b, 0);
+      if (!(total > 0)) return 0;
+      const pos = ((performance.now() - recordStartTs) / 1000) % total;   // 循环音频中的当前位置
+      let acc = 0;
+      for (const d of durs) { acc += d; if (pos < acc) return Math.max(0, acc - pos); }
+      return 0;
+    };
   } else {
     bgmAudio.addEventListener('timeupdate', () => { updateTime(); updateBgmHint(); });
     bgmAudio.addEventListener('loadedmetadata', () => { updateTime(); updateBgmHint(); });
@@ -635,8 +648,8 @@ function spotsFor(n) {
   }
   return spots;
 }
-/* 开场代表秀：只显影 open 子集（无 open 标记 → 全显） */
-const OPENING = SLIDES.some(s => s.open) ? SLIDES.filter(s => s.open) : SLIDES;
+/* 开场代表秀：只显影 open 子集；自定义模式空子集（无 open 标记）→ 0 封面（跳过闪回仍按 OPENING_SEC 停留） */
+const OPENING = SLIDES.some(s => s.open) ? SLIDES.filter(s => s.open) : [];
 const OPENING_SLIDE = OPENING.map(s => SLIDES.indexOf(s));
 const OPENING_SPOTS = spotsFor(OPENING.length);
 const pols = OPENING.map((s, i) => {
@@ -661,8 +674,8 @@ function develop(i, hold) {
 }
 function playDevelop() {
   devTimers.forEach(clearTimeout); devTimers = [];
-  skipBtn.hidden = IS_RECORD;
-  devCount.classList.add('show');
+  skipBtn.hidden = IS_RECORD || !OPENING.length;   // 0 封面无可跳过的闪回，不显示跳过
+  if (OPENING.length) devCount.classList.add('show');   // 0 封面不闪计数角标
   pols.forEach(p => { p.classList.remove('mount'); p.style.opacity = '0';
     p.querySelector('.cover').classList.remove('develop', 'done'); });
   const order = OPENING.map((_, i) => i);
@@ -985,6 +998,13 @@ function scheduleAuto() {
 function finishAuto() {
   autoplaying = false;
   tbBar.classList.remove('auto'); prog.classList.remove('run'); autoBadge.hidden = true;
+  const remain = (IS_RECORD && typeof window.__bgmRemainSec === 'function') ? window.__bgmRemainSec() : 0;
+  if (remain > 0.01) {
+    /* 录制模式：等当前 BGM 放完再结束，避免结尾掐歌（结尾页定格多等）。
+       加 0.8s 缓冲覆盖页面加载→录制起点偏移（实测 ~0.5s），保证真正播完不掐尾。 */
+    setTimeout(() => { document.documentElement.dataset.tourEnded = '1'; }, remain * 1000 + 800);
+    return;
+  }
   document.documentElement.dataset.tourEnded = '1'; // 录制模式：render.js 检测到此标记即停止抓帧，保证结尾播完
 }
 function stopAuto() {

@@ -335,6 +335,7 @@ let currentRecommendList = [];       // 推荐向导当前页媒体（全选本�
 let recommendYear = '';       // 推荐页年份筛选（空=全部）
 let recommendGrouped = true;  // 推荐页分组显示（按首播年份，默认开）
 let recommendOnlySelected = false;  // 仅显示已勾选：网格只列出 recommendSelected 里的媒体（无视来源/标签/年份筛选）
+let recommendBoxSelect = false;     // 框选模式：拖拽画框批量取消/勾选（Alt=勾选）
 let collectionModalMode = 'create';  // collection-modal：create / rename
 let collectionRenameId = null;       // rename 模式的目标收藏夹 id
 let favOverlay = null;               // 卡片快捷收藏浮层
@@ -399,6 +400,7 @@ async function jump(r) {
 let currentViewName = 'search';
 
 function showView(name) {
+    if (currentViewName === 'recommend' && name !== 'recommend') saveRecommendPosition();   // 离开推荐前记录页码+滚动+模式
     currentViewName = name;
     if (hoverPreviewEl) hoverPreviewEl.hidden = true; // 切视图收起悬浮预览，防残留
     document.querySelectorAll('.nav .tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
@@ -411,7 +413,12 @@ function showView(name) {
     if (name === 'media') loadMedia(false);
     if (name === 'tags') loadTags();
     if (name === 'collections') loadCollections();
-    if (name === 'recommend') { fillRecommendSources(); loadRecommend(); }
+    if (name === 'recommend') {
+        fillRecommendSources();
+        restoreRecommendPosition();              // 刷新/切走后恢复页码+模式（sessionStorage）
+        loadRecommend(recommendRestoreScrollY > 0 ? false : true);   // 有恢复位置 → 不重置页码
+        if (recommendRestoreScrollY > 0) restoreListScroll(recommendRestoreScrollY, 'recommend');
+    }
 }
 
 // ---------- 视图历史栈（详情页逐层返回） ----------
@@ -470,6 +477,41 @@ function restoreListScroll(y, viewName) {
         setTimeout(poll, 50);
     })();
 }
+
+/* ========== 推荐页位置持久化（刷新/切走后回到之前的页码+滚动+模式） ========== */
+let recommendRestoreScrollY = 0;
+function saveRecommendPosition() {
+    try {
+        sessionStorage.setItem('recommend-pos', JSON.stringify({
+            page: recommendGrouped ? recommendGroupPage : recommendPage,
+            scrollY: window.scrollY,
+            onlySelected: recommendOnlySelected,
+            grouped: recommendGrouped
+        }));
+    } catch (e) { /* 忽略 */ }
+}
+function restoreRecommendPosition() {
+    recommendRestoreScrollY = 0;
+    try {
+        const raw = sessionStorage.getItem('recommend-pos');
+        if (!raw) return;
+        const pos = JSON.parse(raw);
+        if (typeof pos.onlySelected === 'boolean') {
+            recommendOnlySelected = pos.onlySelected;
+            if (recommendOnlySelectedEl) recommendOnlySelectedEl.checked = pos.onlySelected;
+        }
+        if (typeof pos.grouped === 'boolean') {
+            recommendGrouped = pos.grouped;
+            if (recommendGroupedEl) recommendGroupedEl.checked = pos.grouped;
+        }
+        if (recommendGrouped) recommendGroupPage = Math.max(1, pos.page || 1);
+        else recommendPage = Math.max(1, pos.page || 1);
+        recommendRestoreScrollY = Number(pos.scrollY) || 0;
+    } catch (e) { /* 忽略 */ }
+}
+window.addEventListener('pagehide', () => {
+    if (currentViewName === 'recommend') saveRecommendPosition();   // 刷新/关页前抓当前滚动
+});
 
 // ---------- 片段详情 ----------
 
@@ -1830,7 +1872,7 @@ function buildGroupedPages(list, perPage) {
 }
 
 /** 渲染一个年份组 section：组头（年份 + 计数/切片进度 + 折叠）+ 内容容器（跟随全局卡片/列表视图）。 */
-function createGroupSection(g, idPrefix, itemRenderer) {
+function createGroupSection(g, idPrefix, itemRenderer, groupActions) {
     const sec = document.createElement('section');
     sec.className = 'coll-group';
     sec.id = idPrefix + g.year;
@@ -1840,8 +1882,17 @@ function createGroupSection(g, idPrefix, itemRenderer) {
     const countTxt = g.chunk
         ? `${g.total} 部 · 第 ${g.chunkIndex + 1}/${g.chunkTotal} 页`
         : `${g.items.length} 部`;
-    head.innerHTML = `<span class="group-year">${esc(g.year)}</span><span class="group-count">${countTxt}</span><span class="group-collapse">▾</span>`;
+    head.innerHTML = `<span class="group-year">${esc(g.year)}</span><span class="group-count">${countTxt}</span><span class="group-collapse">▾</span>`
+        + (groupActions ? `<span class="group-actions">
+            <button type="button" class="btn-mini group-sel-all" title="勾选本组全部">☑ 全选</button>
+            <button type="button" class="btn-mini group-sel-none" title="取消本组勾选">☐ 取消</button>
+          </span>` : '');
     head.addEventListener('click', () => sec.classList.toggle('collapsed'));
+    if (groupActions) {
+        /* 组操作按钮：不冒泡到 header（否则会折叠分组） */
+        head.querySelector('.group-sel-all').addEventListener('click', (e) => { e.stopPropagation(); groupActions.selectAll(g); });
+        head.querySelector('.group-sel-none').addEventListener('click', (e) => { e.stopPropagation(); groupActions.selectNone(g); });
+    }
     sec.appendChild(head);
     const wrap = document.createElement('div');
     wrap.className = displayView === 'list' ? 'media-list' : 'group-grid';
@@ -1869,7 +1920,7 @@ function renderGroupedPage(container, pageGroups, opts) {
     const listEl = document.createElement('div');
     listEl.className = 'coll-group-list';
     for (const g of pageGroups || []) {
-        const sec = createGroupSection(g, idPrefix, itemRenderer);
+        const sec = createGroupSection(g, idPrefix, itemRenderer, opts.groupActions);
         listEl.appendChild(sec);
     }
     container.appendChild(listEl);
@@ -1884,13 +1935,15 @@ function renderGroupedPage(container, pageGroups, opts) {
     listEl.querySelectorAll('.coll-group').forEach(sec => io.observe(sec));
 }
 
-/** 分组年份跳转：pageIndex 目标页 0 基。不在当前页 → renderToPage(pageIndex+1, year) 由调用方切页并滚动；在当前页 → 页内直接滚动。 */
+/** 分组年份跳转：pageIndex 目标页 0 基。不在当前页 → renderToPage(pageIndex+1, year) 由调用方切页并滚动；在当前页 → 页内直接滚动。
+ *  组 section 前缀收藏夹为 grp-、推荐为 rgrp-，用 data-year 选择器规避前缀差异（原硬编码 grp- 导致推荐同页跳转失效）。 */
 function gotoGroupYear(year, pageIndex, currentPage, renderToPage) {
     if (pageIndex === undefined) return;
     if (pageIndex !== currentPage - 1) {
         renderToPage(pageIndex + 1, year);
     } else {
-        document.getElementById('grp-' + year)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        document.querySelector('.coll-group[data-year="' + year + '"]')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 }
 
@@ -2538,6 +2591,10 @@ function renderRecommendGroupPage(onDone) {
             renderRecommendGroupPage(() => document.getElementById('rgrp-' + y)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
         }),
         itemRenderer: (group, wrap) => renderRecommendGrid(group, wrap),
+        groupActions: {
+            selectAll: (g) => applyGroupSelect(g, true),
+            selectNone: (g) => applyGroupSelect(g, false),
+        },
     });
     renderRecommendGroupPagination();
     if (onDone) requestAnimationFrame(onDone);
@@ -2549,6 +2606,42 @@ function renderRecommendGroupPagination() {
     recommendPageInfoEl.textContent = `分组第 ${recommendGroupPage}/${recommendGroupTotalPages} 页`;
     recommendPagePrevEl.disabled = recommendGroupPage <= 1;
     recommendPageNextEl.disabled = recommendGroupPage >= recommendGroupTotalPages;
+}
+
+/** 分组头「全选/取消本组」：批量勾/取消该组可见媒体，就地更新勾选态（仅显示已勾选时重载保持页）。批量改动先确认再执行。 */
+function applyGroupSelect(g, select) {
+    const act = () => {
+        let n = 0;
+        g.items.forEach(a => {
+            if (select && !recommendSelected.has(a.id)) { recommendSelected.add(a.id); n++; }
+            else if (!select && recommendSelected.has(a.id)) { recommendSelected.delete(a.id); n++; }
+        });
+        if (n === 0) return;
+        updateRecommendCount();
+        markRecommendDirty(true);
+        if (recommendOnlySelected) {
+            loadRecommend(false);   // 仅显示已勾选：取消本组后重载（保持当前页）
+        } else {
+            const sec = document.getElementById('rgrp-' + g.year);   // 就地更新本组卡片勾选态，不整页重绘（保持滚动）
+            if (sec) {
+                sec.querySelectorAll('.media-card, .media-row').forEach(card => {
+                    const id = Number(card.dataset.id);
+                    const on = recommendSelected.has(id);
+                    card.classList.toggle('selected', on);
+                    const cb = card.querySelector('.media-batch-cb');
+                    if (cb) cb.checked = on;
+                });
+            }
+        }
+        showToast(`已${select ? '勾选' : '取消勾选'}本组 ${n} 部`);
+    };
+    showConfirm({
+        title: `分组${select ? '全选' : '取消勾选'}`,
+        msg: `确定${select ? '勾选' : '取消勾选'}「${g.year} 年」本组的 ${g.items.length} 部媒体吗？`,
+        okText: '确定',
+        danger: !select,
+        onOk: act,
+    });
 }
 
 /** 标签名 → tag id：manage?q 模糊查后精确匹配词条名（零后端改动）。查不到返回 null。 */
@@ -2623,6 +2716,7 @@ function renderRecommendGrid(list, container = recommendGridEl) {
         mediaById.set(a.id, a);
         const card = document.createElement('div');
         card.className = 'media-card' + (recommendSelected.has(a.id) ? ' selected' : '');
+        card.dataset.id = a.id;   // 框选批量操作按 data-id 定位
         const cover = (a.coverPath || a.fallbackCoverPath)
             ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" loading="lazy" onerror="this.style.display='none'">`
             : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
@@ -2650,11 +2744,13 @@ function renderRecommendGrid(list, container = recommendGridEl) {
         card.querySelector('.media-card-meta').textContent = meta.join(' · ');
         const cb = card.querySelector('.media-batch-cb');
         cb.addEventListener('click', (e) => e.stopPropagation());
-        cb.addEventListener('change', () => {
+        cb.addEventListener('change', (e) => {
+            e.stopPropagation();   // 单勾选改立即保存，拦截冒泡到 view-recommend 的防抖保存（避免双存）
             if (cb.checked) { recommendSelected.add(a.id); card.classList.add('selected'); }
             else { recommendSelected.delete(a.id); card.classList.remove('selected'); }
             updateRecommendCount();
-            if (recommendOnlySelected) loadRecommend();   // 仅显示已勾选：取消勾选后从网格移除
+            markRecommendDirty(true);   // 单勾选/取消立即存草稿——刷新/返回不丢（全选走程序化赋值不触发此处）
+            if (recommendOnlySelected) loadRecommend(false);   // 仅显示已勾选：取消勾选后从网格移除（保持当前页不跳回第1页）
         });
         card.querySelector('.media-fav-btn').addEventListener('click', (e) => {
             e.stopPropagation();
@@ -2675,6 +2771,7 @@ function renderRecommendRow(list, container = recommendGridEl) {
         mediaById.set(a.id, a);
         const row = document.createElement('div');
         row.className = 'media-row' + (recommendSelected.has(a.id) ? ' selected' : '');
+        row.dataset.id = a.id;   // 框选批量操作按 data-id 定位
         const cover = (a.coverPath || a.fallbackCoverPath)
             ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" loading="lazy" onerror="this.style.display='none'">`
             : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
@@ -2702,11 +2799,13 @@ function renderRecommendRow(list, container = recommendGridEl) {
         row.querySelector('.row-meta').textContent = meta.join(' · ');
         const cb = row.querySelector('.media-batch-cb');
         cb.addEventListener('click', (e) => e.stopPropagation());
-        cb.addEventListener('change', () => {
+        cb.addEventListener('change', (e) => {
+            e.stopPropagation();   // 单勾选改立即保存，拦截冒泡到 view-recommend 的防抖保存（避免双存）
             if (cb.checked) { recommendSelected.add(a.id); row.classList.add('selected'); }
             else { recommendSelected.delete(a.id); row.classList.remove('selected'); }
             updateRecommendCount();
-            if (recommendOnlySelected) loadRecommend();   // 仅显示已勾选：取消勾选后从列表移除
+            markRecommendDirty(true);   // 单勾选/取消立即存草稿——刷新/返回不丢（全选走程序化赋值不触发此处）
+            if (recommendOnlySelected) loadRecommend(false);   // 仅显示已勾选：取消勾选后从列表移除（保持当前页不跳回第1页）
         });
         row.querySelector('.row-btn.fav').addEventListener('click', (e) => { e.stopPropagation(); openFavPicker(a.id, e.currentTarget); });
         row.addEventListener('click', () => openMediaDetail(a.id));
@@ -2736,44 +2835,170 @@ function initRecommendOpening() {
         pickBtn.hidden = !toggle.checked;
         updateOpeningStatus();
     });
+    /* 封面选择弹窗：标题搜索（仅标题）+ 按年份分组（降序，无年份→未知年份）+ 组可折叠 + 仅显示已勾选 */
+    const openingSearch = document.getElementById('recommend-opening-search');
+    const openingOnlySel = document.getElementById('recommend-opening-only-selected');
+    let openingPicked = new Set();      // 弹窗内勾选源（确认时写回 openingSelected）
+    let openingCollapsed = new Set();   // 折叠的组名集合（跨重渲染保留）
+    function renderOpeningGrid() {
+        const grid = document.getElementById('recommend-opening-grid');
+        const q = (openingSearch.value || '').trim().toLowerCase();
+        const onlyPicked = openingOnlySel.checked;   // 仅显示已勾选：只看 openingPicked 里已勾的
+        let items = [...recommendSelected]
+            .map(id => ({ id, a: mediaById.get(id) }))
+            .filter(x => x.a)
+            .filter(x => !q || (x.a.title || '').toLowerCase().includes(q));
+        if (onlyPicked) items = items.filter(it => openingPicked.has(it.id));
+        const groups = new Map();
+        for (const it of items) {
+            const key = it.a.year ? `${it.a.year} 年` : '未知年份';
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(it);
+        }
+        const keys = [...groups.keys()].sort((a, b) => {
+            const pa = /^(\d{4}) 年$/.exec(a), pb = /^(\d{4}) 年$/.exec(b);
+            if (pa && pb) return Number(pb[1]) - Number(pa[1]);
+            if (pa) return -1; if (pb) return 1;
+            return 0;
+        });
+        grid.innerHTML = '';
+        if (!items.length) {
+            const emptyMsg = onlyPicked ? '暂无已勾选的封面' : (q ? '无匹配标题的媒体' : '暂无可选媒体');
+            grid.innerHTML = '<div class="opening-empty">' + emptyMsg + '</div>';
+            return;
+        }
+        keys.forEach(g => {
+            const list = groups.get(g);
+            const head = document.createElement('button');
+            head.type = 'button';
+            head.className = 'opening-group-head';
+            head.textContent = `${g} · ${list.length} 部${openingCollapsed.has(g) ? ' ▸' : ' ▾'}`;
+            head.dataset.gkey = g;
+            grid.appendChild(head);
+            const wrap = document.createElement('div');
+            wrap.className = 'opening-group' + (openingCollapsed.has(g) ? ' collapsed' : '');
+            list.forEach(({ id, a }) => {
+                const cover = (a.coverPath || a.fallbackCoverPath)
+                    ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" onerror="this.style.display='none'">`
+                    : '';
+                const c = document.createElement('label');
+                c.className = 'opening-pick-item' + (openingPicked.has(id) ? ' on' : '');
+                c.innerHTML = `${cover}<span class="opening-pick-name">${esc(a.title)}</span>
+                    <input type="checkbox" ${openingPicked.has(id) ? 'checked' : ''} data-id="${id}">`;
+                wrap.appendChild(c);
+            });
+            grid.appendChild(wrap);
+        });
+        grid.querySelectorAll('.opening-group-head').forEach(h => h.addEventListener('click', () => {
+            const g = h.dataset.gkey;
+            if (openingCollapsed.has(g)) openingCollapsed.delete(g); else openingCollapsed.add(g);
+            renderOpeningGrid();
+        }));
+        grid.querySelectorAll('input[data-id]').forEach(cb => cb.addEventListener('change', e => {
+            const id = Number(cb.dataset.id);
+            if (cb.checked) openingPicked.add(id); else openingPicked.delete(id);
+            e.target.closest('.opening-pick-item').classList.toggle('on', cb.checked);
+            if (openingOnlySel.checked) renderOpeningGrid();   // 仅显示已勾选：取消后从网格移除
+        }));
+    }
     pickBtn.addEventListener('click', async () => {
         if (recommendSelected.size === 0) { showToast('请先在步骤1勾选推荐媒体'); return; }
         await ensureMediaByIds([...recommendSelected]);   // 草稿恢复/跨页勾选的媒体可能不在 mediaById，先补齐
-        const grid = document.getElementById('recommend-opening-grid');
-        const preset = openingSelected.size ? new Set(openingSelected) : new Set(autoOpeningIds());
-        grid.innerHTML = '';
-        [...recommendSelected].forEach(id => {
-            const a = mediaById.get(id);
-            if (!a) return;
-            const cover = (a.coverPath || a.fallbackCoverPath)
-                ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" onerror="this.style.display='none'">`
-                : '';
-            const c = document.createElement('label');
-            c.className = 'opening-pick-item' + (preset.has(id) ? ' on' : '');
-            c.innerHTML = `${cover}<span class="opening-pick-name">${esc(a.title)}</span>
-                <input type="checkbox" ${preset.has(id) ? 'checked' : ''} data-id="${id}">`;
-            grid.appendChild(c);
-        });
-        grid.querySelectorAll('input[data-id]').forEach(cb => cb.addEventListener('change', e => {
-            e.target.closest('.opening-pick-item').classList.toggle('on', e.target.checked);
-        }));
+        openingSearch.value = '';                          // 每次打开从头搜/从头看
+        openingOnlySel.checked = false;                    // 仅显示已勾选重置为关（默认看全部）
+        openingPicked = new Set(openingSelected);          // 自定义模式：已有勾选回显，无勾选就是空（不回退自动 top10）
+        renderOpeningGrid();
         document.getElementById('recommend-opening-modal').hidden = false;
     });
+    openingSearch.addEventListener('input', renderOpeningGrid);
+    openingOnlySel.addEventListener('change', renderOpeningGrid);
     document.getElementById('recommend-opening-cancel').addEventListener('click', () => {
         document.getElementById('recommend-opening-modal').hidden = true;
     });
     document.getElementById('recommend-opening-confirm').addEventListener('click', () => {
         openingSelected.clear();
-        document.querySelectorAll('#recommend-opening-grid input[data-id]:checked').forEach(cb => {
-            openingSelected.add(Number(cb.dataset.id));
-        });
+        openingPicked.forEach(id => openingSelected.add(id));
         document.getElementById('recommend-opening-modal').hidden = true;
         toggle.checked = true;
         pickBtn.hidden = false;
         updateOpeningStatus();
+        markRecommendDirty(true);   // 开局封面离散操作：立即存草稿（否则刷新丢）
         showToast(`开局封面已设为 ${openingSelected.size} 张`);
     });
     updateOpeningStatus();
+}
+
+/** 框选取消：开启后在推荐网格拖拽画框，松开把框内已勾选媒体批量取消勾选（按住 Alt 拖拽 = 框选勾选）。 */
+function initRecommendBoxSelect() {
+    const btn = document.getElementById('recommend-box-select');
+    if (!btn) return;
+    let drag = false, startPt = null, overlay = null;
+    btn.addEventListener('click', () => {
+        recommendBoxSelect = !recommendBoxSelect;
+        btn.classList.toggle('active', recommendBoxSelect);
+        btn.textContent = recommendBoxSelect ? '✂ 框选(开)' : '✂ 框选取消';
+        recommendGridEl.classList.toggle('boxing', recommendBoxSelect);
+    });
+    /* 框选模式下拦截网格内点击：不打开详情（勾选框/收藏按钮走各自 handler） */
+    document.addEventListener('click', (e) => {
+        if (recommendBoxSelect && e.target.closest('#recommend-grid')) e.stopPropagation();
+    }, true);
+    recommendGridEl.addEventListener('mousedown', (e) => {
+        if (!recommendBoxSelect || e.button !== 0) return;
+        if (e.target.closest('.media-batch-cb')) return;   // 点勾选框本身 → 正常单个切换
+        drag = true; startPt = { x: e.clientX, y: e.clientY };
+        overlay = document.createElement('div');
+        overlay.className = 'recommend-box-overlay';
+        overlay.style.left = e.clientX + 'px';
+        overlay.style.top = e.clientY + 'px';
+        document.body.appendChild(overlay);
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+        if (!drag || !overlay || !startPt) return;
+        const x = Math.min(startPt.x, e.clientX), y = Math.min(startPt.y, e.clientY);
+        overlay.style.left = x + 'px'; overlay.style.top = y + 'px';
+        overlay.style.width = Math.abs(e.clientX - startPt.x) + 'px';
+        overlay.style.height = Math.abs(e.clientY - startPt.y) + 'px';
+    });
+    document.addEventListener('mouseup', (e) => {
+        if (!drag) return;
+        drag = false;
+        if (overlay) { overlay.remove(); overlay = null; }
+        if (!startPt) return;
+        const r = { l: Math.min(startPt.x, e.clientX), t: Math.min(startPt.y, e.clientY),
+                    r: Math.max(startPt.x, e.clientX), b: Math.max(startPt.y, e.clientY) };
+        startPt = null;
+        const check = !!e.altKey;   // Alt=勾选；默认取消勾选
+        /* 收集框内卡片 id（不立即改动，先确认再执行，防误拖摘错一片） */
+        const ids = [];
+        recommendGridEl.querySelectorAll('.media-card, .media-row').forEach(card => {
+            const b = card.getBoundingClientRect();
+            if (b.right < r.l || b.bottom < r.t || b.left > r.r || b.top > r.b) return;
+            const id = Number(card.dataset.id);
+            if (id) ids.push(id);
+        });
+        if (!ids.length) return;
+        const act = () => {
+            let n = 0;
+            ids.forEach(id => {
+                if (check) { if (!recommendSelected.has(id)) { recommendSelected.add(id); n++; } }
+                else if (recommendSelected.has(id)) { recommendSelected.delete(id); n++; }
+            });
+            if (n === 0) return;
+            updateRecommendCount();
+            markRecommendDirty(true);
+            if (recommendOnlySelected) loadRecommend(false);   // 仅显示已勾选：移除后重载保持当前页
+            showToast(`框选${check ? '勾选' : '取消勾选'} ${n} 部`);
+        };
+        showConfirm({
+            title: `框选${check ? '勾选' : '取消勾选'}`,
+            msg: `框选了 ${ids.length} 部媒体，确定要${check ? '勾选' : '取消勾选'}吗？`,
+            okText: '确定',
+            danger: !check,
+            onOk: act,
+        });
+    });
 }
 
 /** 确保 mediaById 含这些 id 的媒体数据（推荐网格未加载的，从后端逐个补——草稿恢复/跨页勾选场景）。 */
@@ -3158,7 +3383,7 @@ function initRecommendBgm() {
 /** 收集当前推荐配置（含 BGM，草稿用）。 */
 function collectRecommendConfig() {
     const durs = recommendDurations();
-    return {
+    const cfg = {
         ids: [...recommendSelected],
         title: recommendTitle(),
         brandTitle: recommendBrandTitle(),
@@ -3177,12 +3402,16 @@ function collectRecommendConfig() {
         ...recommendBg(), ...recommendBgmStyle(),
         ...durs,
         openingIds: currentOpeningIds(),   // 开局封面（开场代表秀）：当前开场子集
-        openingCustom: document.getElementById('recommend-opening-toggle').checked,
-        bgmTracks: recommendBgmList
+        openingCustom: document.getElementById('recommend-opening-toggle').checked
     };
+    /* 大体积素材不入草稿/模板（每次保存序列化+上传会卡主线程，实测 BGM 57MB→365ms、背景图 8.6MB→56ms）：
+       勾选+设置照常保存刷新恢复，BGM/背景图由用户导出时现场重新添加。 */
+    delete cfg.bgmTracks;
+    delete cfg.bgImages;
+    return cfg;
 }
 
-/** 模板配置：同草稿（**含 BGM**，整套复用含音乐）。 */
+/** 模板配置：同草稿（不含 BGM——BGM 体积大，模板不应背上）。 */
 function collectTemplateConfig() {
     return collectRecommendConfig();
 }
@@ -3253,6 +3482,9 @@ function applyRecommendConfig(cfg) {
         cfg.openingIds.forEach(id => openingSelected.add(Number(id)));
         const ot = document.getElementById('recommend-opening-toggle');
         if (ot) ot.checked = !!cfg.openingCustom;
+        /* 直接设 checked 不触发 change → 选择封面按钮可见性同步（避免恢复自定义模式后按钮仍隐藏） */
+        const op = document.getElementById('recommend-opening-pick');
+        if (op) op.hidden = !ot.checked;
         updateOpeningStatus();
     }
     recommendBgImages = Array.isArray(cfg.bgImages) ? cfg.bgImages : [];
@@ -3274,10 +3506,14 @@ function applyRecommendConfig(cfg) {
     return true;
 }
 
-/* 自动保存草稿（防抖 1s） */
+/* 自动保存草稿（默认防抖 1s；saveNow=true 立即保存——单勾选/取消等离散操作立即落盘，避免刷新竞态丢改动）。
+   recommendDraftReady：草稿异步恢复完成前禁止保存——否则恢复未完成时勾选会以空/部分状态覆盖草稿（漂移）。 */
 let recommendDirtyTimer = null;
-function markRecommendDirty() {
+let recommendDraftReady = false;
+function markRecommendDirty(saveNow) {
+    if (!recommendDraftReady) return;   // 恢复完成前不保存（防覆盖）
     clearTimeout(recommendDirtyTimer);
+    if (saveNow) { saveRecommendDraft(); return; }
     recommendDirtyTimer = setTimeout(saveRecommendDraft, 1000);
 }
 async function saveRecommendDraft() {
@@ -3304,6 +3540,9 @@ async function restoreRecommendDraft(silent) {
         if (ok && !silent) showToast('已恢复推荐草稿');
         return ok;
     } catch (e) { return false; }
+    finally {
+        recommendDraftReady = true;   // 恢复完成（成功/失败/无草稿）后放行保存
+    }
 }
 
 /* 模板：列表渲染 / 载入 / 删除 / 另存 */
@@ -5593,6 +5832,7 @@ initConfigGroups(); // 配置弹窗四组折叠 + 显示时长实时生效
 initRecommendBgmStyle(); // 音乐条样式（配置弹窗滑块/坐标，拖拽回填）
 initRecommendBgm(); // BGM 选择（选本地音频 → base64 内嵌 HTML / 混入导出视频）
 initRecommendOpening(); // 开局封面（步骤3 自定义 toggle + 选择器弹窗）
+initRecommendBoxSelect(); // 框选取消（步骤1 网格拖拽画框批量取消/勾选）
 initRecommendBg(); // 背景（步骤3 主题色/图片选择）
 
 /* 预览 iframe 拖 BGM 条松手 → 回填 X/Y 输入并存草稿；缩放手柄松手 → 回填缩放滑块；模板上报结构 → 算总时长 */

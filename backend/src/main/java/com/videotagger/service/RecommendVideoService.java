@@ -126,6 +126,17 @@ public class RecommendVideoService {
         try {
             // 1. 生成自包含 HTML → 临时文件
             String htmlContent = recommendService.buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen);
+            // 探测 BGM 时长并注入模板：模板 __bgmRemainSec 用它算「当前曲目剩余」，headless 下 audio.duration 不可靠
+            List<Double> bgmDurs = new ArrayList<>();
+            if (bgmPaths != null) {
+                for (String p : bgmPaths) {
+                    bgmDurs.add(probeMediaDuration(p));
+                }
+            }
+            if (!bgmDurs.isEmpty()) {
+                htmlContent = htmlContent.replace("const BGM_TRACK_DURS = [];",
+                        "const BGM_TRACK_DURS = " + bgmDursJson(bgmDurs) + ";");
+            }
             Path work = Files.createTempDirectory("vt-recommend-");
             html = work.resolve("recommend.html");
             Files.writeString(html, htmlContent, StandardCharsets.UTF_8);
@@ -175,6 +186,18 @@ public class RecommendVideoService {
                     ? durations.group() * recommendService.computeGroupCount(ids, groupBy) : 0;
             int durationSeconds = durations.opening() + introDur + groupDur
                     + durations.detail() * ids.size() + durations.ending();
+            // 录制延长：结尾等当前 BGM 放完（模板 finishAuto 多等）→ render.js 兜底上限须覆盖「最长单曲余量」。
+            // BGM 音轨 -stream_loop 无限循环，实际结束点由模板 data-tour-ended 驱动，这里只放宽兜底上限。
+            int renderDurationSeconds = durationSeconds;
+            if (!bgmDurs.isEmpty()) {
+                double maxTrack = 0;
+                for (double d : bgmDurs) {
+                    maxTrack = Math.max(maxTrack, d);
+                }
+                if (maxTrack > 0) {
+                    renderDurationSeconds = durationSeconds + (int) Math.ceil(maxTrack) + 5;
+                }
+            }
 
             // 3. 调 node render.js
             Path out = exportDir().resolve("recommend-" + LocalDateTime.now().format(FILE_TS) + "." + fmt);
@@ -190,7 +213,7 @@ public class RecommendVideoService {
             cmd.add("--height");
             cmd.add(String.valueOf(wh[1]));
             cmd.add("--duration");
-            cmd.add(String.valueOf(durationSeconds));
+            cmd.add(String.valueOf(renderDurationSeconds));
             cmd.add("--format");
             cmd.add(fmt);
             cmd.add("--chrome");
@@ -290,5 +313,62 @@ public class RecommendVideoService {
         String[] lines = output.split("\\R");
         int from = Math.max(0, lines.length - 8);
         return String.join(" | ", java.util.Arrays.copyOfRange(lines, from, lines.length));
+    }
+
+    /** BGM 时长数组 → JS 数组字面量（点小数，规避 Locale 逗号）。 */
+    private static String bgmDursJson(List<Double> durs) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < durs.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append(String.format(Locale.ROOT, "%.2f", durs.get(i)));
+        }
+        return sb.append(']').toString();
+    }
+
+    /** 探测音频/视频文件时长（秒）：优先 ffprobe（与 ffmpeg 同目录），回退 ffmpeg -i 解析。失败 → 0。 */
+    private double probeMediaDuration(String file) {
+        try {
+            Path ffprobe = ffprobePath();
+            if (ffprobe != null) {
+                ProcessBuilder pb = new ProcessBuilder(ffprobe.toString(), "-v", "error",
+                        "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file);
+                pb.redirectErrorStream(true);
+                Process p = pb.start();
+                String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+                p.waitFor();
+                if (!out.isEmpty()) {
+                    return Double.parseDouble(out.trim().split("\\s+")[0]);
+                }
+            }
+            // 回退：ffmpeg -i 解析 stderr 的 Duration: HH:MM:SS.cc
+            ProcessBuilder pb = new ProcessBuilder(ffmpegPath, "-i", file);
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            String err = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            p.waitFor();
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("Duration: (\\d{2}):(\\d{2}):(\\d{2}\\.?\\d*)").matcher(err);
+            if (m.find()) {
+                return Integer.parseInt(m.group(1)) * 3600 + Integer.parseInt(m.group(2)) * 60
+                        + Double.parseDouble(m.group(3));
+            }
+        } catch (Exception e) {
+            log.warn("探测 BGM 时长失败 {}: {}", file, e.getMessage());
+        }
+        return 0;
+    }
+
+    /** ffprobe 路径推导：与 ffmpeg 同目录、ffmpeg 换 ffprobe（存在才返回，否则 null 走 ffmpeg -i 回退）。 */
+    private Path ffprobePath() {
+        try {
+            Path ff = Path.of(ffmpegPath).toAbsolutePath();
+            String name = ff.getFileName() == null ? "ffmpeg" : ff.getFileName().toString();
+            String probeName = name.endsWith(".exe")
+                    ? "ffprobe.exe" : "ffprobe";
+            Path probe = ff.getParent().resolve(probeName);
+            return Files.isRegularFile(probe) ? probe : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

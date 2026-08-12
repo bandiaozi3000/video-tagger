@@ -189,6 +189,7 @@ public class RecommendService {
                 .replace("__GROUP_SEC__", String.valueOf(dur.group()))
                 .replace("__ENDING_SEC__", String.valueOf(dur.ending()))
                 .replace("__BGM_TRACKS__", bgmTracksJson)
+                .replace("__BGM_TRACK_DURS__", "[]")
                 .replace("__BGM_SRC__", "")
                 .replace("__BGM_NAME__", "");
     }
