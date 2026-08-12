@@ -11,6 +11,7 @@ import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.EmbeddingTaskMapper;
 import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.EpisodeTagMapper;
+import com.videotagger.config.VectorProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -40,11 +41,12 @@ public class EmbeddingTaskService implements ApplicationRunner {
     private final EmbeddingTaskMapper taskMapper;
     private final EmbeddingClient embeddingClient;
     private final VectorStore vectorStore;
+    private final VectorProperties vectorProps;
 
     public EmbeddingTaskService(ClipMapper clipMapper, MediaMapper mediaMapper, EpisodeMapper episodeMapper,
                                 MediaTagMapper mediaTagMapper, EpisodeTagMapper episodeTagMapper,
                                 EmbeddingTaskMapper taskMapper, EmbeddingClient embeddingClient,
-                                VectorStore vectorStore) {
+                                VectorStore vectorStore, VectorProperties vectorProps) {
         this.clipMapper = clipMapper;
         this.mediaMapper = mediaMapper;
         this.episodeMapper = episodeMapper;
@@ -53,10 +55,14 @@ public class EmbeddingTaskService implements ApplicationRunner {
         this.taskMapper = taskMapper;
         this.embeddingClient = embeddingClient;
         this.vectorStore = vectorStore;
+        this.vectorProps = vectorProps;
     }
 
     /** 入队 / 重置为 PENDING（供打标保存、标签变更触发重嵌入）。异步生成由 sweep 驱动。 */
     public void enqueue(EntityType type, long entityId) {
+        if (!vectorProps.isEnabled()) {
+            return;
+        }
         long now = System.currentTimeMillis();
         EmbeddingTask task = taskMapper.selectByEntity(type.name(), entityId);
         if (task == null) {
@@ -83,6 +89,9 @@ public class EmbeddingTaskService implements ApplicationRunner {
 
     /** 执行一次嵌入：构建文本 → Embedding API → 写向量 → DONE；失败指数退避重试。 */
     public void process(EntityType type, long entityId) {
+        if (!vectorProps.isEnabled()) {
+            return;
+        }
         if (!embeddingClient.isConfigured()) {
             return;
         }
@@ -107,6 +116,9 @@ public class EmbeddingTaskService implements ApplicationRunner {
     /** 每 60 秒扫描一次待补任务，按 2^retry 秒指数退避 */
     @Scheduled(fixedDelay = 60_000)
     public void sweep() {
+        if (!vectorProps.isEnabled()) {
+            return;
+        }
         List<EmbeddingTask> pending;
         try {
             pending = taskMapper.selectPending();

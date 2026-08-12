@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.videotagger.config.EmbeddingProperties;
 import com.videotagger.config.MilvusProperties;
+import com.videotagger.config.VectorProperties;
 import com.videotagger.service.EntityType;
 import com.videotagger.service.VectorStore;
 import io.milvus.v2.client.ConnectConfig;
@@ -45,17 +46,24 @@ public class MilvusVectorStore implements VectorStore {
 
     private final MilvusProperties milvusProps;
     private final EmbeddingProperties embeddingProps;
+    private final VectorProperties vectorProps;
 
     private MilvusClientV2 client;
     private volatile boolean enabled = false;
 
-    public MilvusVectorStore(MilvusProperties milvusProps, EmbeddingProperties embeddingProps) {
+    public MilvusVectorStore(MilvusProperties milvusProps, EmbeddingProperties embeddingProps,
+                             VectorProperties vectorProps) {
         this.milvusProps = milvusProps;
         this.embeddingProps = embeddingProps;
+        this.vectorProps = vectorProps;
     }
 
     @PostConstruct
     public void init() {
+        if (!vectorProps.isEnabled()) {
+            log.info("向量功能已禁用（videotagger.vector.enabled=false），跳过 Milvus 连接，搜索使用纯关键词");
+            return;
+        }
         for (int attempt = 1; attempt <= CONNECT_RETRIES; attempt++) {
             if (tryConnect()) {
                 enabled = true;
@@ -71,7 +79,7 @@ public class MilvusVectorStore implements VectorStore {
     /** 冷启动竞态兜底：禁用态每 60 秒重连，成功后语义搜索自动恢复。 */
     @Scheduled(fixedDelay = 60_000)
     public void reconnectIfDisabled() {
-        if (enabled) {
+        if (!vectorProps.isEnabled() || enabled) {
             return;
         }
         if (tryConnect()) {

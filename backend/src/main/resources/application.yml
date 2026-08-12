@@ -41,6 +41,9 @@ videotagger:
     collection: clip_embeddings_v2
     # ANN 相似度下限（余弦）：相关命中普遍 ≥0.55，无关噪声最高约 0.43，默认 0.45 可分界；可按所用 embedding 模型实测调整
     min-cosine-score: ${MIN_COSINE_SCORE:0.45}
+  vector:
+    # 向量功能总开关：false = 不连 Milvus、不生成 embedding，搜索降级纯关键词（当前默认关）
+    enabled: ${VIDEOTAGGER_VECTOR_ENABLED:false}
   embedding:
     # 密钥只通过环境变量注入（.env），禁止在此硬编码兜底默认值
     base-url: ${EMBEDDING_BASE_URL:}

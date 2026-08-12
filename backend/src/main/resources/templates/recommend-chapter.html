@@ -105,9 +105,12 @@
     background:linear-gradient(115deg,#fff 10%,var(--sky) 55%,#9fd4ff 90%);
     -webkit-background-clip:text;background-clip:text;color:transparent;
     filter:drop-shadow(0 4px 26px rgba(79,195,247,.4));}
-  .prologue .pl-text{position:relative;max-width:62ch;margin-top:28px;font-size:16px;line-height:2.1;color:var(--muted);}
+  .prologue .pl-text{position:relative;max-width:62ch;margin-top:28px;font-size:16px;line-height:2.1;color:var(--muted);white-space:pre-line;}
   .prologue .pl-cta{position:relative;margin-top:44px;font-size:12px;letter-spacing:6px;color:var(--gold);
     animation:blink 2s ease-in-out infinite;}
+  /* 屏外整屏 section 跳过渲染（大文档性能）：content-visibility 屏外块不 layout/paint，滚动按需渲染。
+     各 section 自带 min-height:100vh 占位，滚动位置不跳变；contain-intrinsic-size 供浏览器预布局 */
+  .story-card,.grid-screen,.chapter,.ending,.prologue{content-visibility:auto;contain-intrinsic-size:auto 100vh;}
   /* --- 结尾回顾墙 --- */
   .ending{scroll-snap-align:start;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
     padding:70px 20px;text-align:center;position:relative;overflow:hidden;}
@@ -115,6 +118,7 @@
     background:radial-gradient(700px 420px at 50% 55%, rgba(255,143,184,.13), transparent 70%);filter:blur(40px);}
   .ending .en-kicker{position:relative;font-size:12px;letter-spacing:9px;color:var(--pink);font-weight:600;margin-bottom:18px;}
   .ending h2{position:relative;font-size:clamp(30px,5vw,52px);font-weight:900;letter-spacing:5px;color:#fff;}
+  .ending .en-text{position:relative;margin-top:16px;font-size:13px;letter-spacing:2px;color:var(--muted);}
   .ending .en-wall{position:relative;display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin:36px 0;max-width:920px;}
   .ending .en-wall img{width:72px;height:102px;object-fit:cover;border-radius:8px;
     border:1px solid rgba(255,255,255,.14);box-shadow:0 10px 26px rgba(0,0,0,.45);
@@ -205,17 +209,21 @@
   /* 序号：与单部屏 sc-no 同款透明描边样式，放卡片区域右上角（badge 在屏幕右上不冲突） */
   .gs-no{position:absolute;right:0;top:-72px;z-index:3;font-size:64px;font-weight:900;line-height:1;
     color:transparent;-webkit-text-stroke:1.5px rgba(111,139,255,.3);pointer-events:none;letter-spacing:4px;}
-  .gs-info{padding:11px 13px 15px;}
+  .gs-info{padding:11px 13px 15px;display:flex;flex-direction:column;align-items:center;text-align:center;}
   .gs-title{font-size:15px;font-weight:700;color:#fff;letter-spacing:.4px;line-height:1.35;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
   .gs-note{margin-top:7px;font-size:12.5px;color:var(--muted);line-height:1.5;
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word;}
-  .gs-tags{margin-top:9px;display:flex;flex-wrap:wrap;gap:5px;}
+  .gs-tags{margin-top:9px;display:flex;flex-wrap:wrap;gap:5px;justify-content:center;}
   .sc-poster .flag{position:absolute;left:12px;top:12px;z-index:2;
     font-size:11px;letter-spacing:1px;padding:4px 10px;border-radius:999px;
     color:#ffd9a6;background:rgba(255,143,77,.14);border:1px solid rgba(255,143,77,.35);
     backdrop-filter:blur(4px);}
-  .sc-info{z-index:1;padding:10px 2px}
+  .gs-cover .flag{position:absolute;left:10px;top:10px;z-index:3;
+    font-size:10px;letter-spacing:1px;padding:3px 9px;border-radius:999px;
+    color:#ffd9a6;background:rgba(255,143,77,.14);border:1px solid rgba(255,143,77,.35);
+    backdrop-filter:blur(4px);}
+  .sc-info{z-index:1;padding:10px 2px;display:flex;flex-direction:column;align-items:center;text-align:center}
   .sc-info > *{opacity:0;transform:translateY(18px);transition:opacity .6s ease,transform .6s ease}
   .story-card.in-view .sc-info > *{opacity:1;transform:none}
   .story-card.in-view .sc-info > *:nth-child(1){transition-delay:.05s}
@@ -226,6 +234,7 @@
   .sc-info .kicker{display:inline-flex;align-items:center;gap:7px;font-size:12px;letter-spacing:2px;
     color:var(--sky);font-weight:600;margin-bottom:12px;}
   .sc-info .kicker::before{content:"";width:22px;height:1px;background:linear-gradient(90deg,var(--sky),transparent)}
+  .sc-info .kicker::after{content:"";width:22px;height:1px;background:linear-gradient(90deg,transparent,var(--sky))}
   .sc-info .cat{display:inline-block;font-size:12px;letter-spacing:1px;color:#0a0812;
     background:linear-gradient(120deg,var(--sky),var(--blue));padding:4px 12px;border-radius:999px;
     font-weight:700;margin-bottom:14px;box-shadow:0 4px 16px rgba(79,195,247,.4);}
@@ -234,7 +243,7 @@
     -webkit-background-clip:text;background-clip:text;color:transparent;
     filter:drop-shadow(0 2px 12px rgba(79,195,247,.5));margin-bottom:14px;}
   .sc-info .note{font-size:14.5px;line-height:1.9;color:var(--muted);margin-bottom:18px;max-width:56ch;}
-  .sc-info .tags{display:flex;flex-wrap:wrap;gap:9px}
+  .sc-info .tags{display:flex;flex-wrap:wrap;gap:9px;justify-content:center}
   .chip{font-size:12.5px;letter-spacing:.5px;padding:5px 12px;border-radius:999px;
     border:1px solid var(--line);display:inline-flex;align-items:center;gap:6px;font-weight:600;}
   .chip b{font-weight:800;font-size:11px}
@@ -255,10 +264,11 @@
   .trackbar .cur{color:var(--pink)}
   .tb-progress{width:150px;height:3px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.09);opacity:0;transition:opacity .3s;}
   .trackbar.auto .tb-progress{opacity:1}
-  .tb-progress i{display:block;height:100%;width:0;border-radius:999px;
+  .tb-progress i{display:block;height:100%;transform:scaleX(0);transform-origin:left;border-radius:999px;
     background:linear-gradient(90deg,var(--sky),var(--blue),var(--pink));box-shadow:0 0 12px rgba(79,195,247,.8);}
   .tb-progress i.run{animation:tbprog 6s linear forwards}
-  @keyframes tbprog{from{width:0}to{width:100%}}
+  /* scaleX 动画走合成器线程，主线程被封面解码占用时进度条也不掉帧 */
+  @keyframes tbprog{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 
   /* BGM 胶囊 */
   .bgm-bar{position:fixed;left:14px;bottom:8%;z-index:50;display:flex;align-items:center;gap:9px;
@@ -276,7 +286,7 @@
   .bgm-name{font-size:12.5px;color:var(--ink);letter-spacing:.5px;flex:0 1 auto;min-width:0;max-width:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .bgm-bar.next .bgm-name{color:var(--gold)}
   .bgm-progress{width:110px;height:3px;background:rgba(255,255,255,.09);border-radius:999px;overflow:hidden;cursor:pointer;flex:none}
-  .bgm-progress i{display:block;height:100%;width:0;border-radius:999px;
+  .bgm-progress i{display:block;height:100%;transform:scaleX(0);transform-origin:left;border-radius:999px;
     background:linear-gradient(90deg,var(--sky),var(--blue),var(--pink));box-shadow:0 0 12px rgba(79,195,247,.8);}
   .bgm-time{font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;flex:none;letter-spacing:.5px}
   /* 右侧章节导航（仅配置/预览显示；市面常用做法：竖排圆点+章节名，当前高亮） */
@@ -415,6 +425,7 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
   let bgmIndex = 0, upNext = null;
   const BGM_TRACK_DURS = __BGM_TRACK_DURS__;   // 每曲时长秒（后端探测注入；HTML 导出/预览为空数组）
   const recordStartTs = performance.now();      // 音频从录制起点铺开，近似页面加载时刻
+  document.documentElement.dataset.recordStartMs = String(recordStartTs);   // 暴露给 render.js 做音画对齐（页面加载→首帧偏移）
   bgmBar.hidden = false;
 
   /* 音乐条样式（后端注入）：整体缩放 + 坐标 X/Y（视口百分比，0 有效） */
@@ -495,12 +506,13 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
   bgmResize.addEventListener('pointercancel', bmResizeEnd);
   const fmtT = s => { if (!isFinite(s) || s <= 0) return '0:00'; return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0'); };
   const setPlay = playing => { bgmPlayBtn.textContent = playing ? '❚❚' : '▶'; bgmPlayBtn.title = playing ? '暂停' : '播放'; };
-  const updateTime = () => { const d = bgmAudio.duration || 0; bgmProg.style.width = (d ? (bgmAudio.currentTime / d) * 100 : 0) + '%'; bgmTimeEl.textContent = fmtT(bgmAudio.currentTime) + ' / ' + fmtT(d); };
+  const updateTime = () => { const d = bgmAudio.duration || 0; bgmProg.style.transform = 'scaleX(' + (d ? (bgmAudio.currentTime / d) : 0) + ')'; bgmTimeEl.textContent = fmtT(bgmAudio.currentTime) + ' / ' + fmtT(d); };
   /* 快结束前 4s 提示下一首：timeupdate 实时检测（data URI 音频 duration 可能迟就绪，setTimeout 排不准） */
   const updateBgmHint = () => {
     const d = bgmAudio.duration || 0;
     const remain = d > 0 ? d - bgmAudio.currentTime : -1;
-    if (remain >= 0 && remain <= 4) {
+    /* 最后一首不提示下一首（播放完即结束，% 回绕到第一首是误导）——维持显示当前曲名 */
+    if (remain >= 0 && remain <= 4 && bgmIndex < BGM_TRACKS.length - 1) {
       const n = BGM_TRACKS[(bgmIndex + 1) % BGM_TRACKS.length];
       bgmNameEl.textContent = '即将播放：' + n.name;
       bgmBar.classList.add('next');
@@ -514,7 +526,7 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
     bgmAudio.src = t.src;
     bgmNameEl.textContent = t.name;         // 播放中始终显示当前曲名
     bgmBar.classList.remove('next');
-    bgmProg.style.width = '0%'; bgmTimeEl.textContent = '0:00 / 0:00';
+    bgmProg.style.transform = 'scaleX(0)'; bgmTimeEl.textContent = '0:00 / 0:00';
     bgmAudio.load();
     if (!IS_RECORD && autoplay) bgmAudio.play().catch(() => {}).then(() => setPlay(true));
   };
@@ -523,14 +535,27 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
     bgmPlayBtn.hidden = true;
     bgmMuteBtn.hidden = true;
     let fakeT = 0;
+    /* 墙钟定位当前真实曲目（idx=曲序, remain=剩余秒）：假定时器切曲与真实位置脱节（headless audio.duration 不可靠，兜底 180s），
+       下一首提示 / 最后一首判断必须按墙钟 + 后端注入时长，否则末曲可能误提示「即将播放」 */
+    const recTrackInfo = () => {
+      const durs = BGM_TRACK_DURS;
+      if (!durs || !durs.length) return null;
+      const total = durs.reduce((a, b) => a + b, 0);
+      if (!(total > 0)) return null;
+      const pos = ((performance.now() - recordStartTs) / 1000) % total;
+      let acc = 0;
+      for (let i = 0; i < durs.length; i++) { acc += durs[i]; if (pos < acc) return { idx: i, remain: acc - pos }; }
+      return { idx: durs.length - 1, remain: 0 };
+    };
     setInterval(() => {
       const d = bgmAudio.duration || 180;
       fakeT += 0.1;
       if (fakeT >= d) { fakeT = 0; bgmIndex = (bgmIndex + 1) % BGM_TRACKS.length; loadTrack(false); }
-      bgmProg.style.width = (fakeT / d * 100) + '%';
+      bgmProg.style.transform = 'scaleX(' + (fakeT / d) + ')';
       bgmTimeEl.textContent = fmtT(fakeT) + ' / ' + fmtT(d);
-      if (d - fakeT < 4) { bgmNameEl.textContent = '即将播放：' + BGM_TRACKS[(bgmIndex + 1) % BGM_TRACKS.length].name; bgmBar.classList.add('next'); }
-      else bgmBar.classList.remove('next');
+      const ti = recTrackInfo();
+      if (ti && ti.remain <= 4 && ti.idx < BGM_TRACKS.length - 1) { bgmNameEl.textContent = '即将播放：' + BGM_TRACKS[ti.idx + 1].name; bgmBar.classList.add('next'); }
+      else { bgmNameEl.textContent = (ti ? BGM_TRACKS[ti.idx].name : BGM_TRACKS[bgmIndex].name); bgmBar.classList.remove('next'); }
     }, 100);
     loadTrack(false);
     /* 当前曲目剩余秒数（墙钟 + 后端注入时长，headless 下 audio.duration 不可靠）：录制模式导览结束时等它放完再结束 */
@@ -605,6 +630,7 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
 /* ========== 暗房闪回开场（封面乱序缓缓浮现） ========== */
 const N = SLIDES.length;
 const PER_SCREEN = Math.max(1, Math.min(10, _fnum("__PER_SCREEN__", 1) | 0));   /* 每屏同时展示 N 部（1-10）；1 → 单部一屏 */
+const DETAIL_SHOW = __DETAIL_SHOW__;   /* 详情显示内容开关（状态/备注/标签），后端注入，缺省全开 */
 const pad = n => String(n).padStart(2, '0');
 const darkroom = document.getElementById('darkroom');
 const devCount = document.getElementById('devCount');
@@ -659,7 +685,7 @@ const pols = OPENING.map((s, i) => {
   p.style.setProperty('--c2', '#0d0a18');
   const sp = OPENING_SPOTS[i];
   p.style.transform = `translate(calc(-50% + ${sp.x}vw), calc(-50% + ${sp.y}vh)) scale(${sp.s.toFixed(3)}) rotate(${sp.r}deg)`;
-  p.innerHTML = `<div class="cover"><img src="${s.cover}" alt="" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display='none'"></div>`;
+  p.innerHTML = `<div class="cover"><img loading="lazy" src="${s.cover}" alt="" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display='none'"></div>`;
   p.style.opacity = '0';
   darkroom.appendChild(p);
   return p;
@@ -737,7 +763,8 @@ function buildEnding() {
   const e = document.createElement('section');
   e.className = 'ending'; e.id = 'item-' + items.length;
   const heading = `<div class="en-kicker">THE END</div>
-    <h2>${ENDING_TITLE || '这一季的 ' + N + ' 部'}</h2>`;
+    <h2>${ENDING_TITLE || '这一季的 ' + N + ' 部'}</h2>
+    <p class="en-text">${ENDING_TEXT || '谢谢观看 · 期待下季'}</p>`;
   if (hasGroup) {
     /* 分组回顾：所有组全排 + 连续自动滚动（录制无需点击；滚到底停留 ENDING_SEC 后结束，速度 END_SPEED） */
     const gmap = new Map(), groups = [];
@@ -750,12 +777,12 @@ function buildEnding() {
         ${groups.map(g => `
         <div class="en-group">
           <div class="en-group-name">${g.name} · ${g.list.length} 部</div>
-          <div class="en-group-covers">${g.list.map(s => `<img src="${s.cover}" alt="" onerror="this.style.display='none'">`).join('')}</div>
+          <div class="en-group-covers">${g.list.map(s => `<img loading="lazy" src="${s.cover}" alt="" onerror="this.style.display='none'">`).join('')}</div>
         </div>`).join('')}
       </div></div>`;
     e.querySelectorAll('.en-group-covers').forEach(el => autoScroll(el, 1));
   } else {
-    e.innerHTML = `${heading}<div class="en-wall">${SLIDES.map((s, i) => `<img src="${s.cover}" alt="" style="--i:${i % 12}" onerror="this.style.display='none'">`).join('')}</div>`;
+    e.innerHTML = `${heading}<div class="en-wall">${SLIDES.map((s, i) => `<img loading="lazy" src="${s.cover}" alt="" style="--i:${i % 12}" onerror="this.style.display='none'">`).join('')}</div>`;
   }
   story.appendChild(e);
   return e;
@@ -766,12 +793,13 @@ function buildStory(s, idx, g, j, total) {
   sc.className = 'story-card'; sc.id = 'item-' + items.length;
   if (g) sc.style.setProperty('--cg', glowOf(g.gi));
   const badge = g ? `<span class="group-badge"><span class="p">${g.name}</span> · 第 ${j + 1}/${total} 部</span>` : '';
+  const flagBadge = DETAIL_SHOW.status && s.flag ? `<span class="flag">${s.flag}</span>` : '';
   sc.innerHTML = `${badge}
     <span class="sc-no">${pad(idx + 1)}</span>
-    <div class="sc-poster"><img src="${s.cover}" alt="${s.title}" onerror="this.style.display='none'"></div>
+    <div class="sc-poster">${flagBadge}<img loading="lazy" src="${s.cover}" alt="${s.title}" onerror="this.style.display='none'"></div>
     <div class="sc-info"><span class="kicker">PICK NO.${pad(idx + 1)}</span>
-      <h2>${s.title}</h2><p class="note">${s.note || ''}</p>
-      <div class="tags">${(s.tags || []).map(chip).join('')}</div></div>`;
+      <h2>${s.title}</h2>${DETAIL_SHOW.note ? `<p class="note">${s.note || ''}</p>` : ''}
+      ${DETAIL_SHOW.tag ? `<div class="tags">${(s.tags || []).map(chip).join('')}</div>` : ''}</div>`;
   story.appendChild(sc);
   return sc;
 }
@@ -796,13 +824,14 @@ function buildGridScreen(chunk, g, gi, globalFrom, groupFrom, total) {
       ${chunk.map(s => `
       <div class="gs-card">
         <div class="gs-cover">
-          <img class="gs-blur" src="${s.cover}" alt="" aria-hidden="true" onerror="this.style.display='none'">
-          <img class="gs-poster" src="${s.cover}" alt="${s.title}" onerror="this.style.display='none'">
+          ${DETAIL_SHOW.status && s.flag ? `<span class="flag">${s.flag}</span>` : ''}
+          <img loading="lazy" class="gs-blur" src="${s.cover}" alt="" aria-hidden="true" onerror="this.style.display='none'">
+          <img loading="lazy" class="gs-poster" src="${s.cover}" alt="${s.title}" onerror="this.style.display='none'">
         </div>
         <div class="gs-info">
           <div class="gs-title">${s.title}</div>
-          ${s.note ? `<div class="gs-note">${s.note}</div>` : ''}
-          ${(s.tags || []).length ? `<div class="gs-tags">${s.tags.map(chip).join('')}</div>` : ''}
+          ${DETAIL_SHOW.note && s.note ? `<div class="gs-note">${s.note}</div>` : ''}
+          ${DETAIL_SHOW.tag && (s.tags || []).length ? `<div class="gs-tags">${s.tags.map(chip).join('')}</div>` : ''}
         </div>
       </div>`).join('')}
     </div>`;
@@ -841,7 +870,7 @@ if (hasGroup) {
     ch.innerHTML = `<div class="ch-no">CHAPTER ${pad(g.gi + 1)}</div>
       <h2>${g.name}</h2>
       <p class="ch-sub">共 <b>${g.list.length}</b> 部</p>
-      <div class="ch-thumbs">${g.list.map(s => `<img src="${s.cover}" onerror="this.style.display='none'">`).join('')}</div>`;
+      <div class="ch-thumbs">${g.list.map(s => `<img loading="lazy" src="${s.cover}" onerror="this.style.display='none'">`).join('')}</div>`;
     story.appendChild(ch);
     items.push({ el: ch, type: 'chapter', hold: GROUP_SEC * 1000, group: g.name, gi: g.gi, total: g.list.length });
     autoScroll(ch.querySelector('.ch-thumbs'), 1.2);
@@ -951,7 +980,7 @@ items.forEach(it => {
 
 function updateTrackbar(it) {
   if (it.type === 'prologue') { tbLabel.innerHTML = '<b class="cur">序言</b> · 主题概览'; return; }
-  if (it.type === 'ending') { tbLabel.innerHTML = `谢谢观看 · 这一季 <b class="cur">${it.total}</b> 部`; return; }
+  if (it.type === 'ending') { tbLabel.innerHTML = '<b class="cur">结尾</b>'; return; }
   if (it.type === 'chapter') {
     tbLabel.innerHTML = `<b class="cur">${it.group}</b> · 章节页`;
   } else if (it.group) {
@@ -1032,7 +1061,9 @@ function smoothScrollTo(el, done) {
 function goto(i) {
   if (autoplaying) resetProg();
   const it = items[i];
-  prog.style.animationDuration = (it.hold / 1000) + 's';
+  /* 结尾 hold 是 3600s 哨兵（实际收尾由 startEnding/finishAuto 控制）——进度条按真实结尾时长 ENDING_SEC 填充，
+     否则 fill 3600s 内几乎不动，看着像没进度条 */
+  prog.style.animationDuration = (it.type === 'ending' ? ENDING_SEC + 1 : it.hold / 1000) + 's';
   if (it.type === 'ending') {
     // 结尾：平滑滚动看到跳转过程 → 完成后启动收尾（落定后先停 1s 看清开头再轮播）
     smoothScrollTo(it.el, () => startEnding());
@@ -1080,6 +1111,8 @@ if (!IS_RECORD) {
   });
 }
 
+/* 录制模式：封面保底 eager 预载（headless 快速滚屏不空白；封面已内嵌 base64，全载开销可控） */
+if (IS_RECORD) document.querySelectorAll('img').forEach(i => { i.loading = 'eager'; });
 playDevelop();
 </script>
 </body>

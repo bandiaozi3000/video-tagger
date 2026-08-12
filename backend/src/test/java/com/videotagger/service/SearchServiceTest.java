@@ -1,5 +1,6 @@
 package com.videotagger.service;
 
+import com.videotagger.config.VectorProperties;
 import com.videotagger.entity.Clip;
 import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.ClipMapper;
@@ -29,7 +30,8 @@ class SearchServiceTest {
         episodeMapper = mock(EpisodeMapper.class);
         embeddingClient = mock(EmbeddingClient.class);
         vectorStore = new InMemoryVectorStore();
-        searchService = new SearchService(clipMapper, mediaMapper, episodeMapper, embeddingClient, vectorStore);
+        searchService = new SearchService(clipMapper, mediaMapper, episodeMapper, embeddingClient, vectorStore,
+                new VectorProperties());
     }
 
     private Clip clip(long id, String tag) {
@@ -86,6 +88,23 @@ class SearchServiceTest {
 
         assertFalse(resp.semanticEnabled());
         assertEquals(1, resp.results().size());
+    }
+
+    @Test
+    void vectorDisabledSkipsEmbeddingEvenIfConfigured() {
+        // 向量功能全局关闭：即便 Embedding API 已配置，也不生成查询向量，纯关键词搜索
+        when(clipMapper.fullTextSearch(eq("战斗"), anyInt())).thenReturn(List.of(clip(1L, "战斗A")));
+        when(clipMapper.selectBatchIds(anyCollection())).thenReturn(List.of(clip(1L, "战斗A")));
+        when(embeddingClient.isConfigured()).thenReturn(true);
+        VectorProperties vp = new VectorProperties();
+        vp.setEnabled(false);
+        SearchService disabled = new SearchService(clipMapper, mediaMapper, episodeMapper, embeddingClient, vectorStore, vp);
+
+        SearchResponse resp = disabled.search("战斗", 10, 0, "clip", null, null, null, null, null);
+
+        assertFalse(resp.semanticEnabled());
+        assertEquals(1, resp.results().size());
+        verify(embeddingClient, never()).embed(anyString());
     }
 
     @Test

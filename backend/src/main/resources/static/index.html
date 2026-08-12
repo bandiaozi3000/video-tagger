@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Tagger · 二次元打标库</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="app.css?v=20260812l">
+    <link rel="stylesheet" href="app.css?v=20260812r">
 </head>
 <body>
 <!-- 网站背景图层（设置里上传，多图轮播；z-index 在 bg-fx 之下） -->
@@ -258,7 +258,7 @@
                 <input type="checkbox" id="search-group" checked> 按媒体聚合
             </label>
         </div>
-        <div id="semantic-hint" class="semantic-hint" hidden>语义搜索未启用（未配置 Embedding API），当前为关键词搜索</div>
+        <div id="semantic-hint" class="semantic-hint" hidden>语义搜索未启用，当前为关键词搜索（开启向量功能并配置 Embedding API 后启用）</div>
         <div id="status" class="status"></div>
         <section id="results" class="results"></section>
         <div class="media-pagination" id="search-pagination">
@@ -502,8 +502,7 @@
                 </label>
                 <p class="wizard-hint">显示在推荐页主标题下方；留空则不显示。</p>
                 <label class="recommend-theme-field">简介（可选）
-                    <textarea id="recommend-intro" rows="3" maxlength="120"
-                              placeholder="对这一季推荐做一段概括，将显示在开局后的序言页…" autocomplete="off"></textarea>
+                    <textarea id="recommend-intro" rows="3" placeholder="对这一季推荐做一段概括，将显示在开局后的序言页…" autocomplete="off"></textarea>
                 </label>
                 <p class="wizard-hint">对视频主题做概括，出现在开局闪回后的序言页；留空则不显示序言。</p>
                 <label class="recommend-theme-field">序言标题（可选）
@@ -1124,6 +1123,15 @@
                 </div>
             </div>
             <div class="config-group collapsed">
+                <div class="config-group-title">详情显示内容</div>
+                <div class="config-grid">
+                    <label class="config-item detail-toggle"><input type="checkbox" id="recommend-detail-status" checked><span class="config-item-name">状态</span></label>
+                    <label class="config-item detail-toggle"><input type="checkbox" id="recommend-detail-note" checked><span class="config-item-name">备注</span></label>
+                    <label class="config-item detail-toggle"><input type="checkbox" id="recommend-detail-tag" checked><span class="config-item-name">标签</span></label>
+                </div>
+                <div class="config-hint">每部详情与多部网格卡显示哪些内容：状态 = 封面角标（想看/在看/看完等），默认全部显示</div>
+            </div>
+            <div class="config-group collapsed">
                 <div class="config-group-title">背景</div>
                 <div class="config-bg-type">
                     <span class="config-item-name">背景类型</span>
@@ -1203,6 +1211,6 @@
     </div>
 </div>
 <button type="button" id="back-nav" title="去底部" aria-label="去底部">↓</button>
-<script src="app.js?v=20260812l"></script>
+<script src="app.js?v=20260812r"></script>
 </body>
 </html>

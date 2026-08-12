@@ -109,9 +109,14 @@ let exitCode = 0;
     const base = path.join(tmpDir, 'f');
     let frameCount = 0;
     let firstTs = null, lastTs = null;
+    let pageNowFirst = null;   // 首帧时刻的页面 performance.now()（音画对齐用）
     cdp.on('Page.screencastFrame', async ({ data, sessionId, metadata }) => {
       try {
-        if (firstTs === null) firstTs = metadata.timestamp;
+        if (firstTs === null) {
+          firstTs = metadata.timestamp;
+          // 记录首帧的页面时钟：音频延迟 = recordStartMs - 该值（页面加载→首帧偏移），用于音画对齐
+          page.evaluate(() => performance.now()).then(v => { if (pageNowFirst === null) pageNowFirst = v; }).catch(() => {});
+        }
         lastTs = metadata.timestamp;
         fs.writeFileSync(base + '-' + String(frameCount).padStart(5, '0') + '.jpg',
           Buffer.from(data, 'base64'));
@@ -161,6 +166,16 @@ let exitCode = 0;
     await cdp.send('Page.stopScreencast');
     await new Promise(r => setTimeout(r, 200));
 
+    // 音画对齐：音频延迟 = 音乐起点(recordStartMs) − 首帧页面时钟。音乐早于画面（页面加载→首帧偏移）则延迟音频，
+    // 让音乐从正文起点开始、与进度条同步；模板 __bgmRemainSec 同以 recordStartTs 为基准，结尾「播完再收尾」保持对齐。
+    let audioDelayMs = 0;
+    try {
+      const musicStartMs = await page.evaluate(() => Number(document.documentElement.dataset.recordStartMs || '0')).catch(() => 0);
+      if (pageNowFirst !== null && musicStartMs > pageNowFirst) {
+        audioDelayMs = Math.round(musicStartMs - pageNowFirst);
+      }
+    } catch (e) { /* 对齐失败则沿用现行为 */ }
+
     if (frameCount < 2) {
       throw new Error('有效帧不足: ' + frameCount);
     }
@@ -187,6 +202,8 @@ let exitCode = 0;
     }
     ffmpegArgs.push('-vf', vf, ...encodeArgs(format, outPath));
     if (bgmPath) {
+      // 音画对齐：音乐延迟到正文起点。先归一化立体声再双声道 adelay（旧 ffmpeg 无 :all=1 选项；单/多声道均兼容）
+      if (audioDelayMs > 0) ffmpegArgs.push('-af', 'aformat=channel_layouts=stereo,adelay=' + audioDelayMs + '|' + audioDelayMs);
       ffmpegArgs.push('-c:a', format === 'webm' ? 'libopus' : 'aac', '-shortest');
     }
     ffmpegArgs.push('-threads', '0', outPath);

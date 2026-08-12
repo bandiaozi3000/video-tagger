@@ -280,7 +280,7 @@ class RecommendServiceTest {
         // 自定义角标注入（完整签名，groupStyle=chapter）
         String custom = service.buildHtml(List.of(1L), "标题", null, null, null, null, "chapter",
                 null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
-                100, 1, 8, "我的补番推荐", 1);
+                100, 1, 8, "我的补番推荐", 1, null, null);
         assertTrue(custom.contains("<span class=\"logo\">✦</span><span>我的补番推荐</span>"));
 
         // 结尾落定后先停 1s 再轮播（chapter 模板 startEnding 同口径）
@@ -296,15 +296,15 @@ class RecommendServiceTest {
         // 每屏 N 部注入（chapter 模板才有 __PER_SCREEN__ 占位符）：默认空 → 1；自定义 4 → 4；越界 99 → clamp 10
         String def = service.buildHtml(List.of(1L), "标题", null, null, null, null, "chapter",
                 null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
-                100, 1, 8, null, null);
+                100, 1, 8, null, null, null, null);
         assertTrue(def.contains("_fnum(\"1\", 1)"));
         String custom = service.buildHtml(List.of(1L), "标题", null, null, null, null, "chapter",
                 null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
-                100, 1, 8, null, 4);
+                100, 1, 8, null, 4, null, null);
         assertTrue(custom.contains("_fnum(\"4\", 1)"));
         String clamped = service.buildHtml(List.of(1L), "标题", null, null, null, null, "chapter",
                 null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
-                100, 1, 8, null, 99);
+                100, 1, 8, null, 99, null, null);
         assertTrue(clamped.contains("_fnum(\"10\", 1)"));
     }
 

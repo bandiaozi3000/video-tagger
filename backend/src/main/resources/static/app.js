@@ -1936,13 +1936,14 @@ function renderGroupedPage(container, pageGroups, opts) {
 }
 
 /** 分组年份跳转：pageIndex 目标页 0 基。不在当前页 → renderToPage(pageIndex+1, year) 由调用方切页并滚动；在当前页 → 页内直接滚动。
- *  组 section 前缀收藏夹为 grp-、推荐为 rgrp-，用 data-year 选择器规避前缀差异（原硬编码 grp- 导致推荐同页跳转失效）。 */
-function gotoGroupYear(year, pageIndex, currentPage, renderToPage) {
+ *  组 section 前缀收藏夹为 grp-、推荐为 rgrp-，用 data-year 选择器规避前缀差异（原硬编码 grp- 导致推荐同页跳转失效）。
+ *  同页跳转必须限定在 scopeEl（当前视图容器）内——document.querySelector 会先命中 DOM 靠前的隐藏收藏夹视图同名组（scrollIntoView 对 display:none 无效，跳转失效）。 */
+function gotoGroupYear(year, pageIndex, currentPage, renderToPage, scopeEl) {
     if (pageIndex === undefined) return;
     if (pageIndex !== currentPage - 1) {
         renderToPage(pageIndex + 1, year);
     } else {
-        document.querySelector('.coll-group[data-year="' + year + '"]')
+        (scopeEl || document).querySelector('.coll-group[data-year="' + year + '"]')
             ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 }
@@ -1968,7 +1969,7 @@ function renderCollGroupPage(onDone) {
         onNavYear: (year) => gotoGroupYear(year, collGroupNav[year], collGroupPage, (pg, y) => {
             collGroupPage = pg;
             renderCollGroupPage(() => document.getElementById('grp-' + y)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-        }),
+        }, collMediaGridEl),
         itemRenderer: (group, wrap) => renderMediaGrid(group, wrap, 'collection'),
     });
     renderCollGroupPagination();
@@ -2589,7 +2590,7 @@ function renderRecommendGroupPage(onDone) {
         onNavYear: (year) => gotoGroupYear(year, recommendGroupNav[year], recommendGroupPage, (pg, y) => {
             recommendGroupPage = pg;
             renderRecommendGroupPage(() => document.getElementById('rgrp-' + y)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-        }),
+        }, recommendGridEl),
         itemRenderer: (group, wrap) => renderRecommendGrid(group, wrap),
         groupActions: {
             selectAll: (g) => applyGroupSelect(g, true),
@@ -3095,6 +3096,17 @@ function recommendPerScreen() {
     return Math.max(1, Math.min(10, Number(document.getElementById('recommend-per-screen').value) || 1));
 }
 
+/** 详情显示内容开关（状态/备注/标签）：预览弹窗勾选 → {detailShow:{...}}。 */
+function recommendDetailShow() {
+    return {
+        detailShow: {
+            status: document.getElementById('recommend-detail-status').checked,
+            note: document.getElementById('recommend-detail-note').checked,
+            tag: document.getElementById('recommend-detail-tag').checked,
+        }
+    };
+}
+
 /** 步骤3「每屏同时展示」滑块 → 值标签同步。 */
 function syncRecommendPerScreenVal() {
     const el = document.getElementById('recommend-per-screen');
@@ -3338,19 +3350,19 @@ function initRecommendBgm() {
         }));
     };
     fileInput.addEventListener('change', () => {
-        const files = [...(fileInput.files || [])].filter(f => f.size <= 20 * 1024 * 1024);
-        if (files.length === 0) { showToast('未添加 BGM（单首需 ≤20MB）'); fileInput.value = ''; return; }
+        const files = [...(fileInput.files || [])].filter(f => f.size <= 50 * 1024 * 1024);
+        if (files.length === 0) { showToast('未添加 BGM（单首需 ≤50MB）'); fileInput.value = ''; return; }
         Promise.all(files.map(f => new Promise(res => {
             const r = new FileReader();
             r.onload = () => res({ name: f.name, base64: String(r.result).split(',')[1] || '' });
             r.readAsDataURL(f);
         }))).then(tracks => {
-            /* BGM 总 base64 ≤60MB（后端 Jackson 上限已调大到 100MB 兜底；60MB 防超大 body 拖垮预览/导出） */
+            /* BGM 总 base64 ≤100MB（后端 Jackson 单字符串上限 200MB、文档上限 200MB 兜底；单首 50MB 文件 base64 ~67MB） */
             const cur = recommendBgmList.reduce((s, t) => s + (t.base64?.length || 0), 0);
             const add = tracks.reduce((s, t) => s + (t.base64?.length || 0), 0);
-            const MAX_BGM_B64 = 60 * 1024 * 1024;
+            const MAX_BGM_B64 = 100 * 1024 * 1024;
             if (cur + add > MAX_BGM_B64) {
-                showToast(`BGM 总量超过 60MB（当前 ${(cur / 1048576).toFixed(1)}MB + 新增 ${(add / 1048576).toFixed(1)}MB），请减少曲目`);
+                showToast(`BGM 总量超过 100MB（当前 ${(cur / 1048576).toFixed(1)}MB + 新增 ${(add / 1048576).toFixed(1)}MB），请减少曲目`);
                 return;
             }
             recommendBgmList.push(...tracks);
@@ -3374,6 +3386,13 @@ function initRecommendBgm() {
     bindPreviewSlider('recommend-per-screen', 'recommend-per-screen-val', n => n + ' 部');
     document.getElementById('preview-group-sort').addEventListener('change', () => {
         if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+    });
+    /* 详情显示内容开关：改值 → 重新生成预览 + 存草稿 */
+    ['recommend-detail-status', 'recommend-detail-note', 'recommend-detail-tag'].forEach(id => {
+        document.getElementById(id).addEventListener('change', () => {
+            if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+            markRecommendDirty();
+        });
     });
     render();
 }
@@ -3400,6 +3419,7 @@ function collectRecommendConfig() {
         ...recommendEnding(),
         bgType: document.getElementById('recommend-bg-type').value,
         ...recommendBg(), ...recommendBgmStyle(),
+        ...recommendDetailShow(),
         ...durs,
         openingIds: currentOpeningIds(),   // 开局封面（开场代表秀）：当前开场子集
         openingCustom: document.getElementById('recommend-opening-toggle').checked
@@ -3468,6 +3488,12 @@ function applyRecommendConfig(cfg) {
     setCfgVal('preview-cover-size', cfg.coverSize);
     setCfgVal('preview-opening-speed', cfg.openingSpeed);
     setCfgVal('preview-ending-speed', cfg.endingScrollSpeed);
+    /* 详情显示内容开关：缺省未存 → 全开 */
+    const ds = cfg.detailShow || {};
+    [['recommend-detail-status', 'status'], ['recommend-detail-note', 'note'], ['recommend-detail-tag', 'tag']].forEach(([id, key]) => {
+        const el = document.getElementById(id);
+        if (el) el.checked = ds[key] !== false;
+    });
     setCfgVal('recommend-dur-opening', cfg.openingSec);
     setCfgVal('recommend-dur-intro', cfg.introSec);
     setCfgVal('recommend-dur-group', cfg.groupSec);
@@ -3684,7 +3710,7 @@ async function generateRecommendPreview() {
         const resp = await fetch('/api/recommend/html', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDurations(), ...recommendBgmBody() }),
+            body: JSON.stringify({ ids, title, coverMode: 'url', brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDetailShow(), ...recommendDurations(), ...recommendBgmBody() }),
         });
         if (!resp.ok) throw new Error(`生成失败 (${resp.status})`);
         const html = await resp.text();
@@ -3715,7 +3741,7 @@ async function downloadRecommendHtml() {
         const resp = await fetch('/api/recommend/html', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDurations(), ...recommendBgmBody() }),
+            body: JSON.stringify({ ids, title, brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDetailShow(), ...recommendDurations(), ...recommendBgmBody() }),
         });
         if (!resp.ok) throw new Error(`生成失败 (${resp.status})`);
         const blob = await resp.blob();
@@ -3729,7 +3755,6 @@ async function downloadRecommendHtml() {
 
 /** 打开视频导出弹窗：预填标题/计数，重置保存位置选择。 */
 function openVideoExport() {
-    if (recommendSelected.size > 30) { showToast('视频导出最多 30 部，请先精简勾选'); return; }
     document.getElementById('video-count').textContent = recommendSelected.size;
     const title = recommendTitle();
     document.getElementById('video-filename').value = title === '我的番剧推荐'
@@ -3772,7 +3797,6 @@ async function pickVideoDst() {
 async function exportRecommendVideo() {
     const ids = [...recommendSelected];
     if (ids.length === 0) { showToast('请先勾选要推荐的媒体'); return; }
-    if (ids.length > 30) { showToast('视频导出最多 30 部，请先精简'); return; }
     const title = recommendTitle();
     const format = document.getElementById('video-format').value;
     const resolution = document.getElementById('video-resolution').value;
@@ -3780,7 +3804,7 @@ async function exportRecommendVideo() {
         const resp = await fetch('/api/recommend/video', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, format, resolution, brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDurations(), ...recommendBgmBody() }),
+            body: JSON.stringify({ ids, title, format, resolution, brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDetailShow(), ...recommendDurations(), ...recommendBgmBody() }),
         });
         if (!resp.ok) {
             let msg = `创建导出任务失败 (${resp.status})`;

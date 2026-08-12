@@ -3,6 +3,7 @@ package com.videotagger.service;
 import com.videotagger.entity.Media;
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.Episode;
+import com.videotagger.config.VectorProperties;
 import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.EpisodeMapper;
@@ -39,14 +40,17 @@ public class SearchService {
     private final EpisodeMapper episodeMapper;
     private final EmbeddingClient embeddingClient;
     private final VectorStore vectorStore;
+    private final VectorProperties vectorProps;
 
     public SearchService(ClipMapper clipMapper, MediaMapper mediaMapper, EpisodeMapper episodeMapper,
-                         EmbeddingClient embeddingClient, VectorStore vectorStore) {
+                         EmbeddingClient embeddingClient, VectorStore vectorStore,
+                         VectorProperties vectorProps) {
         this.clipMapper = clipMapper;
         this.mediaMapper = mediaMapper;
         this.episodeMapper = episodeMapper;
         this.embeddingClient = embeddingClient;
         this.vectorStore = vectorStore;
+        this.vectorProps = vectorProps;
     }
 
     /**
@@ -109,7 +113,7 @@ public class SearchService {
         // 查询向量只生成一次，各维度复用；失败则本次搜索降级纯关键词
         float[] queryVector = null;
         boolean semantic = false;
-        if (embeddingClient.isConfigured()) {
+        if (vectorProps.isEnabled() && embeddingClient.isConfigured()) {
             try {
                 queryVector = embeddingClient.embed(query);
                 semantic = true;
@@ -220,7 +224,7 @@ public class SearchService {
                 : clipMapper.findSimilarByTag(id, tokens, Math.max(limit * 3, 30));
 
         List<Long> vectorIds = List.of();
-        if (embeddingClient.isConfigured() && !target.getTag().isBlank()) {
+        if (vectorProps.isEnabled() && embeddingClient.isConfigured() && !target.getTag().isBlank()) {
             try {
                 // 用目标片段的文本重新嵌入作为查询向量（同文本≈已存向量），ANN 后排除自身
                 String text = target.getTag() + (target.getNote() == null || target.getNote().isBlank()

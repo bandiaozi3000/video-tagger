@@ -1751,6 +1751,13 @@ input[type="checkbox"] { accent-color: var(--pink); width: 15px; height: 15px; c
     background: rgba(255, 255, 255, .05); border: 1px solid var(--border-strong); color: var(--text);
     border-radius: 8px; padding: 6px 10px; font-size: 12px; font-family: inherit; outline: none; cursor: pointer;
 }
+/* 详情显示内容开关：checkbox 横排小卡（状态/备注/标签） */
+.config-item.detail-toggle {
+    flex-direction: row; align-items: center; gap: 8px;
+    cursor: pointer; justify-content: flex-start;
+}
+.config-item.detail-toggle .config-item-name { font-size: 12.5px; color: var(--text); }
+.config-item.detail-toggle input[type="checkbox"] { accent-color: var(--pink); width: 14px; height: 14px; }
 .config-bg-type { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .config-bg-type select { flex: 1; }
 .config-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }

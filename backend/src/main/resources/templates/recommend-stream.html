@@ -105,7 +105,7 @@
     background:linear-gradient(115deg,#fff 10%,var(--sky) 55%,#9fd4ff 90%);
     -webkit-background-clip:text;background-clip:text;color:transparent;
     filter:drop-shadow(0 4px 26px rgba(79,195,247,.4));}
-  .prologue .pl-text{position:relative;max-width:62ch;margin-top:28px;font-size:16px;line-height:2.1;color:var(--muted);}
+  .prologue .pl-text{position:relative;max-width:62ch;margin-top:28px;font-size:16px;line-height:2.1;color:var(--muted);white-space:pre-line;}
   .prologue .pl-cta{position:relative;margin-top:44px;font-size:12px;letter-spacing:6px;color:var(--gold);
     animation:blink 2s ease-in-out infinite;}
   /* --- 结尾回顾墙 --- */
@@ -202,7 +202,7 @@
     font-size:11px;letter-spacing:1px;padding:4px 10px;border-radius:999px;
     color:#ffd9a6;background:rgba(255,143,77,.14);border:1px solid rgba(255,143,77,.35);
     backdrop-filter:blur(4px);}
-  .sc-info{z-index:1;padding:10px 2px}
+  .sc-info{z-index:1;padding:10px 2px;display:flex;flex-direction:column;align-items:center;text-align:center}
   .sc-info > *{opacity:0;transform:translateY(18px);transition:opacity .6s ease,transform .6s ease}
   .story-card.in-view .sc-info > *{opacity:1;transform:none}
   .story-card.in-view .sc-info > *:nth-child(1){transition-delay:.05s}
@@ -213,6 +213,7 @@
   .sc-info .kicker{display:inline-flex;align-items:center;gap:7px;font-size:12px;letter-spacing:2px;
     color:var(--sky);font-weight:600;margin-bottom:12px;}
   .sc-info .kicker::before{content:"";width:22px;height:1px;background:linear-gradient(90deg,var(--sky),transparent)}
+  .sc-info .kicker::after{content:"";width:22px;height:1px;background:linear-gradient(90deg,transparent,var(--sky))}
   .sc-info .cat{display:inline-block;font-size:12px;letter-spacing:1px;color:#0a0812;
     background:linear-gradient(120deg,var(--sky),var(--blue));padding:4px 12px;border-radius:999px;
     font-weight:700;margin-bottom:14px;box-shadow:0 4px 16px rgba(79,195,247,.4);}
@@ -221,7 +222,7 @@
     -webkit-background-clip:text;background-clip:text;color:transparent;
     filter:drop-shadow(0 2px 12px rgba(79,195,247,.5));margin-bottom:14px;}
   .sc-info .note{font-size:14.5px;line-height:1.9;color:var(--muted);margin-bottom:18px;max-width:56ch;}
-  .sc-info .tags{display:flex;flex-wrap:wrap;gap:9px}
+  .sc-info .tags{display:flex;flex-wrap:wrap;gap:9px;justify-content:center}
   .chip{font-size:12.5px;letter-spacing:.5px;padding:5px 12px;border-radius:999px;
     border:1px solid var(--line);display:inline-flex;align-items:center;gap:6px;font-weight:600;}
   .chip b{font-weight:800;font-size:11px}
@@ -242,10 +243,13 @@
   .trackbar .cur{color:var(--pink)}
   .tb-progress{width:150px;height:3px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.09);opacity:0;transition:opacity .3s;}
   .trackbar.auto .tb-progress{opacity:1}
-  .tb-progress i{display:block;height:100%;width:0;border-radius:999px;
+  .tb-progress i{display:block;height:100%;transform:scaleX(0);transform-origin:left;border-radius:999px;
     background:linear-gradient(90deg,var(--sky),var(--blue),var(--pink));box-shadow:0 0 12px rgba(79,195,247,.8);}
   .tb-progress i.run{animation:tbprog 6s linear forwards}
-  @keyframes tbprog{from{width:0}to{width:100%}}
+  /* scaleX 动画走合成器线程，主线程被封面解码占用时进度条也不掉帧 */
+  @keyframes tbprog{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+  /* 屏外整屏 section 跳过渲染（大文档性能）：content-visibility 屏外块不 layout/paint，滚动按需渲染 */
+  .story-card,.grid-screen,.chapter,.ending,.prologue{content-visibility:auto;contain-intrinsic-size:auto 100vh;}
 
   /* BGM 胶囊 */
   .bgm-bar{position:fixed;left:14px;bottom:8%;z-index:50;display:flex;align-items:center;gap:9px;
@@ -261,7 +265,7 @@
   .bgm-name{font-size:12.5px;color:var(--ink);letter-spacing:.5px;flex:0 1 auto;min-width:0;max-width:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .bgm-bar.next .bgm-name{color:var(--gold)}
   .bgm-progress{width:110px;height:3px;background:rgba(255,255,255,.09);border-radius:999px;overflow:hidden;cursor:pointer;flex:none}
-  .bgm-progress i{display:block;height:100%;width:0;border-radius:999px;
+  .bgm-progress i{display:block;height:100%;transform:scaleX(0);transform-origin:left;border-radius:999px;
     background:linear-gradient(90deg,var(--sky),var(--blue),var(--pink));box-shadow:0 0 12px rgba(79,195,247,.8);}
   .bgm-time{font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;flex:none;letter-spacing:.5px}
 
@@ -358,6 +362,7 @@ const DETAIL_SEC = Number("__DETAIL_SEC__") || 10;
 const ENDING_SEC = Number("__ENDING_SEC__") || 5;
 const OPEN_SPEED = Number("__OPENING_SPEED__") || 50;    /* 开场显影速度 0-100（50 = 当前） */
 const END_SPEED = Number("__ENDING_SPEED__") || 50;      /* 结尾滚动速度 0-100（50 = 当前） */
+const DETAIL_SHOW = __DETAIL_SHOW__;   /* 详情显示内容开关（状态/备注/标签），后端注入，缺省全开 */
 const SP_MULT = (120 - (OPEN_SPEED > 100 ? 50 : OPEN_SPEED)) / 70;   /* 速度→节奏倍数：50→1, 100→~0.29(快), 0→~1.71(慢) */
 
 /* 副题占位：注入为空 → 隐藏 */
@@ -377,7 +382,7 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
   bgmBar.hidden = false;
   const fmtT = s => { if (!isFinite(s) || s <= 0) return '0:00'; return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0'); };
   const setPlay = playing => { bgmPlayBtn.textContent = playing ? '❚❚' : '▶'; bgmPlayBtn.title = playing ? '暂停' : '播放'; };
-  const updateTime = () => { const d = bgmAudio.duration || 0; bgmProg.style.width = (d ? (bgmAudio.currentTime / d) * 100 : 0) + '%'; bgmTimeEl.textContent = fmtT(bgmAudio.currentTime) + ' / ' + fmtT(d); };
+  const updateTime = () => { const d = bgmAudio.duration || 0; bgmProg.style.transform = 'scaleX(' + (d ? (bgmAudio.currentTime / d) : 0) + ')'; bgmTimeEl.textContent = fmtT(bgmAudio.currentTime) + ' / ' + fmtT(d); };
   /* 快结束前 4s 提示下一首：timeupdate 实时检测（data URI 音频 duration 可能迟就绪，setTimeout 排不准） */
   const updateBgmHint = () => {
     const d = bgmAudio.duration || 0;
@@ -396,7 +401,7 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
     bgmAudio.src = t.src;
     bgmNameEl.textContent = t.name;         // 播放中始终显示当前曲名
     bgmBar.classList.remove('next');
-    bgmProg.style.width = '0%'; bgmTimeEl.textContent = '0:00 / 0:00';
+    bgmProg.style.transform = 'scaleX(0)'; bgmTimeEl.textContent = '0:00 / 0:00';
     bgmAudio.load();
     if (!IS_RECORD && autoplay) bgmAudio.play().catch(() => {}).then(() => setPlay(true));
   };
@@ -409,7 +414,7 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
       const d = bgmAudio.duration || 180;
       fakeT += 0.1;
       if (fakeT >= d) { fakeT = 0; bgmIndex = (bgmIndex + 1) % BGM_TRACKS.length; loadTrack(false); }
-      bgmProg.style.width = (fakeT / d * 100) + '%';
+      bgmProg.style.transform = 'scaleX(' + (fakeT / d) + ')';
       bgmTimeEl.textContent = fmtT(fakeT) + ' / ' + fmtT(d);
       if (d - fakeT < 4) { bgmNameEl.textContent = '即将播放：' + BGM_TRACKS[(bgmIndex + 1) % BGM_TRACKS.length].name; bgmBar.classList.add('next'); }
       else bgmBar.classList.remove('next');
@@ -529,7 +534,7 @@ const pols = OPENING.map((s, i) => {
   p.style.setProperty('--c2', '#0d0a18');
   const sp = OPENING_SPOTS[i];
   p.style.transform = `translate(calc(-50% + ${sp.x}vw), calc(-50% + ${sp.y}vh)) scale(${sp.s.toFixed(3)}) rotate(${sp.r}deg)`;
-  p.innerHTML = `<div class="cover"><img src="${s.cover}" alt="" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display='none'"></div>`;
+  p.innerHTML = `<div class="cover"><img loading="lazy" src="${s.cover}" alt="" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.style.display='none'"></div>`;
   p.style.opacity = '0';
   darkroom.appendChild(p);
   return p;
@@ -619,12 +624,12 @@ function buildEnding() {
         ${groups.map(g => `
         <div class="en-group">
           <div class="en-group-name">${g.name} · ${g.list.length} 部</div>
-          <div class="en-group-covers">${g.list.map(s => `<img src="${s.cover}" alt="" onerror="this.style.display='none'">`).join('')}</div>
+          <div class="en-group-covers">${g.list.map(s => `<img loading="lazy" src="${s.cover}" alt="" onerror="this.style.display='none'">`).join('')}</div>
         </div>`).join('')}
       </div></div>`;
     e.querySelectorAll('.en-group-covers').forEach(el => autoScroll(el, 1));
   } else {
-    e.innerHTML = `${heading}<div class="en-wall">${SLIDES.map((s, i) => `<img src="${s.cover}" alt="" style="--i:${i % 12}" onerror="this.style.display='none'">`).join('')}</div>`;
+    e.innerHTML = `${heading}<div class="en-wall">${SLIDES.map((s, i) => `<img loading="lazy" src="${s.cover}" alt="" style="--i:${i % 12}" onerror="this.style.display='none'">`).join('')}</div>`;
   }
   story.appendChild(e);
   return e;
@@ -635,12 +640,13 @@ function buildStory(s, idx, g, j, total) {
   sc.className = 'story-card'; sc.id = 'item-' + items.length;
   if (g) sc.style.setProperty('--cg', glowOf(g.gi));
   const badge = g ? `<span class="group-badge"><span class="p">${g.name}</span> · 第 ${j + 1}/${total} 部</span>` : '';
+  const flagBadge = DETAIL_SHOW.status && s.flag ? `<span class="flag">${s.flag}</span>` : '';
   sc.innerHTML = `${badge}
     <span class="sc-no">${pad(idx + 1)}</span>
-    <div class="sc-poster"><img src="${s.cover}" alt="${s.title}" onerror="this.style.display='none'"></div>
+    <div class="sc-poster">${flagBadge}<img loading="lazy" src="${s.cover}" alt="${s.title}" onerror="this.style.display='none'"></div>
     <div class="sc-info"><span class="kicker">PICK NO.${pad(idx + 1)}</span>
-      <h2>${s.title}</h2><p class="note">${s.note || ''}</p>
-      <div class="tags">${(s.tags || []).map(chip).join('')}</div></div>`;
+      <h2>${s.title}</h2>${DETAIL_SHOW.note ? `<p class="note">${s.note || ''}</p>` : ''}
+      ${DETAIL_SHOW.tag ? `<div class="tags">${(s.tags || []).map(chip).join('')}</div>` : ''}</div>`;
   story.appendChild(sc);
   return sc;
 }
@@ -664,7 +670,7 @@ if (hasGroup) {
         <h2 class="il-title">${g.name}</h2>
         <div class="il-sub">共 <b>${g.list.length}</b> 部</div>
         <span class="il-count">▶ 进入 ${g.name} 组</span></div>
-      <div class="il-wall">${g.list.map(s => `<img src="${s.cover}" onerror="this.style.display='none'">`).join('')}</div>`;
+      <div class="il-wall">${g.list.map(s => `<img loading="lazy" src="${s.cover}" onerror="this.style.display='none'">`).join('')}</div>`;
     story.appendChild(il);
     items.push({ el: il, type: 'interlude', hold: GROUP_SEC * 1000, group: g.name, gi: g.gi });
     autoScroll(il.querySelector('.il-wall'), 1.2);
@@ -787,6 +793,8 @@ if (!IS_RECORD) {
   });
 }
 
+/* 录制模式：封面保底 eager 预载（headless 快速滚屏不空白；封面已内嵌 base64，全载开销可控） */
+if (IS_RECORD) document.querySelectorAll('img').forEach(i => { i.loading = 'eager'; });
 playDevelop();
 </script>
 </body>

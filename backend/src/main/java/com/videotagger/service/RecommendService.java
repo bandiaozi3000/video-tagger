@@ -123,7 +123,7 @@ public class RecommendService {
                             String intro) {
         return buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro,
                 new Durations(10, 5, 5, 10, 5), null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
-                100, 1, 8, null, 1);
+                100, 1, 8, null, 1, "embed", null);
     }
 
     public String buildHtml(List<Long> ids, String title, List<BgmTrack> bgmTracks, String subtitle,
@@ -133,17 +133,19 @@ public class RecommendService {
                             String prologueTitle,
                             String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
                             Integer bgmScale,
-                            Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen) {
+                            Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen, String coverMode,
+                            Map<String, Boolean> detailShow) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
         String resolved = (title == null || title.isBlank()) ? DEFAULT_TITLE : title.trim();
         String template = readTemplate(groupStyle);
-        String slidesJson = buildSlidesJson(ids, groupBy, openingIds, groupSort);
+        String coverModeResolved = (coverMode == null || coverMode.isBlank()) ? "embed" : coverMode.trim();
+        String slidesJson = buildSlidesJson(ids, groupBy, openingIds, groupSort, coverModeResolved);
         String bgmTracksJson = buildBgmTracksJson(bgmTracks);
         String sub = (subtitle == null || subtitle.isBlank()) ? "" : esc(subtitle.trim());
         String size = normalizeCoverSize(coverSize);
-        String introText = (intro == null || intro.isBlank()) ? "" : esc(intro.trim());
+        String introText = (intro == null || intro.isBlank()) ? "" : jsText(intro.trim());
         String endTitle = (endingTitle == null || endingTitle.isBlank()) ? "" : esc(endingTitle.trim());
         String endText = (endingText == null || endingText.isBlank()) ? "" : esc(endingText.trim());
         String bgC = (bgColor == null || bgColor.isBlank()) ? "" : esc(bgColor.trim());
@@ -160,10 +162,12 @@ public class RecommendService {
         String brandT = (brandTitle == null || brandTitle.isBlank()) ? DEFAULT_TITLE : esc(brandTitle.trim());
         int perScreenN = perScreen == null ? 1 : Math.max(1, Math.min(10, perScreen));   // 每屏同时展示 N 部（1-10）
         Durations dur = normalizeDurations(durations);
+        String detailShowJson = buildDetailShowJson(detailShow);   // 详情显示内容开关（状态/备注/标签），缺省字段默认开
         return template
                 .replace("__TITLE__", esc(resolved))
                 .replace("__BRAND_TITLE__", brandT)
                 .replace("__PER_SCREEN__", String.valueOf(perScreenN))
+                .replace("__DETAIL_SHOW__", detailShowJson)
                 .replace("__SLIDES_JSON__", slidesJson)
                 .replace("__SUBTITLE__", sub)
                 .replace("__COVER_SIZE__", size)
@@ -197,6 +201,27 @@ public class RecommendService {
     /** 速度滑块归一化：0-100，空/越界 → 50（当前速度）。 */
     private static int clampSpeed(Integer v) {
         return v == null ? 50 : Math.max(0, Math.min(100, v));
+    }
+
+    /** 详情显示内容开关 → 注入模板 __DETAIL_SHOW__：{status,note,tag}，缺省/非法字段 → true（默认全开）。 */
+    private String buildDetailShowJson(Map<String, Boolean> detailShow) {
+        Map<String, Boolean> flags = new LinkedHashMap<>();
+        flags.put("status", true);
+        flags.put("note", true);
+        flags.put("tag", true);
+        if (detailShow != null) {
+            for (String key : List.of("status", "note", "tag")) {
+                Boolean v = detailShow.get(key);
+                if (v != null) {
+                    flags.put(key, v);
+                }
+            }
+        }
+        try {
+            return objectMapper.writeValueAsString(flags);
+        } catch (Exception e) {
+            return "{\"status\":true,\"note\":true,\"tag\":true}";
+        }
     }
 
     /** 背景图多选：base64 数组 → JSON（模板 __BG_IMAGES__ 轮换用）。 */
@@ -275,7 +300,8 @@ public class RecommendService {
         return "audio/mpeg";
     }
 
-    private String buildSlidesJson(List<Long> ids, String groupBy, List<Long> openingIds, String groupSort) {
+    private String buildSlidesJson(List<Long> ids, String groupBy, List<Long> openingIds, String groupSort,
+                                   String coverMode) {
         List<Map<String, Object>> slides = new ArrayList<>();
         for (Long id : ids) {
             MediaDetail d;
@@ -285,7 +311,7 @@ public class RecommendService {
                 log.warn("推荐跳过不存在的媒体 {}: {}", id, e.getMessage());
                 continue; // 残留勾选 → 跳过不报错
             }
-            slides.add(slideOf(d, groupBy, openingIds));
+            slides.add(slideOf(d, groupBy, openingIds, coverMode));
         }
         if (groupBy != null && !groupBy.isBlank() && !"none".equals(groupBy)) {
             slides = groupOrdered(slides, groupBy, groupSort);
@@ -316,9 +342,9 @@ public class RecommendService {
         return groups.size();
     }
 
-    private Map<String, Object> slideOf(MediaDetail d, String groupBy, List<Long> openingIds) {
+    private Map<String, Object> slideOf(MediaDetail d, String groupBy, List<Long> openingIds, String coverMode) {
         Map<String, Object> slide = new LinkedHashMap<>();
-        slide.put("cover", resolveCoverDataUrl(d));
+        slide.put("cover", resolveCoverDataUrl(d, coverMode));
         slide.put("cat", buildCategory(d));
         slide.put("title", esc(d.title()));
         slide.put("note", esc(d.note() == null || d.note().isBlank() ? "（暂无备注）" : d.note().trim()));
@@ -397,8 +423,12 @@ public class RecommendService {
         }
     }
 
-    /** 封面 base64：coverPath 优先，失败降级 fallbackCoverPath；再失败无封面（模板 onerror 隐藏）。 */
-    private String resolveCoverDataUrl(MediaDetail d) {
+    /** 封面地址：url 模式 → 相对 /covers/ 路径（预览同源直连、零内嵌）；embed 模式 → base64 data URI（离线自包含）。 */
+    private String resolveCoverDataUrl(MediaDetail d, String coverMode) {
+        if ("url".equals(coverMode)) {
+            String path = d.coverPath();
+            return (path == null || path.isBlank()) ? d.fallbackCoverPath() : path;
+        }
         String data = coverService.base64ForCoverPath(d.coverPath());
         if (data != null) {
             return data;
@@ -487,5 +517,11 @@ public class RecommendService {
     /** HTML 转义：标题/分类/备注/标签名含 <>&" 会破坏模板结构，进 JSON 前先转义。 */
     private static String esc(String s) {
         return s == null ? "" : HtmlUtils.htmlEscape(s);
+    }
+
+    /** 注入模板 JS 字符串字面量（const X = "..."）前转义：HTML 转义之外，还需把 \ 与换行转义成 JS 合法转义序列——
+     *  否则多行文本（如简介带段落换行）会把裸换行塞进字符串，模板脚本 SyntaxError、预览空白。 */
+    private static String jsText(String s) {
+        return esc(s).replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n");
     }
 }

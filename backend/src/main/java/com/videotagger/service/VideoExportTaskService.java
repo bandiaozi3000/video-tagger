@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -53,7 +54,8 @@ public class VideoExportTaskService {
                                   Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
                                   String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
                                   Integer bgmScale,
-                                  Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen) {
+                                  Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
+                                  Map<String, Boolean> detailShow) {
         long id = seq.getAndIncrement();
         VideoExportTask t = new VideoExportTask(id, title == null || title.isBlank() ? "推荐视频" : title,
                 ids == null ? 0 : ids.size(), "RUNNING", null, null, format, System.currentTimeMillis(), 0);
@@ -63,7 +65,7 @@ public class VideoExportTaskService {
                 subtitle, coverSize, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages,
                 bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle,
                 groupSort, openingSpeed, endingScrollSpeed,
-                bgmScale, bgmX, bgmY, brandTitle, perScreen);
+                bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow);
         return t;
     }
 
@@ -76,13 +78,14 @@ public class VideoExportTaskService {
                                   Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
                          String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
                          Integer bgmScale,
-                         Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen) {
+                         Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
+                         Map<String, Boolean> detailShow) {
         try {
             Path out = videoService.render(ids, title, format, resolution, bgmPaths, bgmTracks,
                     groupBy, groupStyle, subtitle, coverSize, openingIds, intro, durations,
                     endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle,
                     groupSort, openingSpeed, endingScrollSpeed,
-                    bgmScale, bgmX, bgmY, brandTitle, perScreen);
+                    bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow);
             finish(id, "DONE", null, out.toString());
             log.info("视频导出任务 {} 完成: {}", id, out);
         } catch (Exception e) {

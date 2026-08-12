@@ -32,8 +32,7 @@ public class RecommendVideoService {
 
     private static final Logger log = LoggerFactory.getLogger(RecommendVideoService.class);
     private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
-    private static final int MAX_MEDIA_COUNT = 30; // 防超长导览渲染
-    private static final long RENDER_TIMEOUT_SECONDS = 20 * 60;
+    private static final long RENDER_TIMEOUT_SECONDS = 40 * 60;   // 多部一屏 + 1080P 以下导出够用；4K 编码慢，放宽到 40 分钟
 
     /** 分辨率 → 像素。 */
     private static final Map<String, int[]> RESOLUTIONS = Map.of(
@@ -67,18 +66,18 @@ public class RecommendVideoService {
 
     /** 渲染推荐媒体为视频（MP4/WebM），返回临时文件路径（调用方负责删除）。 */
     public Path render(List<Long> ids, String resolution) {
-        return render(ids, null, null, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1);
+        return render(ids, null, null, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null);
     }
 
     /** 渲染推荐媒体为视频（无 BGM）。 */
     public Path render(List<Long> ids, String title, String format, String resolution) {
-        return render(ids, title, format, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1);
+        return render(ids, title, format, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null);
     }
 
     /** 渲染推荐媒体为视频（单曲 BGM，兼容旧签名）。 */
     public Path render(List<Long> ids, String title, String format, String resolution, String bgmPath) {
         return render(ids, title, format, resolution,
-                bgmPath == null || bgmPath.isBlank() ? null : List.of(bgmPath), null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1);
+                bgmPath == null || bgmPath.isBlank() ? null : List.of(bgmPath), null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null);
     }
 
     /**
@@ -106,12 +105,10 @@ public class RecommendVideoService {
                        String prologueTitle,
                        String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
                        Integer bgmScale,
-                       Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen) {
+                       Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
+                       Map<String, Boolean> detailShow) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
-        }
-        if (ids.size() > MAX_MEDIA_COUNT) {
-            throw new IllegalArgumentException("单次最多导出 " + MAX_MEDIA_COUNT + " 部媒体");
         }
         int[] wh = RESOLUTIONS.get(normalize(resolution));
         if (wh == null) {
@@ -125,7 +122,7 @@ public class RecommendVideoService {
         Path html = null;
         try {
             // 1. 生成自包含 HTML → 临时文件
-            String htmlContent = recommendService.buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen);
+            String htmlContent = recommendService.buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, "embed", detailShow);
             // 探测 BGM 时长并注入模板：模板 __bgmRemainSec 用它算「当前曲目剩余」，headless 下 audio.duration 不可靠
             List<Double> bgmDurs = new ArrayList<>();
             if (bgmPaths != null) {

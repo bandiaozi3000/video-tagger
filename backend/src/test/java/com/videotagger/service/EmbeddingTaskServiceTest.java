@@ -1,5 +1,6 @@
 package com.videotagger.service;
 
+import com.videotagger.config.VectorProperties;
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.EmbeddingTask;
 import com.videotagger.mapper.MediaMapper;
@@ -32,7 +33,7 @@ class EmbeddingTaskServiceTest {
         vectorStore = mock(VectorStore.class);
         service = new EmbeddingTaskService(clipMapper, mock(MediaMapper.class), mock(EpisodeMapper.class),
                 mock(MediaTagMapper.class), mock(EpisodeTagMapper.class),
-                taskMapper, embeddingClient, vectorStore);
+                taskMapper, embeddingClient, vectorStore, new VectorProperties());
     }
 
     private Clip clip(long id) {
@@ -61,6 +62,20 @@ class EmbeddingTaskServiceTest {
 
         verifyNoInteractions(vectorStore);
         verify(taskMapper, never()).updateById(any(EmbeddingTask.class));
+    }
+
+    @Test
+    void vectorDisabledNoopsEnqueueAndSweep() {
+        VectorProperties vp = new VectorProperties();
+        vp.setEnabled(false);
+        EmbeddingTaskService disabled = new EmbeddingTaskService(clipMapper, mock(MediaMapper.class),
+                mock(EpisodeMapper.class), mock(MediaTagMapper.class), mock(EpisodeTagMapper.class),
+                taskMapper, embeddingClient, vectorStore, vp);
+
+        disabled.enqueue(EntityType.CLIP, 1L);
+        disabled.sweep();
+
+        verifyNoInteractions(taskMapper, vectorStore);
     }
 
     @Test
