@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -121,8 +122,17 @@ public class RecommendVideoService {
 
         Path html = null;
         try {
-            // 1. 生成自包含 HTML → 临时文件
-            String htmlContent = recommendService.buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, "embed", detailShow);
+            // 1. 生成自包含 HTML → 临时文件。
+            // 录制 HTML 只注入曲名+曲长、不注入 BGM base64：音频由最终混流独立混入，避免页面加载
+            // 大型 Data URI 阻塞主线程导致逐曲漂移（音画彻底解耦的第一步）。
+            List<RecommendService.BgmTrack> recordTracks = null;
+            if (bgmTracks != null) {
+                recordTracks = new ArrayList<>();
+                for (RecommendService.BgmTrack t : bgmTracks) {
+                    recordTracks.add(new RecommendService.BgmTrack(t.name(), null));
+                }
+            }
+            String htmlContent = recommendService.buildHtml(ids, title, recordTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, "embed", detailShow);
             // 探测 BGM 时长并注入模板：模板 __bgmRemainSec 用它算「当前曲目剩余」，headless 下 audio.duration 不可靠
             List<Double> bgmDurs = new ArrayList<>();
             if (bgmPaths != null) {
@@ -196,15 +206,17 @@ public class RecommendVideoService {
                 }
             }
 
-            // 3. 调 node render.js
-            Path out = exportDir().resolve("recommend-" + LocalDateTime.now().format(FILE_TS) + "." + fmt);
+            // 3. 调 node render.js → 静音视频（渲染到临时目录 silent.<fmt>，音轨由最终混流独立混入）。
+            // 产物文件名用标题（清洗非法字符，空/纯非法回退 recommend），同名自动追加 -N 防覆盖。
+            Path out = uniqueExportName(title, fmt);
+            Path silent = work.resolve("silent." + fmt);
             var cmd = new java.util.ArrayList<String>();
             cmd.add(nodePath);
             cmd.add("render.js");
             cmd.add("--html");
             cmd.add(html.toAbsolutePath().toString());
             cmd.add("--out");
-            cmd.add(out.toAbsolutePath().toString());
+            cmd.add(silent.toAbsolutePath().toString());
             cmd.add("--width");
             cmd.add(String.valueOf(wh[0]));
             cmd.add("--height");
@@ -217,10 +229,7 @@ public class RecommendVideoService {
             cmd.add(chromePath);
             cmd.add("--ffmpeg");
             cmd.add(ffmpegPath);
-            if (bgmFile != null) {
-                cmd.add("--bgm");
-                cmd.add(bgmFile);
-            }
+            // 不再传 --bgm：render.js 只输出静音视频（音画解耦，录制过程不接触真实音频）
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.directory(resolveScriptsDir().toFile());
             pb.redirectErrorStream(true);
@@ -231,7 +240,6 @@ public class RecommendVideoService {
             Process p = pb.start();
             String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             boolean finished = p.waitFor(RENDER_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            long elapsed = System.currentTimeMillis() - t0;
 
             if (!finished) {
                 p.destroyForcibly();
@@ -242,9 +250,44 @@ public class RecommendVideoService {
                 throw new IllegalStateException("视频渲染失败（node 退出 " + p.exitValue() + "）: "
                         + lastLines(output));
             }
+            if (!Files.exists(silent) || Files.size(silent) < 1024) {
+                log.error("静音视频产物为空:\n{}", output);
+                throw new IllegalStateException("视频渲染失败（静音视频为空）");
+            }
+            log.info("静音视频渲染完成 {}（{}s，{}KB）", silent.getFileName(),
+                    (System.currentTimeMillis() - t0) / 1000.0, Files.size(silent) / 1024);
+
+            // 4. 最终混流：静音视频 + BGM 音轨（-stream_loop 循环铺满）→ 成品。
+            // 视频流 -c:v copy 不重编码（帧率/时长/画质不变）；音频以视频时长为硬边界 -shortest 裁掉循环超出部分。
+            if (bgmFile != null) {
+                var mx = new java.util.ArrayList<String>();
+                mx.add(ffmpegPath);
+                mx.add("-y");
+                mx.add("-i"); mx.add(silent.toAbsolutePath().toString());
+                mx.add("-stream_loop"); mx.add("-1"); mx.add("-i"); mx.add(bgmFile);
+                mx.add("-map"); mx.add("0:v:0");
+                mx.add("-map"); mx.add("1:a:0");
+                mx.add("-c:v"); mx.add("copy");
+                mx.add("-c:a"); mx.add(fmt.equals("webm") ? "libopus" : "aac");
+                mx.add("-shortest");
+                mx.add(out.toAbsolutePath().toString());
+                ProcessBuilder pm = new ProcessBuilder(mx);
+                pm.redirectErrorStream(true);
+                Process pm2 = pm.start();
+                String mout = new String(pm2.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                int mrc = pm2.waitFor();
+                if (mrc != 0) {
+                    log.error("最终混流失败 {}:\n{}", mrc, mout);
+                    throw new IllegalStateException("视频最终混流失败（ffmpeg 退出 " + mrc + "）");
+                }
+            } else {
+                Files.move(silent, out, StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            long elapsed = System.currentTimeMillis() - t0;
             if (!Files.exists(out) || Files.size(out) < 1024) {
-                log.error("渲染产物为空:\n{}", output);
-                throw new IllegalStateException("视频渲染失败（产物为空）");
+                log.error("最终产物为空:\n{}", output);
+                throw new IllegalStateException("视频渲染失败（最终产物为空）");
             }
             log.info("渲染完成 {}（{}s，{}KB）", out.getFileName(), elapsed / 1000.0,
                     Files.size(out) / 1024);
@@ -269,6 +312,22 @@ public class RecommendVideoService {
         Path d = Paths.get("data", "exports").toAbsolutePath();
         Files.createDirectories(d);
         return d;
+    }
+
+    /** 产物文件名：{标题}.{fmt}，标题清洗 Windows 非法字符、空/纯非法字符回退 recommend；同名已存在则追加 -N 防覆盖。 */
+    private Path uniqueExportName(String title, String fmt) throws IOException {
+        String base = title == null ? "" : title.trim()
+                .replaceAll("[\\\\/:*?\"<>|]", "")   // Windows 不允许 \ / : * ? " < > |
+                .replaceAll("[\\s.]+$", "");          // 去掉首尾空白/点（Windows 尾点/空格非法）
+        if (base.isBlank()) {
+            base = "recommend";
+        }
+        Path dir = exportDir();
+        Path out = dir.resolve(base + "." + fmt);
+        for (int n = 2; out.toFile().exists(); n++) {
+            out = dir.resolve(base + "-" + n + "." + fmt);
+        }
+        return out;
     }
 
     /**

@@ -34,11 +34,7 @@ class RecommendVideoServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.render(null, null, "MP4", "1080P"));
     }
 
-    @Test
-    void tooManyIdsThrows() {
-        List<Long> many = java.util.stream.LongStream.range(1, 32).boxed().toList();
-        assertThrows(IllegalArgumentException.class, () -> service.render(many, null, "MP4", "1080P"));
-    }
+    // tooManyIdsThrows 已删：v0.18.1「超 200 显示完全」移除了 ids 数量上限校验，该测试断言失效（陈旧测试）
 
     @Test
     void unknownResolutionThrows() {

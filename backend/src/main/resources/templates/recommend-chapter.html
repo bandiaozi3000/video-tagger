@@ -523,20 +523,21 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
   };
   const loadTrack = autoplay => {
     const t = BGM_TRACKS[bgmIndex];
-    bgmAudio.src = t.src;
     bgmNameEl.textContent = t.name;         // 播放中始终显示当前曲名
     bgmBar.classList.remove('next');
     bgmProg.style.transform = 'scaleX(0)'; bgmTimeEl.textContent = '0:00 / 0:00';
+    if (IS_RECORD) return;   // 录制模式：音轨由 ffmpeg 独立混入，headless 不加载真实音频（内嵌 base64 Data URI 解析/GC 会阻塞主线程、拖慢导览定时器 → 逐曲漂移）
+    if (!t.src) return;      // 无音频源（录制 name-only / 脏数据）：不加载不播放
+    bgmAudio.src = t.src;
     bgmAudio.load();
-    if (!IS_RECORD && autoplay) bgmAudio.play().catch(() => {}).then(() => setPlay(true));
+    if (autoplay) bgmAudio.play().catch(() => {}).then(() => setPlay(true));
   };
   if (IS_RECORD) {
-    /* 录制模式：headless 不真实播放（音轨由 ffmpeg 混入）——隐藏工具栏、定时器模拟进度与切曲 */
+    /* 录制模式：headless 不真实播放（音轨由 ffmpeg 独立混入）——隐藏工具栏；进度条/曲名/下一首提示
+       完全按「墙钟 + 后端注入真实曲长 BGM_TRACK_DURS」推算，不依赖 audio.duration（headless 不可靠，禁载音频后必为 NaN） */
     bgmPlayBtn.hidden = true;
     bgmMuteBtn.hidden = true;
-    let fakeT = 0;
-    /* 墙钟定位当前真实曲目（idx=曲序, remain=剩余秒）：假定时器切曲与真实位置脱节（headless audio.duration 不可靠，兜底 180s），
-       下一首提示 / 最后一首判断必须按墙钟 + 后端注入时长，否则末曲可能误提示「即将播放」 */
+    /* 墙钟定位当前曲目：idx=曲序, trackPos=曲内已播秒, remain=曲内剩余秒 */
     const recTrackInfo = () => {
       const durs = BGM_TRACK_DURS;
       if (!durs || !durs.length) return null;
@@ -544,30 +545,27 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
       if (!(total > 0)) return null;
       const pos = ((performance.now() - recordStartTs) / 1000) % total;
       let acc = 0;
-      for (let i = 0; i < durs.length; i++) { acc += durs[i]; if (pos < acc) return { idx: i, remain: acc - pos }; }
-      return { idx: durs.length - 1, remain: 0 };
+      for (let i = 0; i < durs.length; i++) {
+        if (pos < acc + durs[i]) return { idx: i, trackPos: pos - acc, remain: acc + durs[i] - pos };
+        acc += durs[i];
+      }
+      return { idx: durs.length - 1, trackPos: pos - acc, remain: 0 };
     };
     setInterval(() => {
-      const d = bgmAudio.duration || 180;
-      fakeT += 0.1;
-      if (fakeT >= d) { fakeT = 0; bgmIndex = (bgmIndex + 1) % BGM_TRACKS.length; loadTrack(false); }
-      bgmProg.style.transform = 'scaleX(' + (fakeT / d) + ')';
-      bgmTimeEl.textContent = fmtT(fakeT) + ' / ' + fmtT(d);
       const ti = recTrackInfo();
-      if (ti && ti.remain <= 4 && ti.idx < BGM_TRACKS.length - 1) { bgmNameEl.textContent = '即将播放：' + BGM_TRACKS[ti.idx + 1].name; bgmBar.classList.add('next'); }
-      else { bgmNameEl.textContent = (ti ? BGM_TRACKS[ti.idx].name : BGM_TRACKS[bgmIndex].name); bgmBar.classList.remove('next'); }
-    }, 100);
-    loadTrack(false);
-    /* 当前曲目剩余秒数（墙钟 + 后端注入时长，headless 下 audio.duration 不可靠）：录制模式导览结束时等它放完再结束 */
+      if (!ti) { bgmTimeEl.textContent = '0:00 / 0:00'; return; }   // 无曲长数据：保持初始态
+      const d = BGM_TRACK_DURS[ti.idx] || 0;
+      const p = Math.max(0, ti.trackPos);
+      bgmProg.style.transform = 'scaleX(' + (d > 0 ? p / d : 0) + ')';
+      bgmTimeEl.textContent = fmtT(p) + ' / ' + fmtT(d);
+      if (ti.remain <= 4 && ti.idx < BGM_TRACKS.length - 1) { bgmNameEl.textContent = '即将播放：' + BGM_TRACKS[ti.idx + 1].name; bgmBar.classList.add('next'); }
+      else { bgmNameEl.textContent = BGM_TRACKS[ti.idx].name; bgmBar.classList.remove('next'); }
+    }, 250);
+    loadTrack(false);   // 录制模式不加载真实音频，仅更新曲名/重置进度
+    /* 当前曲目剩余秒数（墙钟 + 后端注入时长）：录制模式导览结束时等它放完再结束 */
     window.__bgmRemainSec = () => {
-      const durs = BGM_TRACK_DURS;
-      if (!durs || !durs.length) return 0;
-      const total = durs.reduce((a, b) => a + b, 0);
-      if (!(total > 0)) return 0;
-      const pos = ((performance.now() - recordStartTs) / 1000) % total;   // 循环音频中的当前位置
-      let acc = 0;
-      for (const d of durs) { acc += d; if (pos < acc) return Math.max(0, acc - pos); }
-      return 0;
+      const ti = recTrackInfo();
+      return ti ? Math.max(0, ti.remain) : 0;
     };
   } else {
     bgmAudio.addEventListener('timeupdate', () => { updateTime(); updateBgmHint(); });

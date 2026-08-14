@@ -255,17 +255,21 @@ public class RecommendService {
         return Math.max(min, Math.min(max, v));
     }
 
-    /** 背景音乐列表 → 模板注入 JSON：[{name, src(dataURI)}]。空 → []. */
+    /** 背景音乐列表 → 模板注入 JSON：[{name, src(dataURI)}]。空 → [].。
+     * base64 为空的曲目只输出 name（无 src）：录制 HTML 由 ffmpeg 最终混音，页面不加载真实音频，
+     * 避免大型 Data URI 阻塞主线程导致逐曲漂移；预览 HTML 仍注入完整 src 真实播放。 */
     private String buildBgmTracksJson(List<BgmTrack> bgmTracks) {
         List<Map<String, Object>> arr = new ArrayList<>();
         if (bgmTracks != null) {
             for (BgmTrack t : bgmTracks) {
-                if (t == null || t.base64() == null || t.base64().isBlank()) {
+                if (t == null || t.name() == null || t.name().isBlank()) {
                     continue;
                 }
                 Map<String, Object> m = new LinkedHashMap<>();
-                m.put("name", esc(t.name() == null ? "" : t.name()));
-                m.put("src", "data:" + bgmMime(t.name()) + ";base64," + t.base64());
+                m.put("name", esc(t.name()));
+                if (t.base64() != null && !t.base64().isBlank()) {
+                    m.put("src", "data:" + bgmMime(t.name()) + ";base64," + t.base64());
+                }
                 arr.add(m);
             }
         }

@@ -398,12 +398,13 @@ if (BGM_TRACKS && BGM_TRACKS.length) {
   };
   const loadTrack = autoplay => {
     const t = BGM_TRACKS[bgmIndex];
-    bgmAudio.src = t.src;
     bgmNameEl.textContent = t.name;         // 播放中始终显示当前曲名
     bgmBar.classList.remove('next');
     bgmProg.style.transform = 'scaleX(0)'; bgmTimeEl.textContent = '0:00 / 0:00';
+    if (IS_RECORD) return;   // 录制模式：音轨由 ffmpeg 最终混流独立混入，录制 HTML 不注入音频 src
+    bgmAudio.src = t.src;
     bgmAudio.load();
-    if (!IS_RECORD && autoplay) bgmAudio.play().catch(() => {}).then(() => setPlay(true));
+    if (autoplay) bgmAudio.play().catch(() => {}).then(() => setPlay(true));
   };
   if (IS_RECORD) {
     /* 录制模式：headless 不真实播放（音轨由 ffmpeg 混入）——隐藏工具栏、定时器模拟进度与切曲 */

@@ -2072,6 +2072,9 @@ input[type="checkbox"] { accent-color: var(--pink); width: 15px; height: 15px; c
     transition: all .15s;
 }
 .preview-expand-btn:hover { background: rgba(255, 255, 255, .1); color: var(--text); }
+/* 「确认渲染」按钮：有未应用的配置改动时高亮提示 */
+#preview-render-btn.dirty { color: #fff; background: var(--pink); border-color: transparent; animation: previewRenderPulse 1.2s infinite; }
+@keyframes previewRenderPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255, 111, 167, .35); } 50% { box-shadow: 0 0 0 6px rgba(255, 111, 167, 0); } }
 .preview-autoplay { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); cursor: pointer; letter-spacing: 1px; flex: none; }
 .preview-autoplay input { accent-color: var(--pink); cursor: pointer; }
 .preview-frame {

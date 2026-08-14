@@ -3,8 +3,11 @@
  *
  * 原理：puppeteer-core 连系统 Chrome（headless），以 CDP `Page.startScreencast`
  * 按浏览器真实合成节奏抓 JPEG 帧（每帧带时间戳），页面以 ?record=1 进入录制模式
- * （忽略交互打断、自动导览全程播放），录满指定时长后 stop，用 ffmpeg 按每帧真实
- * 时间戳（concat demuxer）合成 H.264 MP4。帧率无需手工指定——按时间戳还原真实节奏。
+ * （忽略交互打断、自动导览全程播放），录满指定时长后 stop，用 ffmpeg 按实测平均
+ * 帧率（CFR）合成 H.264/VP9 MP4/WebM。
+ *
+ * 输出为【静音视频】：最终音轨由后端在混流阶段独立混入（-c:v copy，不重编码视频）。
+ * 页面录制全程不接触真实音频，避免大型 Data URI 阻塞主线程导致音画漂移。
  *
  * 用法：
  *   node render.js --html <file.html> --out <out.mp4> --width <w> --height <h>
@@ -39,7 +42,6 @@ const ffmpegPath = arg('--ffmpeg');
 // 抓帧 JPEG 质量：82 在 1080P 下编码偏慢拖低推帧率（实测 54.7fps 且负载高时掉到 38），
 // 降到 70 加快编码换取更稳的帧率，画面由后续编码器保证（原图即内容，JPEG 只是中间帧）
 const quality = parseInt(arg('--quality') || '70', 10);
-const bgmPath = arg('--bgm'); // 可选：背景音乐文件（循环混入音轨，-stream_loop -1）
 
 if (!htmlPath || !outPath || !width || !height || !(duration > 0) || !chromePath || !ffmpegPath) {
   fail('参数缺失：--html/--out/--width/--height/--duration/--chrome/--ffmpeg');
@@ -109,13 +111,10 @@ let exitCode = 0;
     const base = path.join(tmpDir, 'f');
     let frameCount = 0;
     let firstTs = null, lastTs = null;
-    let pageNowFirst = null;   // 首帧时刻的页面 performance.now()（音画对齐用）
     cdp.on('Page.screencastFrame', async ({ data, sessionId, metadata }) => {
       try {
         if (firstTs === null) {
           firstTs = metadata.timestamp;
-          // 记录首帧的页面时钟：音频延迟 = recordStartMs - 该值（页面加载→首帧偏移），用于音画对齐
-          page.evaluate(() => performance.now()).then(v => { if (pageNowFirst === null) pageNowFirst = v; }).catch(() => {});
         }
         lastTs = metadata.timestamp;
         fs.writeFileSync(base + '-' + String(frameCount).padStart(5, '0') + '.jpg',
@@ -166,23 +165,14 @@ let exitCode = 0;
     await cdp.send('Page.stopScreencast');
     await new Promise(r => setTimeout(r, 200));
 
-    // 音画对齐：音频延迟 = 音乐起点(recordStartMs) − 首帧页面时钟。音乐早于画面（页面加载→首帧偏移）则延迟音频，
-    // 让音乐从正文起点开始、与进度条同步；模板 __bgmRemainSec 同以 recordStartTs 为基准，结尾「播完再收尾」保持对齐。
-    let audioDelayMs = 0;
-    try {
-      const musicStartMs = await page.evaluate(() => Number(document.documentElement.dataset.recordStartMs || '0')).catch(() => 0);
-      if (pageNowFirst !== null && musicStartMs > pageNowFirst) {
-        audioDelayMs = Math.round(musicStartMs - pageNowFirst);
-      }
-    } catch (e) { /* 对齐失败则沿用现行为 */ }
-
     if (frameCount < 2) {
       throw new Error('有效帧不足: ' + frameCount);
     }
 
     // 帧已流式写盘，固定帧率合成（CFR）：fps = 帧数 / 实际录制时长（含闪回动画），总时长精确匹配导览。
     // 不用 concat demuxer——其 duration 语义对末帧处理不可控，帧稀疏时会拉长总时长。
-    const fps = frameCount / Math.max(0.1, (lastTs - firstTs)); // 还原录制真实帧率（约 60fps）
+    // 区间数比帧数少 1（末帧时间戳即总时长）：用 (frameCount-1) 更贴近真实速率。
+    const fps = (frameCount - 1) / Math.max(0.1, (lastTs - firstTs)); // 还原录制真实帧率（约 60fps）
 
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     // 抓帧降档时放大回输出分辨率（bicubic 平滑）；同尺寸直接 yuv420p
@@ -195,18 +185,12 @@ let exitCode = 0;
       '-framerate', fps.toFixed(4),
       '-start_number', '0',
       '-i', base + '-%05d.jpg',
+      '-vf', vf,
+      '-an', // 静音输出：音轨由后端最终混流独立混入（-c:v copy，不重编码视频、不改变帧率/时长）
+      ...encodeArgs(format, outPath),
+      '-threads', '0',
+      outPath,
     ];
-    if (bgmPath) {
-      // BGM 循环到结束（-stream_loop -1 为输入选项，须紧跟输入）；mp4 用 aac、webm 用 libopus
-      ffmpegArgs.push('-stream_loop', '-1', '-i', bgmPath);
-    }
-    ffmpegArgs.push('-vf', vf, ...encodeArgs(format, outPath));
-    if (bgmPath) {
-      // 音画对齐：音乐延迟到正文起点。先归一化立体声再双声道 adelay（旧 ffmpeg 无 :all=1 选项；单/多声道均兼容）
-      if (audioDelayMs > 0) ffmpegArgs.push('-af', 'aformat=channel_layouts=stereo,adelay=' + audioDelayMs + '|' + audioDelayMs);
-      ffmpegArgs.push('-c:a', format === 'webm' ? 'libopus' : 'aac', '-shortest');
-    }
-    ffmpegArgs.push('-threads', '0', outPath);
 
     execFileSync(ffmpegPath, ffmpegArgs, { stdio: 'pipe' });
 

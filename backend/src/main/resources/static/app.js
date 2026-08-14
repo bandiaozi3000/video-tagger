@@ -3200,7 +3200,7 @@ function syncBgmStyleLabels() {
 function initRecommendBgmStyle() {
     const regen = () => {
         syncBgmStyleLabels();
-        if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+        if (!document.getElementById('recommend-preview-modal').hidden) markPreviewDirty();
         markRecommendDirty();
     };
     ['recommend-bgm-scale'].forEach(id => {
@@ -3223,7 +3223,7 @@ function initConfigGroups() {
     ['recommend-dur-opening', 'recommend-dur-intro', 'recommend-dur-group', 'recommend-dur-detail', 'recommend-dur-ending'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('change', () => {
-            if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+            if (!document.getElementById('recommend-preview-modal').hidden) markPreviewDirty();
             markRecommendDirty();
             updateRecommendDuration();   // 时长改动即时重算总时长
         });
@@ -3241,7 +3241,7 @@ function renderRecommendBgList() {
     el.querySelectorAll('[data-idx]').forEach(b => b.addEventListener('click', () => {
         recommendBgImages.splice(Number(b.dataset.idx), 1);
         renderRecommendBgList();
-        if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+        if (!document.getElementById('recommend-preview-modal').hidden) markPreviewDirty();
         markRecommendDirty();
     }));
 }
@@ -3258,7 +3258,7 @@ function initRecommendBg() {
     };
     typeEl.addEventListener('change', () => {
         sync();
-        if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+        if (!document.getElementById('recommend-preview-modal').hidden) markPreviewDirty();
         markRecommendDirty();
     });
     /* 主题色 input：防抖实时预览（改颜色立即生效，不必切走再切回） */
@@ -3268,7 +3268,7 @@ function initRecommendBg() {
         colorInput.addEventListener('input', () => {
             clearTimeout(colorPreviewTimer);
             colorPreviewTimer = setTimeout(() => {
-                if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+                if (!document.getElementById('recommend-preview-modal').hidden) markPreviewDirty();
                 markRecommendDirty();
             }, 200);
         });
@@ -3284,7 +3284,7 @@ function initRecommendBg() {
         }))).then(imgs => {
             recommendBgImages.push(...imgs);
             renderRecommendBgList();
-            if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+            if (!document.getElementById('recommend-preview-modal').hidden) markPreviewDirty();
             markRecommendDirty();
             showToast(`已添加 ${imgs.length} 张背景图`);
         });
@@ -3305,7 +3305,7 @@ function initRecommendBg() {
         s.addEventListener('input', upd);
         s.addEventListener('change', () => {
             upd();
-            if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+            if (!document.getElementById('recommend-preview-modal').hidden) markPreviewDirty();
             markRecommendDirty();
         });
         upd();
@@ -3377,7 +3377,7 @@ function initRecommendBgm() {
         const v = document.getElementById(valId);
         const upd = () => { v.textContent = fmt(Number(s.value)); updateRecommendDuration(); };   // 拖拽即时重算总时长
         s.addEventListener('input', upd);
-        s.addEventListener('change', () => { if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview(); });
+        s.addEventListener('change', () => { if (!document.getElementById('recommend-preview-modal').hidden) markPreviewDirty(); });
         upd();
     }
     bindPreviewSlider('preview-cover-size', 'preview-cover-val', n => n + ' · ' + (n < 34 ? '小' : n > 66 ? '大' : '中'));
@@ -3385,12 +3385,12 @@ function initRecommendBgm() {
     bindPreviewSlider('preview-ending-speed', 'preview-ending-val', n => String(n));
     bindPreviewSlider('recommend-per-screen', 'recommend-per-screen-val', n => n + ' 部');
     document.getElementById('preview-group-sort').addEventListener('change', () => {
-        if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+        if (!document.getElementById('recommend-preview-modal').hidden) markPreviewDirty();
     });
     /* 详情显示内容开关：改值 → 重新生成预览 + 存草稿 */
     ['recommend-detail-status', 'recommend-detail-note', 'recommend-detail-tag'].forEach(id => {
         document.getElementById(id).addEventListener('change', () => {
-            if (!document.getElementById('recommend-preview-modal').hidden) generateRecommendPreview();
+            if (!document.getElementById('recommend-preview-modal').hidden) markPreviewDirty();
             markRecommendDirty();
         });
     });
@@ -3700,7 +3700,21 @@ document.getElementById('recommend-config-close').addEventListener('click', () =
     document.getElementById('recommend-config-modal').hidden = true;
 });
 
+/* 预览配置「手动确认渲染」：配置改动只标记待渲染（按钮高亮），点击「确认渲染」才重新生成预览 */
+let previewDirty = false;
+function markPreviewDirty() {
+    previewDirty = true;
+    const btn = document.getElementById('preview-render-btn');
+    if (btn) btn.classList.add('dirty');
+}
+function clearPreviewDirty() {
+    previewDirty = false;
+    const btn = document.getElementById('preview-render-btn');
+    if (btn) btn.classList.remove('dirty');
+}
+
 async function generateRecommendPreview() {
+    clearPreviewDirty();   // 渲染完成后清除「有待应用改动」标记
     const ids = [...recommendSelected];
     if (ids.length === 0) { showToast('请先勾选要推荐的媒体'); return; }
     const title = recommendTitle();
@@ -3797,7 +3811,8 @@ async function pickVideoDst() {
 async function exportRecommendVideo() {
     const ids = [...recommendSelected];
     if (ids.length === 0) { showToast('请先勾选要推荐的媒体'); return; }
-    const title = recommendTitle();
+    /* 导出文件名以导出弹窗「视频标题」为准（用户可改）；空则回退推荐主题标题 */
+    const title = document.getElementById('video-filename').value.trim() || recommendTitle();
     const format = document.getElementById('video-format').value;
     const resolution = document.getElementById('video-resolution').value;
     try {
@@ -5938,6 +5953,7 @@ document.getElementById('mf-collection').addEventListener('change', () => {
 document.getElementById('mf-cancel').addEventListener('click', () => { document.getElementById('media-fav-pick-modal').hidden = true; });
 document.getElementById('mf-confirm').addEventListener('click', confirmMediaFavPick);
 document.getElementById('recommend-gen-preview').addEventListener('click', generateRecommendPreview);
+document.getElementById('preview-render-btn').addEventListener('click', generateRecommendPreview);   // 配置调整后手动「确认渲染」
 document.getElementById('recommend-export-html').addEventListener('click', downloadRecommendHtml);
 document.getElementById('recommend-export-video').addEventListener('click', openVideoExport);
 // 预览弹窗
