@@ -63,7 +63,7 @@ public class CollectionService {
         mediaCollectionMapper.insertIgnore(mediaId, collectionId);
     }
 
-    /** 批量添加媒体到收藏夹（INSERT IGNORE 幂等，重复自动跳过）。 */
+    /** 批量添加媒体到收藏夹（INSERT OR IGNORE 幂等，重复自动跳过）。 */
     public void batchAdd(Long collectionId, List<Long> mediaIds) {
         requireCollection(collectionId);
         if (mediaIds == null) {

@@ -1,22 +1,32 @@
 server:
-  port: 8080
+  port: 9010
   # 本地开发默认只监听回环地址；Docker 内通过 SERVER_ADDRESS=0.0.0.0 覆盖，
   # 宿主侧再以 127.0.0.1:8080:8080 发布端口，避免暴露到局域网
   address: ${SERVER_ADDRESS:127.0.0.1}
+
+logging:
+  # 后端日志落盘到数据目录（跟随 VT_DATA_DIR，桌面版=项目根 data/logs/）
+  file:
+    name: ${VT_DATA_DIR:data}/logs/video-tagger.log
+  level:
+    root: INFO
 
 spring:
   application:
     name: video-tagger
   datasource:
-    url: jdbc:mysql://localhost:3306/video_tagger?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
-    username: root
-    password: ${MYSQL_ROOT_PASSWORD:root123456}
+    # 桌面版默认 SQLite（唯一数据源）。迁移/Web 版连 MySQL 用 mysql profile（见下方）。
+    url: jdbc:sqlite:${VT_DATA_DIR:data}/video_tagger.db
+    driver-class-name: org.sqlite.JDBC
+    username:
+    password:
   sql:
     init:
-      mode: never
+      mode: always
+      schema-locations: classpath:db/sqlite-schema.sql
+      continue-on-error: false
   flyway:
-    enabled: true
-    baseline-on-migrate: true
+    enabled: false
   servlet:
     multipart:
       max-file-size: 10MB
@@ -27,9 +37,13 @@ mybatis-plus:
     map-underscore-to-camel-case: true
 
 videotagger:
-  cover-dir: ${COVER_DIR:data/covers}
-  site-dir: ${SITE_DIR:data/site}
-  export-dir: ${EXPORT_DIR:data/exports}
+  # 数据根统一走 VT_DATA_DIR（桌面版注入 %APPDATA%），各子目录跟随
+  cover-dir: ${COVER_DIR:${VT_DATA_DIR:data}/covers}
+  site-dir: ${SITE_DIR:${VT_DATA_DIR:data}/site}
+  export-dir: ${EXPORT_DIR:${VT_DATA_DIR:data}/exports}
+  # 外部同步（AniList/omofuna 按年份批量导入）：默认开启；需联网。设为 false 可禁用（同步入口 404）
+  sync:
+    enabled: ${VIDEOTAGGER_SYNC_ENABLED:true}
   llm:
     # LLM 后台归组（番剧别名识别）默认关闭；开启需在 .env 注入 LLM_* 环境变量
     base-url: ${LLM_BASE_URL:}
@@ -58,3 +72,21 @@ videotagger:
     node-path: ${RENDER_NODE_PATH:node}
     chrome-path: ${RENDER_CHROME_PATH:C:/Program Files/Google/Chrome/Application/chrome.exe}
     ffmpeg-path: ${RENDER_FFMPEG_PATH:${user.home}/.local/ffmpeg/bin/ffmpeg.exe}
+
+---
+# MySQL profile：数据迁移工具专用（从 MySQL 读数据迁到 SQLite）。桌面版运行不启用。
+spring:
+  config:
+    activate:
+      on-profile: mysql
+  datasource:
+    url: jdbc:mysql://localhost:3306/video_tagger?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: ${MYSQL_ROOT_PASSWORD:root123456}
+  sql:
+    init:
+      mode: never
+  flyway:
+    enabled: true
+    baseline-on-migrate: true

@@ -36,9 +36,9 @@ public interface EpisodeMapper extends BaseMapper<Episode> {
             + "FROM episode e "
             + "LEFT JOIN episode_tag et ON et.episode_id = e.id "
             + "LEFT JOIN tag t ON t.id = et.tag_id "
-            + "WHERE e.title LIKE CONCAT('%', #{q}, '%') "
-            + "   OR (e.note IS NOT NULL AND e.note LIKE CONCAT('%', #{q}, '%')) "
-            + "   OR t.name LIKE CONCAT('%', #{q}, '%') "
+            + "WHERE e.title LIKE '%' || #{q} || '%' "
+            + "   OR (e.note IS NOT NULL AND e.note LIKE '%' || #{q} || '%') "
+            + "   OR t.name LIKE '%' || #{q} || '%' "
             + "ORDER BY e.id DESC LIMIT #{limit}"
             + "</script>")
     List<com.videotagger.entity.Episode> searchByKeyword(@Param("q") String q, @Param("limit") int limit);

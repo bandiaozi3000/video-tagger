@@ -344,7 +344,12 @@ public class RecommendVideoService {
                 Paths.get("backend/scripts").toAbsolutePath(),
                 Paths.get("../backend/scripts").toAbsolutePath(),
                 Paths.get("../scripts").toAbsolutePath(),
-                Paths.get("scripts").toAbsolutePath());
+                Paths.get("scripts").toAbsolutePath(),
+                // 桌面版打包：resources/scripts（electron-builder extraResources）。
+                // jar 在 resources/app/ 下，cwd=resources/app → ../scripts = resources/scripts
+                Paths.get("../scripts").toAbsolutePath(),
+                Paths.get("../resources/scripts").toAbsolutePath(),
+                Paths.get("resources/scripts").toAbsolutePath());
         for (Path p : candidates) {
             if (isRenderScript(p)) {
                 log.warn("scripts-dir {} 下无 render.js，改用 {}", scriptsDir, p);

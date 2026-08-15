@@ -11,7 +11,7 @@ import java.util.List;
 
 public interface MediaCollectionMapper extends BaseMapper<MediaCollection> {
 
-    @Insert("INSERT IGNORE INTO media_collection(media_id, collection_id) VALUES(#{mediaId}, #{collectionId})")
+    @Insert("INSERT OR IGNORE INTO media_collection(media_id, collection_id) VALUES(#{mediaId}, #{collectionId})")
     void insertIgnore(@Param("mediaId") long mediaId, @Param("collectionId") long collectionId);
 
     @Delete("DELETE FROM media_collection WHERE media_id = #{mediaId} AND collection_id = #{collectionId}")

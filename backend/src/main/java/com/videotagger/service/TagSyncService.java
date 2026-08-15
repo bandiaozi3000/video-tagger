@@ -16,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
-/** 标签三级同步：片段 → 集 → 媒体，单向向上并集（INSERT IGNORE 幂等）。删除不做降级级联，由用户按需在详情页手动清理。 */
+/** 标签三级同步：片段 → 集 → 媒体，单向向上并集（INSERT OR IGNORE 幂等）。删除不做降级级联，由用户按需在详情页手动清理。 */
 @Service
 public class TagSyncService {
 

@@ -11,15 +11,15 @@ import java.util.List;
 
 public interface TagMapper extends BaseMapper<Tag> {
 
-    /** 无则插入（INSERT IGNORE 防并发冲突），用于"无则建有则关联"。 */
-    @Insert("INSERT IGNORE INTO tag(name, created_at) VALUES(#{name}, #{createdAt})")
+    /** 无则插入（INSERT OR IGNORE 防并发冲突），用于"无则建有则关联"。 */
+    @Insert("INSERT OR IGNORE INTO tag(name, created_at) VALUES(#{name}, #{createdAt})")
     void insertIgnore(@Param("name") String name, @Param("createdAt") long createdAt);
 
     @Select("SELECT * FROM tag WHERE name = #{name} LIMIT 1")
     Tag selectByName(@Param("name") String name);
 
     /** 标签词库补全（前缀模糊，按词条先后）。 */
-    @Select("SELECT * FROM tag WHERE name LIKE CONCAT('%', #{prefix}, '%') ORDER BY id LIMIT #{limit}")
+    @Select("SELECT * FROM tag WHERE name LIKE '%' || #{prefix} || '%' ORDER BY id LIMIT #{limit}")
     List<Tag> searchByPrefix(@Param("prefix") String prefix, @Param("limit") int limit);
 
     /** 全局词条 + 三级引用计数（补全兜底 / 管理页通用池）。 */

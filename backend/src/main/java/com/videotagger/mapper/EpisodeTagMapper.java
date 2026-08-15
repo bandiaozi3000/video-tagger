@@ -12,7 +12,7 @@ import java.util.List;
 
 public interface EpisodeTagMapper extends BaseMapper<EpisodeTag> {
 
-    @Insert("INSERT IGNORE INTO episode_tag(episode_id, tag_id) VALUES(#{episodeId}, #{tagId})")
+    @Insert("INSERT OR IGNORE INTO episode_tag(episode_id, tag_id) VALUES(#{episodeId}, #{tagId})")
     void insertIgnore(@Param("episodeId") long episodeId, @Param("tagId") long tagId);
 
     @Delete("DELETE FROM episode_tag WHERE episode_id = #{episodeId} AND tag_id = #{tagId}")
@@ -25,8 +25,8 @@ public interface EpisodeTagMapper extends BaseMapper<EpisodeTag> {
             + "WHERE et.episode_id = #{episodeId} ORDER BY t.id")
     List<Tag> selectTags(@Param("episodeId") long episodeId);
 
-    /** 标签合并：源引用迁移到目标（INSERT IGNORE 防重复）。 */
-    @Insert("INSERT IGNORE INTO episode_tag(episode_id, tag_id) SELECT episode_id, #{toId} FROM episode_tag WHERE tag_id = #{fromId}")
+    /** 标签合并：源引用迁移到目标（INSERT OR IGNORE 防重复）。 */
+    @Insert("INSERT OR IGNORE INTO episode_tag(episode_id, tag_id) SELECT episode_id, #{toId} FROM episode_tag WHERE tag_id = #{fromId}")
     void moveRefs(@Param("fromId") long fromId, @Param("toId") long toId);
 
     @Delete("DELETE FROM episode_tag WHERE tag_id = #{fromId}")

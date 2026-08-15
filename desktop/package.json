@@ -1,0 +1,55 @@
+{
+  "name": "video-tagger-desktop",
+  "version": "0.1.0",
+  "description": "Video Tagger 桌面版 —— Electron 壳 + Spring Boot 子进程 + SQLite",
+  "main": "main.js",
+  "author": "zed",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^32.3.3",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.videotagger.desktop",
+    "productName": "Video Tagger",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/app/video-tagger-backend.jar",
+        "to": "app/video-tagger-backend.jar"
+      },
+      {
+        "from": "../backend/scripts",
+        "to": "scripts"
+      },
+      {
+        "from": "resources/node",
+        "to": "node"
+      },
+      {
+        "from": "resources/ffmpeg.exe",
+        "to": "ffmpeg.exe"
+      },
+      {
+        "from": "resources/jre",
+        "to": "jre"
+      }
+    ],
+    "win": {
+      "target": "zip",
+      "artifactName": "video-tagger-desktop-${version}.${ext}"
+    }
+  }
+}

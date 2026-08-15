@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Tagger · 二次元打标库</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="app.css?v=20260813b">
+    <link rel="stylesheet" href="app.css?v=20260814a">
 </head>
 <body>
 <!-- 网站背景图层（设置里上传，多图轮播；z-index 在 bg-fx 之下） -->
@@ -19,48 +19,64 @@
     <div class="noise"></div>
 </div>
 
-<header class="site-header">
-    <div class="container header-inner">
-        <div class="logo-wrap">
-            <span class="logo-mark">✦</span>
-            <h1 class="logo">Video<span class="logo-accent">Tagger</span><span class="ver-chip">v0.18.2</span></h1>
-        </div>
-        <nav class="nav">
-            <div class="nav-tabs">
-                <button type="button" class="tab active" data-view="search">
-                    <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-                    搜索
-                </button>
-                <button type="button" class="tab" data-view="media">
-                    <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="6" width="20" height="13" rx="2.5"/><path d="M12 8.5l1.2 2.4 2.6.4-1.9 1.8.5 2.6-2.4-1.3-2.4 1.3.5-2.6-1.9-1.8 2.6-.4z"/></svg>
-                    媒体
-                </button>
-                <button type="button" class="tab" data-view="videos">
-                    <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-                    时间线
-                </button>
-                <button type="button" class="tab" data-view="stats">
-                    <svg viewBox="0 0 24 24" fill="none"><path d="M4 20h16"/><path d="M6 20v-8"/><path d="M12 20V6"/><path d="M18 20v-11"/></svg>
-                    统计
-                </button>
-                <button type="button" class="tab" data-view="tags">
-                    <svg viewBox="0 0 24 24" fill="none"><path d="M3 10.5V4a1 1 0 0 1 1-1h6.5a1 1 0 0 1 .7.3l9 9a1 1 0 0 1 0 1.4l-6.5 6.5a1 1 0 0 1-1.4 0l-9-9a1 1 0 0 1-.3-.7Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
-                    标签
-                </button>
-                <button type="button" class="tab" data-view="collections">
-                    <svg viewBox="0 0 24 24" fill="none"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
-                    收藏夹
-                </button>
-                <button type="button" class="tab" data-view="recommend">
-                    <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.1 6.2L20 11l-5.9 1.8L12 19l-2.1-6.2L4 11l5.9-1.8z"/><path d="M18.5 16.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>
-                    推荐
-                </button>
-            </div>
-            <button type="button" id="settings-btn" class="settings-btn" title="设置" aria-label="设置">⚙</button>
-        </nav>
+<div class="shell">
+<!-- ① 自定义标题栏（Electron 可拖拽；窗控按钮接 IPC） -->
+<header class="titlebar">
+    <div class="tb-title">
+        <span class="tb-mark">✦</span>
+        <span class="tb-name">Video<b>Tagger</b></span>
+        <span class="tb-ver">v0.18.2</span>
     </div>
+    <div class="tb-spacer"></div>
+    <button type="button" class="tb-btn" id="win-min" title="最小化" aria-label="最小化">─</button>
+    <button type="button" class="tb-btn" id="win-max" title="最大化" aria-label="最大化">□</button>
+    <button type="button" class="tb-btn close" id="win-close" title="关闭" aria-label="关闭">✕</button>
 </header>
 
+<div class="main-body">
+<!-- ② 左侧导航栏（tab 保留 .nav .tab 结构，showView 继续命中） -->
+<aside class="sidebar">
+    <div class="side-group-label">导航</div>
+    <nav class="nav">
+        <button type="button" class="tab active" data-view="search">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <span class="tab-label">搜索</span>
+        </button>
+        <button type="button" class="tab" data-view="media">
+            <svg viewBox="0 0 24 24" fill="none"><rect x="2" y="6" width="20" height="13" rx="2.5"/><path d="M12 8.5l1.2 2.4 2.6.4-1.9 1.8.5 2.6-2.4-1.3-2.4 1.3.5-2.6-1.9-1.8 2.6-.4z"/></svg>
+            <span class="tab-label">媒体</span>
+        </button>
+        <button type="button" class="tab" data-view="videos">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            <span class="tab-label">时间线</span>
+        </button>
+        <button type="button" class="tab" data-view="stats">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 20h16"/><path d="M6 20v-8"/><path d="M12 20V6"/><path d="M18 20v-11"/></svg>
+            <span class="tab-label">统计</span>
+        </button>
+        <button type="button" class="tab" data-view="tags">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M3 10.5V4a1 1 0 0 1 1-1h6.5a1 1 0 0 1 .7.3l9 9a1 1 0 0 1 0 1.4l-6.5 6.5a1 1 0 0 1-1.4 0l-9-9a1 1 0 0 1-.3-.7Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
+            <span class="tab-label">标签</span>
+        </button>
+        <button type="button" class="tab" data-view="collections">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>
+            <span class="tab-label">收藏夹</span>
+        </button>
+        <div class="side-group-label">创作</div>
+        <button type="button" class="tab" data-view="recommend">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l2.1 6.2L20 11l-5.9 1.8L12 19l-2.1-6.2L4 11l5.9-1.8z"/><path d="M18.5 16.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg>
+            <span class="tab-label">推荐导出</span>
+        </button>
+    </nav>
+    <div class="side-footer">
+        <button type="button" id="settings-btn" class="settings-btn" title="设置" aria-label="设置">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
+            <span class="tab-label">设置</span>
+        </button>
+    </div>
+</aside>
+
+<!-- ③ 内容区 -->
 <main class="container">
     <!-- 媒体视图 -->
     <section id="view-media" class="view" hidden>
@@ -596,10 +612,19 @@
         </div>
     </section>
 </main>
+</div><!-- /.main-body -->
 
-<footer class="site-footer">
-    <p>Video Tagger · <b>给每一帧热爱的二次元时光打上印记</b> ✦</p>
+<!-- ④ 状态栏 -->
+<footer class="statusbar">
+    <span class="sb-item"><span class="sb-dot" id="sb-dot"></span><span id="sb-service">本地服务…</span></span>
+    <span class="sb-sep">│</span>
+    <span class="sb-item" id="sb-db">SQLite</span>
+    <span class="sb-sep">│</span>
+    <span class="sb-item" id="sb-export">导出任务 0 个</span>
+    <div class="sb-spacer"></div>
+    <span class="sb-item" id="sb-port">端口 ·</span>
 </footer>
+</div><!-- /.shell -->
 
 <!-- 相似片段弹窗 -->
 <div id="similar-modal" class="modal-overlay" hidden>
@@ -1212,6 +1237,6 @@
     </div>
 </div>
 <button type="button" id="back-nav" title="去底部" aria-label="去底部">↓</button>
-<script src="app.js?v=20260813b"></script>
+<script src="app.js?v=20260814a"></script>
 </body>
 </html>

@@ -38,6 +38,10 @@ public class MediaController {
     private final CoverService coverService;
     private final AniListSyncService aniListSyncService;
 
+    // 外部同步（AniList）默认禁用（D9）；videotagger.sync.enabled=true 时启用，代码保留
+    @org.springframework.beans.factory.annotation.Value("${videotagger.sync.enabled:false}")
+    private boolean syncEnabled;
+
     public MediaController(MediaService mediaService, EpisodeService episodeService, CoverService coverService,
                            AniListSyncService aniListSyncService) {
         this.mediaService = mediaService;
@@ -137,6 +141,9 @@ public class MediaController {
     /** 番剧同步（AniList）：按勾选年份批量建媒体（名称/年份/封面），命中库中已有则跳过。formats 可选过滤。 */
     @PostMapping("/sync-anilist")
     public AniListSyncService.SyncResult syncAnilist(@RequestBody SyncAnilistRequest req) {
+        if (!syncEnabled) {
+            throw new IllegalStateException("外部同步功能已禁用（桌面版暂不支持同步，请手动维护）");
+        }
         List<Integer> years = req.years() == null ? List.of() : req.years();
         if (years.isEmpty()) {
             throw new IllegalArgumentException("请至少勾选一个年份");

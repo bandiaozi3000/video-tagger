@@ -12,6 +12,42 @@ const views = {
   recommend: document.getElementById('view-recommend')
 };
 
+const APP_MODE = new URLSearchParams(window.location.search).get('appMode');
+const RECOMMEND_DESKTOP_MODE = APP_MODE === 'recommend';
+if (RECOMMEND_DESKTOP_MODE) document.body.classList.add('app-mode-recommend');
+
+/* ===== 桌面版布局（方案 C）：Electron 壳注入 window.vtDesktop 时启用 ===== */
+const DESKTOP_MODE = !!(window.vtDesktop && window.vtDesktop.platform === 'win32');
+if (DESKTOP_MODE) {
+    document.body.classList.add('desktop-mode');
+    // 窗控按钮：最小化 / 最大化 / 关闭
+    const bindWin = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    bindWin('win-min', () => window.vtDesktop.minimize());
+    bindWin('win-max', () => window.vtDesktop.maximize());
+    bindWin('win-close', () => window.vtDesktop.close());
+    // 最大化状态 → 切换按钮图标（□ ⇄ ❐）
+    window.vtDesktop.onMaximize(isMax => {
+        const btn = document.getElementById('win-max');
+        if (btn) btn.textContent = isMax ? '❐' : '□';
+    });
+    // 状态栏：端口从当前地址栏推断
+    const portEl = document.getElementById('sb-port');
+    if (portEl) portEl.textContent = '端口 ' + (window.location.port || '') + ' · 127.0.0.1';
+    // 服务状态：health 探测
+    const dotEl = document.getElementById('sb-dot'), svcEl = document.getElementById('sb-service');
+    if (dotEl && svcEl) {
+        fetch('/actuator/health').then(r => r.json()).then(d => {
+            if (d && d.status === 'UP') { svcEl.textContent = '本地服务已就绪'; dotEl.style.background = 'var(--green)'; }
+            else { svcEl.textContent = '服务状态异常'; dotEl.style.background = 'var(--red)'; }
+        }).catch(() => { svcEl.textContent = '服务未连接'; dotEl.style.background = 'var(--red)'; });
+    }
+    // 状态栏数据库：媒体数（随加载更新）
+    const dbEl = document.getElementById('sb-db');
+    if (dbEl) {
+        fetch('/api/media/count').then(r => r.json()).then(n => { dbEl.textContent = 'SQLite · ' + n + ' 部媒体'; }).catch(() => {});
+    }
+}
+
 const form = document.getElementById('search-form');
 const input = document.getElementById('search-input');
 const clearBtn = document.getElementById('clear-btn');
@@ -442,7 +478,7 @@ const SCROLL_RESTORE_VIEWS = new Set(['media', 'collections', 'recommend']);
 
 function goBack() {
     const prev = viewHistory.pop();
-    if (!prev) { showView('search'); return; }
+    if (!prev) { showView(RECOMMEND_DESKTOP_MODE ? 'media' : 'search'); return; }
     showView(prev.view);
     // 从列表进详情返回：恢复离开时的滚动位置（轮询等列表渲染完成，避免异步加载后落回顶部）
     if (SCROLL_RESTORE_VIEWS.has(prev.view) && prev.scrollY > 0) restoreListScroll(prev.scrollY, prev.view);
@@ -3088,7 +3124,7 @@ function recommendGroupBy() {
 
 /** 分组呈现样式：stream/chapter/overview（步骤2下拉）。 */
 function recommendGroupStyle() {
-    return document.getElementById('recommend-group-style').value;
+    return RECOMMEND_DESKTOP_MODE ? 'chapter' : document.getElementById('recommend-group-style').value;
 }
 
 /** 每屏同时展示 N 部：1-10 滑块（步骤3；1 = 逐部展示）。 */
@@ -6481,3 +6517,16 @@ document.getElementById('bg-clear-btn').addEventListener('click', clearAllBgImag
 ['bg-rotation', 'bg-opacity', 'bg-blur', 'bg-brightness'].forEach(id =>
     document.getElementById(id).addEventListener('input', previewBgChange));
 loadSettings(true); // 页面加载应用背景
+
+if (RECOMMEND_DESKTOP_MODE) {
+    const mediaTab = document.querySelector('.nav .tab[data-view="media"]');
+    if (mediaTab) mediaTab.lastChild.textContent = ' 素材库';
+    const groupStyleEl = document.getElementById('recommend-group-style');
+    if (groupStyleEl) {
+        groupStyleEl.value = 'chapter';
+        groupStyleEl.disabled = true;
+        groupStyleEl.title = '桌面推荐工具固定使用章节式模板';
+    }
+    document.title = '推荐视频导出工具';
+    showView('media');
+}

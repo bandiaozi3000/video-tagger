@@ -105,7 +105,7 @@ public class TagAdminService {
         List<Long> mediaIds = mergeIds(tagMapper.mediaIdsByTag(fromId), tagMapper.mediaIdsByTag(toId));
         List<Long> episodeIds = mergeIds(tagMapper.episodeIdsByTag(fromId), tagMapper.episodeIdsByTag(toId));
         List<Long> clipIds = mergeIds(tagMapper.clipIdsByTag(fromId), tagMapper.clipIdsByTag(toId));
-        // 三级关联引用迁移（INSERT IGNORE 防重复，再清源）
+        // 三级关联引用迁移（INSERT OR IGNORE 防重复，再清源）
         mediaTagMapper.moveRefs(fromId, toId);
         mediaTagMapper.deleteRefs(fromId);
         episodeTagMapper.moveRefs(fromId, toId);

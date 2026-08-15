@@ -1,6 +1,7 @@
 package com.videotagger.controller;
 
 import com.videotagger.service.OmofunaSyncTaskService;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,6 +21,8 @@ import java.util.NoSuchElementException;
  */
 @RestController
 @RequestMapping("/api/media/sync-omofuna")
+// 外部同步功能默认禁用（D9：同步暂不考虑，手动维护）；videotagger.sync.enabled=true 时才启用，代码保留
+@ConditionalOnProperty(name = "videotagger.sync.enabled", havingValue = "true")
 public class OmofunaSyncController {
 
     private final OmofunaSyncTaskService taskService;

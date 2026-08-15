@@ -20,7 +20,7 @@ public interface MediaMapper extends BaseMapper<Media> {
     Media selectByTitle(@Param("title") String title);
 
     /** 标题前缀匹配：供打标保存时归组到既有番剧（不含别名，别名归组属 Phase 3 LLM）。 */
-    @Select("SELECT * FROM media WHERE title LIKE CONCAT(#{title}, '%') AND deleted_at IS NULL ORDER BY id LIMIT 1")
+    @Select("SELECT * FROM media WHERE title LIKE #{title} || '%' AND deleted_at IS NULL ORDER BY id LIMIT 1")
     Media selectByTitlePrefix(@Param("title") String title);
 
     /** AniList 同步去重：标题或原标题任一命中即视为已有（title/original_title 精确匹配）。 */
@@ -66,7 +66,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.source = #{source}</if>"
-            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE '%' || #{q} || '%'</if>"
             + "</where>"
             + "GROUP BY a.id HAVING latestAt IS NOT NULL "
             + "ORDER BY latestAt DESC LIMIT #{limit} OFFSET #{offset}"
@@ -97,7 +97,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.source = #{source}</if>"
-            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE '%' || #{q} || '%'</if>"
             + "<if test='tagId != null'> AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
             + "</where>"
             + "</script>")
@@ -123,7 +123,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.source = #{source}</if>"
-            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE '%' || #{q} || '%'</if>"
             + " AND EXISTS (SELECT 1 FROM clips c JOIN episode e ON e.id = c.episode_id WHERE e.media_id = a.id)"
             + "</where>"
             + "</script>")
@@ -158,7 +158,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.source = #{source}</if>"
-            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE '%' || #{q} || '%'</if>"
             + "</where>"
             + "GROUP BY a.id "
             + "<choose>"
@@ -200,7 +200,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.source = #{source}</if>"
-            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE '%' || #{q} || '%'</if>"
             + "<if test='tagId != null'> AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
             + "<if test='ids != null and !ids.isEmpty()'> AND a.id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></if>"
             + "</where>"
@@ -233,10 +233,10 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "FROM media a "
             + "LEFT JOIN media_tag at ON at.media_id = a.id "
             + "LEFT JOIN tag t ON t.id = at.tag_id "
-            + "WHERE (a.title LIKE CONCAT('%', #{q}, '%') "
-            + "   OR (a.aliases IS NOT NULL AND a.aliases LIKE CONCAT('%', #{q}, '%')) "
-            + "   OR (a.note IS NOT NULL AND a.note LIKE CONCAT('%', #{q}, '%')) "
-            + "   OR t.name LIKE CONCAT('%', #{q}, '%')) "
+            + "WHERE (a.title LIKE '%' || #{q} || '%' "
+            + "   OR (a.aliases IS NOT NULL AND a.aliases LIKE '%' || #{q} || '%') "
+            + "   OR (a.note IS NOT NULL AND a.note LIKE '%' || #{q} || '%') "
+            + "   OR t.name LIKE '%' || #{q} || '%') "
             + "   AND a.deleted_at IS NULL "
             + "ORDER BY a.id DESC LIMIT #{limit}"
             + "</script>")
@@ -284,7 +284,7 @@ public interface MediaMapper extends BaseMapper<Media> {
     /** 回收站：已删媒体列表（deleted_at 非空），可按标题模糊过滤，按删除时间倒序。 */
     @Select("<script>"
             + "SELECT * FROM media WHERE deleted_at IS NOT NULL "
-            + "<if test='q != null and q != \"\"'> AND title LIKE CONCAT('%', #{q}, '%')</if> "
+            + "<if test='q != null and q != \"\"'> AND title LIKE '%' || #{q} || '%'</if> "
             + "ORDER BY deleted_at DESC LIMIT #{limit} OFFSET #{offset}"
             + "</script>")
     List<Media> listTrash(@Param("q") String q, @Param("limit") int limit, @Param("offset") int offset);
@@ -292,7 +292,7 @@ public interface MediaMapper extends BaseMapper<Media> {
     /** 回收站数量（可按标题过滤）。 */
     @Select("<script>"
             + "SELECT COUNT(*) FROM media WHERE deleted_at IS NOT NULL "
-            + "<if test='q != null and q != \"\"'> AND title LIKE CONCAT('%', #{q}, '%')</if>"
+            + "<if test='q != null and q != \"\"'> AND title LIKE '%' || #{q} || '%'</if>"
             + "</script>")
     long countTrash(@Param("q") String q);
 

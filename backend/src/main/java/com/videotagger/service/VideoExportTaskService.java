@@ -60,7 +60,7 @@ public class VideoExportTaskService {
         VideoExportTask t = new VideoExportTask(id, title == null || title.isBlank() ? "推荐视频" : title,
                 ids == null ? 0 : ids.size(), "RUNNING", null, null, format, System.currentTimeMillis(), 0);
         tasks.put(id, t);
-        /* 走 self 代理调用，@Async 才切到 syncExecutor 异步渲染；直接 this.runAsync 会同步阻塞 POST */
+        /* 走 self 代理调用，@Async 才切到 videoExportExecutor 顺序渲染；直接 this.runAsync 会同步阻塞 POST */
         self.runAsync(id, ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle,
                 subtitle, coverSize, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages,
                 bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle,
@@ -69,7 +69,7 @@ public class VideoExportTaskService {
         return t;
     }
 
-    @Async("syncExecutor")
+    @Async("videoExportExecutor")
     public void runAsync(long id, List<Long> ids, String title, String format, String resolution,
                          List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
                          String groupBy, String groupStyle, String subtitle, String coverSize,
