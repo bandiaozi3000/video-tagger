@@ -46,7 +46,7 @@ desktop/node_modules/
 desktop/resources/
 desktop/dist/
 desktop/release/
-release/
+release*/
 tools/
 
 # 早期废弃方案（被 desktop/ 取代：electron-app=初版 Electron 试验，packaging=Java launcher 原型）
