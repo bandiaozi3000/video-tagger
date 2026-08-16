@@ -106,15 +106,56 @@ function findNodePath() {
   return 'node'; // 开发模式：依赖系统 PATH（Windows 安装 node 后可用）
 }
 
-/** Chrome 可执行：常见安装路径探测。 */
+/** 注册表 App Paths 查可执行文件（Chrome/Edge 标准安装必写，比猜路径可靠）；找不到返回 null。 */
+function queryAppPath(name) {
+  const roots = [
+    'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\' + name,
+    'HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\' + name,
+  ];
+  for (const key of roots) {
+    try {
+      // reg query 默认值输出本地化（中文系统“(默认)”），不能按列名匹配，取 REG_SZ 类型后的路径
+      const out = execSync(`reg query "${key}" /ve`, { encoding: 'utf8', timeout: 3000, windowsHide: true });
+      for (const line of out.split(/\r?\n/)) {
+        const m = line.match(/REG_SZ\s+(.+)$/);
+        if (m) {
+          const p = m[1].trim();
+          if (p.endsWith(name) && fs.existsSync(p)) return p;
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+/**
+ * Chrome 可执行：注册表 App Paths + 常见安装路径探测。
+ * 找不到 Chrome 时回退到 Edge（Win10/11 预装，Chromium 内核可当 Chrome 用）——
+ * 视频导出/omofuna 同步的 puppeteer 只需 Chromium 内核，不必非要 Chrome。
+ */
 function findChromePath() {
   if (process.env.RENDER_CHROME_PATH) return process.env.RENDER_CHROME_PATH;
-  const candidates = [
+  // 1) 注册表 App Paths（标准安装最可靠）
+  const regChrome = queryAppPath('chrome.exe');
+  if (regChrome) return regChrome;
+  // 2) 常见安装路径
+  const chromeCandidates = [
     'C:/Program Files/Google/Chrome/Application/chrome.exe',
     'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
     path.join(process.env.LOCALAPPDATA || '', 'Google/Chrome/Application/chrome.exe'),
   ];
-  for (const c of candidates) {
+  for (const c of chromeCandidates) {
+    try { if (fs.existsSync(c)) return c; } catch (_) {}
+  }
+  // 3) Edge 回退（Win10/11 预装，Chromium 内核）
+  const regEdge = queryAppPath('msedge.exe');
+  if (regEdge) return regEdge;
+  const edgeCandidates = [
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+    path.join(process.env.LOCALAPPDATA || '', 'Microsoft/Edge/Application/msedge.exe'),
+  ];
+  for (const c of edgeCandidates) {
     try { if (fs.existsSync(c)) return c; } catch (_) {}
   }
   return 'C:/Program Files/Google/Chrome/Application/chrome.exe'; // 默认，缺失时后端会提示
@@ -169,6 +210,9 @@ function startBackend(javaPath, jarPath, port) {
   // 子进程工作目录设为 jar 所在目录：render 配置里的相对路径（backend/scripts、data/...）以此为基准
   const cwd = path.dirname(jarPath);
   const args = [
+    // 显式固定 UTF-8：JVM 默认 file.encoding 随系统区域（中文 Windows=GBK），
+    // 会把 UTF-8 的 schema 种子/日志读乱。不依赖目标机 Windows 区域设置。
+    '-Dfile.encoding=UTF-8',
     '-jar', jarPath,
     `--server.port=${port}`,
     '--server.address=127.0.0.1',

@@ -24,6 +24,9 @@ spring:
     init:
       mode: always
       schema-locations: classpath:db/sqlite-schema.sql
+      # 必须显式 UTF-8：schema 是 UTF-8 文件，spring.sql.init 未指定编码时用平台默认
+      # （中文 Windows=GBK，会把分类种子读乱）。开发机 ACP=65001 侥幸正常，目标机 GBK 必乱。
+      encoding: UTF-8
       continue-on-error: false
   flyway:
     enabled: false
