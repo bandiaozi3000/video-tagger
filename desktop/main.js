@@ -18,6 +18,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
+const updater = require('./update.js');
+const pkg = require('./package.json');
 
 // ---------- 配置 ----------
 const PREFERRED_PORT = 9010;          // 避开 Windows 保留段 8080-8090
@@ -171,6 +173,87 @@ function findFfmpegPath() {
   const local = path.join(process.env.USERPROFILE || '', '.local', 'ffmpeg', 'bin', 'ffmpeg.exe');
   try { if (fs.existsSync(local)) return local; } catch (_) {}
   return 'ffmpeg';
+}
+
+// ---------- 在线更新 ----------
+/** 更新源清单 URL：环境变量 VT_UPDATE_URL 优先，其次 package.json 的 updateUrl；空 = 关闭在线更新。 */
+function getUpdateUrl() {
+  if (process.env.VT_UPDATE_URL) return process.env.VT_UPDATE_URL;
+  try { return pkg.updateUrl || ''; } catch (_) { return ''; }
+}
+
+/** 应用待更新（须在 startBackend 前、旧 Java 未拉起时调用）。成功返回 {applied, toVersion}。 */
+function applyPendingUpdateSafe(jarPath) {
+  try { return updater.applyPendingUpdate(resolveDataDir(), jarPath) || null; } catch (e) {
+    console.log('[update] 应用待更新失败: ' + e.message);
+    return null;
+  }
+}
+
+/** 轮询健康检查直到就绪或超时。 */
+async function waitReady(port) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < HEALTH_TIMEOUT_MS) {
+    if (await checkHealth(port)) return true;
+    await new Promise(r => setTimeout(r, HEALTH_POLL_MS));
+  }
+  return false;
+}
+
+/** 下载新 jar 到 data/updates/v{version}/ 并写 pending 标记（下次启动应用）。 */
+async function downloadAndStageUpdate(info, dataDir) {
+  if (!info.backend || !info.backend.url) throw new Error('更新清单缺少 backend 配置');
+  const { jarPath } = resolvePaths();
+  if (!jarPath) throw new Error('无法定位当前后端 jar');
+  const dlDir = path.join(dataDir, 'updates', 'v' + info.version);
+  fs.mkdirSync(dlDir, { recursive: true });
+  const jarTmp = path.join(dlDir, 'backend.jar');
+  await updater.download(info.backend.url, jarTmp, info.backend.sha256);
+  updater.writePending(dataDir, {
+    toVersion: info.version,
+    jarPath: jarTmp,
+    targetJar: jarPath,
+    backupPath: jarPath + '.bak',
+  });
+}
+
+/** 后台检查更新：拉清单 → 比版本 → 弹窗确认 → 下载 + 校验 + 标记。失败静默（不阻塞使用）。 */
+async function checkForUpdates(win) {
+  const url = getUpdateUrl();
+  if (!url) return; // 未配置更新源，功能关闭
+  const current = app.getVersion() || '0.0.0';
+  let info;
+  try { info = await updater.fetchJson(url, 8000); } catch (e) {
+    console.log('[update] 检查更新失败: ' + e.message);
+    return;
+  }
+  if (!info || !updater.isNewer(info.version, current)) return;
+  const dataDir = resolveDataDir();
+  // 该版本已下载待应用 → 不重复提示
+  const pending = updater.readPending(dataDir);
+  if (pending && pending.toVersion === info.version) return;
+
+  const sizeMb = info.backend && info.backend.size ? Math.round(info.backend.size / 1024 / 1024) : 0;
+  const choice = dialog.showMessageBoxSync(win, {
+    type: 'info',
+    title: '发现新版本',
+    message: `Video Tagger v${info.version} 可用`,
+    detail: `${info.changelog ? info.changelog + '\n\n' : ''}当前 v${current}。下载约 ${sizeMb}MB，完成后重启应用生效。`,
+    buttons: ['立即更新', '稍后'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (choice !== 0) return;
+  try {
+    await downloadAndStageUpdate(info, dataDir);
+    dialog.showMessageBoxSync(win, {
+      type: 'info',
+      title: '更新已就绪',
+      message: `v${info.version} 已下载完成。关闭并重新打开应用后生效。`,
+    });
+  } catch (e) {
+    dialog.showMessageBoxSync(win, { type: 'warning', title: '更新失败', message: '下载更新失败：' + e.message });
+  }
 }
 
 // ---------- 端口探测 ----------
@@ -418,6 +501,10 @@ async function boot() {
     return;
   }
 
+  // 应用待更新：必须在拉起旧 Java 前替换 jar（否则 jar 被进程占用无法覆盖）
+  const applied = applyPendingUpdateSafe(jarPath);
+  if (applied) console.log(`[update] 已应用更新 v${applied.toVersion}`);
+
   const port = await findFreePort();
   backendPort = port; // 供退出时优雅关闭用
   console.log(`[boot] 端口 = ${port}, jar = ${jarPath}, java = ${javaPath}`);
@@ -440,12 +527,14 @@ display:flex;flex-direction:column;align-items:center;justify-content:center;hei
 
   startBackend(javaPath, jarPath, port);
 
-  // 轮询健康检查
-  const t0 = Date.now();
-  let ready = false;
-  while (Date.now() - t0 < HEALTH_TIMEOUT_MS) {
-    if (await checkHealth(port)) { ready = true; break; }
-    await new Promise(r => setTimeout(r, HEALTH_POLL_MS));
+  let ready = await waitReady(port);
+  // 本次应用过更新但启动失败 → 自动回滚上一版本并重试一次
+  if (!ready && applied) {
+    console.log('[update] 新版本启动失败，尝试回滚');
+    if (updater.rollbackUpdate(jarPath, jarPath + '.bak')) {
+      startBackend(javaPath, jarPath, port);
+      ready = await waitReady(port);
+    }
   }
 
   if (!ready) {
@@ -457,7 +546,9 @@ display:flex;flex-direction:column;align-items:center;justify-content:center;hei
 
   console.log('[boot] 后端就绪，打开主窗口');
   splash.close();
-  createMainWindow(port);
+  const win = createMainWindow(port);
+  // 后台检查更新（不阻塞启动，延迟 5s 避免抢首屏）
+  setTimeout(() => checkForUpdates(win), 5000);
 }
 
 app.whenReady().then(boot);

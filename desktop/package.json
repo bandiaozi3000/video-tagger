@@ -6,6 +6,7 @@
   "author": "zed",
   "license": "UNLICENSED",
   "private": true,
+  "updateUrl": "",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win --x64"
@@ -23,6 +24,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "update.js",
       "package.json"
     ],
     "extraResources": [
