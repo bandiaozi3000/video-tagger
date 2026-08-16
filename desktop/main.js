@@ -113,6 +113,7 @@ function queryAppPath(name) {
   const roots = [
     'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\' + name,
     'HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\' + name,
+    'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\' + name, // 用户级安装（非管理员）只写这里
   ];
   for (const key of roots) {
     try {
@@ -162,7 +163,76 @@ function findChromePath() {
   for (const c of edgeCandidates) {
     try { if (fs.existsSync(c)) return c; } catch (_) {}
   }
+  // 4) 运行中的浏览器进程（用户正用着的 Chrome/Edge，路径常非标准）
+  const byProcess = findChromeByProcess();
+  if (byProcess) return byProcess;
   return 'C:/Program Files/Google/Chrome/Application/chrome.exe'; // 默认，缺失时后端会提示
+}
+
+/** 探测运行中的 chrome/msedge 进程，拿真实可执行路径（用户正用着的浏览器，路径常非标准）。 */
+function findChromeByProcess() {
+  try {
+    // PowerShell 输出强制 UTF-8，避免中文路径经管道乱码
+    const out = execSync(
+      `powershell -NoProfile -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Process chrome,msedge -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Path"`,
+      { encoding: 'utf8', timeout: 8000, windowsHide: true });
+    const p = String(out).trim();
+    if (p && /\.exe$/i.test(p) && fs.existsSync(p)) return p;
+  } catch (_) {}
+  return null;
+}
+
+// ---------- 浏览器路径设置（手动选择兜底，存 data/settings.json） ----------
+function browserSettingsFile() {
+  return path.join(resolveDataDir(), 'settings.json');
+}
+
+function readSavedBrowserPath() {
+  try {
+    const j = JSON.parse(fs.readFileSync(browserSettingsFile(), 'utf8'));
+    return (j.browserPath && fs.existsSync(j.browserPath)) ? j.browserPath : '';
+  } catch (_) { return ''; }
+}
+
+function saveBrowserPath(p) {
+  try {
+    const f = browserSettingsFile();
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    let j = {};
+    try { j = JSON.parse(fs.readFileSync(f, 'utf8')); } catch (_) {}
+    j.browserPath = p;
+    fs.writeFileSync(f, JSON.stringify(j, null, 2));
+  } catch (_) {}
+}
+
+/** 全自动探测 miss 时弹一次系统选择框，让用户手动挑浏览器程序。 */
+function pickBrowserManually() {
+  try {
+    const r = dialog.showOpenDialogSync({
+      title: '未找到浏览器',
+      message: '未找到 Chrome/Edge，请手动选择浏览器程序（chrome.exe 或 msedge.exe），用于视频导出与番剧同步',
+      properties: ['openFile'],
+      defaultPath: 'C:\\Program Files',
+      filters: [{ name: '浏览器程序 (*.exe)', extensions: ['exe'] }],
+    });
+    if (r && r[0]) return r[0];
+  } catch (_) {}
+  return null;
+}
+
+/**
+ * 解析最终浏览器路径（统一入口，startBackend 用它）：
+ * 显式环境变量 → 用户手动选择存档 → 自动探测 → 全 miss 弹窗让用户选（选完存档）→ 兜底默认。
+ */
+function resolveBrowserPath() {
+  if (process.env.RENDER_CHROME_PATH) return process.env.RENDER_CHROME_PATH; // 显式指定最高优先
+  const saved = readSavedBrowserPath();
+  if (saved) return saved;
+  const auto = findChromePath();
+  if (auto && fs.existsSync(auto)) return auto;
+  const picked = pickBrowserManually();
+  if (picked) { saveBrowserPath(picked); return picked; }
+  return auto; // 用户取消选择：仍返回兜底默认（后端会明确报错提示）
 }
 
 /** ffmpeg 可执行：打包版优先内嵌（resources/ffmpeg.exe）；开发模式用户本地 ~/.local/ffmpeg，否则系统 PATH。 */
@@ -307,10 +377,11 @@ function startBackend(javaPath, jarPath, port) {
   const env = {
     ...process.env,
     VT_DATA_DIR: dataDir,
-    // 视频导出工具链（D4）：复用系统 node + Chrome + 本地 ffmpeg；缺则后端渲染不可用
+    // 视频导出工具链（D4）：复用系统 node + Chrome/Edge + 本地 ffmpeg；缺则后端渲染不可用
     RENDER_SCRIPTS_DIR: resolveScriptsDir(),
     RENDER_NODE_PATH: findNodePath(),
-    RENDER_CHROME_PATH: findChromePath(),
+    // Chrome 路径走统一解析：显式 env → 手动存档 → 自动探测 → 弹窗选择（探测不到才弹一次）
+    RENDER_CHROME_PATH: resolveBrowserPath(),
     RENDER_FFMPEG_PATH: findFfmpegPath(),
   };
   backendProc = spawn(javaPath, args, {
