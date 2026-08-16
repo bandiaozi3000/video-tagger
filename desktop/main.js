@@ -122,7 +122,9 @@ function queryAppPath(name) {
         const m = line.match(/REG_SZ\s+(.+)$/);
         if (m) {
           const p = m[1].trim();
-          if (p.endsWith(name) && fs.existsSync(p)) return p;
+          // 末尾文件名比较不区分大小写（注册表值可能是 Chrome.exe/CHROME.EXE 等非标准大小写）；
+          // fs.existsSync 本身不区分，但字符串比较区分，这里统一小写化
+          if (p.toLowerCase().endsWith(name.toLowerCase()) && fs.existsSync(p)) return p;
         }
       }
     } catch (_) {}
