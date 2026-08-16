@@ -45,6 +45,6 @@
 **背景**：桌面版（SQLite）把 Flyway 关了（`flyway.enabled: false`），靠 `spring.sql.init` 每次启动跑 `sqlite-schema.sql`（16 表全 `CREATE TABLE IF NOT EXISTS`，无版本跟踪、无 ALTER 迁移）。→ **新增表能靠打新包自动生效，但已有表加列/改列/数据迁移打新包无效**（IF NOT EXISTS 对已存在表整体跳过），且用户 SQLite 库在各自机器 `data/`，只能靠程序内迁移代码去 ALTER。
 
 - [x] **补 SQLite schema 版本迁移**（✅ 已交付 2026-08-16，commit `9ce7eae`）：`SqliteSchemaMigrator` 用 SQLite 内建 `PRAGMA user_version` 存版本号；启动时读版本，0（全新库/首次部署）直接初始化为最新，0<当前<最新 按序执行 `db/migration-sqlite/vNN.sql`（纯 ALTER，ScriptUtils 逐条），每步递增；最新版本 = max(基线 v1, 目录最大 vNN)。以后每次改表结构 = 加 vNN.sql，不再动 sqlite-schema.sql 已有表定义。单测 5 项全过。**配套约定见 `db/migration-sqlite/README.md`**。
-- [ ] **在线更新**（当前共享=发 zip 全量 510MB）：方案已出，待拍板实现。核心 = **清单驱动增量更新**——更新服务器放 `latest.json`（版本号 + 各文件 SHA-256 + 下载 URL），客户端启动/手动检查对比版本，只下载会变的 `backend.jar`（~74MB）+ `app.asar`（壳偶发），jre/node/ffmpeg 几乎不变、带版本哈希仅变更时下载；后端 jar 直接覆盖 `resources/app/` 下文件重启生效（壳 spawn java -jar 从该目录启动），用户 `data/` 完全不动。分发端最现实 = Gitee/GitHub Releases 或静态托管。**注意与 schema 迁移配套**：后端升级若改表结构，须先发对应 vNN.sql，否则新程序跑在旧库结构上会挂。
+- [ ] **在线更新**：✅ **客户端 + 发布脚本已交付**（2026-08-16，commit `1fae834`）——`desktop/update.js`（清单拉取/下载+SHA 校验/pending 标记/应用替换/回滚）+ `main.js` 集成（boot 应用更新+失败回滚、窗口后检查）+ `desktop/publish.bat`（生成 latest.json）。**剩余**：① 配置托管并填 `desktop/package.json` 的 `updateUrl`（现空=功能关，详见记忆 desktop-online-update）；② 上传 jar+latest.json 到托管；③ 配好后重打包分发（让现有用户装上更新功能）。更新只替换 backend.jar，jre/node/ffmpeg 不动；升级改表结构须配套先发 vNN.sql（见上方 schema 迁移项）。
 
 **背景文档**：2026-08-16 工作日志（docs/worklog/2026-08-16.md）。
