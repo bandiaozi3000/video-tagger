@@ -380,3 +380,28 @@
 - **涉及技术**：Electron（`process.resourcesPath`）、puppeteer-core 23.11.1、Chrome for Testing / `headless:'new'`、npmmirror 镜像、PowerShell `Expand-Archive`、MSYS 路径转换、Spring `@Value` 环境变量注入。
 - **关键文件**：`desktop/pack.bat`、`desktop/package.json`、`desktop/main.js`、`backend/scripts/omofuna.js`、`backend/scripts/render.js`、`OmofunaSyncTaskService.java`、`RecommendVideoService.java`、`backend/src/main/resources/application.yml`。
 - **当前状态**：0.1.1 已打包交付（`release/video-tagger-desktop-0.1.1.zip` 672MB），zip 内 `resources\chrome\chrome.exe` 已确认；待无 Chrome / 精简 / 老版本机器实测。
+
+### 后端双库方言兼容（SQLite / MySQL）
+
+- **日期**：2026-08-18
+- **业务场景**：桌面版（SQLite）与 Web 版（MySQL）共用同一套后端 jar 与 mapper（mysql profile + DatabaseIdProvider）。用户 IDEA + mysql profile 跑 web 时，**标签添加报 `SQLSyntaxErrorException`、标题搜索无效**。
+- **痛点**：代码库从 MySQL 切 SQLite（桌面化）时，mapper SQL 落入了 SQLite 方言，Web 跑 MySQL 就炸；且 MySQL 路径长期被标为"迁移专用"没被真正维护。
+- **根因**（读码 + 字节码 + git 历史三层验证）：
+  1. **`INSERT OR IGNORE`（SQLite 语法，MySQL 不认）**：Tag/ClipTag/MediaTag/EpisodeTag/MediaCollection 5 个 mapper 共 9 处 → 标签添加执行即抛 SQL 语法错。
+  2. **`||` 字符串拼接（SQLite=拼接，MySQL=逻辑 OR）**：Clip/Media/Tag/Episode 4 个 mapper 共 25 处，`LIKE '%' || #{q} || '%'` 在 MySQL 变成 `LIKE ('%' OR q OR '%')` → 搜索条件失效返回空。
+  3. **`@MapperScan` 在 commit `0e61af8`（2026-07-21）被误删**：mybatis-plus 3.5.7 自动扫描**只认 `@Mapper` 注解**（反编译字节码实锤字符串 "Searching for mappers annotated with @Mapper"），本项目 mapper 无 @Mapper，靠自动扫描注册一直悬着——某次构建后彻底不注册 → **应用直接起不来**（`No qualifying bean ... ClipMapper`）。恢复 `@MapperScan("com.videotagger.mapper")` 后秒好（测试 `HealthIT` 注释也印证主类本该有）。
+- **修复**：
+  - **`VideoTaggerApplication` 恢复 `@MapperScan("com.videotagger.mapper")`**。
+  - 新增 **`config/MybatisConfig.java`**：`VendorDatabaseIdProvider`（`SQLite→sqlite` / `MySQL→mysql`）；mybatis-plus 3.5.7 auto-config 反编译确认构造注入 `ObjectProvider<DatabaseIdProvider>` 并 `setDatabaseIdProvider`，bean 会被应用。
+  - 5 个标签 mapper 的 `INSERT OR IGNORE` 改 **`@Insert(value=..., databaseId="sqlite")` + `@Insert(value=..., databaseId="mysql")` 双语句**（SQLite=INSERT OR IGNORE / MySQL=INSERT IGNORE）。**不用 `<script>`+`_databaseId`**——实测曾破坏 mapper 注册；`databaseId` 属性最干净。
+  - `||` 改 **`CONCAT('%', #{q}, '%')`**（sqlite-jdbc 3.45 内置 SQLite 3.45 支持 CONCAT，MySQL 8 支持，无损替换 25 处；含 URL host 提取的 `substr`+`instr`，两库语义一致）。
+- **原理**：MyBatis `DatabaseIdProvider` 按 `DatabaseMetaData.getDatabaseProductName()` 探测库 → `_databaseId` / `databaseId` 属性选语句；`VendorDatabaseIdProvider` 需 bean 注册且被 mybatis-plus 拾取；SQLite 3.44+ 与 MySQL 均支持 `CONCAT()` 使 LIKE 拼接可移植；`INSERT OR IGNORE`（SQLite）↔ `INSERT IGNORE`（MySQL）无单一语法，须按库分支。
+- **验证**（双库端到端，全绿）：
+  - SQLite（scratch 库，8800）：标签添加 `{"id":1}`、重复幂等 400、搜索无报错 ✅
+  - MySQL（docker `vt-mysql` 隔离库 `video_tagger_test`，8801，Flyway V1~V19 迁移）：标签添加 `{"id":1}`、重复幂等、**标题搜索 `q=方言` 命中「方言测试番剧2」** ✅
+  - 测试库已删、后端已停、临时文件已清。
+- **跨库 SQL 约定（写新 SQL 必看）**：字符串拼接一律 `CONCAT()`；幂等插入用 `@Insert(databaseId=sqlite/mysql)` 双语句；`IFNULL/substr/instr` 两库通用；`GROUP BY` 只选 PK 依赖列（MySQL ONLY_FULL_GROUP_BY）。**勿删 @MapperScan**。
+- **顺带发现**：`POST /api/media` 不传 `status` 会 NPE（`STATUSES.contains(null)`，MediaService.apply）——测试请求问题，UI 总会带 status，未修。
+- **涉及技术**：MyBatis `DatabaseIdProvider` / `@Insert(databaseId=)`、mybatis-plus 3.5.7 auto-config、`CONCAT()` 跨库可移植、SQLite 3.45 / MySQL 8、Flyway V1~V19、`@MapperScan`。
+- **关键文件**：`VideoTaggerApplication.java`、`config/MybatisConfig.java`、`mapper/{Tag,ClipTag,MediaTag,EpisodeTag,MediaCollection,Clip,Media,Episode}Mapper.java`、`application.yml`（mysql profile）。
+- **当前状态**：已修复并双库验证（2026-08-18），已提交（commit `63df261`）；Web 连 MySQL 的标签/搜索功能恢复正常；待用户在真实环境（IDEA/docker）重跑确认。
