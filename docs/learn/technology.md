@@ -12,6 +12,8 @@
 
 ## 目录（按日期）
 
+- [2026-08-18](#2026-08-18)
+- [2026-08-17](#2026-08-17)
 - [2026-08-10](#2026-08-10)
 - [2026-08-13](#2026-08-13)
 
@@ -309,3 +311,72 @@
 - **涉及技术**：Spring Boot / Java ProcessBuilder / Headless Chrome / Puppeteer Core / Chrome DevTools Protocol `Page.startScreencast` / 浏览器事件循环与主线程阻塞 / Base64 Data URI / HTMLMediaElement / `performance.now()` / FFmpeg concat filter / FFprobe / H.264、VP9、AAC、Opus / FFmpeg stream mapping、`-c:v copy`、`-stream_loop`、`-shortest` / CFR 与时间戳。
 - **关键文件**：`backend/src/main/resources/templates/recommend-chapter.html`、`backend/src/main/java/com/videotagger/service/RecommendService.java`、`backend/src/main/java/com/videotagger/service/RecommendVideoService.java`、`backend/scripts/render.js`、`backend/src/main/resources/static/app.js`、`docs/worklog/2026-08-12.md`。
 - **当前状态**：完成现象整理、代码链路分析和方案设计，**尚未实施代码修改**；主要根因仍需通过禁用录制模式 `audio.load()` 和增加分段日志进行最终实测确认。
+
+---
+
+## 2026-08-17
+
+### omofuna 同步完整流程与卡死加固
+
+- **日期**：2026-08-17
+- **业务场景**：补充 AniList 日文原名的**中文标题缺口**，从 omofuna 站按年份批量导入番剧（中文标题 + 年份 + 封面）到媒体库。v0.15 交付，2026-08-17 因他人机器卡死加固。
+- **完整流程**（端到端链路）：
+  1. 前端「⇄ 同步番剧」弹层选来源 omofuna + 年份 → `POST /api/media/sync-omofuna {years, types}`（types 可过滤分类 1日漫/5动画/24剧场）→ `OmofunaSyncController` → `OmofunaSyncTaskService.create` 校验并建 RUNNING 任务，**秒回 taskId**。
+  2. `@Async("syncExecutor")` `execute`：`ProcessBuilder` 跑 `node omofuna.js --years <years> --out <tmp>/omofuna.json --chrome <探测到的Chrome路径> [--types ...]`，工作目录 = scripts-dir。
+  3. `omofuna.js`（puppeteer-core 连系统 Chrome，headless new）：
+     - URL 结构 `show/{分类ID}--------{页码}---{年份}.html`——**第 1 段是分类 ID**（1日漫/5动画/24剧场），页码在第 8 段、年份在末段；顶部「共检索到 N 条」是静态假计数不可信。
+     - 反爬 MaccMS「系统安全验证」页 → 自动点 `input.verify_submit`「继续访问」→ AJAX + `location.reload()` 放行，同会话后续页不再验证；reload 中 evaluate 抛「Execution context destroyed」属正常（`countCards` try/catch 返回 -1 容错）。
+     - 每页提取卡片 `a.lazyload[href^="/anime/"]`（`title` 中文名 / `data-original` 封面 webp / `[0-9a-f]{24}` 的 hash），`Set<hash>` 去重；页间限速 `--delay`。
+     - 每页 stdout 进度行 `[omofuna] page=<year>/<cat>/<page> items=N total=M`；每 5 页覆写 checkpoint `omofuna.json`；三类终止：0 卡片/全重复 hash/`MAX_PAGES`。
+  4. 后端 reader 线程逐行读 stdout，`PROGRESS` 正则（`\[omofuna\] page=\d+/\d+/\d+ items=\d+ total=(\d+)`）解析 → 更新任务 `processedPages`/`itemsFound`；前端 2s 轮询 `GET /api/media/sync-omofuna/{taskId}` 显示进度条。
+  5. `exit 0` → `OmofunaSyncService.importFromJson(omofuna.json)` 逐条 upsert（`title` 命中库中已有→跳过；否则建媒体 `original_title` 留空 + 异步下载封面）；`exit≠0`/产物缺失 → 任务 ERROR。
+  6. `finally` 递归删临时目录 `vt-omofuna-*`（OS 兜底）。
+- **omofuna.json 中间产物**（`--out` 输出，`writeCheckpoint` 生成）：
+  ```json
+  { "generatedAt": "<ISO>", "years": [2026],
+    "items": [{ "title": "中文标题", "coverUrl": "<webp>", "hash": "<24位hex>", "year": 2026, "categoryId": 1 }],
+    "stats": { "pages": 14, "items": 355, "failedPages": 0 } }
+  ```
+  作用三合一：**抓取暂存**（脚本与导入的交棒文件）/ **崩溃 checkpoint**（每 5 页覆写防全丢，但 exit≠0 不导入）/ **导入数据源**（`importFromJson` 只消费 `title`/`year`/`coverUrl`；`hash` 仅供脚本内部去重、`categoryId` 是抓取范围标记）。
+- **痛点与加固**（2026-08-17，问题 #9）：
+  - **现象**：分享桌面版给他人机器，同步前端进度条不动，后端日志停在「启动 omofuna 抓取」后无输出，任务 RUNNING 卡满 60min 才被强杀；**本机网络好无法复现**。
+  - **根因**（读码验证）：
+    1. `page.evaluate`（`isVerifyPage`/`countCards`/`extractCards`）**无超时保护**——puppeteer 对页面**同步 JS 阻塞/死循环无法中断**（CDP 只对 `awaitPromise` 生效），他人机器网络不稳/渲染差异（Edge 回退/老 Chrome）触发站点 JS 异常 → evaluate 无限挂起 → `fetchPage` 不返回 → node 无进度输出卡死。
+    2. `puppeteer.launch` 无显式超时（低配机/profile 锁/老版本可能卡启动）。
+    3. 后端 reader 只解析进度正则、**丢弃 node 其余输出** → Java 日志看不到抓取过程（诊断盲区，误判「无日志=卡死」）。
+    4. 后端 `p.waitFor(3600s)` 总超时太长。
+  - **修复**（纯加固，不动抓取逻辑）：
+    - **omofuna.js 进程级 watchdog**：3 分钟无新进度行 → `console.error` + `process.exit(1)`。关键原理：evaluate 挂起**不阻塞 node 事件循环**，`setInterval` 仍触发 → 卡死自爆，任务变 ERROR 而非永远 RUNNING。
+    - **`puppeteer.launch` 包 `Promise.race` 60s 超时**（`t.unref()` 防阻塞退出）。
+    - **fetchPage 每步打 `[omofuna] dbg` 阶段日志**（goto/verify/passVerification/cards/extract）——卡住时最后一条日志即卡点。
+    - **后端 reader 把非进度行转发到 Java 日志**（`[omofuna-node]` 前缀）——消除诊断盲区。
+    - **后端「无进度超时」**：`AtomicLong lastProgressAt` 跟踪最后进度，超 5 分钟 → `destroyForcibly` + ERROR（不再空等 60min）。
+- **原理**：异步长任务范式（`@Async` 单线程 syncExecutor + 内存 ConcurrentHashMap 任务表 + ProcessBuilder + reader 线程解析进度 + 前端轮询；`@Async` 自调用失效须经 controller 代理）；puppeteer `page.evaluate` 对同步 JS 阻塞无超时；node 进程级 watchdog 利用「evaluate 挂起不阻塞事件循环」。
+- **涉及技术**：Node / puppeteer-core（headless new）、Java `ProcessBuilder` + `redirectErrorStream(true)`、`@Async`、正则解析、JSON checkpoint、`AtomicLong` 无进度检测、`p.destroyForcibly`。
+- **关键文件**：`backend/scripts/omofuna.js`、`backend/src/main/java/com/videotagger/service/OmofunaSyncTaskService.java`、`OmofunaSyncService.java`、`OmofunaSyncController.java`、`AsyncConfig.java`、`backend/src/main/resources/static/app.js`（前端轮询）。
+- **当前状态**：加固已实施（2026-08-17），`node --check` + `mvn compile` 通过，已打新 jar 重新打包桌面版；**待他人机器跑一次**，靠 `[omofuna-node]` dbg 日志确认卡点（evaluate vs launch）。
+
+## 2026-08-18
+
+### 桌面版内置 Chrome for Testing——根治「依赖用户机器浏览器」的连环坑（0.1.1）
+
+- **日期**：2026-08-18
+- **业务场景**：桌面版（Electron 壳 + Spring Boot 子进程）的 omofuna 番剧同步 + 推荐视频导出都走 puppeteer-core 连**用户机器上的 Chrome/Edge**。分享给非技术用户后连续踩坑：①用户从 Bandizip 临时目录直接运行 exe → 同步报 `CreateProcess error=2 系统找不到指定的文件`；②他人机器同步报 `Chrome 启动超时（60s）`（新 watchdog 定位到 puppeteer.launch 卡住）。
+- **痛点**：机器环境一台一个样——探测路径错位、老版本 Chrome 不支持 `--headless=new`、商店 stub / 精简系统删 Edge、杀毒拦截、temp 目录运行。逐个排查对非技术用户不可接受，治标不治本。
+- **根因**（读码验证）：
+  1. **temp 目录运行**：Bandizip 解压到 `%TEMP%\BNZ.xxx` 后运行 exe，`process.resourcesPath` = temp 目录；解压完 temp 被删 → 按需 spawn 的 `resources\node\node.exe`（及 Chrome）不存在 → `CreateProcess error=2`。exe 已加载进内存仍能跑，node 是按需启动所以同步才炸。
+  2. **Chrome 启动超时**：`resolveBrowserPath()` 只返回 `fs.existsSync` 为真的路径（desktop/main.js），故**不是文件缺失**，是进程起来了但 CDP 起不来（老版本 headless / stub / 杀毒 / 低配）。60s 超时来自 omofuna.js 的 `Promise.race(launch, 60s watchdog)`。
+- **方案**：**打包内置固定版本 Chrome for Testing 131.0.6778.204 完整版**（win64 155MB），程序永远用自己的浏览器——路径确定、版本确定、headless 必支持、与打包的 puppeteer-core 23.11.1 匹配，与机器环境彻底解耦。用户拍板选完整版（+155MB）而非 headless-shell（+100MB），保留 `--headed` 有头调试兜底。
+- **实现**：
+  - **pack.bat** 新增步骤下载 `chrome-win64.zip`（npmmirror 镜像 `https://npmmirror.com/mirrors/chrome-for-testing/{ver}/win64/chrome-win64.zip` → 官方 googleapis 兜底），解压平铺到 `desktop/resources/chrome/chrome.exe`（与 node 同套路，`if not exist` 跳过已下载）。
+  - **package.json** `extraResources` 加 `resources/chrome → chrome`；version 0.1.0 → 0.1.1。
+  - **main.js** `bundledChromePath()`（打包态 = `resources/chrome/chrome.exe`，开发态 null）+ `resolveBrowserPath()` 优先级改为 **env → 内置 → 手动存档 → 自动探测 → 手动选择弹窗 → 兜底默认**。
+  - **后端零改动**：`application.yml` 的 `chrome-path: ${RENDER_CHROME_PATH:...}` 环境变量注入；omofuna.js / render.js 均 `headless:'new'`，Chrome 131 原生支持。
+- **关键链路全打日志**（精确排查，5 处）：omofuna.js / render.js launch 前后 `[omofuna]/[render] dbg`（chrome 路径、`launching` / `launched ok` / `browserVersion=`）；两个后端服务启动日志加 `node=, chrome=, scripts=` 实际路径；main.js `[browser]` 逐分支。后端日志落盘 `data/logs/video-tagger.log`，用户整文件提供即可定位卡点。
+- **重要洞察（用户提问：视频导出成功但同步超时，差异在哪）**：两者 launch 机制完全相同（同 chrome、同 `headless:'new'`、同 `--no-sandbox`）。**差异 = 超时 watchdog 不对称**：omofuna launch 有独立 **60s 硬超时**（`LAUNCH_TIMEOUT_MS=60_000`）；视频导出**无 launch 级 watchdog**，只有总渲染超时 **40min**（`RENDER_TIMEOUT_SECONDS=40*60`）。慢机器 launch 61~90s → 同步 60s 就放弃报「Chrome 启动超时」，视频导出会等到成功 → 两者同时成立。次要差异：同步 launch 后 `goto` 外网 + 反爬验证页（卡住报「无进度超时」），导出 `goto` 本地 `file://`（秒开）。内置 Chrome 后 launch 实测秒开，基本消除。
+- **原理**：Electron `process.resourcesPath` 随 exe 运行目录；puppeteer-core 对 `executablePath` 指定浏览器 spawn 后等 CDP 就绪（`headless:'new'`）；Spring 环境变量注入 `application.yml` 占位符；npmmirror 完整镜像 google chrome-for-testing。
+- **冒烟验证**：最小 puppeteer launch `Chrome/131.0.6778.204` ✅；真实 omofuna.js 用内置 chrome 抓 2026 日漫 **205 条**（自动过 MaccMS 验证页、失败页 0、exit 0）✅。坑：裸跑 `chrome.exe --version` 卡死（sandbox 拒绝访问 + GPU 崩溃）是假象，不影响 puppeteer 的 `--no-sandbox --headless=new` 场景。
+- **打包踩坑**（git-bash 跑 pack.bat）：`cmd //c pack.bat` 找不到文件（非交互 cwd 不生效）；`cmd /c "cd /d X && ..."` 的 `/d` 被 MSYS 路径转换搞坏。**正确姿势** `MSYS_NO_PATHCONV=1 cmd /c "绝对路径" < /dev/null`（pack.bat 靠 `%~dp0` 定位；`< /dev/null` 防结尾 `pause` 阻塞）。另：pack.bat 的 `ZIP_NAME` 与头注释**硬编码版本**，升版必须同步；加/删步骤要前后统一 echo 编号。
+- **涉及技术**：Electron（`process.resourcesPath`）、puppeteer-core 23.11.1、Chrome for Testing / `headless:'new'`、npmmirror 镜像、PowerShell `Expand-Archive`、MSYS 路径转换、Spring `@Value` 环境变量注入。
+- **关键文件**：`desktop/pack.bat`、`desktop/package.json`、`desktop/main.js`、`backend/scripts/omofuna.js`、`backend/scripts/render.js`、`OmofunaSyncTaskService.java`、`RecommendVideoService.java`、`backend/src/main/resources/application.yml`。
+- **当前状态**：0.1.1 已打包交付（`release/video-tagger-desktop-0.1.1.zip` 672MB），zip 内 `resources\chrome\chrome.exe` 已确认；待无 Chrome / 精简 / 老版本机器实测。

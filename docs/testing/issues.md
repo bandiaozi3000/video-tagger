@@ -13,12 +13,13 @@
 
 ## 计数
 
-- **当前待修复**：1 个（批量阈值：满 5 个一起修）
+- **当前待修复**：2 个（批量阈值：满 5 个一起修）
 - **问题编号**：#1 起**全局递增**（跨日连续，不按日重置），紧急/批量不影响编号
-- 已累计处理：#1、#2、#3、#4、#5、#7（已修复）、#6（待修复）
+- 已累计处理：#1~#5、#7、#9（已修复）、#6、#8（待修复）
 
 ## 目录（按日期）
 
+- [2026-08-17](#2026-08-17)
 - [2026-08-11](#2026-08-11)
 - [2026-08-10](#2026-08-10)
 
@@ -123,3 +124,26 @@
 - **原因**：`MediaService.apply:335` `a.setStatus(STATUSES.contains(req.status()) ? req.status() : "WANT")` —— `STATUSES` 是 `List.of(...)`（不可变 ListN），`contains(null)` 内部 `indexOf(null)` 直接抛 NPE。
 - **修复方式**（待做）：判空短路——`req.status() != null && STATUSES.contains(req.status()) ? req.status() : "WANT"`。
 - **变更记录**：2026-08-11 发现（E2E 验证详情页删除跳转、创建测试媒体时撞见）。未修复。
+
+---
+
+## 2026-08-17
+
+### [#9] omofuna 抓取在他人机器上卡死（前端进度条不动）
+- **日期**：2026-08-17
+- **状态**：已修复
+- **紧急**：否
+- **严重程度**：🟧 一般（分享给他人机器时同步功能不可用；本机网络好未复现）
+- **现象**：分享桌面版给他人机器，前端同步弹层**进度条不动**，后端日志停在「启动 omofuna 抓取」后无任何输出，任务一直 RUNNING，要等 60 分钟才被强制终止。
+- **原因**（读码验证）：
+  1. `omofuna.js` 的 `page.evaluate`（`isVerifyPage`/`countCards`/`extractCards`）**无超时保护**——puppeteer 对页面同步 JS 阻塞/死循环无法中断，他人机器网络不稳/渲染差异触发站点 JS 异常 → `evaluate` 无限挂起 → `fetchPage` 不返回 → node 无进度输出卡死（本机网络好从未触发）。
+  2. `puppeteer.launch` 也无显式超时（低配机/profile 锁/老 Chrome 可能卡启动）。
+  3. 后端 reader 线程只解析进度正则、**丢弃 node 其余输出** → Java 日志看不到抓取过程（诊断盲区，误以为"卡死无日志"）。
+  4. 后端 `p.waitFor(3600s)` 总超时太长，卡死后要空等 60min。
+- **修复方式**：
+  1. **omofuna.js 进程级 watchdog**：3 分钟无新进度行 → `console.error` + `process.exit(1)`（evaluate 挂起不阻塞 node 事件循环，`setInterval` 仍可触发）。
+  2. **`puppeteer.launch` 包 `Promise.race` 60s 超时**。
+  3. **fetchPage 每步打 `[omofuna] dbg` 阶段日志**（goto/verify/passVerification/cards/extract）——卡住时最后一条日志即卡点。
+  4. **后端 reader 把非进度行（dbg/错误/完成）转发到 Java 日志**（`[omofuna-node]`），消除盲区。
+  5. **后端「无进度超时」**：最后进度超 5 分钟 → `destroyForcibly` + ERROR（不再空等 60min）。
+- **变更记录**：2026-08-17 修复。`backend/scripts/omofuna.js`（watchdog + launch 超时 + dbg 日志）+ `OmofunaSyncTaskService.java`（reader 转发 + 无进度超时）。`node --check` + `mvn compile` 通过。待打包发布生效。

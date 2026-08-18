@@ -12,6 +12,7 @@
 ## 目录（按日期）
 
 - [2026-08-10](#2026-08-10)
+- [2026-08-17](#2026-08-17)
 
 ---
 
@@ -59,3 +60,21 @@
 - **适用场景**：标题 / 名称匹配、搜索、去重、数据预处理、机器学习输入清洗。
 - **例子**：本项目媒体识别——`util/MediaTitleNormalizer` 把「我爱你BABY」归一化（去「我」+ `baby→宝贝`）→「爱你宝贝」，与库里「爱你宝贝」归一化后相等 → 相似度 1.0（实现细节见 `technology.md` 片段媒体识别段）。
 - **涉及技术**：Java 正则 / 字符替换、字符串比较、编辑距离。
+
+---
+
+## 2026-08-17
+
+### asar（Electron 应用打包归档格式）
+
+- **日期**：2026-08-17
+- **定义**：asar（**A**tom **S**hell **AR**chive，源自 Electron 前身 Atom Shell）= 把应用的全部代码与资源（JS / JSON / 图片等）**拼装成单个文件**的归档格式。桌面版壳代码 `resources/app.asar` 即此格式。
+- **核心概念**：
+  - **单文件目录**：一个 asar = 「文件目录表（JSON header，含每个文件的路径/偏移/大小）+ 各文件内容**明文拼接**」。类似无压缩的 zip / tar。
+  - **Electron 内置透明支持**：Electron patch 了 Node 的 `fs` 与 `require`，应用内把 asar 当普通目录用（`require('./main')`、`fs.readFile()` 自动从 asar 解出），开发者感知不到归档。
+- **特点**：
+  - **优点**：读性能好（Windows 加载上千小文件慢，单文件按偏移读更快）；文件数从几千降到 1（Windows 处理海量小文件 / 安装慢）；避免深路径超 260 字符。
+  - **局限**：**不压缩、不加密**——`asar extract` 一分钟即可解出全部明文源码，Electron 应用保护「防君子不防小人」。
+- **适用场景**：任何 Electron 应用的分发打包（`app.asar` 即应用入口代码）；**不适用**：需要加密保护源码的场景（Electron 先天做不到）。
+- **例子**：本项目桌面版 `release/VideoTagger/resources/app.asar`（35KB）——内含 `main.js` / `preload.js` / `update.js` / `package.json` 四个文件，对应 `desktop/package.json` 的 `build.files` 配置；electron-builder 打包时收进 asar，后端 `video-tagger-backend.jar` 则作为独立 extraResources 放 `resources/app/`（jar 与壳代码两路互不打包）。在线更新只替换 jar，**app.asar 内的壳代码不在更新范围**，改壳须整包重发。
+- **涉及技术**：Electron / electron-builder / Node `fs` 模块 patch。
