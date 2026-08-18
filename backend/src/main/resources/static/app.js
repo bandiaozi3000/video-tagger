@@ -6504,8 +6504,9 @@ function applySiteBackground(cfg) {
     }
 }
 
-/* 设置弹窗事件绑定 + 页面加载应用已保存背景 */
-document.getElementById('settings-btn').addEventListener('click', openSettings);
+/* 设置弹窗事件绑定 + 页面加载应用已保存背景
+   web 顶栏 ⚙(settings-btn) 与桌面侧栏设置(settings-btn-side) 都绑 openSettings（双布局） */
+document.querySelectorAll('.settings-btn').forEach(b => b.addEventListener('click', openSettings));
 document.getElementById('settings-cancel').addEventListener('click', () => {
     document.getElementById('settings-modal').hidden = true;
     loadSettings(true); // 丢弃未保存改动，恢复已存背景

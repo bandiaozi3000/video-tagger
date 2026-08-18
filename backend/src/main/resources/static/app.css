@@ -2104,24 +2104,33 @@ input[type="checkbox"] { accent-color: var(--pink); width: 15px; height: 15px; c
 .app-mode-recommend .ver-chip { display: none; }
 /* =====================================================================
    桌面版布局（方案 C）：自定义标题栏 + 左侧导航栏 + 状态栏
-   结构：.shell > [.titlebar, .main-body > [.sidebar, .container], .statusbar]
+   结构（body.desktop-mode 变 grid）：titlebar(row1 通栏) + [sidebar(col1) + container(col2) 同行] + statusbar(row3 通栏)
+   web 模式（无 desktop-mode）：titlebar/sidebar/statusbar display:none，走原顶部 site-header + 居中 container + site-footer
    设计令牌与全局一致（毛玻璃/渐变/圆角）
    ===================================================================== */
 html, body { height: 100%; }
-body.desktop-mode { overflow: hidden; user-select: none; }
-
-.shell { position: relative; z-index: 2; height: 100vh; display: flex; flex-direction: column; }
+/* 桌面模式：body 变 grid，titlebar/sidebar/main/statusbar 按网格落位；web 模式下面三者 display:none */
+body.desktop-mode {
+    display: grid;
+    grid-template-rows: 44px 1fr 30px;   /* 标题栏 / 内容 / 状态栏 */
+    grid-template-columns: 176px 1fr;    /* 侧栏 / 内容 */
+    height: 100vh; overflow: hidden; user-select: none;
+}
+body.desktop-mode .site-header,
+body.desktop-mode .site-footer { display: none; }
 
 /* ---------- ① 自定义标题栏 ---------- */
 .titlebar {
     height: 44px; flex: none;
-    display: flex; align-items: center;
+    display: none; /* web 隐藏；桌面 body.desktop-mode 显示 */
+    align-items: center;
     padding: 0 0 0 14px;
     background: rgba(13, 13, 26, .82);
     backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
     border-bottom: 1px solid var(--border);
     -webkit-app-region: drag;
 }
+body.desktop-mode .titlebar { display: flex; grid-row: 1; grid-column: 1 / -1; }
 .titlebar .tb-title { display: flex; align-items: center; gap: 10px; }
 .titlebar .tb-mark {
     width: 24px; height: 24px; border-radius: 7px;
@@ -2143,18 +2152,19 @@ body.desktop-mode { overflow: hidden; user-select: none; }
 .titlebar .tb-btn:hover { background: rgba(255,255,255,.06); color: var(--text); }
 .titlebar .tb-btn.close:hover { background: #e81123; color: #fff; }
 
-/* ---------- ② 主体：侧栏 + 内容 ---------- */
-.main-body { flex: 1; display: flex; min-height: 0; }
+/* ---------- ② 主体：侧栏 + 内容（桌面 grid 布局由 body.desktop-mode 落位） ---------- */
 
 /* 侧栏 */
 .sidebar {
     width: 176px; flex: none;
-    display: flex; flex-direction: column;
+    display: none; /* web 隐藏；桌面 body.desktop-mode 显示 */
+    flex-direction: column;
     padding: 12px 10px;
     background: rgba(16, 16, 31, .72);
     backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
     border-right: 1px solid var(--border);
 }
+body.desktop-mode .sidebar { display: flex; grid-row: 2; grid-column: 1; }
 .side-group-label { font-size: 10px; color: var(--text-faint); letter-spacing: 2px; padding: 10px 10px 4px; font-weight: 600; user-select: none; }
 .side-footer { margin-top: auto; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); padding-top: 8px; }
 
@@ -2192,22 +2202,24 @@ body.desktop-mode { overflow: hidden; user-select: none; }
 .sidebar .settings-btn:hover { color: var(--text); background: rgba(255,255,255,.05); box-shadow: none; }
 
 /* 内容区：放开宽度占满 */
-body.desktop-mode main.container { max-width: none; margin: 0; padding: 20px 24px; overflow-y: auto; flex: 1; min-width: 0; }
+body.desktop-mode main.container { grid-row: 2; grid-column: 2; max-width: none; margin: 0; padding: 20px 24px; overflow-y: auto; min-width: 0; }
 
 /* ---------- ④ 状态栏 ---------- */
 .statusbar {
     height: 30px; flex: none;
-    display: flex; align-items: center; gap: 18px;
+    display: none; /* web 隐藏；桌面 body.desktop-mode 显示 */
+    align-items: center; gap: 18px;
     padding: 0 16px;
     background: rgba(13, 13, 26, .82);
     backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
     border-top: 1px solid var(--border);
     font-size: 11px; color: var(--text-faint);
 }
+body.desktop-mode .statusbar { display: flex; grid-row: 3; grid-column: 1 / -1; }
 .statusbar .sb-item { display: flex; align-items: center; gap: 6px; }
 .statusbar .sb-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px rgba(74, 222, 128, .6); }
 .statusbar .sb-sep { color: var(--border-strong); }
 .statusbar .sb-spacer { flex: 1; }
 
-/* 隐藏旧站点页脚（已由状态栏替代；Web 版如需保留可注释） */
-.site-footer { display: none; }
+/* 旧站点页脚：仅桌面隐藏（状态栏替代）；web 恢复显示 */
+body.desktop-mode .site-footer { display: none; }
