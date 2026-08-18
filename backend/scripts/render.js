@@ -83,6 +83,8 @@ let exitCode = 0;
 (async () => {
   let browser = null;
   try {
+    // dbg：定位渲染卡点（launch 前/后），后端 reader 捕获失败输出时可见
+    console.log(`[render] dbg chrome=${chromePath} launching...`);
     browser = await puppeteer.launch({
       executablePath: chromePath,
       headless: 'new',
@@ -99,6 +101,7 @@ let exitCode = 0;
         '--disable-dev-shm-usage',
       ],
     });
+    console.log(`[render] dbg launched ok`);
     const page = await browser.newPage();
     await page.setViewport({ width: captureW, height: captureH, deviceScaleFactor: 1 });
     await page.setDefaultNavigationTimeout(60 * 1000);

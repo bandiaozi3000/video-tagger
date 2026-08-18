@@ -220,18 +220,38 @@ function pickBrowserManually() {
   return null;
 }
 
+/** 内置 Chromium（打包时塞进 resources/chrome，Chrome for Testing 固定版本，与机器环境解耦）；不存在返回 null。 */
+function bundledChromePath() {
+  if (!app.isPackaged) return null; // 开发模式不内置，走系统探测
+  const bundled = path.join(process.resourcesPath, 'chrome', 'chrome.exe');
+  try {
+    if (fs.existsSync(bundled)) {
+      console.log(`[browser] 内置 Chrome: ${bundled}`);
+      return bundled;
+    }
+    console.log(`[browser] 内置 Chrome 缺失: ${bundled}（回退系统探测）`);
+    return null;
+  } catch (_) { return null; }
+}
+
 /**
  * 解析最终浏览器路径（统一入口，startBackend 用它）：
- * 显式环境变量 → 用户手动选择存档 → 自动探测 → 全 miss 弹窗让用户选（选完存档）→ 兜底默认。
+ * 显式环境变量 → 内置 Chromium（一劳永逸，优先） → 用户手动选择存档 → 自动探测 → 全 miss 弹窗让用户选（选完存档）→ 兜底默认。
  */
 function resolveBrowserPath() {
-  if (process.env.RENDER_CHROME_PATH) return process.env.RENDER_CHROME_PATH; // 显式指定最高优先
+  if (process.env.RENDER_CHROME_PATH) {
+    console.log(`[browser] 显式 env: ${process.env.RENDER_CHROME_PATH}`);
+    return process.env.RENDER_CHROME_PATH; // 显式指定最高优先
+  }
+  const bundled = bundledChromePath();
+  if (bundled) return bundled; // 内置固定版本：版本/headless 保证可用，非技术用户零配置
   const saved = readSavedBrowserPath();
-  if (saved) return saved;
+  if (saved) { console.log(`[browser] 手动存档: ${saved}`); return saved; }
   const auto = findChromePath();
-  if (auto && fs.existsSync(auto)) return auto;
+  if (auto && fs.existsSync(auto)) { console.log(`[browser] 自动探测: ${auto}`); return auto; }
   const picked = pickBrowserManually();
-  if (picked) { saveBrowserPath(picked); return picked; }
+  if (picked) { saveBrowserPath(picked); console.log(`[browser] 手动选择: ${picked}`); return picked; }
+  console.log(`[browser] 全 miss，回退默认: ${auto}`);
   return auto; // 用户取消选择：仍返回兜底默认（后端会明确报错提示）
 }
 

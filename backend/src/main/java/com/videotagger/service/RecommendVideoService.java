@@ -234,8 +234,8 @@ public class RecommendVideoService {
             pb.directory(resolveScriptsDir().toFile());
             pb.redirectErrorStream(true);
 
-            log.info("渲染推荐视频: {} 部, {} ({}x{}), 预计 {}s",
-                    ids.size(), resolution, wh[0], wh[1], durationSeconds);
+            log.info("渲染推荐视频: {} 部, {} ({}x{}), 预计 {}s, node={}, chrome={}, scripts={}",
+                    ids.size(), resolution, wh[0], wh[1], durationSeconds, nodePath, chromePath, scriptsDir);
             long t0 = System.currentTimeMillis();
             Process p = pb.start();
             String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);

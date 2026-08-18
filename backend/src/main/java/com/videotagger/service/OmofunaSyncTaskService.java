@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -34,6 +34,8 @@ public class OmofunaSyncTaskService {
 
     private static final Logger log = LoggerFactory.getLogger(OmofunaSyncTaskService.class);
     private static final long TIMEOUT_SECONDS = 60 * 60; // 抓取总超时
+    private static final long NO_PROGRESS_TIMEOUT_MS = 5 * 60 * 1000; // 无进度超时：5 分钟无新进度行 → 强制终止（防 node 卡死空等 60min）
+    private static final long PROGRESS_POLL_MS = 2 * 1000; // 无进度检测轮询间隔
     private static final int MAX_TASKS = 5; // 任务表容量，超出淘汰最旧非 RUNNING
     private static final int MIN_YEAR = 2000;
     private static final int MAX_YEAR = 2026;
@@ -110,9 +112,11 @@ public class OmofunaSyncTaskService {
             pb.directory(resolveScriptsDir().toFile());
             pb.redirectErrorStream(true);
 
-            log.info("启动 omofuna 抓取: {} 年, 产物 {}", years, out);
+            log.info("启动 omofuna 抓取: {} 年, 产物 {}, node={}, chrome={}, scripts={}",
+                    years, out, nodePath, chromePath, scriptsDir);
             long t0 = System.currentTimeMillis();
             Process p = pb.start();
+            AtomicLong lastProgressAt = new AtomicLong(System.currentTimeMillis());
 
             // reader 线程：逐行读 stdout 解析进度（先 drain 防管道 64KB 写满死锁）
             Thread reader = new Thread(() -> {
@@ -120,9 +124,16 @@ public class OmofunaSyncTaskService {
                         new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = br.readLine()) != null) {
+                        if (line.isEmpty()) {
+                            continue;
+                        }
                         Matcher m = PROGRESS.matcher(line);
                         if (m.find()) {
                             updateProgress(taskId, Integer.parseInt(m.group(1)));
+                            lastProgressAt.set(System.currentTimeMillis());
+                        } else {
+                            // 非进度行（omofuna.js 的 dbg 阶段日志 / 错误 / 完成）转发到 Java 日志，便于定位抓取卡点
+                            log.info("[omofuna-node] {}", line);
                         }
                     }
                 } catch (IOException e) {
@@ -132,7 +143,25 @@ public class OmofunaSyncTaskService {
             reader.setDaemon(true);
             reader.start();
 
-            boolean finished = p.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            // 轮询等待进程退出，同时做「无进度超时」检测：node 卡在 page.evaluate 时无新进度行，5 分钟直接终止
+            boolean finished = false;
+            long deadline = System.currentTimeMillis() + TIMEOUT_SECONDS * 1000;
+            while (p.isAlive() && System.currentTimeMillis() < deadline) {
+                long idle = System.currentTimeMillis() - lastProgressAt.get();
+                if (idle > NO_PROGRESS_TIMEOUT_MS) {
+                    p.destroyForcibly();
+                    complete(taskId, "ERROR", "抓取无进度超时（" + (NO_PROGRESS_TIMEOUT_MS / 1000)
+                            + "s 无新进度行，可能卡在页面加载/JS 阻塞），已强制终止");
+                    return;
+                }
+                try {
+                    Thread.sleep(PROGRESS_POLL_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            finished = !p.isAlive();
             if (!finished) {
                 p.destroyForcibly();
                 complete(taskId, "ERROR", "抓取超时（>" + TIMEOUT_SECONDS + "s），已强制终止");

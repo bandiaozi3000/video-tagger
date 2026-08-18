@@ -1,6 +1,6 @@
 {
   "name": "video-tagger-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Video Tagger 桌面版 —— Electron 壳 + Spring Boot 子进程 + SQLite",
   "main": "main.js",
   "author": "zed",
@@ -39,6 +39,10 @@
       {
         "from": "resources/node",
         "to": "node"
+      },
+      {
+        "from": "resources/chrome",
+        "to": "chrome"
       },
       {
         "from": "resources/ffmpeg.exe",

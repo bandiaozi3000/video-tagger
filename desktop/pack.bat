@@ -2,15 +2,16 @@
 setlocal EnableDelayedExpansion
 rem ============================================================
 rem  Video Tagger desktop one-click package script
-rem  Output: <project-root>/release/video-tagger-desktop-0.1.0.zip
-rem  Bundles node + ffmpeg + jre, so target machine needs nothing
-rem  except Chrome. Double-click to run; safe from any cwd.
+rem  Output: <project-root>/release/video-tagger-desktop-0.1.1.zip
+rem  Bundles node + Chrome + ffmpeg + jre, so target machine needs nothing.
+rem  Double-click to run; safe from any cwd.
 rem ============================================================
 
 set "DESK=%~dp0"
 set "ROOT=%~dp0.."
 set "NODE_VERSION=v22.20.0"
-set "ZIP_NAME=video-tagger-desktop-0.1.0.zip"
+set "CHROME_VERSION=131.0.6778.204"
+set "ZIP_NAME=video-tagger-desktop-0.1.1.zip"
 
 rem ---- 0. locate maven (Maven wrapper dist, find the one with mvn.cmd) ----
 set "MVN_SET="
@@ -29,14 +30,14 @@ if errorlevel 1 (
 )
 
 rem ---- 1. build backend fat jar ----
-echo [1/6] building backend jar ...
+echo [1/7] building backend jar ...
 pushd "%ROOT%\backend"
 call mvn -q package -Dmaven.test.skip=true
 if errorlevel 1 ( popd & echo [ERROR] mvn package failed & pause & exit /b 1 )
 popd
 
 rem ---- 2. pick newest jar, copy to resources/app (fixed name read by electron-builder) ----
-echo [2/6] copy jar ...
+echo [2/7] copy jar ...
 set "JAR="
 for /f "delims=" %%f in ('dir /b /o-d "%ROOT%\backend\target\video-tagger-backend-*.jar" 2^>nul') do (
   echo %%f | findstr /i /v "sources javadoc" >nul
@@ -48,7 +49,7 @@ copy /y "%ROOT%\backend\target\%JAR%" "%DESK%resources\app\video-tagger-backend.
 echo        jar: %JAR%
 
 rem ---- 3. node runtime (bundled; download win-x64 zip if missing) ----
-echo [3/6] node runtime ...
+echo [3/7] node runtime ...
 if not exist "%DESK%resources\node\node.exe" (
   echo        downloading node %NODE_VERSION% ...
   curl -sL --max-time 300 -o "%TEMP%\node-%NODE_VERSION%-win-x64.zip" "https://npmmirror.com/mirrors/node/%NODE_VERSION%/node-%NODE_VERSION%-win-x64.zip"
@@ -67,8 +68,28 @@ if not exist "%DESK%resources\node\node.exe" (
 )
 echo        node: %DESK%resources\node\node.exe
 
-rem ---- 4. ffmpeg (bundled; copy from tools\ffmpeg.exe if missing) ----
-echo [4/6] ffmpeg ...
+rem ---- 4. Chrome for Testing (bundled; download win-x64 zip if missing) ----
+echo [4/7] Chrome for Testing ...
+if not exist "%DESK%resources\chrome\chrome.exe" (
+  echo        downloading Chrome for Testing %CHROME_VERSION% ...
+  curl -sL --max-time 600 -o "%TEMP%\chrome-%CHROME_VERSION%-win64.zip" "https://npmmirror.com/mirrors/chrome-for-testing/%CHROME_VERSION%/win64/chrome-win64.zip"
+  if errorlevel 1 (
+    echo        npmmirror failed, trying official googleapis ...
+    curl -sL --max-time 600 -o "%TEMP%\chrome-%CHROME_VERSION%-win64.zip" "https://storage.googleapis.com/chrome-for-testing-public/%CHROME_VERSION%/win64/chrome-win64.zip"
+  )
+  if errorlevel 1 ( echo [ERROR] Chrome download failed & pause & exit /b 1 )
+  echo        extracting ...
+  if exist "%TEMP%\chrome-extract" rmdir /s /q "%TEMP%\chrome-extract"
+  powershell -NoProfile -Command "Expand-Archive -Force -Path '%TEMP%\chrome-%CHROME_VERSION%-win64.zip' -DestinationPath '%TEMP%\chrome-extract'"
+  if not exist "%DESK%resources\chrome" mkdir "%DESK%resources\chrome"
+  xcopy /e /y /q "%TEMP%\chrome-extract\chrome-win64\*" "%DESK%resources\chrome\" >nul
+  del /q "%TEMP%\chrome-%CHROME_VERSION%-win64.zip" 2>nul
+  rmdir /s /q "%TEMP%\chrome-extract" 2>nul
+)
+echo        chrome: %DESK%resources\chrome\chrome.exe
+
+rem ---- 5. ffmpeg (bundled; copy from tools\ffmpeg.exe if missing) ----
+echo [5/7] ffmpeg ...
 if not exist "%DESK%resources\ffmpeg.exe" (
   if exist "%ROOT%\tools\ffmpeg.exe" (
     copy /y "%ROOT%\tools\ffmpeg.exe" "%DESK%resources\ffmpeg.exe" >nul
@@ -79,15 +100,15 @@ if not exist "%DESK%resources\ffmpeg.exe" (
   )
 )
 
-rem ---- 5. jre check ----
+rem ---- 6. jre check ----
 if not exist "%DESK%resources\jre\bin\java.exe" (
   echo [ERROR] resources\jre missing. copy a full JRE 17 to desktop\resources\jre
   pause
   exit /b 1
 )
 
-rem ---- 6. electron-builder (skip signing; use distN if old dist is locked) ----
-echo [5/6] electron-builder ...
+rem ---- 7. electron-builder (skip signing; use distN if old dist is locked) ----
+echo [6/7] electron-builder ...
 if not exist "%DESK%node_modules\.bin\electron-builder.cmd" (
   echo [ERROR] electron-builder not installed. run:  cd desktop ^&^& npm install
   pause
@@ -108,8 +129,8 @@ call "%DESK%node_modules\.bin\electron-builder.cmd" --win --x64 --config.win.sig
 if errorlevel 1 ( popd & echo [ERROR] electron-builder failed & pause & exit /b 1 )
 popd
 
-rem ---- 7. rename win-unpacked to VideoTagger/ + compress release zip ----
-echo [6/6] packaging release zip ...
+rem ---- 8. rename win-unpacked to VideoTagger/ + compress release zip ----
+echo [7/7] packaging release zip ...
 if exist "%ROOT%\release" rmdir /s /q "%ROOT%\release"
 mkdir "%ROOT%\release"
 move "%DESK%!OUTDIR!\win-unpacked" "%ROOT%\release\VideoTagger" >nul

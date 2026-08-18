@@ -34,6 +34,8 @@ const CARD_WAIT_MS = 20000; // 验证放行 / 卡片渲染等待上限
 const RETRY_ATTEMPTS = 2; // 每页重试次数（指数退避 1s/2s）
 const CARD_SELECTOR = 'a.lazyload[href^="/anime/"]';
 const CHECKPOINT_EVERY = 5; // 每 N 页覆写一次 JSON（崩溃残留不导入，仅防全丢）
+const NO_PROGRESS_TIMEOUT_MS = 180_000; // 无进度 watchdog：3 分钟无新进度行 → 强制退出（防 page.evaluate 挂起成无底洞）
+const LAUNCH_TIMEOUT_MS = 60_000; // Chrome 启动超时（低配机 / profile 锁 / 老版本可能卡 launch）
 
 // ---------- CLI 参数 ----------
 function arg(name) {
@@ -144,15 +146,24 @@ function extractCards(page, year, catId) {
  * 返回 { cards } 或 { cards:[], error } / { cards:[], verifyStuck }。
  */
 async function fetchPage(page, catId, pageNum, year) {
+  const url = urlFor(catId, pageNum, year);
+  console.log(`[omofuna] dbg goto ${year}/${catId}/${pageNum} ${url}`);
   try {
-    const url = urlFor(catId, pageNum, year);
     for (let attempt = 0; attempt <= RETRY_ATTEMPTS; attempt++) {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
-      if (await isVerifyPage(page)) {
+      const verify = await isVerifyPage(page);
+      console.log(`[omofuna] dbg verify=${verify ? 'Y' : 'N'} attempt=${attempt}`);
+      if (verify) {
+        console.log(`[omofuna] dbg passVerification 开始`);
         await passVerification(page);
+        console.log(`[omofuna] dbg passVerification 完成`);
       }
-      if (await countCards(page) > 0) {
-        return { cards: await extractCards(page, year, catId) };
+      const cardCount = await countCards(page);
+      console.log(`[omofuna] dbg cards=${cardCount}`);
+      if (cardCount > 0) {
+        const cards = await extractCards(page, year, catId);
+        console.log(`[omofuna] dbg extract=${cards.length}`);
+        return { cards };
       }
       // 无卡片：仍是验证页 → 重试退避；否则是正常空页（到尾）
       if (!(await isVerifyPage(page))) {
@@ -181,23 +192,45 @@ function writeCheckpoint() {
 const seen = new Set(); // hash 去重：同一番可同时挂日漫/动画/剧场，保留首次
 const allItems = [];
 let total = 0, pages = 0, failedPages = 0, consecutiveFailures = 0;
+let lastProgress = Date.now(); // 无进度 watchdog 基准：每成功输出一页进度行后刷新
 
 (async () => {
   let browser = null;
   try {
-    browser = await puppeteer.launch({
-      executablePath: chromePath,
-      headless: headed ? false : 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--mute-audio',
-        '--hide-scrollbars',
-        '--force-color-profile=srgb',
-        '--force-device-scale-factor=1',
-        '--disable-dev-shm-usage',
-      ],
+    // 无进度 watchdog：page.evaluate 挂起不阻塞 node 事件循环，setInterval 仍可触发 → 超时自爆（进程级兜底）
+    const watchdog = setInterval(() => {
+      const idle = Date.now() - lastProgress;
+      if (idle > NO_PROGRESS_TIMEOUT_MS) {
+        console.error(`[omofuna] 无进度超时（${Math.round(idle / 1000)}s 无新进度行），强制退出`);
+        process.exit(1);
+      }
+    }, 10_000);
+    watchdog.unref(); // 不阻塞正常流程结束
+    // Chrome 启动超时（puppeteer.launch 本身可能挂起：低配机/profile 锁/老版本）
+    // dbg 行经后端 reader 转发进 Java 日志：看到 launching 后紧跟「失败」即定位到 launch 阶段
+    console.log(`[omofuna] dbg chrome=${chromePath} headless=${headed ? 'false(headed)' : 'new'} launching...`);
+    const launchTimeout = new Promise((_, rej) => {
+      const t = setTimeout(() => rej(new Error('Chrome 启动超时（' + (LAUNCH_TIMEOUT_MS / 1000) + 's）')), LAUNCH_TIMEOUT_MS);
+      t.unref();
     });
+    browser = await Promise.race([
+      puppeteer.launch({
+        executablePath: chromePath,
+        headless: headed ? false : 'new',
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--mute-audio',
+          '--hide-scrollbars',
+          '--force-color-profile=srgb',
+          '--force-device-scale-factor=1',
+          '--disable-dev-shm-usage',
+        ],
+      }),
+      launchTimeout,
+    ]);
+    console.log(`[omofuna] dbg launched ok`);
+    try { console.log(`[omofuna] dbg browserVersion=${await browser.version()}`); } catch (_) {}
     const page = await browser.newPage();
     await page.setDefaultNavigationTimeout(NAV_TIMEOUT);
 
@@ -207,6 +240,7 @@ let total = 0, pages = 0, failedPages = 0, consecutiveFailures = 0;
           const res = await fetchPage(page, cat.id, pageNum, year);
           pages++;
           console.log(`[omofuna] page=${year}/${cat.id}/${pageNum} items=${res.cards.length} total=${total}`);
+          lastProgress = Date.now(); // 刷新 watchdog 基准
 
           if (res.error || res.verifyStuck) {
             failedPages++;
