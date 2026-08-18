@@ -24,10 +24,10 @@ public interface ClipMapper extends BaseMapper<Clip> {
 
     /** 全文检索（SQLite 版：LIKE 兜底）。原 MySQL ngram FULLTEXT 召回更准，SQLite FTS5 中文分词后置优化（D11），此处保证能用。 */
     @Select("SELECT * FROM clips "
-            + "WHERE (title LIKE '%' || #{q} || '%' OR tag LIKE '%' || #{q} || '%' "
-            + "   OR note LIKE '%' || #{q} || '%') "
-            + "ORDER BY CASE WHEN title LIKE '%' || #{q} || '%' THEN 2 "
-            + "WHEN tag LIKE '%' || #{q} || '%' THEN 1 ELSE 0 END DESC, id DESC "
+            + "WHERE (title LIKE CONCAT('%', #{q}, '%') OR tag LIKE CONCAT('%', #{q}, '%') "
+            + "   OR note LIKE CONCAT('%', #{q}, '%')) "
+            + "ORDER BY CASE WHEN title LIKE CONCAT('%', #{q}, '%') THEN 2 "
+            + "WHEN tag LIKE CONCAT('%', #{q}, '%') THEN 1 ELSE 0 END DESC, id DESC "
             + "LIMIT #{limit}")
     List<Clip> fullTextSearch(@Param("q") String q, @Param("limit") int limit);
 
@@ -59,9 +59,9 @@ public interface ClipMapper extends BaseMapper<Clip> {
     @Select("<script>"
             + "SELECT id FROM clips "
             + "WHERE id != #{id} AND ("
-            + "<foreach collection='tokens' item='t' separator=' OR '>tag LIKE '%' || #{t} || '%'</foreach>"
+            + "<foreach collection='tokens' item='t' separator=' OR '>tag LIKE CONCAT('%', #{t}, '%')</foreach>"
             + ") ORDER BY ("
-            + "<foreach collection='tokens' item='t' separator='+'>CASE WHEN tag LIKE '%' || #{t} || '%' THEN 1 ELSE 0 END</foreach>"
+            + "<foreach collection='tokens' item='t' separator='+'>CASE WHEN tag LIKE CONCAT('%', #{t}, '%') THEN 1 ELSE 0 END</foreach>"
             + ") DESC, id DESC LIMIT #{limit}"
             + "</script>")
     List<Long> findSimilarByTag(@Param("id") Long id, @Param("tokens") List<String> tokens, @Param("limit") int limit);
@@ -100,8 +100,8 @@ public interface ClipMapper extends BaseMapper<Clip> {
     long countDistinctTags();
 
     @Select("SELECT CASE "
-            + "  WHEN url LIKE 'https://%' THEN substr(url, 9, instr(substr(url, 9) || '/', '/') - 1) "
-            + "  WHEN url LIKE 'http://%' THEN substr(url, 8, instr(substr(url, 8) || '/', '/') - 1) "
+            + "  WHEN url LIKE 'https://%' THEN substr(url, 9, instr(CONCAT(substr(url, 9), '/'), '/') - 1) "
+            + "  WHEN url LIKE 'http://%' THEN substr(url, 8, instr(CONCAT(substr(url, 8), '/'), '/') - 1) "
             + "  ELSE '' END AS site, COUNT(*) AS count "
             + "FROM clips GROUP BY site ORDER BY count DESC LIMIT #{limit}")
     List<SiteCount> countBySite(@Param("limit") int limit);
@@ -111,7 +111,7 @@ public interface ClipMapper extends BaseMapper<Clip> {
     List<TrendPoint> countTrend(@Param("since") long since);
 
     /** 标签改名/合并时定位含该词的片段（精确按空白分词替换，避免子串误伤）。 */
-    @Select("SELECT * FROM clips WHERE tag LIKE '%' || #{w} || '%'")
+    @Select("SELECT * FROM clips WHERE tag LIKE CONCAT('%', #{w}, '%')")
     List<Clip> selectByTagContains(@Param("w") String w);
 
     @Update("UPDATE clips SET tag = #{tag} WHERE id = #{id}")

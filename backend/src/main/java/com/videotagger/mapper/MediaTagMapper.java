@@ -12,7 +12,8 @@ import java.util.List;
 
 public interface MediaTagMapper extends BaseMapper<MediaTag> {
 
-    @Insert("INSERT OR IGNORE INTO media_tag(media_id, tag_id) VALUES(#{mediaId}, #{tagId})")
+    @Insert(value = "INSERT OR IGNORE INTO media_tag(media_id, tag_id) VALUES(#{mediaId}, #{tagId})", databaseId = "sqlite")
+    @Insert(value = "INSERT IGNORE INTO media_tag(media_id, tag_id) VALUES(#{mediaId}, #{tagId})", databaseId = "mysql")
     int insertIgnore(@Param("mediaId") long mediaId, @Param("tagId") long tagId);
 
     @Delete("DELETE FROM media_tag WHERE media_id = #{mediaId} AND tag_id = #{tagId}")
@@ -25,8 +26,9 @@ public interface MediaTagMapper extends BaseMapper<MediaTag> {
             + "WHERE at.media_id = #{mediaId} ORDER BY t.id")
     List<Tag> selectTags(@Param("mediaId") long mediaId);
 
-    /** 标签合并：源引用迁移到目标（INSERT OR IGNORE 防重复）。 */
-    @Insert("INSERT OR IGNORE INTO media_tag(media_id, tag_id) SELECT media_id, #{toId} FROM media_tag WHERE tag_id = #{fromId}")
+    /** 标签合并：源引用迁移到目标（幂等防重复）。 */
+    @Insert(value = "INSERT OR IGNORE INTO media_tag(media_id, tag_id) SELECT media_id, #{toId} FROM media_tag WHERE tag_id = #{fromId}", databaseId = "sqlite")
+    @Insert(value = "INSERT IGNORE INTO media_tag(media_id, tag_id) SELECT media_id, #{toId} FROM media_tag WHERE tag_id = #{fromId}", databaseId = "mysql")
     void moveRefs(@Param("fromId") long fromId, @Param("toId") long toId);
 
     @Delete("DELETE FROM media_tag WHERE tag_id = #{fromId}")
