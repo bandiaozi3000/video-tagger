@@ -27,7 +27,7 @@ public class VideoTaggerApplication {
     static void ensureDataDirs() {
         String root = System.getenv("VT_DATA_DIR");
         Path base = root != null && !root.isBlank() ? Paths.get(root) : Paths.get("data");
-        for (String s : new String[]{"", "covers", "site", "exports", "logs"}) {
+        for (String s : new String[]{"", "covers", "site", "exports", "logs", "videos", "clip-videos", "clip-images", "highlight-projects"}) {
             try {
                 Files.createDirectories(s.isEmpty() ? base : base.resolve(s));
             } catch (Exception e) {

@@ -52,6 +52,39 @@ public class AsyncConfig {
      * 抓取 20~40 分钟，不能占用 coverExecutor（会堵死封面下载队列）；
      * 单线程保证同刻仅一个抓取任务，配合 OmofunaSyncTaskService.create() 的 RUNNING 预检双保险。
      */
+    @Bean("clipExportExecutor")
+    public Executor clipExportExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("clip-export-");
+        executor.initialize();
+        return executor;
+    }
+
+    @Bean("highlightSourceExecutor")
+    public Executor highlightSourceExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("highlight-source-");
+        executor.initialize();
+        return executor;
+    }
+
+    @Bean("highlightExportExecutor")
+    public Executor highlightExportExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(10);
+        executor.setThreadNamePrefix("highlight-export-");
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("syncExecutor")
     public Executor syncExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

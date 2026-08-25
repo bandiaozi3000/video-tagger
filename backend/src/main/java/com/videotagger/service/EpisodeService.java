@@ -9,6 +9,7 @@ import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.EpisodeTagMapper;
 import com.videotagger.mapper.TagMapper;
 import com.videotagger.util.VideoFingerprint;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,11 +28,23 @@ public class EpisodeService {
     private final ClipMapper clipMapper;
     private final ClipTagMapper clipTagMapper;
     private final TagSyncService tagSyncService;
+    private final ClipExportService clipExportService;
+    private final HighlightProjectService highlightProjectService;
 
     public EpisodeService(EpisodeMapper episodeMapper, EpisodeTagMapper episodeTagMapper,
                           TagMapper tagMapper, EmbeddingTaskService embeddingTaskService,
                           CoverService coverService, ClipMapper clipMapper, ClipTagMapper clipTagMapper,
                           TagSyncService tagSyncService) {
+        this(episodeMapper, episodeTagMapper, tagMapper, embeddingTaskService, coverService, clipMapper,
+                clipTagMapper, tagSyncService, null, null);
+    }
+
+    @Autowired
+    public EpisodeService(EpisodeMapper episodeMapper, EpisodeTagMapper episodeTagMapper,
+                          TagMapper tagMapper, EmbeddingTaskService embeddingTaskService,
+                          CoverService coverService, ClipMapper clipMapper, ClipTagMapper clipTagMapper,
+                          TagSyncService tagSyncService, ClipExportService clipExportService,
+                          HighlightProjectService highlightProjectService) {
         this.episodeMapper = episodeMapper;
         this.episodeTagMapper = episodeTagMapper;
         this.tagMapper = tagMapper;
@@ -40,6 +53,8 @@ public class EpisodeService {
         this.clipMapper = clipMapper;
         this.clipTagMapper = clipTagMapper;
         this.tagSyncService = tagSyncService;
+        this.clipExportService = clipExportService;
+        this.highlightProjectService = highlightProjectService;
     }
 
     /** 更新集信息：备注/季/集号。字段传 null 表示不改；note 传空串表示清空；变更后入队重嵌。 */
@@ -143,6 +158,10 @@ public class EpisodeService {
         for (Clip c : clipMapper.listByEpisode(id)) {
             coverService.deleteCover(c.getCoverPath());
             coverService.deleteCover(c.getDetailCoverPath());
+            if (clipExportService != null) clipExportService.deleteArtifacts(c.getId());
+            if (highlightProjectService != null) {
+                highlightProjectService.markClipUnavailable(c.getId(), "原始片段已删除，请移除或上传替代素材");
+            }
             embeddingTaskService.deleteFor(EntityType.CLIP, c.getId());
             clipTagMapper.deleteByClip(c.getId());
         }

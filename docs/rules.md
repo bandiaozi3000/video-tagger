@@ -57,11 +57,15 @@
 - **记忆**：`memory-index-sync-on-update`
 - **内容**：更新记忆文件后，必须同步 **正文 / frontmatter description / MEMORY.md 索引行** 三处，grep 验证零残留，避免过期状态误导。
 
+### 9. 大版本主文档归档
+- **记忆**：`version-master-doc-policy`
+- **内容**：每个大版本归入 `docs/` 下的一份主需求/设计文档；同一版本后续需求变更、新增、方案调整和实现状态持续同步该主 spec，并同步唯一配套 plan、worklog 和必要的 CHANGELOG/story；不创建互相漂移的零散主文档。
+
 ---
 
 ## 三、UI 设计规范类
 
-### 9. UI 参考主流设计
+### 10. UI 参考主流设计
 - **记忆**：`ui-reference-mainstream-design`
 - **内容**：功能设计时交互/界面参考主流产品（排序=维度+升降序、筛选折叠+重置、分页+空态等），功能不只实现就好，交互完整才算完。
 
@@ -83,4 +87,4 @@
 - **环境/踩坑类**（6 条）：embedding 环境变量、静态资源 target 复制、Maven 多构造器/离线编译、Milvus 阈值 baseline、Docker 旧镜像、本机 Spring/Maven 坑。
 - **项目/功能知识类**（15 条）：`video-tagger-project-map` 总览 + v0.3~v0.17 各期功能决策记忆。
 
-> 记忆库当前共 31 条记忆。规则若有增改，请在更新对应记忆的同时刷新本清单。
+> 规则若有增改，请在更新对应记忆的同时刷新本清单。

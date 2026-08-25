@@ -17,6 +17,8 @@ public class Clip {
     /** 所属集（episode.id）。Phase 1 过渡期可空（历史数据），打标时自动创建并回填 */
     private Long episodeId;
     private Double timestampSec;
+    /** 片段结束时间（秒，可空；为空时兼容旧的瞬时片段） */
+    private Double endSec;
     /** 视频总时长（秒，可选，扩展打标时上报） */
     private Double videoDuration;
     private String tag;

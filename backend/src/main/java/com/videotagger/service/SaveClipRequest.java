@@ -11,6 +11,7 @@ public record SaveClipRequest(
         @NotBlank @Size(max = 2048)
         @Pattern(regexp = "^https?://.+", message = "url 必须是 http(s) 地址") String url,
         @NotNull @DecimalMin("0.0") Double timestampSec,
+        @DecimalMin(value = "0.0", inclusive = false) Double endSec,
         @NotBlank @Size(max = 100) String tag,
         @Size(max = 2000) String note,
         Double videoDuration,
@@ -24,13 +25,28 @@ public record SaveClipRequest(
         if (videoDuration != null && videoDuration < 0) {
             videoDuration = null;
         }
+        if (endSec != null && endSec < 0) {
+            throw new IllegalArgumentException("结束时间不能为负数");
+        }
+    }
+
+    public SaveClipRequest(String title, String url, Double timestampSec, String tag, String note,
+                           Double videoDuration, String ogImage, String coverDataUrl,
+                           String detailCoverDataUrl, Long mediaId, Boolean forceNewMedia) {
+        this(title, url, timestampSec, null, tag, note, videoDuration, ogImage, coverDataUrl,
+                detailCoverDataUrl, mediaId, forceNewMedia);
     }
 
     public SaveClipRequest(String title, String url, Double timestampSec, String tag, String note) {
-        this(title, url, timestampSec, tag, note, null, null, null, null, null, null);
+        this(title, url, timestampSec, null, tag, note, null, null, null, null, null, null);
     }
 
     public SaveClipRequest(String title, String url, Double timestampSec, String tag, String note, Double videoDuration) {
-        this(title, url, timestampSec, tag, note, videoDuration, null, null, null, null, null);
+        this(title, url, timestampSec, null, tag, note, videoDuration, null, null, null, null, null);
+    }
+
+    public SaveClipRequest(String title, String url, Double timestampSec, Double endSec,
+                           String tag, String note, Double videoDuration) {
+        this(title, url, timestampSec, endSec, tag, note, videoDuration, null, null, null, null, null);
     }
 }

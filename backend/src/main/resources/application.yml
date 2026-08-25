@@ -1,5 +1,5 @@
 server:
-  port: 9010
+  port: 8080
   # 本地开发默认只监听回环地址；Docker 内通过 SERVER_ADDRESS=0.0.0.0 覆盖，
   # 宿主侧再以 127.0.0.1:8080:8080 发布端口，避免暴露到局域网
   address: ${SERVER_ADDRESS:127.0.0.1}
@@ -32,8 +32,8 @@ spring:
     enabled: false
   servlet:
     multipart:
-      max-file-size: 10MB
-      max-request-size: 12MB
+      max-file-size: 10000MB
+      max-request-size: 10000MB
 
 mybatis-plus:
   configuration:
@@ -44,6 +44,25 @@ videotagger:
   cover-dir: ${COVER_DIR:${VT_DATA_DIR:data}/covers}
   site-dir: ${SITE_DIR:${VT_DATA_DIR:data}/site}
   export-dir: ${EXPORT_DIR:${VT_DATA_DIR:data}/exports}
+  clip-export:
+    video-dir: ${VIDEO_LIBRARY_DIR:${VT_DATA_DIR:data}/videos}
+    video-output-dir: ${CLIP_VIDEO_OUTPUT_DIR:${VT_DATA_DIR:data}/clip-videos}
+    image-output-dir: ${CLIP_IMAGE_OUTPUT_DIR:${VT_DATA_DIR:data}/clip-images}
+    max-duration-sec: ${CLIP_EXPORT_MAX_DURATION_SEC:1800}
+    task-timeout-sec: ${CLIP_EXPORT_TASK_TIMEOUT_SEC:3600}
+    browser-max-size-bytes: ${CLIP_EXPORT_BROWSER_MAX_SIZE_BYTES:209715200}
+    max-sequence-frames: ${CLIP_EXPORT_MAX_SEQUENCE_FRAMES:300}
+    ffmpeg-path: ${CLIP_EXPORT_FFMPEG_PATH:${videotagger.render.ffmpeg-path}}
+    allowed-extensions: mp4,mkv,webm,mov,avi,flv
+  highlight:
+    root-dir: ${HIGHLIGHT_ROOT_DIR:${VT_DATA_DIR:data}/highlight-projects}
+    style-dir: ${HIGHLIGHT_STYLE_DIR:${VT_DATA_DIR:data}/highlight-styles}
+    ffmpeg-path: ${HIGHLIGHT_FFMPEG_PATH:${videotagger.render.ffmpeg-path}}
+    task-timeout-sec: ${HIGHLIGHT_TASK_TIMEOUT_SEC:3600}
+    max-upload-bytes: ${HIGHLIGHT_MAX_UPLOAD_BYTES:524288000}
+    max-download-bytes: ${HIGHLIGHT_MAX_DOWNLOAD_BYTES:524288000}
+    max-duration-sec: ${HIGHLIGHT_MAX_DURATION_SEC:7200}
+    max-items: ${HIGHLIGHT_MAX_ITEMS:200}
   # 外部同步（AniList/omofuna 按年份批量导入）：默认开启；需联网。设为 false 可禁用（同步入口 404）
   sync:
     enabled: ${VIDEOTAGGER_SYNC_ENABLED:true}

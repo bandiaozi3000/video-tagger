@@ -18,6 +18,7 @@ import com.videotagger.util.TitleParser;
 import com.videotagger.util.VideoFingerprint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,12 +51,25 @@ public class ClipService {
     private final EmbeddingTaskService embeddingTaskService;
     private final TagSyncService tagSyncService;
     private final TitleMappingService titleMappingService;
+    private final ClipExportService clipExportService;
+    private final HighlightProjectService highlightProjectService;
 
     public ClipService(ClipMapper clipMapper, MediaMapper mediaMapper,
                        MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
                        EpisodeMapper episodeMapper, TagMapper tagMapper, ClipTagMapper clipTagMapper,
                        CoverService coverService, EmbeddingTaskService embeddingTaskService,
                        TagSyncService tagSyncService, TitleMappingService titleMappingService) {
+        this(clipMapper, mediaMapper, mediaFormatMapper, mediaSubcategoryMapper, episodeMapper, tagMapper,
+                clipTagMapper, coverService, embeddingTaskService, tagSyncService, titleMappingService, null, null);
+    }
+
+    @Autowired
+    public ClipService(ClipMapper clipMapper, MediaMapper mediaMapper,
+                       MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
+                       EpisodeMapper episodeMapper, TagMapper tagMapper, ClipTagMapper clipTagMapper,
+                       CoverService coverService, EmbeddingTaskService embeddingTaskService,
+                       TagSyncService tagSyncService, TitleMappingService titleMappingService,
+                       ClipExportService clipExportService, HighlightProjectService highlightProjectService) {
         this.clipMapper = clipMapper;
         this.mediaMapper = mediaMapper;
         this.mediaFormatMapper = mediaFormatMapper;
@@ -67,10 +81,13 @@ public class ClipService {
         this.embeddingTaskService = embeddingTaskService;
         this.tagSyncService = tagSyncService;
         this.titleMappingService = titleMappingService;
+        this.clipExportService = clipExportService;
+        this.highlightProjectService = highlightProjectService;
     }
 
     @Transactional
     public SaveClipResult save(SaveClipRequest req) {
+        validateEndSec(req.timestampSec(), req.endSec(), req.videoDuration());
         long now = System.currentTimeMillis();
 
         // 仅当同 URL、3 秒内、时间戳接近、且标签相同时才视为误触连按（去重）。
@@ -111,6 +128,7 @@ public class ClipService {
         clip.setVideoFp(VideoFingerprint.fingerprint(req.url()));
         clip.setEpisodeId(episode.getId());
         clip.setTimestampSec(req.timestampSec());
+        clip.setEndSec(validateEndSec(req.timestampSec(), req.endSec(), req.videoDuration()));
         clip.setVideoDuration(req.videoDuration());
         clip.setTag(req.tag());
         clip.setNote(req.note() == null ? "" : req.note());
@@ -170,8 +188,11 @@ public class ClipService {
         clip.setUrl(req.url());
         clip.setVideoFp(VideoFingerprint.fingerprint(req.url()));
         clip.setTimestampSec(req.timestampSec());
-        // 编辑请求未携带时长时保留原值
-        clip.setVideoDuration(req.videoDuration() != null ? req.videoDuration() : clip.getVideoDuration());
+        // 编辑请求未携带时长/结束时间时保留原值；显式结束时间仍按新区间校验
+        Double duration = req.videoDuration() != null ? req.videoDuration() : clip.getVideoDuration();
+        Double end = req.endSec() != null ? req.endSec() : clip.getEndSec();
+        clip.setEndSec(validateEndSec(req.timestampSec(), end, duration));
+        clip.setVideoDuration(duration);
         clip.setTag(appendTag ? appendTag(oldTag, req.tag()) : req.tag());
         clip.setNote(req.note() == null ? "" : req.note());
         clipMapper.updateById(clip);
@@ -193,8 +214,14 @@ public class ClipService {
         }
         coverService.deleteCover(clip.getCoverPath());
         coverService.deleteCover(clip.getDetailCoverPath());
+        if (clipExportService != null) {
+            clipExportService.deleteArtifacts(id);
+        }
         embeddingTaskService.deleteFor(EntityType.CLIP, id);
         clipTagMapper.deleteByClip(id);
+        if (highlightProjectService != null) {
+            highlightProjectService.markClipUnavailable(id, "原始片段已删除，请移除或上传替代素材");
+        }
         return clipMapper.deleteById(id) > 0;
     }
 
@@ -263,6 +290,23 @@ public class ClipService {
     /** 查询同一视频中时间戳邻近（±window 秒）的既有标记，供扩展做重复片段提示。 */
     public List<Clip> findNearby(String url, double timestampSec, double window) {
         return clipMapper.findNearby(url, timestampSec, window);
+    }
+
+    /** 时间区间校验：结束时间可空，非空时必须严格晚于开始且不超过已知总时长。 */
+    static Double validateEndSec(Double start, Double end, Double duration) {
+        if (duration != null && start != null && start > duration) {
+            throw new IllegalArgumentException("开始时间不能超过视频总时长");
+        }
+        if (end == null) {
+            return null;
+        }
+        if (start == null || end <= start) {
+            throw new IllegalArgumentException("结束时间必须大于开始时间");
+        }
+        if (duration != null && end > duration) {
+            throw new IllegalArgumentException("结束时间不能超过视频总时长");
+        }
+        return end;
     }
 
     /** 把新标签并入原标签：按空白分词、去重、空格连接；已存在则原样返回。 */

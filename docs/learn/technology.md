@@ -12,7 +12,7 @@
 
 ## 目录（按日期）
 
-- [2026-08-18](#2026-08-18)
+- [2026-08-24](#2026-08-24)
 - [2026-08-17](#2026-08-17)
 - [2026-08-10](#2026-08-10)
 - [2026-08-13](#2026-08-13)
@@ -60,6 +60,26 @@
   - REST API 免 SDK 探测：`curl POST localhost:19530/v2/vectordb/collections/describe` / `entities/search`。
   - 随机向量 ≠ 真实 embedding：真实 embedding 无关文本 cosine 有模型 baseline（v4 约 0.2~0.4），用随机向量 0.0079 测区分度会严重低估，**固定阈值必须按模型实测校准**。
 - **涉及技术**：Spring Boot 3.3.4 / MyBatis / Milvus 2.4（COSINE + VarChar 组合主键）/ text-embedding-v4 / RRF 融合 / Docker Compose（milvus+etcd+minio）。
+
+## 2026-08-24
+
+### 风格包驱动的可扩展高光混剪
+
+- **日期**：2026-08-24
+- **业务场景**：将同一媒体下选中的片段制作成可配置风格的高光混剪，而不是固定的“视频拼接 + BGM 混入”。
+- **核心链路**：
+  ```text
+  项目时间线 → 风格包解析/能力校验 → Scene Plan
+  → 视觉卡片渲染 → 真实片段标准化 → 转场/音频处理 → ffmpeg 合成
+  ```
+- **核心设计**：时间线只保存片段、顺序、入出点、剧透、短标题和原声音量；风格包保存颜色、字体、画幅、片头/标题卡/片尾、转场和音频策略；Renderer/Strategy 将配置翻译为 HTML/CSS、ffmpeg filter graph 和音频计划。
+- **可扩展边界**：组合已有能力只需增加配置；新效果通过注册 `CanvasRenderer`、`SceneRenderer`、`ClipRenderer`、`TransitionRenderer` 或 `AudioStrategy` 扩展；外部风格仅允许受控 HTML/CSS 卡片模板和资源，禁止任意 JavaScript、shell 或 ffmpeg 命令。
+- **推荐导出复用边界**：复用推荐导出的视觉语言、封面/标题卡、BGM 处理、媒体探测、任务管理和产物保护；不把真实视频放入浏览器截帧链路，推荐导出只生成视觉卡片，真实片段由 ffmpeg 处理后统一合成。
+- **关键取舍**：所有中间片段先统一画幅、编码、帧率和音频轨；有声保留原声、无声补静音；不支持的必需能力在导出前明确报错；复杂转场、侧链 ducking 和 HLS/DASH 作为后续扩展。
+- **涉及技术**：Spring Boot / Java `ProcessBuilder` / JSON 配置 / Renderer Registry / HTML/CSS 卡片 / Puppeteer / FFmpeg / FFprobe。
+
+---
+
 
 ### 片段媒体识别（归一化 + 相似度 + URL 指纹）【持续更新：本场景后续迭代在此段追加】
 

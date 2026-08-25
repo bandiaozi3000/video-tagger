@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Tagger · 二次元打标库</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="app.css?v=20260818a">
+    <link rel="stylesheet" href="app.css?v=20260824e">
 </head>
 <body>
 <!-- 网站背景图层（设置里上传，多图轮播；z-index 在 bg-fx 之下） -->
@@ -220,6 +220,7 @@
             <button type="button" id="detail-rename" class="btn-mini">改名/合并</button>
             <button type="button" id="detail-cover" class="btn-mini">设置封面</button>
             <button type="button" id="detail-confirm" class="btn-mini" hidden>确认档案</button>
+            <button type="button" id="detail-highlight" class="btn-primary" hidden>制作推荐视频</button>
             <button type="button" id="detail-delete" class="btn-mini danger">删除</button>
         </div>
         <h3 class="stats-title">标签池</h3>
@@ -231,6 +232,54 @@
         <h3 class="stats-title" id="episode-list-title">集列表</h3>
         <section id="episode-list" class="episode-list"></section>
         <div id="detail-status" class="status"></div>
+    </section>
+
+    <!-- 高光制作工作台：单媒体的真实片段混剪，独立于多媒体推荐向导 -->
+    <section id="view-highlight" class="view highlight-workbench" hidden>
+        <div class="highlight-head">
+            <button type="button" id="highlight-back" class="back-btn">← 返回媒体详情</button>
+            <div class="highlight-title-wrap">
+                <span class="highlight-eyebrow">HIGHLIGHT STUDIO</span>
+                <h2 id="highlight-title">高光推荐</h2>
+                <span id="highlight-project-meta" class="highlight-meta"></span>
+            </div>
+            <div class="highlight-head-actions">
+                <button type="button" id="highlight-save" class="btn-mini">保存草稿</button>
+                <button type="button" id="highlight-export" class="btn-primary">导出混剪</button>
+            </div>
+        </div>
+        <div class="highlight-layout">
+            <aside class="highlight-panel highlight-library-panel">
+                <div class="highlight-panel-head">
+                    <div><span class="highlight-panel-kicker">SOURCE LIBRARY</span><h3>选择高光</h3></div>
+                    <span id="highlight-library-count" class="highlight-count"></span>
+                </div>
+                <p class="highlight-hint">新加入的片段默认标为“待确认剧透”；制作稿调整不会修改原片段。</p>
+                <div id="highlight-library" class="highlight-library"></div>
+            </aside>
+            <main class="highlight-panel highlight-timeline-panel">
+                <div class="highlight-panel-head">
+                    <div><span class="highlight-panel-kicker">EDIT TIMELINE</span><h3>时间线</h3></div>
+                    <span id="highlight-timeline-count" class="highlight-count"></span>
+                </div>
+                <div id="highlight-empty" class="highlight-empty">从左侧选择片段，开始搭建这部作品的推荐混剪。</div>
+                <div id="highlight-timeline" class="highlight-timeline"></div>
+            </main>
+            <aside class="highlight-panel highlight-control-panel">
+                <div class="highlight-panel-head"><div><span class="highlight-panel-kicker">PROJECT CONTROL</span><h3>导出设置</h3></div></div>
+                <label class="highlight-field">项目名称<input id="highlight-name" maxlength="120" autocomplete="off"></label>
+                <label class="highlight-field">导出模式<select id="highlight-mode"><option value="FULL">全量版（含剧透）</option><option value="SAFE">无剧透版（仅安全段）</option></select></label>
+                <label class="highlight-field">清晰度<select id="highlight-resolution"><option value="720P">720P</option><option value="1080P" selected>1080P</option><option value="4K">4K</option></select></label>
+                <label class="highlight-field">风格预设<select id="highlight-style-preset"><option value="cinematic">电影感</option><option value="energetic">高能快剪</option><option value="minimal">极简</option></select></label>
+                <label class="highlight-field">转场<select id="highlight-transition"><option value="none">无</option><option value="crossfade">交叉淡化</option><option value="fade-black">黑场淡化</option></select></label>
+                <label class="highlight-field">片头/片尾 <input id="highlight-cards-enabled" type="checkbox" checked></label>
+                <label class="highlight-field">背景音乐（可选）<span class="highlight-bgm-picker"><button id="highlight-bgm-pick" type="button" class="btn-mini">选择 BGM</button><span id="highlight-bgm-name" class="highlight-bgm-name">未添加</span></span><input id="highlight-bgm-file" type="file" accept="audio/*" hidden></label>
+                <label class="highlight-field">BGM 音量 <span id="highlight-bgm-volume-value">24%</span><input id="highlight-bgm-volume" type="range" min="0" max="100" value="24"></label>
+                <div id="highlight-estimate" class="highlight-estimate"></div>
+                <div id="highlight-status" class="status"></div>
+                <div class="highlight-exports-wrap"><h4>导出记录</h4><div id="highlight-exports" class="highlight-exports"></div></div>
+            </aside>
+        </div>
     </section>
 
     <!-- 集详情视图 -->
@@ -260,8 +309,13 @@
             <button type="button" id="clip-detail-jump" class="btn-mini">去原视频</button>
             <button type="button" id="clip-detail-similar" class="btn-mini">相似</button>
             <button type="button" id="clip-detail-edit" class="btn-mini">编辑</button>
+            <button type="button" id="clip-export-video" class="btn-mini">导出视频</button>
+            <button type="button" id="clip-export-frame" class="btn-mini">导出单帧</button>
+            <button type="button" id="clip-export-sequence" class="btn-mini">连续截图</button>
+            <button type="button" id="clip-record-browser" class="btn-mini" hidden>浏览器录制回退</button>
             <button type="button" id="clip-detail-delete" class="btn-mini danger">删除</button>
         </div>
+        <div id="clip-export-status" class="status"></div>
         <h3 class="stats-title">片段标签</h3>
         <div id="clip-detail-tags" class="detail-tags"></div>
         <h3 class="stats-title">同集片段</h3>
@@ -693,9 +747,46 @@
         <label>标签<input id="edit-tag" autocomplete="off"></label>
         <label>备注<input id="edit-note" autocomplete="off"></label>
         <label>时间戳（秒）<input id="edit-time" type="number" step="0.1" min="0"></label>
+        <label>结束时间（秒，可选）<input id="edit-end-time" type="number" step="0.1" min="0"></label>
         <div class="modal-actions">
             <button id="edit-cancel" type="button">取消</button>
             <button id="edit-save" type="button">保存</button>
+        </div>
+    </div>
+</div>
+
+<div id="clip-sequence-modal" class="modal-overlay" hidden>
+    <div class="modal">
+        <h2>连续截图</h2>
+        <p class="batch-del-hint">按片段区间生成 JPEG 序列；每次最多 300 张，新任务成功后替换旧序列。</p>
+        <label>截图间隔
+            <select id="clip-sequence-interval">
+                <option value="1">每 1 秒 1 张</option>
+                <option value="2">每 2 秒 1 张</option>
+                <option value="5">每 5 秒 1 张</option>
+            </select>
+        </label>
+        <div id="clip-sequence-estimate" class="status"></div>
+        <div class="modal-actions">
+            <button type="button" id="clip-sequence-cancel">取消</button>
+            <button type="button" id="clip-sequence-start">开始截图</button>
+        </div>
+    </div>
+</div>
+
+<div id="clip-record-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide clip-record-modal">
+        <h2>浏览器录制回退</h2>
+        <p class="batch-del-hint">请在授权框中选择正在播放原视频的标签页或窗口。录制可能包含播放器 UI、弹幕、广告或浏览器声音，时间精度不等同本地精确导出。</p>
+        <div id="clip-record-status" class="status"></div>
+        <video id="clip-record-preview" controls hidden></video>
+        <div class="modal-actions">
+            <button type="button" id="clip-record-cancel">关闭</button>
+            <button type="button" id="clip-record-open-source">打开原视频</button>
+            <button type="button" id="clip-record-start">授权并录制</button>
+            <button type="button" id="clip-record-stop" class="danger" hidden>停止录制</button>
+            <button type="button" id="clip-record-retry" hidden>重新录制</button>
+            <button type="button" id="clip-record-upload" hidden>上传 WEBM</button>
         </div>
     </div>
 </div>
@@ -1282,6 +1373,6 @@
     </div>
 </div>
 <button type="button" id="back-nav" title="去底部" aria-label="去底部">↓</button>
-<script src="app.js?v=20260818a"></script>
+<script src="app.js?v=20260824e"></script>
 </body>
 </html>

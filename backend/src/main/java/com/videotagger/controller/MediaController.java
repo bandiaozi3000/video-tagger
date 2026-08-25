@@ -37,6 +37,7 @@ public class MediaController {
     private final EpisodeService episodeService;
     private final CoverService coverService;
     private final AniListSyncService aniListSyncService;
+    private final com.videotagger.service.HighlightProjectService highlightProjectService;
 
     // 外部同步（AniList）默认禁用（D9）；videotagger.sync.enabled=true 时启用，代码保留
     @org.springframework.beans.factory.annotation.Value("${videotagger.sync.enabled:false}")
@@ -44,10 +45,18 @@ public class MediaController {
 
     public MediaController(MediaService mediaService, EpisodeService episodeService, CoverService coverService,
                            AniListSyncService aniListSyncService) {
+        this(mediaService, episodeService, coverService, aniListSyncService, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public MediaController(MediaService mediaService, EpisodeService episodeService, CoverService coverService,
+                           AniListSyncService aniListSyncService,
+                           com.videotagger.service.HighlightProjectService highlightProjectService) {
         this.mediaService = mediaService;
         this.episodeService = episodeService;
         this.coverService = coverService;
         this.aniListSyncService = aniListSyncService;
+        this.highlightProjectService = highlightProjectService;
     }
 
     @GetMapping
@@ -218,6 +227,18 @@ public class MediaController {
     @GetMapping("/{id}/episodes")
     public List<EpisodeDetail> episodes(@PathVariable Long id) {
         return mediaService.episodes(id);
+    }
+
+    @GetMapping("/{id}/highlight-project")
+    public com.videotagger.service.HighlightProjectService.HighlightProjectView getHighlightProject(@PathVariable long id) {
+        if (highlightProjectService == null) throw new IllegalStateException("高光制作服务不可用");
+        return highlightProjectService.getByMediaId(id);
+    }
+
+    @PostMapping("/{id}/highlight-project")
+    public com.videotagger.service.HighlightProjectService.HighlightProjectView highlightProject(@PathVariable long id) {
+        if (highlightProjectService == null) throw new IllegalStateException("高光制作服务不可用");
+        return highlightProjectService.getOrCreate(id);
     }
 
     @PostMapping("/{id}/tags")

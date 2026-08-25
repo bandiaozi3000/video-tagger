@@ -4,6 +4,7 @@ const views = {
   'media-detail': document.getElementById('view-media-detail'),
   'episode-detail': document.getElementById('view-episode-detail'),
   'clip-detail': document.getElementById('view-clip-detail'),
+  highlight: document.getElementById('view-highlight'),
   videos: document.getElementById('view-videos'),
   timeline: document.getElementById('view-timeline'),
   stats: document.getElementById('view-stats'),
@@ -74,6 +75,7 @@ const editTitle = document.getElementById('edit-title');
 const editTag = document.getElementById('edit-tag');
 const editNote = document.getElementById('edit-note');
 const editTime = document.getElementById('edit-time');
+const editEndTime = document.getElementById('edit-end-time');
 
 const similarModal = document.getElementById('similar-modal');
 const similarStatusEl = document.getElementById('similar-status');
@@ -111,6 +113,32 @@ const trashListEl = document.getElementById('trash-list');
 const formatTabsEl = document.getElementById('format-tabs');
 const mediaFormatManageBtn = document.getElementById('media-format-manage');
 const detailConfirmBtn = document.getElementById('detail-confirm');
+const detailHighlightBtn = document.getElementById('detail-highlight');
+const highlightBackBtn = document.getElementById('highlight-back');
+const highlightTitleEl = document.getElementById('highlight-title');
+const highlightProjectMetaEl = document.getElementById('highlight-project-meta');
+const highlightLibraryEl = document.getElementById('highlight-library');
+const highlightTimelineEl = document.getElementById('highlight-timeline');
+const highlightEmptyEl = document.getElementById('highlight-empty');
+const highlightLibraryCountEl = document.getElementById('highlight-library-count');
+const highlightTimelineCountEl = document.getElementById('highlight-timeline-count');
+const highlightNameEl = document.getElementById('highlight-name');
+const highlightModeEl = document.getElementById('highlight-mode');
+const highlightResolutionEl = document.getElementById('highlight-resolution');
+const highlightStylePresetEl = document.getElementById('highlight-style-preset');
+const highlightTransitionEl = document.getElementById('highlight-transition');
+const highlightCardsEnabledEl = document.getElementById('highlight-cards-enabled');
+const highlightBgmPickBtn = document.getElementById('highlight-bgm-pick');
+const highlightBgmFileEl = document.getElementById('highlight-bgm-file');
+const highlightBgmNameEl = document.getElementById('highlight-bgm-name');
+const highlightBgmPathEl = document.getElementById('highlight-bgm-path');
+const highlightBgmVolumeEl = document.getElementById('highlight-bgm-volume');
+const highlightBgmVolumeValueEl = document.getElementById('highlight-bgm-volume-value');
+const highlightEstimateEl = document.getElementById('highlight-estimate');
+const highlightStatusEl = document.getElementById('highlight-status');
+const highlightExportsEl = document.getElementById('highlight-exports');
+const highlightSaveBtn = document.getElementById('highlight-save');
+const highlightExportBtn = document.getElementById('highlight-export');
 const mediaModal = document.getElementById('media-modal');
 const mediaModalTitle = document.getElementById('media-modal-title');
 const mediaTitleInput = document.getElementById('media-title');
@@ -224,6 +252,17 @@ const clipDetailHeadEl = document.getElementById('clip-detail-head');
 const clipDetailSiblingsEl = document.getElementById('clip-detail-siblings');
 const clipDetailSimilarEl = document.getElementById('clip-detail-similar');
 const clipDetailStatusEl = document.getElementById('clip-detail-status');
+const clipExportVideoBtn = document.getElementById('clip-export-video');
+const clipExportFrameBtn = document.getElementById('clip-export-frame');
+const clipExportSequenceBtn = document.getElementById('clip-export-sequence');
+const clipRecordBrowserBtn = document.getElementById('clip-record-browser');
+const clipExportStatusEl = document.getElementById('clip-export-status');
+const clipSequenceModal = document.getElementById('clip-sequence-modal');
+const clipSequenceIntervalEl = document.getElementById('clip-sequence-interval');
+const clipSequenceEstimateEl = document.getElementById('clip-sequence-estimate');
+const clipRecordModal = document.getElementById('clip-record-modal');
+const clipRecordStatusEl = document.getElementById('clip-record-status');
+const clipRecordPreviewEl = document.getElementById('clip-record-preview');
 const hoverPreviewEl = document.getElementById('vt-hover-preview');
 const tagListEl = document.getElementById('tag-list');
 const tagStatusEl = document.getElementById('tag-status');
@@ -381,6 +420,13 @@ let episodeTagEpisodeId = null;
 let coverEpisode = null;   // 集封面弹层当前集 { id, title, videoFp }
 let currentEpisode = null; // 集详情页当前对象 { id, ... }
 let currentClip = null;    // 片段详情页当前对象 { id, ... }
+let currentHighlight = null;
+let highlightClips = [];
+let highlightSaveTimer = null;
+let highlightDraggedItemId = null;
+let highlightBgmStoredPath = null;
+let clipExportTaskId = null;
+let clipRecordState = null;
 let viewHistory = [];      // 详情页返回栈：记录上一活动视图名
 let fromMediaDetail = false;
 let fromEpisodeDetail = false;
@@ -469,6 +515,7 @@ function pushView(name) {
     if (activeView() === 'media-detail' && currentMedia) id = currentMedia.id;
     else if (activeView() === 'episode-detail' && currentEpisode) id = currentEpisode.id;
     else if (activeView() === 'clip-detail' && currentClip) id = currentClip.id;
+    else if (activeView() === 'highlight' && currentHighlight) id = currentHighlight.id;
     viewHistory.push({ view: activeView(), id, scrollY: window.scrollY });
     showView(name);
 }
@@ -487,6 +534,7 @@ function goBack() {
     else if (prev.view === 'timeline' && currentVideo) openTimeline(currentVideo);
     else if (prev.view === 'episode-detail' && prev.id != null) loadEpisodeDetail(prev.id);
     else if (prev.view === 'clip-detail' && prev.id != null) renderClipDetail(prev.id);
+    else if (prev.view === 'highlight' && prev.id != null) loadHighlightProject(prev.id);
     // 'media' / 'videos' / 'stats' 由 showView 自动重新加载
 }
 
@@ -610,14 +658,248 @@ function renderClipDetailHead(clip, ep, media) {
             ${nav.length ? `<div class="cd-nav">${nav.join('')}</div>` : ''}
         </div>`;
     clipDetailHeadEl.querySelector('.ad-title').textContent = clip.title || '(未命名)';
-    clipDetailHeadEl.querySelector('.ad-meta').textContent = `片段 · ${fmtTime(clip.timestampSec)} · ${clip.tag}`;
+    const range = clip.endSec != null ? `${fmtTime(clip.timestampSec)} – ${fmtTime(clip.endSec)}` : fmtTime(clip.timestampSec);
+    clipDetailHeadEl.querySelector('.ad-meta').textContent = `片段 · ${range} · ${clip.tag}`;
     if (clip.note) clipDetailHeadEl.querySelector('.cd-note').textContent = `备注：${clip.note}`;
     clipDetailHeadEl.querySelector('[data-nav="episode"]')?.addEventListener('click', () => openEpisodeDetail(ep.id));
     clipDetailHeadEl.querySelector('[data-nav="media"]')?.addEventListener('click', () => openMediaDetail(media.id));
     renderClipTags(clip, media ? media.id : null);
+    bindClipExportActions(clip);
 }
 
-/** 片段标签池：片段自身标签（clip.tag 拆词）+ 在整部作品里的引用热度，纯展示。 */
+async function bindClipExportActions(clip) {
+    if (!clipExportVideoBtn || !clipExportFrameBtn || !clipExportSequenceBtn || !clipExportStatusEl) return;
+    clipExportStatusEl.textContent = '';
+    setClipExportButtons(false);
+    clipRecordBrowserBtn.hidden = true;
+    clipExportVideoBtn.onclick = () => startClipExport(clip.id, 'video');
+    clipExportFrameBtn.onclick = () => startClipExport(clip.id, 'frame');
+    clipExportSequenceBtn.onclick = () => openSequenceExport(clip);
+    clipRecordBrowserBtn.onclick = () => openBrowserRecording(clip);
+    try {
+        const resp = await fetch(`/api/clips/${clip.id}/exports`);
+        if (!resp.ok) return;
+        const artifacts = await resp.json();
+        if (artifacts.length) {
+            clipExportStatusEl.innerHTML = artifacts.map(a => {
+                const name = a.type === 'video' ? '本地视频' : a.type === 'browser-video' ? '浏览器 WEBM'
+                    : a.type === 'sequence-frame' ? `连续截图 ${a.count} 张` : '单帧截图';
+                return `<a class="nav-link" href="${esc(a.url)}" target="_blank" rel="noopener">${name}（${Math.ceil(a.size / 1024)} KB）</a>`;
+            }).join(' · ');
+        }
+    } catch (e) { }
+}
+
+function setClipExportButtons(disabled) {
+    clipExportVideoBtn.disabled = disabled;
+    clipExportFrameBtn.disabled = disabled;
+    clipExportSequenceBtn.disabled = disabled;
+}
+
+function openSequenceExport(clip) {
+    if (clip.endSec == null || clip.endSec <= clip.timestampSec) {
+        showToast('连续截图需要先填写结束时间');
+        return;
+    }
+    clipSequenceModal.hidden = false;
+    const updateEstimate = () => {
+        const interval = Number(clipSequenceIntervalEl.value);
+        const count = Math.ceil((clip.endSec - clip.timestampSec) / interval);
+        clipSequenceEstimateEl.textContent = count > 300
+            ? `预计 ${count} 张，超过 300 张限制，请增大间隔或缩短区间` : `预计生成 ${count} 张（最多 300 张）`;
+        document.getElementById('clip-sequence-start').disabled = count > 300;
+    };
+    clipSequenceIntervalEl.onchange = updateEstimate;
+    document.getElementById('clip-sequence-cancel').onclick = () => { clipSequenceModal.hidden = true; };
+    document.getElementById('clip-sequence-start').onclick = async () => {
+        clipSequenceModal.hidden = true;
+        await startClipExport(clip.id, 'sequence', Number(clipSequenceIntervalEl.value));
+    };
+    updateEstimate();
+}
+
+async function startClipExport(id, kind, intervalSec = null) {
+    clipExportStatusEl.textContent = '任务提交中…';
+    setClipExportButtons(true);
+    try {
+        const endpoint = kind === 'video' ? `/api/clips/${id}/export-video`
+            : kind === 'sequence' ? `/api/clips/${id}/export-sequence` : `/api/clips/${id}/export-images`;
+        const body = kind === 'frame' ? { strategy: 'middle' }
+            : kind === 'sequence' ? { intervalSec } : null;
+        const resp = await fetch(endpoint, {
+            method: 'POST', headers: body ? { 'Content-Type': 'application/json' } : undefined,
+            body: body ? JSON.stringify(body) : undefined
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.message || '任务提交失败');
+        clipExportTaskId = data.id;
+        await pollClipExport(data.id, id);
+    } catch (e) {
+        const fallback = kind === 'video' && currentClip ? '，可尝试浏览器录制回退' : '';
+        clipExportStatusEl.textContent = `导出失败：${e.message}${fallback}`;
+        if (kind === 'video' && currentClip && /找不到|冲突|指纹|源视频/.test(e.message || '')) {
+            clipRecordBrowserBtn.hidden = false;
+        }
+        setClipExportButtons(false);
+    }
+}
+
+async function pollClipExport(taskId, clipId) {
+    for (let i = 0; i < 720; i++) {
+        const resp = await fetch(`/api/clips/export-tasks/${taskId}`);
+        const task = await resp.json();
+        if (task.status === 'SUCCEEDED') {
+            clipExportStatusEl.innerHTML = `<a class="nav-link" href="${esc(task.artifactUrl)}" target="_blank" rel="noopener">导出完成：打开产物</a>`;
+            clipExportTaskId = null;
+            setClipExportButtons(false);
+            bindClipExportActions(currentClip || { id: clipId });
+            return;
+        }
+        if (task.status === 'FAILED' || task.status === 'CANCELLED') {
+            throw new Error(task.message || '任务未完成');
+        }
+        const progress = task.total > 0 ? ` ${task.progress || 0}/${task.total}` : '';
+        clipExportStatusEl.innerHTML = `${esc(task.phase || (task.status === 'RUNNING' ? '导出处理中' : '任务排队中'))}${progress} <button type="button" class="btn-mini" id="clip-export-cancel">取消</button>`;
+        document.getElementById('clip-export-cancel').onclick = async () => {
+            await fetch(`/api/clips/export-tasks/${taskId}/cancel`, { method: 'POST' });
+        };
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    throw new Error('任务查询超时');
+}
+
+function openBrowserRecording(clip) {
+    if (!navigator.mediaDevices?.getDisplayMedia || !window.MediaRecorder) {
+        showToast('当前浏览器不支持屏幕录制，请使用 Chromium 浏览器');
+        return;
+    }
+    clipRecordState = { clip, stream: null, recorder: null, chunks: [], blob: null, timer: null, manualStop: !clip.endSec };
+    clipRecordModal.hidden = false;
+    clipRecordPreviewEl.hidden = true;
+    clipRecordPreviewEl.removeAttribute('src');
+    const startBtn = document.getElementById('clip-record-start');
+    const stopBtn = document.getElementById('clip-record-stop');
+    const retryBtn = document.getElementById('clip-record-retry');
+    const uploadBtn = document.getElementById('clip-record-upload');
+    startBtn.hidden = false;
+    stopBtn.hidden = true;
+    retryBtn.hidden = true;
+    uploadBtn.hidden = true;
+    clipRecordStatusEl.textContent = clip.endSec != null
+        ? `将录制约 ${Math.max(0, clip.endSec - clip.timestampSec).toFixed(1)} 秒；请先在原视频中定位到开始时间。`
+        : '此片段没有结束时间，录制开始后请手动点击“停止录制”。';
+    startBtn.onclick = startBrowserRecording;
+    stopBtn.onclick = () => stopBrowserRecording(true);
+    retryBtn.onclick = () => openBrowserRecording(clip);
+    uploadBtn.onclick = uploadBrowserRecording;
+    document.getElementById('clip-record-cancel').onclick = closeBrowserRecording;
+    document.getElementById('clip-record-open-source').onclick = () => jump(clip);
+}
+
+async function startBrowserRecording() {
+    const state = clipRecordState;
+    if (!state) return;
+    const startBtn = document.getElementById('clip-record-start');
+    startBtn.disabled = true;
+    try {
+        clipRecordStatusEl.textContent = '请在授权框中选择原视频标签页或窗口…';
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true, preferCurrentTab: true });
+        state.stream = stream;
+        const mimeType = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+            .find(type => MediaRecorder.isTypeSupported(type));
+        if (!mimeType) throw new Error('浏览器不支持 WebM 录制');
+        clipRecordStatusEl.textContent = '3 秒后开始录制，请切回原视频并保持播放…';
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        clipRecordStatusEl.textContent = '2 秒后开始录制…';
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        clipRecordStatusEl.textContent = '1 秒后开始录制…';
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5_000_000 });
+        state.recorder = recorder;
+        state.chunks = [];
+        recorder.ondataavailable = event => { if (event.data.size > 0) state.chunks.push(event.data); };
+        recorder.onstop = finishBrowserRecording;
+        recorder.onerror = () => { clipRecordStatusEl.textContent = '录制器发生错误，可重新录制'; };
+        stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+            if (recorder.state !== 'inactive') stopBrowserRecording(false);
+        }, { once: true });
+        recorder.start(1000);
+        document.getElementById('clip-record-stop').hidden = false;
+        startBtn.hidden = true;
+        const duration = state.clip.endSec != null ? state.clip.endSec - state.clip.timestampSec : null;
+        clipRecordStatusEl.textContent = duration != null ? `正在录制，约 ${duration.toFixed(1)} 秒后自动停止…` : '正在录制，请在片段结束时手动停止。';
+        if (duration != null && duration > 0) state.timer = setTimeout(() => stopBrowserRecording(false), duration * 1000);
+    } catch (e) {
+        closeRecordingStream(state);
+        clipRecordStatusEl.textContent = e.name === 'NotAllowedError' ? '未授予录制权限，可再次授权或关闭。' : `无法开始录制：${e.message}`;
+        startBtn.disabled = false;
+    }
+}
+
+function stopBrowserRecording(manual) {
+    const state = clipRecordState;
+    if (!state?.recorder || state.recorder.state === 'inactive') return;
+    state.manualStop = manual || state.clip.endSec == null;
+    clearTimeout(state.timer);
+    document.getElementById('clip-record-stop').disabled = true;
+    clipRecordStatusEl.textContent = '正在整理录制文件…';
+    state.recorder.stop();
+}
+
+function finishBrowserRecording() {
+    const state = clipRecordState;
+    if (!state) return;
+    closeRecordingStream(state);
+    const mime = state.recorder?.mimeType || 'video/webm';
+    state.blob = new Blob(state.chunks, { type: mime });
+    if (state.blob.size === 0) {
+        clipRecordStatusEl.textContent = '录制结果为空，可重新录制。';
+        document.getElementById('clip-record-retry').hidden = false;
+        return;
+    }
+    clipRecordPreviewEl.src = URL.createObjectURL(state.blob);
+    clipRecordPreviewEl.hidden = false;
+    clipRecordStatusEl.textContent = `录制完成（${Math.ceil(state.blob.size / 1024)} KB），请预览后上传或重新录制。`;
+    document.getElementById('clip-record-retry').hidden = false;
+    document.getElementById('clip-record-upload').hidden = false;
+}
+
+async function uploadBrowserRecording() {
+    const state = clipRecordState;
+    if (!state?.blob) return;
+    const uploadBtn = document.getElementById('clip-record-upload');
+    uploadBtn.disabled = true;
+    clipRecordStatusEl.textContent = '正在上传 WEBM…';
+    try {
+        const form = new FormData();
+        form.append('file', new File([state.blob], `clip-${state.clip.id}.webm`, { type: 'video/webm' }));
+        form.append('manualStop', String(state.manualStop));
+        const resp = await fetch(`/api/clips/${state.clip.id}/exports/video`, { method: 'POST', body: form });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.message || '上传失败');
+        clipRecordStatusEl.textContent = '上传完成，正在刷新产物…';
+        await bindClipExportActions(state.clip);
+        closeBrowserRecording();
+        showToast('浏览器录制已保存');
+    } catch (e) {
+        clipRecordStatusEl.textContent = `上传失败：${e.message}`;
+        uploadBtn.disabled = false;
+    }
+}
+
+function closeRecordingStream(state) {
+    clearTimeout(state?.timer);
+    state?.stream?.getTracks().forEach(track => track.stop());
+    if (state) state.stream = null;
+}
+
+function closeBrowserRecording() {
+    if (clipRecordPreviewEl.src?.startsWith('blob:')) URL.revokeObjectURL(clipRecordPreviewEl.src);
+    closeRecordingStream(clipRecordState);
+    clipRecordState = null;
+    clipRecordModal.hidden = true;
+}
+
 async function renderClipTags(clip, mediaId) {
     clipDetailTagsEl.innerHTML = '';
     const names = (clip.tag || '').split(/[，,]/).map(s => s.trim()).filter(Boolean);
@@ -1030,6 +1312,13 @@ function resultBadges(r) {
     return badges.length ? `<div class="result-badges">${badges.join('')}</div>` : '';
 }
 
+function clipTimeLabel(r) {
+    if (r.endSec != null && Number(r.endSec) > Number(r.timestampSec)) {
+        return `${fmtTime(r.timestampSec)} – ${fmtTime(r.endSec)}`;
+    }
+    return fmtTime(r.timestampSec);
+}
+
 function appendClipCard(container, r, opts) {
     const card = document.createElement('div');
     card.className = 'card card-clip';
@@ -1045,7 +1334,7 @@ function appendClipCard(container, r, opts) {
         <div class="cc-body">
             <div class="card-title"></div>
             <div class="cc-meta">
-                <span class="badge-time">${fmtTime(r.timestampSec)}</span>
+                <span class="badge-time">${clipTimeLabel(r)}</span>
                 <span class="card-tag"></span>
             </div>
             ${resultBadges(r)}
@@ -1313,7 +1602,7 @@ function renderTimeline(clips) {
         marker.className = 'marker';
         marker.dataset.time = fmtTime(c.timestampSec);
         marker.style.left = `${Math.min(c.timestampSec / total * 100, 100)}%`;
-        marker.title = `${fmtTime(c.timestampSec)} · ${c.tag}`;
+        marker.title = `${clipTimeLabel(c)} · ${c.tag}`;
         marker.addEventListener('click', (e) => {
             e.stopPropagation();
             jump(c);
@@ -1340,6 +1629,7 @@ function openEditModal(r) {
     editTag.value = r.tag;
     editNote.value = r.note || '';
     editTime.value = r.timestampSec;
+    editEndTime.value = r.endSec != null ? r.endSec : '';
     editModal.hidden = false;
     editTitle.focus();
 }
@@ -1350,10 +1640,12 @@ async function saveEdit() {
         title: editTitle.value.trim() || editingClip.title,
         url: editingClip.url,
         timestampSec: parseFloat(editTime.value),
+        endSec: editEndTime.value === '' ? null : parseFloat(editEndTime.value),
         tag: editTag.value.trim(),
         note: editNote.value.trim()
     };
-    if (!Number.isFinite(payload.timestampSec) || payload.timestampSec < 0 || !payload.tag) {
+    if (!Number.isFinite(payload.timestampSec) || payload.timestampSec < 0 ||
+        (payload.endSec != null && (!Number.isFinite(payload.endSec) || payload.endSec <= payload.timestampSec)) || !payload.tag) {
         statusEl.textContent = '保存失败：时间戳或标签不合法';
         return;
     }
@@ -4115,6 +4407,7 @@ function renderMediaDetail(d, eps) {
     if (epListTitle) epListTitle.hidden = !isVideo;
     renderEpisodeList(eps);
     detailConfirmBtn.hidden = d.confirmed !== 0;
+    if (detailHighlightBtn) detailHighlightBtn.hidden = !isVideo;
 }
 
 /** 别名管理：该媒体全部标题映射（合并自动记的），逐个可解除。 */
@@ -4217,6 +4510,365 @@ function tagStatTier(n) {
 
 function refreshMediaDetail() {
     if (currentMedia && currentMedia.id) loadMediaDetail(currentMedia.id);
+}
+
+// ---------- v0.20 高光制作工作台 ----------
+
+async function openHighlightWorkbench() {
+    if (!currentMedia || !currentMedia.id) return;
+    try {
+        highlightStatusEl.textContent = '正在创建或恢复制作稿…';
+        const resp = await fetch(`/api/media/${currentMedia.id}/highlight-project`, { method: 'POST' });
+        if (!resp.ok) throw new Error(await apiMessage(resp, '创建高光制作稿失败'));
+        const project = await resp.json();
+        pushView('highlight');
+        await loadHighlightProject(project.id, project);
+    } catch (err) {
+        highlightStatusEl.textContent = '';
+        showToast(err.message || '打开高光工作台失败');
+    }
+}
+
+async function loadHighlightProject(id, knownProject = null) {
+    try {
+        if (!knownProject) {
+            const resp = await fetch(`/api/highlight-projects/${id}`);
+            if (!resp.ok) throw new Error(await apiMessage(resp, '加载制作稿失败'));
+            knownProject = await resp.json();
+        }
+        currentHighlight = knownProject;
+        restoreHighlightConfig();
+        const clipsResp = await fetch(`/api/highlight-projects/${id}/clips`);
+        if (!clipsResp.ok) throw new Error(await apiMessage(clipsResp, '加载可选片段失败'));
+        highlightClips = await clipsResp.json();
+        renderHighlightWorkbench();
+        highlightStatusEl.textContent = '';
+    } catch (err) {
+        highlightStatusEl.textContent = err.message || '加载高光工作台失败';
+    }
+}
+
+function restoreHighlightConfig() {
+    let config = {};
+    try { config = JSON.parse(currentHighlight?.configJson || '{}'); } catch (e) { config = {}; }
+    highlightBgmStoredPath = typeof config.bgmPath === 'string' && config.bgmPath ? config.bgmPath : null;
+    highlightBgmNameEl.textContent = highlightBgmStoredPath ? (config.bgmName || '已添加') : '未添加';
+    highlightBgmVolumeEl.value = Number.isFinite(config.bgmVolume) ? Math.max(0, Math.min(100, config.bgmVolume)) : 24;
+    highlightBgmVolumeValueEl.textContent = `${highlightBgmVolumeEl.value}%`;
+    highlightModeEl.value = config.mode === 'SAFE' ? 'SAFE' : 'FULL';
+    highlightResolutionEl.value = ['720P', '1080P', '4K'].includes(config.resolution) ? config.resolution : '1080P';
+    highlightStylePresetEl.value = ['cinematic', 'energetic', 'minimal'].includes(config.stylePreset) ? config.stylePreset : 'cinematic';
+    highlightTransitionEl.value = ['none', 'crossfade', 'fade-black'].includes(config.transition) ? config.transition : 'none';
+    highlightCardsEnabledEl.checked = config.cardsEnabled !== false;
+}
+
+function highlightConfigJson() {
+    return JSON.stringify({
+        bgmPath: highlightBgmStoredPath,
+        bgmName: highlightBgmStoredPath ? highlightBgmNameEl.textContent : null,
+        bgmVolume: Number(highlightBgmVolumeEl.value),
+        mode: highlightModeEl.value,
+        resolution: highlightResolutionEl.value,
+        stylePreset: highlightStylePresetEl.value,
+        transition: highlightTransitionEl.value,
+        cardsEnabled: highlightCardsEnabledEl.checked
+    });
+}
+
+function renderHighlightWorkbench() {
+    if (!currentHighlight) return;
+    const items = currentHighlight.items || [];
+    highlightTitleEl.textContent = currentMedia?.title ? `${currentMedia.title} · 高光推荐` : currentHighlight.name || '高光推荐';
+    highlightProjectMetaEl.textContent = `草稿 #${currentHighlight.id} · 自动保存`;
+    highlightNameEl.value = currentHighlight.name || '高光推荐';
+    if (!highlightBgmStoredPath) highlightBgmNameEl.textContent = '未添加';
+    highlightLibraryCountEl.textContent = `${highlightClips.length} 条片段`;
+    highlightTimelineCountEl.textContent = `${items.length} 段`;
+    const selected = new Set(items.map(item => item.clipId));
+    renderHighlightLibrary(selected);
+    renderHighlightTimeline(items);
+    renderHighlightEstimate(items);
+    renderHighlightExports(currentHighlight.exports || []);
+}
+
+function renderHighlightLibrary(selected) {
+    highlightLibraryEl.innerHTML = '';
+    if (!highlightClips.length) {
+        highlightLibraryEl.innerHTML = '<div class="highlight-empty">该媒体还没有可选片段。先在视频中打标，再回来制作高光推荐。</div>';
+        return;
+    }
+    const byEpisode = new Map();
+    for (const clip of highlightClips) {
+        const key = String(clip.episodeId || 'legacy');
+        if (!byEpisode.has(key)) byEpisode.set(key, []);
+        byEpisode.get(key).push(clip);
+    }
+    for (const clips of byEpisode.values()) {
+        const section = document.createElement('section');
+        section.className = 'highlight-library-group';
+        const head = document.createElement('div');
+        head.className = 'highlight-library-group-head';
+        head.textContent = clips[0].title || `片段组 · ${clips.length} 段`;
+        section.appendChild(head);
+        for (const clip of clips) {
+            const card = document.createElement('button');
+            card.type = 'button';
+            card.className = 'highlight-source-card' + (selected.has(clip.id) ? ' selected' : '');
+            const cover = clip.coverPath || clip.detailCoverPath;
+            card.innerHTML = `${cover ? `<img src="${esc(cover)}" alt="">` : '<span class="highlight-source-cover-placeholder">▶</span>'}
+                <span class="highlight-source-info"><b></b><small></small><em>${selected.has(clip.id) ? '已加入' : '加入时间线'}</em></span>`;
+            card.querySelector('b').textContent = clip.title || '未命名片段';
+            card.querySelector('small').textContent = `${fmtTime(clip.timestampSec || 0)}${clip.endSec != null ? ` – ${fmtTime(clip.endSec)}` : ' · 未设终点'}${clip.tag ? ` · ${clip.tag}` : ''}`;
+            card.addEventListener('click', () => selected.has(clip.id) ? focusHighlightItem(clip.id) : addHighlightItem(clip.id));
+            section.appendChild(card);
+        }
+        highlightLibraryEl.appendChild(section);
+    }
+}
+
+function renderHighlightTimeline(items) {
+    highlightTimelineEl.innerHTML = '';
+    highlightEmptyEl.hidden = items.length > 0;
+    for (const item of items) {
+        const clip = highlightClips.find(c => c.id === item.clipId) || {};
+        const row = document.createElement('article');
+        row.className = 'highlight-timeline-item';
+        row.draggable = true;
+        row.dataset.itemId = item.id;
+        const cover = clip.coverPath || clip.detailCoverPath;
+        const sourceState = item.sourceState || 'PENDING';
+        const sourceLabel = { READY: '素材就绪', PREPARING: '准备中', PENDING: '待准备', UNAVAILABLE: '不可用', FAILED: '失败' }[sourceState] || sourceState;
+        row.innerHTML = `<button type="button" class="highlight-drag" title="拖拽排序">⠿</button>
+            <div class="highlight-item-cover">${cover ? `<img src="${esc(cover)}" alt="">` : '<span>▶</span>'}</div>
+            <div class="highlight-item-body">
+                <div class="highlight-item-title"><b></b><span class="highlight-source-state state-${esc(sourceState.toLowerCase())}">${sourceLabel}</span></div>
+                <div class="highlight-item-controls">
+                    <label>入点 <input class="highlight-in" type="number" min="0" step="0.1"></label>
+                    <label>出点 <input class="highlight-out" type="number" min="0" step="0.1"></label>
+                    <label>剧透 <select class="highlight-spoiler"><option value="PENDING">待确认</option><option value="SAFE">安全</option><option value="SPOILER">剧透</option></select></label>
+                    <label>原声 <input class="highlight-volume" type="range" min="0" max="100"></label>
+                </div>
+                <input class="highlight-caption" maxlength="200" placeholder="可选：为这段高光写一句短标题">
+                <div class="highlight-item-message"></div>
+            </div>
+            <div class="highlight-item-actions">
+                <button type="button" class="btn-mini highlight-preview">预览</button>
+                <button type="button" class="btn-mini highlight-prepare">${sourceState === 'READY' ? '重新准备' : '准备素材'}</button>
+                <div class="highlight-direct-url"><input class="highlight-direct-url-input" type="url" placeholder="公开视频直链（可选）"><button type="button" class="btn-mini highlight-direct-url-submit">直链准备</button></div>
+                <button type="button" class="btn-mini highlight-upload">上传</button>
+                <input class="highlight-upload-file" type="file" accept="video/*" hidden>
+                <button type="button" class="btn-mini danger highlight-remove">移除</button>
+            </div>`;
+        row.querySelector('.highlight-item-title b').textContent = clip.title || `片段 #${item.clipId || item.id}`;
+        row.querySelector('.highlight-in').value = item.inSec ?? '';
+        row.querySelector('.highlight-out').value = item.outSec ?? '';
+        row.querySelector('.highlight-spoiler').value = item.spoilerState || 'PENDING';
+        row.querySelector('.highlight-volume').value = item.originalVolume ?? 100;
+        row.querySelector('.highlight-caption').value = item.caption || '';
+        row.querySelector('.highlight-item-message').textContent = item.sourceMessage || '';
+        const update = () => scheduleHighlightItemUpdate(item.id, {
+            inSec: numberOrNull(row.querySelector('.highlight-in').value),
+            outSec: numberOrNull(row.querySelector('.highlight-out').value),
+            spoilerState: row.querySelector('.highlight-spoiler').value,
+            caption: row.querySelector('.highlight-caption').value,
+            originalVolume: Number(row.querySelector('.highlight-volume').value)
+        });
+        row.querySelectorAll('.highlight-in,.highlight-out,.highlight-spoiler,.highlight-caption,.highlight-volume').forEach(el => el.addEventListener(el.classList.contains('highlight-caption') ? 'input' : 'change', update));
+        row.querySelector('.highlight-prepare').addEventListener('click', () => prepareHighlightItem(item.id));
+        row.querySelector('.highlight-direct-url-submit').addEventListener('click', () => prepareHighlightDirectUrl(item.id, row.querySelector('.highlight-direct-url-input').value));
+        row.querySelector('.highlight-preview').addEventListener('click', () => previewHighlightItem(item));
+        row.querySelector('.highlight-upload').addEventListener('click', () => row.querySelector('.highlight-upload-file').click());
+        row.querySelector('.highlight-upload-file').addEventListener('change', e => uploadHighlightItem(item.id, e.target.files?.[0]));
+        row.querySelector('.highlight-remove').addEventListener('click', () => removeHighlightItem(item.id));
+        row.addEventListener('dragstart', () => { highlightDraggedItemId = item.id; row.classList.add('dragging'); });
+        row.addEventListener('dragend', () => { highlightDraggedItemId = null; row.classList.remove('dragging'); });
+        row.addEventListener('dragover', e => { e.preventDefault(); row.classList.add('drag-over'); });
+        row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+        row.addEventListener('drop', e => { e.preventDefault(); row.classList.remove('drag-over'); reorderHighlightItems(item.id); });
+        highlightTimelineEl.appendChild(row);
+    }
+}
+
+async function addHighlightItem(clipId) {
+    await highlightRequest(`/api/highlight-projects/${currentHighlight.id}/items`, { method: 'POST', body: { clipId } });
+}
+
+function focusHighlightItem(clipId) {
+    const item = (currentHighlight.items || []).find(x => x.clipId === clipId);
+    document.querySelector(`[data-item-id="${item?.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function scheduleHighlightItemUpdate(itemId, body) {
+    clearTimeout(highlightSaveTimer);
+    highlightSaveTimer = setTimeout(() => highlightRequest(`/api/highlight-projects/${currentHighlight.id}/items/${itemId}`, { method: 'PUT', body }), 350);
+}
+
+async function removeHighlightItem(itemId) {
+    await highlightRequest(`/api/highlight-projects/${currentHighlight.id}/items/${itemId}`, { method: 'DELETE' });
+}
+
+async function reorderHighlightItems(targetId) {
+    if (!highlightDraggedItemId || highlightDraggedItemId === targetId) return;
+    const ids = (currentHighlight.items || []).map(i => i.id);
+    const from = ids.indexOf(highlightDraggedItemId), to = ids.indexOf(targetId);
+    ids.splice(from, 1); ids.splice(to, 0, highlightDraggedItemId);
+    await highlightRequest(`/api/highlight-projects/${currentHighlight.id}/items/reorder`, { method: 'POST', body: { itemIds: ids } });
+}
+
+async function prepareHighlightItem(itemId) {
+    await highlightRequest(`/api/highlight-projects/${currentHighlight.id}/items/${itemId}/prepare`, { method: 'POST', body: null, keepStatus: true });
+    pollHighlightProject();
+}
+
+async function prepareHighlightDirectUrl(itemId, url) {
+    const trimmed = url.trim();
+    if (!trimmed) { showToast('请输入公开视频直链'); return; }
+    await highlightRequest(`/api/highlight-projects/${currentHighlight.id}/items/${itemId}/direct-url`, { method: 'POST', body: { url: trimmed }, keepStatus: true });
+    pollHighlightProject();
+}
+
+async function uploadHighlightItem(itemId, file) {
+    if (!file) return;
+    const form = new FormData(); form.append('file', file);
+    try {
+        highlightStatusEl.textContent = '正在上传素材…';
+        const resp = await fetch(`/api/highlight-projects/${currentHighlight.id}/items/${itemId}/upload`, { method: 'POST', body: form });
+        if (!resp.ok) throw new Error(await apiMessage(resp, '上传素材失败'));
+        await loadHighlightProject(currentHighlight.id);
+    } catch (err) { showToast(err.message || '上传素材失败'); }
+    finally { highlightStatusEl.textContent = ''; }
+}
+
+function previewHighlightItem(item) {
+    if (item.sourceState !== 'READY') { showToast('请先准备或上传该段素材'); return; }
+    const url = `/api/highlight-projects/${currentHighlight.id}/items/${item.id}/preview`;
+    const win = window.open('', '_blank');
+    if (!win) { showToast('浏览器阻止了预览窗口'); return; }
+    win.document.write(`<title>高光片段预览</title><style>body{margin:0;background:#05050a;display:grid;min-height:100vh;place-items:center}video{width:min(100vw,1280px);max-height:100vh}</style><video src="${esc(url)}" controls autoplay></video>`);
+    win.document.close();
+}
+
+async function saveHighlightProject() {
+    await highlightRequest(`/api/highlight-projects/${currentHighlight.id}`, { method: 'PUT', body: { name: highlightNameEl.value, configJson: highlightConfigJson() } });
+}
+
+async function exportHighlightProject() {
+    const items = currentHighlight.items || [];
+    const safe = highlightModeEl.value === 'SAFE';
+    const usable = safe ? items.filter(i => i.spoilerState === 'SAFE') : items;
+    if (!usable.length) { showToast(safe ? '无剧透版至少需要一段标记为“安全”的片段' : '请先加入片段'); return; }
+    const unready = usable.find(i => i.sourceState !== 'READY');
+    if (unready) { showToast('存在未就绪素材，请先准备、上传或移除'); return; }
+    const total = highlightDuration(usable);
+    const start = () => highlightExportRequest();
+    if (total > 20 * 60) {
+        showConfirm({ title: '长成片确认', msg: `预计成片 ${fmtTime(total)}，导出可能占用较多磁盘和时间，仍要继续吗？`, okText: '继续导出', danger: false, onOk: start });
+    } else start();
+}
+
+async function highlightExportRequest() {
+    try {
+        highlightStatusEl.textContent = '正在创建混剪导出任务…';
+        const resp = await fetch(`/api/highlight-projects/${currentHighlight.id}/exports`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: highlightModeEl.value, resolution: highlightResolutionEl.value, bgmPath: highlightBgmStoredPath, bgmVolume: Number(highlightBgmVolumeEl.value) })
+        });
+        if (!resp.ok) throw new Error(await apiMessage(resp, '创建混剪任务失败'));
+        showToast('高光混剪已开始导出');
+        await loadHighlightProject(currentHighlight.id);
+        pollHighlightProject();
+    } catch (err) { showToast(err.message || '创建混剪任务失败'); }
+    finally { highlightStatusEl.textContent = ''; }
+}
+
+let highlightPollTimer = null;
+function pollHighlightProject() {
+    if (highlightPollTimer) clearInterval(highlightPollTimer);
+    highlightPollTimer = setInterval(async () => {
+        if (!currentHighlight || activeView() !== 'highlight') { clearInterval(highlightPollTimer); highlightPollTimer = null; return; }
+        await loadHighlightProject(currentHighlight.id);
+        const active = (currentHighlight.exports || []).some(e => e.status === 'PENDING' || e.status === 'RUNNING')
+            || (currentHighlight.items || []).some(i => i.sourceState === 'PREPARING');
+        if (!active) { clearInterval(highlightPollTimer); highlightPollTimer = null; }
+    }, 1800);
+}
+
+function renderHighlightEstimate(items) {
+    const full = highlightDuration(items);
+    const safe = highlightDuration(items.filter(i => i.spoilerState === 'SAFE'));
+    const ready = items.filter(i => i.sourceState === 'READY').length;
+    highlightEstimateEl.innerHTML = `<b>制作概览</b><span>全量 ${fmtTime(full)} · 无剧透 ${fmtTime(safe)}</span><span>素材就绪 ${ready}/${items.length}</span><span>超过 20 分钟导出前会再次确认；服务端安全上限为 120 分钟。</span>`;
+}
+
+function renderHighlightExports(exports) {
+    highlightExportsEl.innerHTML = '';
+    if (!exports.length) { highlightExportsEl.innerHTML = '<span class="highlight-empty-small">尚未导出成片</span>'; return; }
+    for (const item of exports) {
+        const row = document.createElement('div');
+        row.className = 'highlight-export-row';
+        const status = document.createElement('span');
+        status.className = `state-${(item.status || '').toLowerCase()}`;
+        status.textContent = item.status || 'UNKNOWN';
+        const meta = document.createElement('span');
+        meta.textContent = `${item.mode === 'SAFE' ? '无剧透版' : '全量版'} · ${fmtDateTime(item.createdAt)}`;
+        row.append(status, meta);
+        if (item.outputUrl) {
+            const open = document.createElement('a');
+            open.href = item.outputUrl; open.target = '_blank'; open.textContent = '打开';
+            row.appendChild(open);
+        }
+        if (item.status === 'PENDING' || item.status === 'RUNNING') {
+            const cancel = document.createElement('button');
+            cancel.type = 'button'; cancel.className = 'btn-mini danger'; cancel.textContent = '取消';
+            cancel.addEventListener('click', () => cancelHighlightExport(item.id));
+            row.appendChild(cancel);
+        } else {
+            const remove = document.createElement('button');
+            remove.type = 'button'; remove.className = 'btn-mini danger'; remove.textContent = '删除';
+            remove.addEventListener('click', () => deleteHighlightExport(item.id));
+            row.appendChild(remove);
+        }
+        if (item.message || item.stage || item.sceneMessage) {
+            const message = document.createElement('small');
+            message.title = [item.stage, item.sceneMessage, item.message].filter(Boolean).join(' · ');
+            message.textContent = [item.stage, item.sceneMessage, item.message].filter(Boolean).join(' · ');
+            row.appendChild(message);
+        }
+        highlightExportsEl.appendChild(row);
+    }
+}
+
+async function cancelHighlightExport(exportId) {
+    await highlightRequest(`/api/highlight-projects/exports/${exportId}/cancel`, { method: 'POST', body: null });
+}
+
+async function deleteHighlightExport(exportId) {
+    showConfirm({ title: '删除成片记录', msg: '将删除该次导出的成片文件，草稿不会受影响。', okText: '删除', danger: true,
+        onOk: () => highlightRequest(`/api/highlight-projects/exports/${exportId}`, { method: 'DELETE', body: null }) });
+}
+
+async function highlightRequest(url, { method, body, keepStatus = false }) {
+    try {
+        if (!keepStatus) highlightStatusEl.textContent = '正在保存制作稿…';
+        const resp = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
+        if (!resp.ok) throw new Error(await apiMessage(resp, '保存制作稿失败'));
+        if (method !== 'DELETE' || body) {
+            const project = await resp.json().catch(() => null);
+            if (project && project.items) { currentHighlight = project; renderHighlightWorkbench(); }
+            else await loadHighlightProject(currentHighlight.id);
+        } else await loadHighlightProject(currentHighlight.id);
+    } catch (err) { showToast(err.message || '保存制作稿失败'); }
+    finally { if (!keepStatus) highlightStatusEl.textContent = ''; }
+}
+
+function highlightDuration(items) {
+    return items.reduce((total, item) => total + Math.max(0, Number(item.outSec || 0) - Number(item.inSec || 0)), 0);
+}
+
+function numberOrNull(value) { return value === '' ? null : Number(value); }
+
+async function apiMessage(resp, fallback) {
+    try { const body = await resp.json(); return body?.message || fallback; } catch (e) { return fallback; }
 }
 
 // ---------- 媒体格式 / 子分类 ----------
@@ -6239,6 +6891,36 @@ episodeTagInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.
 episodeCoverModal.addEventListener('click', (e) => { if (e.target === episodeCoverModal) { episodeCoverModal.hidden = true; coverEpisode = null; } });
 document.getElementById('episode-cover-cancel').addEventListener('click', () => { episodeCoverModal.hidden = true; coverEpisode = null; });
 document.getElementById('episode-cover-save').addEventListener('click', saveEpisodeCoverUpload);
+
+// ---------- 高光制作工作台事件 ----------
+detailHighlightBtn?.addEventListener('click', openHighlightWorkbench);
+highlightBackBtn?.addEventListener('click', goBack);
+highlightSaveBtn?.addEventListener('click', saveHighlightProject);
+highlightExportBtn?.addEventListener('click', exportHighlightProject);
+highlightNameEl?.addEventListener('change', saveHighlightProject);
+highlightBgmVolumeEl?.addEventListener('change', () => { if (currentHighlight) saveHighlightProject(); });
+highlightModeEl?.addEventListener('change', () => { if (currentHighlight) saveHighlightProject(); });
+highlightResolutionEl?.addEventListener('change', () => { if (currentHighlight) saveHighlightProject(); });
+highlightStylePresetEl?.addEventListener('change', () => { if (currentHighlight) saveHighlightProject(); });
+highlightTransitionEl?.addEventListener('change', () => { if (currentHighlight) saveHighlightProject(); });
+highlightCardsEnabledEl?.addEventListener('change', () => { if (currentHighlight) saveHighlightProject(); });
+highlightBgmPickBtn?.addEventListener('click', () => highlightBgmFileEl.click());
+highlightBgmFileEl?.addEventListener('change', async () => {
+    const file = highlightBgmFileEl.files?.[0];
+    if (!file || !currentHighlight) return;
+    const form = new FormData(); form.append('file', file);
+    try {
+        highlightStatusEl.textContent = '正在上传背景音乐…';
+        const resp = await fetch(`/api/highlight-projects/${currentHighlight.id}/bgm`, { method: 'POST', body: form });
+        if (!resp.ok) throw new Error(await apiMessage(resp, '上传背景音乐失败'));
+        const data = await resp.json();
+        highlightBgmStoredPath = data.path;
+        highlightBgmNameEl.textContent = file.name;
+        await saveHighlightProject();
+        showToast('背景音乐已添加');
+    } catch (err) { showToast(err.message || '上传背景音乐失败'); }
+    finally { highlightStatusEl.textContent = ''; highlightBgmFileEl.value = ''; }
+});
 
 // ---------- 片段详情操作 ----------
 document.getElementById('back-from-clip').addEventListener('click', goBack);

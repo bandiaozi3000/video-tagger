@@ -5,6 +5,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.EncodedResource;
@@ -43,6 +45,7 @@ import java.util.regex.Pattern;
  * <p>只在 SQLite 数据源下生效（MySQL profile 仅数据迁移工具用，走 Flyway，跳过）。
  */
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class SqliteSchemaMigrator implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(SqliteSchemaMigrator.class);

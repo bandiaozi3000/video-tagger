@@ -69,6 +69,10 @@ public interface ClipMapper extends BaseMapper<Clip> {
     @Select("SELECT * FROM clips WHERE episode_id = #{episodeId} ORDER BY timestamp_sec ASC")
     List<Clip> listByEpisode(@Param("episodeId") long episodeId);
 
+    @Select("SELECT c.* FROM clips c JOIN episode e ON e.id = c.episode_id "
+            + "WHERE e.media_id = #{mediaId} ORDER BY e.season ASC, e.episode_no ASC, c.timestamp_sec ASC")
+    List<Clip> listByMedia(@Param("mediaId") long mediaId);
+
     /** 代表性片段封面：被 clip_tag 标记最多、平分取最新；供集封面智能默认。 */
     @Select("SELECT cover_path FROM clips "
             + "WHERE episode_id = #{episodeId} AND cover_path IS NOT NULL "

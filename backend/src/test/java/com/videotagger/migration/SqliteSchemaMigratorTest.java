@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * SqliteSchemaMigrator 单测（内存 SQLite，不启 Spring 上下文）。
- * test classpath 提供 v02.sql / v03.sql（仅测试专用），故最新版本 = 3。
+ * test classpath 提供 v02.sql；v03 与生产高光迁移保持一致，故最新版本 = 4。
  */
 class SqliteSchemaMigratorTest {
 
@@ -42,19 +42,19 @@ class SqliteSchemaMigratorTest {
     @Test
     @DisplayName("最新版本 = max(基线1, migration-sqlite 目录里最大 vNN)")
     void latestVersionTracksScripts() throws Exception {
-        // test classpath 有 v02/v03.sql → 最新 = 3
-        assertEquals(3, migrator.latestVersion());
+        // test classpath 提供 v02/v03/v04 → 最新 = 4
+        assertEquals(4, migrator.latestVersion());
     }
 
     @Test
     @DisplayName("全新库（user_version=0）直接初始化为最新版本")
     void freshDatabaseInitializesToLatest() throws Exception {
         migrator.run(null);
-        assertEquals(3, readUserVersion());
+        assertEquals(4, readUserVersion());
     }
 
     @Test
-    @DisplayName("老库（user_version=1）按序执行 v02/v03 迁移到最新")
+    @DisplayName("老库（user_version=1）按序执行 v02/v03/v04 迁移到最新")
     void oldDatabaseMigratesStepByStep() throws Exception {
         // 模拟 v1 结构的库：media 表只有基础列，user_version=1
         try (Statement st = conn.createStatement()) {
@@ -62,12 +62,42 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 1");
         }
         migrator.run(null);
-        assertEquals(3, readUserVersion());
-        // v02/v03 的 ALTER 应已生效
+        assertEquals(4, readUserVersion());
+        // v02 的 ALTER 与真实 v03 高光表迁移应均已生效
         Set<String> cols = tableColumns("media");
         assertTrue(cols.contains("test_col"), "v02 加列 test_col 应生效");
-        assertTrue(cols.contains("test_col2"), "v03 加列 test_col2 应生效");
         assertTrue(cols.contains("title"), "原有列应保留");
+        assertTrue(tableExists("highlight_project"), "v03 应创建高光项目表");
+        assertTrue(tableExists("highlight_project_item"), "v03 应创建高光项目段表");
+        assertTrue(tableExists("highlight_export"), "v03 应创建高光导出表");
+        assertTrue(tableColumns("highlight_export").contains("stage"), "v04 应增加导出阶段字段");
+    }
+
+    @Test
+    @DisplayName("基线已建高光表的 v2 老库升级到 v3 不会重复建表失败")
+    void existingBaselineTablesDoNotBlockV03() throws Exception {
+        try (Statement st = conn.createStatement()) {
+            st.execute("CREATE TABLE highlight_project (id INTEGER PRIMARY KEY, updated_at INTEGER)");
+            st.execute("CREATE TABLE highlight_project_item (id INTEGER PRIMARY KEY, project_id INTEGER, sort_order INTEGER, clip_id INTEGER)");
+            st.execute("CREATE TABLE highlight_export (id INTEGER PRIMARY KEY, project_id INTEGER, created_at INTEGER, status TEXT)");
+            st.execute("PRAGMA user_version = 2");
+        }
+        migrator.run(null);
+        assertEquals(4, readUserVersion());
+        assertTrue(tableExists("highlight_project"));
+    }
+
+    @Test
+    @DisplayName("v3 高光导出表升级到 v4 增加诊断字段")
+    void exportDiagnosticsMigrateFromV03() throws Exception {
+        try (Statement st = conn.createStatement()) {
+            st.execute("CREATE TABLE highlight_export (id INTEGER PRIMARY KEY, project_id INTEGER, created_at INTEGER, status TEXT)");
+            st.execute("PRAGMA user_version = 3");
+        }
+        migrator.run(null);
+        assertEquals(4, readUserVersion());
+        assertTrue(tableColumns("highlight_export").contains("stage"));
+        assertTrue(tableColumns("highlight_export").contains("scene_message"));
     }
 
     @Test
@@ -75,12 +105,13 @@ class SqliteSchemaMigratorTest {
     void upToDateDatabaseSkipsMigration() throws Exception {
         try (Statement st = conn.createStatement()) {
             st.execute("CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL)");
-            st.execute("PRAGMA user_version = 3");
+            st.execute("PRAGMA user_version = 4");
         }
         migrator.run(null);
-        assertEquals(3, readUserVersion());
+        assertEquals(4, readUserVersion());
         assertTrue(tableColumns("media").isEmpty() || !tableColumns("media").contains("test_col"),
                 "已最新则不该执行 v02 加列");
+        assertTrue(!tableExists("highlight_project"), "已最新则不该执行 v03 建表");
     }
 
     @Test
@@ -98,6 +129,15 @@ class SqliteSchemaMigratorTest {
         try (Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery("PRAGMA user_version")) {
             return rs.next() ? rs.getInt(1) : 0;
+        }
+    }
+
+    private boolean tableExists(String table) throws SQLException {
+        try (var ps = conn.prepareStatement("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")) {
+            ps.setString(1, table);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
         }
     }
 

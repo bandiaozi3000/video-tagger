@@ -308,6 +308,7 @@
         <div class="meta">
           <span class="badge" id="vt-title" contenteditable="true" title="点击可编辑"></span>
           <span class="badge time" id="vt-time" contenteditable="true" title="点击可编辑（秒）"></span>
+          <span class="badge time" id="vt-end-time" contenteditable="true" title="点击可编辑结束时间（秒，可选）">结束—</span>
         </div>
         <div class="input-wrap">
           <input id="vt-tag" placeholder="标签，如：高燃" autocomplete="off">
@@ -328,6 +329,7 @@
 
     const titleEl = shadow.getElementById('vt-title');
     const timeEl = shadow.getElementById('vt-time');
+    const endTimeEl = shadow.getElementById('vt-end-time');
     const tagInput = shadow.getElementById('vt-tag');
     const noteInput = shadow.getElementById('vt-note');
     const acList = shadow.getElementById('vt-ac');
@@ -348,6 +350,12 @@
 
     titleEl.textContent = info.title;
     timeEl.textContent = String(Math.round(info.timestampSec));
+    let manualEnd = false;
+    endTimeEl.addEventListener('input', () => { manualEnd = true; });
+    endTimeEl.addEventListener('blur', () => {
+      const value = parseFloat(endTimeEl.textContent.replace(/^结束—/, ''));
+      endTimeEl.textContent = Number.isFinite(value) ? `结束${Math.round(value)}` : '结束—';
+    });
 
     /* 方案C：打标签时确认归入——查相似媒体候选，命中则浮层显示，默认归入第一个，可改/新建 */
     let candMediaId = null;
@@ -463,7 +471,7 @@
     function startFollow() {
       stopFollow();
       followTimer = setInterval(() => {
-        if (document.activeElement === timeEl) return; // 用户正在手动编辑时间戳
+        if (document.activeElement === timeEl || document.activeElement === endTimeEl) return; // 用户正在手动编辑时间
         const v = findVideo();
         if (v) {
           const rounded = Math.round(v.currentTime);
@@ -506,7 +514,7 @@
           type: 'api',
           method: 'PUT',
           path: `/api/clips/${c.id}?appendTag=true`,
-          body: { title: c.title, url: c.url, timestampSec: c.timestampSec, tag, note: c.note || '' }
+          body: { title: c.title, url: c.url, timestampSec: c.timestampSec, endSec: c.endSec || null, tag, note: c.note || '' }
         });
         if (resp && resp.ok) {
           toast.textContent = `已追加到「${c.tag}」`;
@@ -579,6 +587,18 @@
         return;
       }
       const editedSec = parseFloat(timeEl.textContent);
+      const endText = endTimeEl.textContent.replace(/^结束—?/, '').trim();
+      const editedEndSec = endText ? parseFloat(endText) : null;
+      if (endText && !Number.isFinite(editedEndSec)) {
+        toast.textContent = '结束时间格式不正确';
+        toast.classList.add('show');
+        return;
+      }
+      if (Number.isFinite(editedEndSec) && editedEndSec <= editedSec) {
+        toast.textContent = '结束时间必须大于开始时间';
+        toast.classList.add('show');
+        return;
+      }
       // 时间戳同源截帧：普通模式用 Alt+S 按下瞬间的帧；连续模式每次保存时重截当前帧
       let coverDataUrl = info.frameDataUrl || null;
       let detailCoverDataUrl = info.detailFrameDataUrl || null;
@@ -594,6 +614,7 @@
         title: titleEl.textContent.trim() || info.title,
         url: info.url,
         timestampSec: Number.isFinite(editedSec) ? editedSec : info.timestampSec,
+        endSec: Number.isFinite(editedEndSec) ? editedEndSec : null,
         tag,
         note: noteInput.value.trim(),
         videoDuration: currentVideoDuration(),
@@ -631,6 +652,9 @@
         if (v) {
           timeEl.textContent = String(Math.round(v.currentTime));
           timeEl.title = `点击可编辑（秒）· 当前 ${fmtTime(v.currentTime)}`;
+          if (!manualEnd && endTimeEl.textContent === '结束—') {
+            endTimeEl.title = '点击可编辑结束时间（秒，可选）';
+          }
         }
         setTimeout(() => toast.classList.remove('show'), 1000);
         tagInput.focus();

@@ -18,6 +18,7 @@ import com.videotagger.mapper.EpisodeTagMapper;
 import com.videotagger.mapper.TagMapper;
 import com.videotagger.util.MediaTitleNormalizer;
 import com.videotagger.util.TitleParser;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,6 +44,8 @@ public class MediaService {
     private final EmbeddingTaskService embeddingTaskService;
     private final CoverService coverService;
     private final TitleMappingService titleMappingService;
+    private final ClipExportService clipExportService;
+    private final HighlightProjectService highlightProjectService;
 
     public MediaService(MediaMapper mediaMapper, EpisodeMapper episodeMapper,
                         MediaTagMapper mediaTagMapper, EpisodeTagMapper episodeTagMapper,
@@ -51,6 +54,20 @@ public class MediaService {
                         MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
                         EmbeddingTaskService embeddingTaskService, CoverService coverService,
                         TitleMappingService titleMappingService) {
+        this(mediaMapper, episodeMapper, mediaTagMapper, episodeTagMapper, clipTagMapper, clipMapper,
+                tagMapper, mediaCollectionMapper, mediaFormatMapper, mediaSubcategoryMapper,
+                embeddingTaskService, coverService, titleMappingService, null, null);
+    }
+
+    @Autowired
+    public MediaService(MediaMapper mediaMapper, EpisodeMapper episodeMapper,
+                        MediaTagMapper mediaTagMapper, EpisodeTagMapper episodeTagMapper,
+                        ClipTagMapper clipTagMapper, ClipMapper clipMapper,
+                        TagMapper tagMapper, MediaCollectionMapper mediaCollectionMapper,
+                        MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
+                        EmbeddingTaskService embeddingTaskService, CoverService coverService,
+                        TitleMappingService titleMappingService, ClipExportService clipExportService,
+                        HighlightProjectService highlightProjectService) {
         this.mediaMapper = mediaMapper;
         this.episodeMapper = episodeMapper;
         this.mediaTagMapper = mediaTagMapper;
@@ -64,6 +81,8 @@ public class MediaService {
         this.embeddingTaskService = embeddingTaskService;
         this.coverService = coverService;
         this.titleMappingService = titleMappingService;
+        this.clipExportService = clipExportService;
+        this.highlightProjectService = highlightProjectService;
     }
 
     /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/来源/媒体标签/q 标题模糊筛选；ids 精确圈选（仅显示已勾选用）；offset 分页。 */
@@ -241,6 +260,10 @@ public class MediaService {
             for (Clip c : clipMapper.listByEpisode(ep.getId())) {
                 coverService.deleteCover(c.getCoverPath());
                 coverService.deleteCover(c.getDetailCoverPath());
+                if (clipExportService != null) clipExportService.deleteArtifacts(c.getId());
+                if (highlightProjectService != null) {
+                    highlightProjectService.markClipUnavailable(c.getId(), "原始片段已删除，请移除或上传替代素材");
+                }
                 embeddingTaskService.deleteFor(EntityType.CLIP, c.getId());
                 clipTagMapper.deleteByClip(c.getId());
             }
