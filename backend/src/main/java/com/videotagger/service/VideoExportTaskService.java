@@ -45,7 +45,6 @@ public class VideoExportTaskService {
         this.videoService = videoService;
     }
 
-    /** 创建任务（RUNNING）并异步执行渲染，立即返回任务记录。 */
     public VideoExportTask create(List<Long> ids, String title, String format, String resolution,
                                   List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
                                   String groupBy, String groupStyle, String subtitle, String coverSize,
@@ -56,6 +55,22 @@ public class VideoExportTaskService {
                                   Integer bgmScale,
                                   Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
                                   Map<String, Boolean> detailShow) {
+        return create(ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle, subtitle, coverSize,
+                openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity,
+                bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale, bgmX,
+                bgmY, brandTitle, perScreen, detailShow, null);
+    }
+    public VideoExportTask create(List<Long> ids, String title, String format, String resolution,
+                                  List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
+                                  String groupBy, String groupStyle, String subtitle, String coverSize,
+                                  List<Long> openingIds, String intro, RecommendService.Durations durations,
+                                  String endingTitle, String endingText, String bgColor, List<String> bgImages,
+                                  Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
+                                  String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
+                                  Integer bgmScale,
+                                  Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
+                                  Map<String, Boolean> detailShow,
+                                  Map<Long, RecommendMediaClips> requestedClips) {
         long id = seq.getAndIncrement();
         VideoExportTask t = new VideoExportTask(id, title == null || title.isBlank() ? "推荐视频" : title,
                 ids == null ? 0 : ids.size(), "RUNNING", null, null, format, System.currentTimeMillis(), 0);
@@ -65,7 +80,7 @@ public class VideoExportTaskService {
                 subtitle, coverSize, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages,
                 bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle,
                 groupSort, openingSpeed, endingScrollSpeed,
-                bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow);
+                bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, requestedClips);
         return t;
     }
 
@@ -79,13 +94,14 @@ public class VideoExportTaskService {
                          String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
                          Integer bgmScale,
                          Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
-                         Map<String, Boolean> detailShow) {
+                         Map<String, Boolean> detailShow,
+                         Map<Long, RecommendMediaClips> requestedClips) {
         try {
             Path out = videoService.render(ids, title, format, resolution, bgmPaths, bgmTracks,
                     groupBy, groupStyle, subtitle, coverSize, openingIds, intro, durations,
                     endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle,
                     groupSort, openingSpeed, endingScrollSpeed,
-                    bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow);
+                    bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, requestedClips);
             finish(id, "DONE", null, out.toString());
             log.info("视频导出任务 {} 完成: {}", id, out);
         } catch (Exception e) {

@@ -94,6 +94,7 @@ let exitCode = 0;
         // 不能加 --disable-gpu：Windows 软件合成会把超大 viewport 宽高按 0.75 压缩
         // （1920→1440），必须走 GPU/系统合成才能原尺寸输出
         '--mute-audio',
+        '--autoplay-policy=no-user-gesture-required',
         '--hide-scrollbars',
         '--force-color-profile=srgb',
         '--force-device-scale-factor=1',

@@ -175,10 +175,13 @@ public class ClipExportService {
             temp = output.resolveSibling(output.getFileName() + ".part");
             Files.deleteIfExists(temp);
             double start = clip.getTimestampSec();
-            double duration = effectiveDuration(clip);
+            double duration = effectiveDurationOrZero(clip);
             List<String> command = new ArrayList<>(List.of(
-                    properties.getFfmpegPath(), "-y", "-ss", format(start), "-i", input.toString(),
-                    "-t", format(duration), "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                    properties.getFfmpegPath(), "-y", "-ss", format(start), "-i", input.toString()));
+            if (duration > 0) {
+                command.addAll(List.of("-t", format(duration)));
+            }
+            command.addAll(List.of("-c:v", "libx264", "-preset", "fast", "-crf", "20",
                     "-c:a", "aac", "-movflags", "+faststart", "-f", "mp4", temp.toString()));
             runProcess(taskId, command);
             if ("CANCELLED".equals(get(taskId).status())) throw new IllegalStateException("已取消");
@@ -320,16 +323,23 @@ public class ClipExportService {
     }
 
     private void validateVideoRange(Clip clip) {
-        if (clip.getTimestampSec() == null) throw new IllegalArgumentException("片段没有开始时间");
-        double duration = effectiveDuration(clip);
-        if (duration <= 0) throw new IllegalArgumentException("没有结束时间，无法确定视频导出终点");
+        if (clip.getTimestampSec() == null || clip.getTimestampSec() < 0) throw new IllegalArgumentException("片段没有开始时间");
+        double duration = effectiveDurationOrZero(clip);
+        if (duration < 0) throw new IllegalArgumentException("片段结束时间早于开始时间");
         if (duration > properties.getMaxDurationSec()) throw new IllegalArgumentException("导出时长超过 30 分钟上限");
     }
 
     private double effectiveDuration(Clip clip) {
+        double duration = effectiveDurationOrZero(clip);
+        if (duration <= 0) throw new IllegalArgumentException("没有结束时间，无法确定视频导出终点");
+        return duration;
+    }
+
+    private double effectiveDurationOrZero(Clip clip) {
+        if (clip.getTimestampSec() == null) return 0;
         if (clip.getEndSec() != null) return clip.getEndSec() - clip.getTimestampSec();
         if (clip.getVideoDuration() != null) return clip.getVideoDuration() - clip.getTimestampSec();
-        throw new IllegalArgumentException("没有结束时间，无法确定视频导出终点");
+        return 0;
     }
 
     static double frameTime(Clip clip, SingleFrameExportRequest request) {

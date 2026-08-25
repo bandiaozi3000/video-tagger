@@ -250,6 +250,21 @@
   @keyframes tbprog{from{transform:scaleX(0)}to{transform:scaleX(1)}}
   /* 屏外整屏 section 跳过渲染（大文档性能）：content-visibility 屏外块不 layout/paint，滚动按需渲染 */
   .story-card,.grid-screen,.chapter,.ending,.prologue{content-visibility:auto;contain-intrinsic-size:auto 100vh;}
+  .clip-reel{grid-column:1/-1;min-width:0;margin-top:12px;order:3}
+  .clip-reel-stage{position:relative;aspect-ratio:16/7.4;max-height:38vh;border:1px solid rgba(82,226,245,.36);border-radius:16px;overflow:hidden;background:#0b1020;box-shadow:0 12px 34px rgba(0,0,0,.35),0 0 26px rgba(82,226,245,.1)}
+  .clip-reel-stage video{width:100%;height:100%;display:block;object-fit:cover;background:#0b1020}
+  .clip-reel-stage::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,rgba(2,5,18,.12),transparent 42%,rgba(2,5,18,.7))}
+  .clip-reel-label{position:absolute;left:14px;right:14px;bottom:13px;z-index:2;display:flex;justify-content:space-between;align-items:end;gap:10px;color:#fff;font-size:12px}
+  .clip-reel-caption{padding:7px 10px;border-left:2px solid var(--sky);background:rgba(3,7,18,.66);backdrop-filter:blur(8px);line-height:1.4;max-width:80%}
+  .clip-reel-caption small{display:block;color:var(--muted);font-size:10px;margin-top:2px}
+  .clip-reel-caption b{color:var(--sky)}
+  .clip-reel-count{font:10px monospace;color:rgba(255,255,255,.7);white-space:nowrap}
+  .clip-reel-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.16);z-index:3}
+  .clip-reel-progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--sky),var(--pink));box-shadow:0 0 10px var(--sky)}
+  .clip-reel-rail{display:flex;gap:7px;overflow-x:auto;padding:9px 1px 2px;scrollbar-width:thin}
+  .clip-reel-rail button{flex:none;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.04);color:var(--muted);padding:6px 9px;font:11px "PingFang SC","Microsoft YaHei",sans-serif;cursor:pointer;transition:.18s}
+  .clip-reel-rail button:hover,.clip-reel-rail button.active{border-color:rgba(82,226,245,.65);background:rgba(82,226,245,.12);color:#fff}
+  .clip-reel-rail button .n{color:var(--sky);font:10px var(--mono);margin-right:5px}
 
   /* BGM 胶囊 */
   .bgm-bar{position:fixed;left:14px;bottom:8%;z-index:50;display:flex;align-items:center;gap:9px;
@@ -642,17 +657,68 @@ function buildStory(s, idx, g, j, total) {
   if (g) sc.style.setProperty('--cg', glowOf(g.gi));
   const badge = g ? `<span class="group-badge"><span class="p">${g.name}</span> · 第 ${j + 1}/${total} 部</span>` : '';
   const flagBadge = DETAIL_SHOW.status && s.flag ? `<span class="flag">${s.flag}</span>` : '';
+  const clips = Array.isArray(s.clips) ? s.clips : [];
+  const clipHtml = clips.length ? `<div class="clip-reel" data-clip-reel>
+    <div class="clip-reel-stage"><video muted playsinline preload="metadata"></video>
+      <div class="clip-reel-label"><div class="clip-reel-caption"></div><span class="clip-reel-count"></span></div>
+      <div class="clip-reel-progress"><i></i></div>
+    </div>
+    <div class="clip-reel-rail">${clips.map((c, i) => `<button type="button" data-clip-index="${i}"><span class="n">${pad(i + 1)}</span>${c.title || '未命名片段'}</button>`).join('')}</div>
+  </div>` : '';
   sc.innerHTML = `${badge}
     <span class="sc-no">${pad(idx + 1)}</span>
     <div class="sc-poster">${flagBadge}<img loading="lazy" src="${s.cover}" alt="${s.title}" onerror="this.style.display='none'"></div>
     <div class="sc-info"><span class="kicker">PICK NO.${pad(idx + 1)}</span>
       <h2>${s.title}</h2>${DETAIL_SHOW.note ? `<p class="note">${s.note || ''}</p>` : ''}
-      ${DETAIL_SHOW.tag ? `<div class="tags">${(s.tags || []).map(chip).join('')}</div>` : ''}</div>`;
+      ${DETAIL_SHOW.tag ? `<div class="tags">${(s.tags || []).map(chip).join('')}</div>` : ''}</div>${clipHtml}`;
+  if (clips.length) bindClipReel(sc, s, clips);
   story.appendChild(sc);
   return sc;
 }
 
-if (INTRO) items.push({ el: buildPrologue(), type: 'prologue', hold: INTRO_SEC * 1000 });
+function bindClipReel(sc, slide, clips) {
+  const reel = sc.querySelector('[data-clip-reel]');
+  const video = reel.querySelector('video');
+  const caption = reel.querySelector('.clip-reel-caption');
+  const count = reel.querySelector('.clip-reel-count');
+  const progress = reel.querySelector('.clip-reel-progress i');
+  const buttons = [...reel.querySelectorAll('[data-clip-index]')];
+  let index = 0;
+  const badgeText = (clip, i) => {
+    const b = clip.badge || {};
+    const parts = [];
+    if (b.mediaTitle) parts.push(slide.title);
+    if (b.clipTitle) parts.push(clip.title || '未命名片段');
+    if (b.index) parts.push('#' + (i + 1));
+    if (b.note && clip.note) parts.push(clip.note);
+    let text = parts.join(' · ');
+    if (b.custom) text += (text ? ' · ' : '') + b.custom.replaceAll('{media}', slide.title).replaceAll('{clip}', clip.title || '未命名片段').replaceAll('{i}', String(i + 1));
+    return text || (clip.title || '片段');
+  };
+  const select = (next, autoplay) => {
+    index = Math.max(0, Math.min(clips.length - 1, next));
+    const clip = clips[index];
+    video.src = clip.path;
+    video.load();
+    caption.innerHTML = `<b>★ ${badgeText(clip, index)}</b><small>REAL CLIP · ${clip.startSec == null ? '自然结束' : '时间段'}</small>`;
+    count.textContent = pad(index + 1) + ' / ' + pad(clips.length);
+    buttons.forEach((button, i) => button.classList.toggle('active', i === index));
+    progress.style.width = '0%';
+    if (autoplay) video.play().catch(() => {});
+  };
+  video.addEventListener('timeupdate', () => { progress.style.width = video.duration ? `${video.currentTime / video.duration * 100}%` : '0%'; });
+  video.addEventListener('ended', () => index + 1 < clips.length && select(index + 1, true));
+  buttons.forEach((button, i) => button.addEventListener('click', e => { e.stopPropagation(); select(i, true); }));
+  select(0, false);
+}
+
+function storyHold(s) {
+  const clips = Array.isArray(s.clips) ? s.clips : [];
+  const known = clips.reduce((sum, c) => sum + (c.endSec != null && c.startSec != null ? Math.max(0, c.endSec - c.startSec) : 0), 0);
+  return Math.max(DETAIL_SEC, known + (clips.some(c => c.endSec == null) ? 2 : 0)) * 1000;
+}
+
+
 
 if (hasGroup) {
   const groups = []; const gmap = new Map();
@@ -677,12 +743,12 @@ if (hasGroup) {
     autoScroll(il.querySelector('.il-wall'), 1.2);
     /* 组内 Story */
     g.list.forEach((s, j) => {
-      items.push({ el: buildStory(s, idx++, g, j, g.list.length), type: 'story', hold: DETAIL_SEC * 1000, group: g.name, idx: j + 1, total: g.list.length });
+      items.push({ el: buildStory(s, idx++, g, j, g.list.length), type: 'story', hold: storyHold(s), group: g.name, idx: j + 1, total: g.list.length });
     });
   });
 } else {
   SLIDES.forEach((s, i) => {
-    items.push({ el: buildStory(s, i, null, 0, 0), type: 'story', hold: DETAIL_SEC * 1000, idx: i + 1, total: N });
+    items.push({ el: buildStory(s, i, null, 0, 0), type: 'story', hold: storyHold(s), idx: i + 1, total: N });
   });
 }
 items.push({ el: buildEnding(), type: 'ending', hold: 3600 * 1000, total: N });   // hold 仅兜底；实际结束由 startEnding 滚到底+ENDING_SEC 控制

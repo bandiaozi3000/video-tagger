@@ -226,6 +226,11 @@ public class ClipService {
     }
 
     /** 片段详情页：按 id 取完整片段，不存在抛 404。 */
+    public List<Clip> listByMedia(Long mediaId) {
+        if (mediaId == null || mediaId <= 0) throw new IllegalArgumentException("mediaId 非法");
+        return clipMapper.listByMedia(mediaId);
+    }
+
     public Clip get(Long id) {
         Clip clip = clipMapper.selectById(id);
         if (clip == null) {

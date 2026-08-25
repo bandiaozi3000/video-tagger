@@ -9,13 +9,12 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
-import org.springframework.core.io.support.EncodedResource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
-import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;
+import java.io.IOException;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -122,7 +121,27 @@ public class SqliteSchemaMigrator implements ApplicationRunner {
 
     private void runMigrationScript(Connection conn, int version) throws SQLException {
         String path = MIGRATIONS_DIR + "/v" + String.format("%02d", version) + ".sql";
-        ScriptUtils.executeSqlScript(conn,
-                new EncodedResource(new ClassPathResource(path), StandardCharsets.UTF_8));
+        try {
+            Resource resource = new ClassPathResource(path);
+            String script = new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
+                    .replaceAll("(?m)^\\s*--.*(?:\\R|$)", "");
+            for (String statement : script.split(";")) {
+                String sql = statement.trim();
+                if (sql.isEmpty()) continue;
+                try (Statement st = conn.createStatement()) {
+                    st.execute(sql);
+                } catch (SQLException e) {
+                    if (!isDuplicateColumn(e)) throw e;
+                    log.info("[schema] 跳过已存在列: {}", sql);
+                }
+            }
+        } catch (IOException e) {
+            throw new SQLException("读取迁移脚本失败: " + path, e);
+        }
+    }
+
+    private static boolean isDuplicateColumn(SQLException e) {
+        String message = e.getMessage();
+        return message != null && message.toLowerCase(java.util.Locale.ROOT).contains("duplicate column name");
     }
 }

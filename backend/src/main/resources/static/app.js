@@ -2781,6 +2781,11 @@ function showToast(msg) {
 const recommendSelected = new Set();
 /** 开场代表秀子集：步骤2「自定义开局封面」勾选后由用户指定（否则自动评分 top10）。 */
 const openingSelected = new Set();
+/** v0.21 推荐片段配置：mediaId -> { order: [clipId], badge: {...} }。 */
+const recommendMediaClips = new Map();
+let recommendClipModalMediaId = null;
+let recommendClipModalItems = [];
+let recommendClipModalAllItems = [];
 let recommendStep = 1;            // 向导当前步骤 1/2/3
 let recommendDstHandle = null;    // File System Access API 保存句柄（选过保存位置后非空）
 
@@ -3060,6 +3065,7 @@ function renderRecommendGrid(list, container = recommendGridEl) {
             <div class="media-cover">${fmtBadge}${srcBadge}${cover}
                 <input type="checkbox" class="media-batch-cb" title="勾选后进入推荐导出" ${recommendSelected.has(a.id) ? 'checked' : ''}>
                 <button type="button" class="media-fav-btn${(a.collectionCount || 0) > 0 ? ' fav-active' : ''}" title="收藏到收藏夹">${(a.collectionCount || 0) > 0 ? '❤' : '♡'}</button>
+                <button type="button" class="recommend-clip-entry${recommendMediaClips.has(a.id) ? ' configured' : ''}" title="配置推荐片段">${recommendMediaClips.has(a.id) ? '片段 ' + recommendMediaClips.get(a.id).order.length + ' 段' : '选片段'}</button>
             </div>
             <div class="media-card-body">
                 <div class="media-card-title"></div>
@@ -3084,6 +3090,10 @@ function renderRecommendGrid(list, container = recommendGridEl) {
         card.querySelector('.media-fav-btn').addEventListener('click', (e) => {
             e.stopPropagation();
             openFavPicker(a.id, e.currentTarget);
+        });
+        card.querySelector('.recommend-clip-entry').addEventListener('click', (e) => {
+            e.stopPropagation();
+            openRecommendClipModal(a);
         });
         card.addEventListener('click', () => openMediaDetail(a.id));
         grid.appendChild(card);
@@ -3120,6 +3130,7 @@ function renderRecommendRow(list, container = recommendGridEl) {
             </div>
             <div class="row-actions">
                 <button type="button" class="row-btn fav${(a.collectionCount || 0) > 0 ? ' active' : ''}" title="收藏到收藏夹">${(a.collectionCount || 0) > 0 ? '❤' : '♡'}</button>
+                <button type="button" class="btn-mini recommend-clip-entry${recommendMediaClips.has(a.id) ? ' configured' : ''}" title="配置推荐片段">${recommendMediaClips.has(a.id) ? '片段 ' + recommendMediaClips.get(a.id).order.length + ' 段' : '选片段'}</button>
             </div>`;
         row.querySelector('.row-title').textContent = a.title;
         const meta = [];
@@ -3137,7 +3148,7 @@ function renderRecommendRow(list, container = recommendGridEl) {
             if (recommendOnlySelected) loadRecommend(false);   // 仅显示已勾选：取消勾选后从列表移除（保持当前页不跳回第1页）
         });
         row.querySelector('.row-btn.fav').addEventListener('click', (e) => { e.stopPropagation(); openFavPicker(a.id, e.currentTarget); });
-        row.addEventListener('click', () => openMediaDetail(a.id));
+        row.querySelector('.recommend-clip-entry').addEventListener('click', (e) => { e.stopPropagation(); openRecommendClipModal(a); });
         grid.appendChild(row);
     }
 }
@@ -3414,9 +3425,11 @@ function recommendGroupBy() {
     return document.getElementById('recommend-group-by').value;
 }
 
-/** 分组呈现样式：stream/chapter/overview（步骤2下拉）。 */
+/** 推荐模板：chapter/clip；旧草稿的 stream/overview 统一回退章节式。 */
 function recommendGroupStyle() {
-    return RECOMMEND_DESKTOP_MODE ? 'chapter' : document.getElementById('recommend-group-style').value;
+    if (RECOMMEND_DESKTOP_MODE) return 'chapter';
+    const value = document.getElementById('recommend-group-style').value;
+    return value === 'clip' ? 'clip' : 'chapter';
 }
 
 /** 每屏同时展示 N 部：1-10 滑块（步骤3；1 = 逐部展示）。 */
@@ -3725,7 +3738,113 @@ function initRecommendBgm() {
     render();
 }
 
-/* ========== 推荐草稿 + 模板（「更多」面板，后端存储） ========== */
+/* ========== v0.21 推荐片段编排 ========== */
+function recommendClipConfigObject() {
+    const result = {};
+    for (const [mediaId, value] of recommendMediaClips) result[mediaId] = value;
+    return result;
+}
+function clipRangeText(c) {
+    const start = Number(c.timestampSec);
+    const end = c.endSec == null ? '结束' : Number(c.endSec).toFixed(1);
+    return `${Number.isFinite(start) ? start.toFixed(1) : '?'}s — ${end}`;
+}
+function clipStatusText(c) {
+    if (!c.videoFp) return ['缺少源指纹', 'bad'];
+    if (c.endSec == null && c.videoDuration == null) return ['待补时长 · 播到源视频结束', 'warn'];
+    return ['READY · 可准备', ''];
+}
+function renderRecommendClipCandidates() {
+    const list = document.getElementById('recommend-clips-candidate-list');
+    if (!list) return;
+    const q = (document.getElementById('recommend-clips-search').value || '').trim().toLowerCase();
+    const selected = new Set(recommendClipModalItems.map(c => c.id));
+    const items = recommendClipModalAllItems;
+    const filtered = items.filter(c => !q || [c.title, c.tag, c.note].some(v => String(v || '').toLowerCase().includes(q)));
+    document.getElementById('recommend-clips-candidate-count').textContent = `${filtered.length}/${items.length}`;
+    list.innerHTML = filtered.length ? filtered.map(c => {
+        const [state, cls] = clipStatusText(c);
+        const cover = c.coverPath ? `<img class="recommend-clip-thumb" src="${esc(c.coverPath)}" alt="">` : '<span class="recommend-clip-thumb">✦</span>';
+        return `<div class="recommend-clip-row"><span>${cover}</span><span class="recommend-clip-copy"><b>${esc(c.title || `片段 #${c.id}`)}</b><small>${clipRangeText(c)} · ${esc(c.tag || c.note || '')}</small></span><span class="recommend-clip-state ${cls}">${selected.has(c.id) ? '已加入' : state}</span><button type="button" class="btn-mini" data-add-clip="${c.id}" ${selected.has(c.id) ? 'disabled' : ''}>${selected.has(c.id) ? '已加入' : '加入'}</button></div>`;
+    }).join('') : '<div class="wizard-hint">没有匹配的片段</div>';
+    list.querySelectorAll('[data-add-clip]').forEach(btn => btn.addEventListener('click', () => {
+        const clip = items.find(c => c.id === Number(btn.dataset.addClip));
+        if (clip) { recommendClipModalItems.push(clip); renderRecommendClipEditor(); }
+    }));
+}
+function renderRecommendClipEditor() {
+    const list = document.getElementById('recommend-clips-selected-list');
+    if (!list) return;
+    document.getElementById('recommend-clips-selected-count').textContent = `${recommendClipModalItems.length} 段`;
+    list.innerHTML = recommendClipModalItems.length ? recommendClipModalItems.map((c, i) => {
+        const [state, cls] = clipStatusText(c);
+        const cover = c.coverPath ? `<img class="recommend-clip-thumb small" src="${esc(c.coverPath)}" alt="">` : '<span class="recommend-clip-thumb small">✦</span>';
+        return `<div class="recommend-clip-row" draggable="true" data-selected-clip="${c.id}"><span class="recommend-clip-order">${String(i + 1).padStart(2, '0')}</span><span>${cover}</span><span class="recommend-clip-copy"><b>${esc(c.title || `片段 #${c.id}`)}</b><small>${clipRangeText(c)} · <em class="recommend-clip-state ${cls}">${state}</em></small></span><button type="button" class="btn-mini danger" data-remove-clip="${c.id}">移除</button></div>`;
+    }).join('') : '<div class="wizard-hint">右侧还没有片段，点击左侧「加入」。</div>';
+    list.querySelectorAll('[data-remove-clip]').forEach(btn => btn.addEventListener('click', () => { recommendClipModalItems = recommendClipModalItems.filter(c => c.id !== Number(btn.dataset.removeClip)); renderRecommendClipEditor(); }));
+    let dragging = null;
+    list.querySelectorAll('[data-selected-clip]').forEach(row => {
+        row.addEventListener('dragstart', () => { dragging = Number(row.dataset.selectedClip); row.classList.add('dragging'); });
+        row.addEventListener('dragend', () => { dragging = null; row.classList.remove('dragging'); });
+        row.addEventListener('dragover', e => e.preventDefault());
+        row.addEventListener('drop', e => { e.preventDefault(); const target = Number(row.dataset.selectedClip); const from = recommendClipModalItems.findIndex(c => c.id === dragging); const to = recommendClipModalItems.findIndex(c => c.id === target); if (from >= 0 && to >= 0 && from !== to) { const [item] = recommendClipModalItems.splice(from, 1); recommendClipModalItems.splice(to, 0, item); renderRecommendClipEditor(); } });
+    });
+    const total = recommendClipModalItems.reduce((sum, c) => sum + (c.endSec != null && c.timestampSec != null ? Math.max(0, c.endSec - c.timestampSec) : 0), 0);
+    document.getElementById('recommend-clips-total').textContent = `预计已知时长 ${total.toFixed(1)} 秒${recommendClipModalItems.some(c => c.endSec == null && c.videoDuration == null) ? ' · 含自然结束片段' : ''}`;
+    renderRecommendClipCandidates();
+    updateRecommendBadgePreview();
+}
+function updateRecommendBadgePreview() {
+    const out = document.getElementById('recommend-badge-preview');
+    if (!out) return;
+    const media = mediaById.get(recommendClipModalMediaId) || { title: '媒体标题' };
+    const clip = recommendClipModalItems[0] || { title: '片段标题', note: '片段备注' };
+    const parts = [];
+    if (document.getElementById('recommend-badge-media').checked) parts.push(media.title);
+    if (document.getElementById('recommend-badge-clip').checked) parts.push(clip.title);
+    if (document.getElementById('recommend-badge-index').checked) parts.push('#1');
+    if (document.getElementById('recommend-badge-note').checked && clip.note) parts.push(clip.note);
+    let text = parts.join(' · '); const custom = document.getElementById('recommend-badge-custom-input').value;
+    if (custom) text += (text ? ' · ' : '') + custom.replaceAll('{media}', media.title).replaceAll('{clip}', clip.title).replaceAll('{i}', '1');
+    out.textContent = text || '预览角标为空';
+}
+async function openRecommendClipModal(media) {
+    recommendClipModalMediaId = Number(media.id); recommendClipModalItems = [];
+    const old = recommendMediaClips.get(recommendClipModalMediaId);
+    try {
+        const resp = await fetch(`/api/clips/media/${media.id}`);
+        if (!resp.ok) throw new Error('加载片段失败');
+        const all = await resp.json();
+        recommendClipModalAllItems = all;
+        const byId = new Map(all.map(c => [c.id, c]));
+        const selectedItems = (old?.order || []).map(id => byId.get(Number(id))).filter(Boolean);
+        recommendClipModalItems = selectedItems;
+        const badge = old?.badge || {};
+        document.getElementById('recommend-badge-media').checked = !!badge.mediaTitle;
+        document.getElementById('recommend-badge-clip').checked = badge.clipTitle !== false;
+        document.getElementById('recommend-badge-index').checked = !!badge.index;
+        document.getElementById('recommend-badge-note').checked = !!badge.note;
+        document.getElementById('recommend-badge-custom-input').value = badge.custom || '';
+        document.getElementById('recommend-clips-subtitle').textContent = `${media.title} · ${all.length} 条片段`;
+        document.getElementById('recommend-clips-alert').hidden = true;
+        renderRecommendClipEditor(); document.getElementById('recommend-clips-modal').hidden = false;
+    } catch (e) { showToast(e.message || '加载片段失败'); }
+}
+function saveRecommendClipModal() {
+    if (!recommendClipModalMediaId) return;
+    if (!recommendClipModalItems.length) recommendMediaClips.delete(recommendClipModalMediaId);
+    else recommendMediaClips.set(recommendClipModalMediaId, { order: recommendClipModalItems.map(c => c.id), badge: { mediaTitle: document.getElementById('recommend-badge-media').checked, clipTitle: document.getElementById('recommend-badge-clip').checked, index: document.getElementById('recommend-badge-index').checked, note: document.getElementById('recommend-badge-note').checked, custom: document.getElementById('recommend-badge-custom-input').value.trim() } });
+    document.getElementById('recommend-clips-modal').hidden = true; recommendClipModalMediaId = null; markRecommendDirty(true); loadRecommend(false); showToast('已保存片段播放顺序与角标设置');
+}
+(function initRecommendClipModal() {
+    const modal = document.getElementById('recommend-clips-modal'); if (!modal) return;
+    ['recommend-badge-media','recommend-badge-clip','recommend-badge-index','recommend-badge-note','recommend-badge-custom-input'].forEach(id => document.getElementById(id).addEventListener('input', updateRecommendBadgePreview));
+    document.getElementById('recommend-clips-search').addEventListener('input', renderRecommendClipCandidates);
+    document.getElementById('recommend-clips-save').addEventListener('click', saveRecommendClipModal);
+    ['recommend-clips-close','recommend-clips-cancel'].forEach(id => document.getElementById(id).addEventListener('click', () => { modal.hidden = true; recommendClipModalMediaId = null; }));
+})();
+
+
 
 /** 收集当前推荐配置（含 BGM，草稿用）。 */
 function collectRecommendConfig() {
@@ -3750,7 +3869,8 @@ function collectRecommendConfig() {
         ...recommendDetailShow(),
         ...durs,
         openingIds: currentOpeningIds(),   // 开局封面（开场代表秀）：当前开场子集
-        openingCustom: document.getElementById('recommend-opening-toggle').checked
+        openingCustom: document.getElementById('recommend-opening-toggle').checked,
+        mediaClips: recommendClipConfigObject()
     };
     /* 大体积素材不入草稿/模板（每次保存序列化+上传会卡主线程，实测 BGM 57MB→365ms、背景图 8.6MB→56ms）：
        勾选+设置照常保存刷新恢复，BGM/背景图由用户导出时现场重新添加。 */
@@ -3801,6 +3921,10 @@ function applyRecommendConfig(cfg) {
     if (!cfg) return false;
     recommendSelected.clear();
     (cfg.ids || []).forEach(id => recommendSelected.add(Number(id)));
+    recommendMediaClips.clear();
+    Object.entries(cfg.mediaClips || {}).forEach(([id, value]) => {
+        if (value && Array.isArray(value.order)) recommendMediaClips.set(Number(id), { order: value.order.map(Number), badge: value.badge || {} });
+    });
     setCfgVal('recommend-title', cfg.title);
     setCfgVal('recommend-brand-title', cfg.brandTitle);
     setCfgVal('recommend-subtitle', cfg.subtitle);
@@ -3809,7 +3933,9 @@ function applyRecommendConfig(cfg) {
     setCfgVal('recommend-ending-title', cfg.endingTitle);
     setCfgVal('recommend-ending-text', cfg.endingText);
     setCfgVal('recommend-group-by', cfg.groupBy);
-    setCfgVal('recommend-group-style', cfg.groupStyle);
+    /* 旧草稿中的 stream/overview 由页面选择器统一映射为 chapter。 */
+    const savedStyle = cfg.groupStyle === 'clip' ? 'clip' : 'chapter';
+    setCfgVal('recommend-group-style', savedStyle);
     setCfgVal('recommend-per-screen', cfg.perScreen);
     syncRecommendPerScreenVal();
     setCfgVal('preview-group-sort', cfg.groupSort);
@@ -4049,12 +4175,16 @@ async function generateRecommendPreview() {
     const statusEl = document.getElementById('recommend-export-status');
     statusEl.textContent = '生成预览中…';
     try {
-        const resp = await fetch('/api/recommend/html', {
+        const resp = await fetch('/api/recommend/preview', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, coverMode: 'url', brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDetailShow(), ...recommendDurations(), ...recommendBgmBody() }),
+            body: JSON.stringify({ ids, title, coverMode: 'url', brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), mediaClips: recommendClipConfigObject(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDetailShow(), ...recommendDurations(), ...recommendBgmBody() }),
         });
-        if (!resp.ok) throw new Error(`生成失败 (${resp.status})`);
+        if (!resp.ok) {
+            let detail = '';
+            try { const body = await resp.json(); detail = body?.message || body?.error || ''; } catch (e) { detail = await resp.text().catch(() => ''); }
+            throw new Error(detail || `生成失败 (${resp.status})`);
+        }
         const html = await resp.text();
         const frame = document.getElementById('recommend-preview-frame');
         frame.srcdoc = html;
@@ -4083,13 +4213,14 @@ async function downloadRecommendHtml() {
         const resp = await fetch('/api/recommend/html', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDetailShow(), ...recommendDurations(), ...recommendBgmBody() }),
+            body: JSON.stringify({ ids, title, brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), mediaClips: recommendClipConfigObject(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDetailShow(), ...recommendDurations(), ...recommendBgmBody() }),
         });
         if (!resp.ok) throw new Error(`生成失败 (${resp.status})`);
         const blob = await resp.blob();
         const stamp = stampNow();
-        downloadBlob(blob, `video-tagger-recommend-${stamp}.html`);
-        showToast(`已生成，共 ${ids.length} 部`);
+        const isZip = (resp.headers.get('content-type') || '').includes('zip');
+        downloadBlob(blob, `video-tagger-recommend-${stamp}.${isZip ? 'zip' : 'html'}`);
+        showToast(`已生成，共 ${ids.length} 部${isZip ? '（含片段资源）' : ''}`);
     } catch (err) {
         showToast(err.message || '下载失败');
     }
@@ -4147,7 +4278,7 @@ async function exportRecommendVideo() {
         const resp = await fetch('/api/recommend/video', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, format, resolution, brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDetailShow(), ...recommendDurations(), ...recommendBgmBody() }),
+            body: JSON.stringify({ ids, title, format, resolution, mediaClips: recommendClipConfigObject(), brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDetailShow(), ...recommendDurations(), ...recommendBgmBody() }),
         });
         if (!resp.ok) {
             let msg = `创建导出任务失败 (${resp.status})`;

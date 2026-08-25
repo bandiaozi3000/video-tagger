@@ -41,10 +41,17 @@ public class ClipController {
     }
 
     /** 片段详情页：返回完整 Clip（含 videoFp / episodeId / coverPath）。 */
+    @GetMapping("/media/{mediaId}")
+    public List<Clip> listByMedia(@PathVariable Long mediaId) {
+        return clipService.listByMedia(mediaId);
+    }
+
+    /** 片段详情页：返回完整 Clip（含 videoFp / episodeId / coverPath）。 */
     @GetMapping("/{id}")
     public Clip get(@PathVariable Long id) {
         return clipService.get(id);
     }
+
 
     @PutMapping("/{id}")
     public Clip update(@PathVariable Long id,

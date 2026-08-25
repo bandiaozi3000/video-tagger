@@ -2,6 +2,7 @@ package com.videotagger.service;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -47,25 +48,37 @@ public class RecommendVideoService {
             "WEBM", "webm");
 
     private final RecommendService recommendService;
+    private final RecommendClipSourceService clipSourceService;
 
     private final String scriptsDir;
     private final String nodePath;
     private final String chromePath;
     private final String ffmpegPath;
 
+    @Autowired
     public RecommendVideoService(RecommendService recommendService,
+                                 RecommendClipSourceService clipSourceService,
                                  @Value("${videotagger.render.scripts-dir}") String scriptsDir,
                                  @Value("${videotagger.render.node-path}") String nodePath,
                                  @Value("${videotagger.render.chrome-path}") String chromePath,
                                  @Value("${videotagger.render.ffmpeg-path}") String ffmpegPath) {
         this.recommendService = recommendService;
+        this.clipSourceService = clipSourceService;
         this.scriptsDir = scriptsDir;
         this.nodePath = nodePath;
         this.chromePath = chromePath;
         this.ffmpegPath = ffmpegPath;
     }
 
-    /** 渲染推荐媒体为视频（MP4/WebM），返回临时文件路径（调用方负责删除）。 */
+    public RecommendVideoService(RecommendService recommendService,
+                                 @Value("${videotagger.render.scripts-dir}") String scriptsDir,
+                                 @Value("${videotagger.render.node-path}") String nodePath,
+                                 @Value("${videotagger.render.chrome-path}") String chromePath,
+                                 @Value("${videotagger.render.ffmpeg-path}") String ffmpegPath) {
+        this(recommendService, null, scriptsDir, nodePath, chromePath, ffmpegPath);
+    }
+
+
     public Path render(List<Long> ids, String resolution) {
         return render(ids, null, null, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null);
     }
@@ -108,6 +121,23 @@ public class RecommendVideoService {
                        Integer bgmScale,
                        Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
                        Map<String, Boolean> detailShow) {
+        return render(ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle,
+                subtitle, coverSize, openingIds, intro, durations, endingTitle, endingText, bgColor,
+                bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort,
+                openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, null);
+    }
+
+    public Path render(List<Long> ids, String title, String format, String resolution, List<String> bgmPaths,
+                       List<RecommendService.BgmTrack> bgmTracks, String groupBy, String groupStyle,
+                       String subtitle, String coverSize, List<Long> openingIds, String intro,
+                       RecommendService.Durations durations, String endingTitle, String endingText,
+                       String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
+                       String prologueTitle,
+                       String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
+                       Integer bgmScale,
+                       Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
+                       Map<String, Boolean> detailShow,
+                       Map<Long, RecommendMediaClips> requestedClips) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
@@ -132,21 +162,33 @@ public class RecommendVideoService {
                     recordTracks.add(new RecommendService.BgmTrack(t.name(), null));
                 }
             }
-            String htmlContent = recommendService.buildHtml(ids, title, recordTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, "embed", detailShow);
-            // 探测 BGM 时长并注入模板：模板 __bgmRemainSec 用它算「当前曲目剩余」，headless 下 audio.duration 不可靠
+            // HTML 内容在工作区创建后生成，以便片段使用相对 media/ 路径。
             List<Double> bgmDurs = new ArrayList<>();
+            Path work = Files.createTempDirectory("vt-recommend-");
+            html = work.resolve("recommend.html");
+            // 探测 BGM 时长并注入模板：headless 下 audio.duration 不可靠。
             if (bgmPaths != null) {
-                for (String p : bgmPaths) {
-                    bgmDurs.add(probeMediaDuration(p));
-                }
+                for (String p : bgmPaths) bgmDurs.add(probeMediaDuration(p));
             }
+            Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips = Map.of();
+            if (requestedClips != null && !requestedClips.isEmpty()) {
+                RecommendClipSourceService.PreparedClips result = clipSourceService.prepare(requestedClips, work);
+                if (result.hasMissing()) {
+                    throw new IllegalArgumentException("片段素材不可用: " + result.missing().stream()
+                            .map(m -> "#" + m.clipId() + "(" + m.reason() + ")").toList());
+                }
+                preparedClips = result.byMedia();
+            }
+            String htmlContent = recommendService.buildHtml(ids, title, recordTracks, subtitle, coverSize, groupBy, groupStyle,
+                    openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity,
+                    bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY,
+                    brandTitle, perScreen, "embed", detailShow, preparedClips);
+            Files.writeString(html, htmlContent, StandardCharsets.UTF_8);
             if (!bgmDurs.isEmpty()) {
                 htmlContent = htmlContent.replace("const BGM_TRACK_DURS = [];",
                         "const BGM_TRACK_DURS = " + bgmDursJson(bgmDurs) + ";");
+                Files.writeString(html, htmlContent, StandardCharsets.UTF_8);
             }
-            Path work = Files.createTempDirectory("vt-recommend-");
-            html = work.resolve("recommend.html");
-            Files.writeString(html, htmlContent, StandardCharsets.UTF_8);
 
             // 2. 背景音乐：多曲 → ffmpeg concat 拼接成单文件（统一 44100 stereo 顺序连接）；单曲直接用
             String bgmFile = null;
@@ -191,8 +233,23 @@ public class RecommendVideoService {
             int introDur = (intro != null && !intro.isBlank()) ? durations.intro() : 0;
             int groupDur = (groupBy != null && !groupBy.isBlank() && !"none".equals(groupBy))
                     ? durations.group() * recommendService.computeGroupCount(ids, groupBy) : 0;
-            int durationSeconds = durations.opening() + introDur + groupDur
-                    + durations.detail() * ids.size() + durations.ending();
+            int detailDur = durations.detail() * ids.size();
+            if (!preparedClips.isEmpty()) {
+                for (List<RecommendClipSourceService.PreparedClip> clips : preparedClips.values()) {
+                    double clipSeconds = 0;
+                    boolean hasOpenEnded = false;
+                    for (RecommendClipSourceService.PreparedClip clip : clips) {
+                        if (clip.startSec() != null && clip.endSec() != null) {
+                            clipSeconds += Math.max(0, clip.endSec() - clip.startSec());
+                        } else {
+                            hasOpenEnded = true;
+                        }
+                    }
+                    if (hasOpenEnded) clipSeconds += 2;
+                    detailDur += Math.max(0, (int) Math.ceil(Math.max(durations.detail(), clipSeconds)) - durations.detail());
+                }
+            }
+            int durationSeconds = durations.opening() + introDur + groupDur + detailDur + durations.ending();
             // 录制延长：结尾等当前 BGM 放完（模板 finishAuto 多等）→ render.js 兜底上限须覆盖「最长单曲余量」。
             // BGM 音轨 -stream_loop 无限循环，实际结束点由模板 data-tour-ended 驱动，这里只放宽兜底上限。
             int renderDurationSeconds = durationSeconds;
@@ -299,10 +356,7 @@ public class RecommendVideoService {
             throw new IllegalStateException("视频渲染被中断", e);
         } finally {
             if (html != null) {
-                try {
-                    Files.deleteIfExists(html.getParent());
-                } catch (IOException ignored) {
-                }
+                deleteTree(html.getParent());
             }
         }
     }
@@ -359,6 +413,14 @@ public class RecommendVideoService {
         return configured;
     }
 
+    private static void deleteTree(Path root) {
+        if (root == null) return;
+        try (var paths = Files.walk(root)) {
+            paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                try { Files.deleteIfExists(path); } catch (IOException ignored) { }
+            });
+        } catch (IOException ignored) { }
+    }
     private static boolean isRenderScript(Path dir) {
         return dir != null && Files.isRegularFile(dir.resolve("render.js"));
     }

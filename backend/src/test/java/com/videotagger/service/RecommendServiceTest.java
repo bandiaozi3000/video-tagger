@@ -232,14 +232,15 @@ class RecommendServiceTest {
         when(coverService.base64ForCoverPath(any())).thenReturn(null);
         when(tagMapper.countByMedia(1L)).thenReturn(List.of());
 
-        String stream = service.buildHtml(List.of(1L), null, null, null, null, "stream");
-        assertTrue(stream.contains("interlude"), "stream 模板含组横幅样式");
         String chapter = service.buildHtml(List.of(1L), null, null, null, null, "chapter");
         assertTrue(chapter.contains(".chapter"), "chapter 模板含章节页样式");
-        String overview = service.buildHtml(List.of(1L), null, null, null, null, "overview");
-        assertTrue(overview.contains("group-view"), "overview 模板含组视图样式");
+        String clip = service.buildHtml(List.of(1L), null, null, null, null, "clip");
+        assertTrue(clip.contains("BEFORE THE REEL"), "clip 模板含观前速览");
+        assertTrue(clip.contains("REAL CLIP / PLAYING"), "clip 模板含片段放映区");
+        String legacy = service.buildHtml(List.of(1L), null, null, null, null, "stream");
+        assertTrue(legacy.contains(".chapter"), "历史 stream 样式回退章节式");
         String unknown = service.buildHtml(List.of(1L), null, null, null, null, "bogus");
-        assertTrue(unknown.contains("interlude"), "未知样式回退 stream");
+        assertTrue(unknown.contains(".chapter"), "未知样式回退章节式");
     }
 
     @Test

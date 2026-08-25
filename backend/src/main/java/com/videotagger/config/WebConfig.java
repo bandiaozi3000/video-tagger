@@ -16,6 +16,7 @@ public class WebConfig implements WebMvcConfigurer {
     private final String exportDir;
     private final String clipVideoDir;
     private final String clipImageDir;
+    private final String recommendPreviewDir;
 
     public WebConfig(@Value("${videotagger.cover-dir:data/covers}") String coverDir,
                      @Value("${videotagger.site-dir:data/site}") String siteDir,
@@ -27,6 +28,7 @@ public class WebConfig implements WebMvcConfigurer {
         this.exportDir = Paths.get(exportDir).toAbsolutePath() + "/";
         this.clipVideoDir = Paths.get(clipVideoDir).toAbsolutePath() + "/";
         this.clipImageDir = Paths.get(clipImageDir).toAbsolutePath() + "/";
+        this.recommendPreviewDir = Paths.get("data/recommend-previews").toAbsolutePath() + "/";
     }
 
     @Override
@@ -41,5 +43,7 @@ public class WebConfig implements WebMvcConfigurer {
                 .addResourceLocations("file:" + clipVideoDir);
         registry.addResourceHandler("/clip-images/**")
                 .addResourceLocations("file:" + clipImageDir);
+        registry.addResourceHandler("/recommend-previews/**")
+                .addResourceLocations("file:" + recommendPreviewDir);
     }
 }

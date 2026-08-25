@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Tagger · 二次元打标库</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="app.css?v=20260824e">
+    <link rel="stylesheet" href="app.css?v=20260825-v021-clip">
 </head>
 <body>
 <!-- 网站背景图层（设置里上传，多图轮播；z-index 在 bg-fx 之下） -->
@@ -663,14 +663,13 @@
                     </select>
                 </label>
                 <p class="wizard-hint">按维度把推荐媒体分组展示：每组有转场页、组内带分组徽标。选「不分组」则直接逐部展示。</p>
-                <label class="recommend-theme-field">分组样式
+                <label class="recommend-theme-field">推荐模板
                     <select id="recommend-group-style">
-                        <option value="stream">流式横幅（默认）</option>
                         <option value="chapter">章节式</option>
-                        <option value="overview">总览导航式</option>
+                        <option value="clip">片段放映式</option>
                     </select>
                 </label>
-                <p class="wizard-hint">分组呈现样式；仅在分组方式选「不分组」以外时生效。</p>
+                <p class="wizard-hint">章节式保留传统分组放映；片段放映式包含观前速览、前言、Clip 连播和结尾总览。</p>
 
                 <label class="recommend-theme-field">开局封面
                     <span class="recommend-bgm-row">
@@ -1113,7 +1112,21 @@
     </div>
 </div>
 
-<!-- 推荐视频导出弹窗：标题 / 格式 / 清晰度 / 导出地址 -->
+<!-- 推荐片段管理弹窗：候选片段 → 可拖拽播放顺序 → 角标设置 -->
+<div id="recommend-clips-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide recommend-clips-modal">
+        <div class="modal-head"><div><h3>选择推荐片段</h3><p id="recommend-clips-subtitle" class="wizard-hint"></p></div><button id="recommend-clips-close" type="button" class="modal-close" aria-label="关闭">✕</button></div>
+        <div id="recommend-clips-alert" class="recommend-clips-alert" hidden></div>
+        <div class="recommend-clips-layout">
+            <section class="recommend-clips-candidates"><div class="recommend-clips-pane-head"><b>可用片段</b><span id="recommend-clips-candidate-count"></span></div><input id="recommend-clips-search" class="opening-search" type="search" placeholder="搜索片段标题、标签或备注…" autocomplete="off"><div id="recommend-clips-candidate-list" class="recommend-clips-list"></div></section>
+            <section class="recommend-clips-selected-pane"><div class="recommend-clips-pane-head"><b>播放时间线</b><span id="recommend-clips-selected-count"></span></div><p class="recommend-clips-hint">拖拽卡片调整顺序，片段会在媒体卡内连续播放。</p><div id="recommend-clips-selected-list" class="recommend-clips-list recommend-clips-selected-list"></div><div id="recommend-clips-total" class="recommend-clips-total"></div></section>
+        </div>
+        <section class="recommend-badge-editor"><div class="recommend-clips-pane-head"><b>片段角标</b><span>预设组合 + 自定义文字</span></div><div class="recommend-badge-checks"><label><input type="checkbox" id="recommend-badge-media"> 媒体标题</label><label><input type="checkbox" id="recommend-badge-clip" checked> 片段标题</label><label><input type="checkbox" id="recommend-badge-index"> 播放序号</label><label><input type="checkbox" id="recommend-badge-note"> 片段备注</label></div><label class="recommend-badge-custom">自定义文字<input id="recommend-badge-custom-input" type="text" maxlength="100" placeholder="如：★ {media} · {clip} #{i}" autocomplete="off"></label><p class="recommend-clips-hint">占位符：<code>{media}</code> 媒体标题　<code>{clip}</code> 片段标题　<code>{i}</code> 播放序号</p><div id="recommend-badge-preview" class="recommend-badge-preview"></div></section>
+        <div class="modal-actions"><button id="recommend-clips-cancel" type="button">取消</button><button id="recommend-clips-save" type="button" class="btn-primary">保存片段设置</button></div>
+    </div>
+</div>
+
+
 <div id="recommend-video-modal" class="modal-overlay" hidden>
     <div class="modal">
         <h2>导出视频</h2>
@@ -1373,6 +1386,6 @@
     </div>
 </div>
 <button type="button" id="back-nav" title="去底部" aria-label="去底部">↓</button>
-<script src="app.js?v=20260824e"></script>
+<script src="app.js?v=20260825-v021-clip"></script>
 </body>
 </html>

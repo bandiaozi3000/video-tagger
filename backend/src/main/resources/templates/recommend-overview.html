@@ -305,7 +305,8 @@
     .story-card{grid-template-columns:1fr;gap:20px;padding:36px 8px;text-align:center}
     .sc-poster{max-height:44vh}.sc-no{font-size:70px}
   }
-</style>
+  .clip-reel{grid-column:1/-1;min-width:0;margin-top:12px;order:3}.clip-reel-stage{position:relative;aspect-ratio:16/7.4;max-height:38vh;border:1px solid rgba(82,226,245,.36);border-radius:16px;overflow:hidden;background:#0b1020;box-shadow:0 12px 34px rgba(0,0,0,.35),0 0 26px rgba(82,226,245,.1)}.clip-reel-stage video{width:100%;height:100%;display:block;object-fit:cover;background:#0b1020}.clip-reel-stage::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,rgba(2,5,18,.12),transparent 42%,rgba(2,5,18,.7))}.clip-reel-label{position:absolute;left:14px;right:14px;bottom:13px;z-index:2;display:flex;justify-content:space-between;align-items:end;gap:10px;color:#fff;font-size:12px}.clip-reel-caption{padding:7px 10px;border-left:2px solid var(--sky);background:rgba(3,7,18,.66);backdrop-filter:blur(8px);line-height:1.4;max-width:80%}.clip-reel-caption small{display:block;color:var(--muted);font-size:10px;margin-top:2px}.clip-reel-caption b{color:var(--sky)}.clip-reel-count{font:10px var(--mono);color:rgba(255,255,255,.7);white-space:nowrap}.clip-reel-progress{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.16);z-index:3}.clip-reel-progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--sky),var(--pink));box-shadow:0 0 10px var(--sky)}.clip-reel-rail{display:flex;gap:7px;overflow-x:auto;padding:9px 1px 2px;scrollbar-width:thin}.clip-reel-rail button{flex:none;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.04);color:var(--muted);padding:6px 9px;font:11px var(--body);cursor:pointer;transition:.18s}.clip-reel-rail button:hover,.clip-reel-rail button.active{border-color:rgba(82,226,245,.65);background:rgba(82,226,245,.12);color:#fff}.clip-reel-rail button .n{color:var(--sky);font:10px var(--mono);margin-right:5px}
+
 </head>
 <body>
 <canvas id="stars"></canvas>
@@ -649,15 +650,38 @@ function buildStoryCard(s, idx, g, j, total) {
   sc.className = 'story-card'; sc.id = 'story-' + storyCards.length;
   const badge = g ? `<span class="group-badge" style="position:absolute;right:0;top:9%;z-index:3;font-size:11px;letter-spacing:2px;color:#0a0812;background:linear-gradient(120deg,${glowOf(g.gi)},#fff);padding:5px 14px;border-radius:999px 0 0 999px;font-weight:700;">${g.name} · 第 ${j + 1}/${total} 部</span>` : '';
   const flagBadge = DETAIL_SHOW.status && s.flag ? `<span class="flag">${s.flag}</span>` : '';
+  const clips = Array.isArray(s.clips) ? s.clips : [];
+  const clipHtml = clips.length ? `<div class="clip-reel" data-clip-reel><div class="clip-reel-stage"><video muted playsinline preload="metadata"></video><div class="clip-reel-label"><div class="clip-reel-caption"></div><span class="clip-reel-count"></span></div><div class="clip-reel-progress"><i></i></div></div><div class="clip-reel-rail">${clips.map((c, i) => `<button type="button" data-clip-index="${i}"><span class="n">${pad(i + 1)}</span>${c.title || '未命名片段'}</button>`).join('')}</div></div>` : '';
   sc.innerHTML = `${badge}<span class="sc-no">${pad(idx + 1)}</span>
     <div class="sc-poster">${flagBadge}<img loading="lazy" src="${s.cover}" alt="${s.title}" onerror="this.style.display='none'"></div>
     <div class="sc-info"><span class="kicker">PICK NO.${pad(idx + 1)}</span>
       <h2>${s.title}</h2>${DETAIL_SHOW.note ? `<p class="note">${s.note || ''}</p>` : ''}
-      ${DETAIL_SHOW.tag ? `<div class="tags">${(s.tags || []).map(chip).join('')}</div>` : ''}</div>`;
+      ${DETAIL_SHOW.tag ? `<div class="tags">${(s.tags || []).map(chip).join('')}</div>` : ''}</div>${clipHtml}`;
+  if (clips.length) bindClipReel(sc, s, clips);
   story.appendChild(sc); storyCards.push(sc); return sc;
 }
+function storyHold(s) {
+  const clips = Array.isArray(s.clips) ? s.clips : [];
+  const known = clips.reduce((sum, c) => sum + (c.endSec != null && c.startSec != null ? Math.max(0, c.endSec - c.startSec) : 0), 0);
+  return Math.max(DETAIL_SEC, known + (clips.some(c => c.endSec == null) ? 2 : 0)) * 1000;
+}
 
-/* 分组维度 / 导航 / 总览 / 组视图 */
+function bindClipReel(sc, slide, clips) {
+  const reel = sc.querySelector('[data-clip-reel]'), video = reel.querySelector('video');
+  const caption = reel.querySelector('.clip-reel-caption'), count = reel.querySelector('.clip-reel-count');
+  const progress = reel.querySelector('.clip-reel-progress i'), buttons = [...reel.querySelectorAll('[data-clip-index]')]; let index = 0;
+  const select = (next, autoplay) => {
+    index = Math.max(0, Math.min(clips.length - 1, next)); const clip = clips[index]; video.src = clip.path; video.load();
+    const b = clip.badge || {}, parts = []; if (b.mediaTitle) parts.push(slide.title); if (b.clipTitle) parts.push(clip.title || '未命名片段'); if (b.index) parts.push('#' + (index + 1)); if (b.note && clip.note) parts.push(clip.note);
+    let text = parts.join(' · '); if (b.custom) text += (text ? ' · ' : '') + b.custom.replaceAll('{media}', slide.title).replaceAll('{clip}', clip.title || '未命名片段').replaceAll('{i}', String(index + 1));
+    caption.innerHTML = `<b>★ ${text || clip.title || '片段'}</b><small>REAL CLIP · ${clip.startSec == null ? '自然结束' : '时间段'}</small>`;
+    count.textContent = pad(index + 1) + ' / ' + pad(clips.length); buttons.forEach((button, i) => button.classList.toggle('active', i === index)); progress.style.width = '0%'; if (autoplay) video.play().catch(() => {});
+  };
+  video.addEventListener('timeupdate', () => { progress.style.width = video.duration ? `${video.currentTime / video.duration * 100}%` : '0%'; });
+  video.addEventListener('ended', () => index + 1 < clips.length && select(index + 1, true)); buttons.forEach((button, i) => button.addEventListener('click', e => { e.stopPropagation(); select(i, true); })); select(0, false);
+}
+
+
 const groups = []; const gmap = new Map();
 if (hasGroup) {
   SLIDES.forEach(s => { if (!gmap.has(s.group)) { gmap.set(s.group, groups.length); groups.push({ name: s.group, list: [], gi: groups.length }); }
@@ -781,7 +805,7 @@ function beginAutoGuide() {
     /* 直排：序言 → 逐部 → 结尾回顾墙 */
     const flat = [];
     if (INTRO) flat.push({ el: prologueEl, hold: INTRO_SEC * 1000, label: '<b class="cur">序言</b> · 主题概览' });
-    storyCards.forEach((c, i) => flat.push({ el: c, hold: DETAIL_SEC * 1000, label: `第 <b class="cur">${i + 1}</b> 部 / 共 ${N} 部` }));
+    storyCards.forEach((c, i) => flat.push({ el: c, hold: storyHold(SLIDES[i]), label: `第 <b class="cur">${i + 1}</b> 部 / 共 ${N} 部` }));
     flat.push({ el: endingEl, hold: ENDING_SEC * 1000, label: `谢谢观看 · 这一季 <b class="cur">${N}</b> 部` });
     let idx = 0;
     const step = () => { if (!autoplaying) return;

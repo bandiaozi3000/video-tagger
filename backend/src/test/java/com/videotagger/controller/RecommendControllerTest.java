@@ -1,5 +1,7 @@
 package com.videotagger.controller;
 
+import com.videotagger.mapper.*;
+import com.videotagger.service.RecommendClipSourceService;
 import com.videotagger.service.RecommendService;
 import com.videotagger.service.RecommendVideoService;
 import com.videotagger.service.VideoExportTaskService;
@@ -32,8 +34,31 @@ class RecommendControllerTest {
     RecommendVideoService recommendVideoService;
 
     @MockBean
-    VideoExportTaskService exportTaskService;
+    ClipMapper clipMapper;
+    @MockBean MediaMapper mediaMapper;
+    @MockBean EpisodeMapper episodeMapper;
+    @MockBean ClipTagMapper clipTagMapper;
+    @MockBean EpisodeTagMapper episodeTagMapper;
+    @MockBean MediaTagMapper mediaTagMapper;
+    @MockBean TagMapper tagMapper;
+    @MockBean CollectionMapper collectionMapper;
+    @MockBean MediaFormatMapper mediaFormatMapper;
+    @MockBean MediaSubcategoryMapper mediaSubcategoryMapper;
+    @MockBean MediaCollectionMapper mediaCollectionMapper;
+    @MockBean SiteSettingMapper siteSettingMapper;
+    @MockBean RecommendDraftMapper recommendDraftMapper;
+    @MockBean RecommendTemplateMapper recommendTemplateMapper;
+    @MockBean TitleMappingMapper titleMappingMapper;
+    @MockBean EmbeddingTaskMapper embeddingTaskMapper;
+    @MockBean HighlightProjectMapper highlightProjectMapper;
+    @MockBean HighlightProjectItemMapper highlightProjectItemMapper;
+    @MockBean HighlightExportMapper highlightExportMapper;
 
+    @MockBean
+    RecommendClipSourceService clipSourceService;
+
+    @MockBean
+    VideoExportTaskService exportTaskService;
     @Test
     void htmlReturnsSelfContainedFile() throws Exception {
         Mockito.when(recommendService.buildHtml(Mockito.anyList(),

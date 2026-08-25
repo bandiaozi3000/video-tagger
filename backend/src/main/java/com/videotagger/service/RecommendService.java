@@ -135,13 +135,30 @@ public class RecommendService {
                             Integer bgmScale,
                             Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen, String coverMode,
                             Map<String, Boolean> detailShow) {
+        return buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro,
+                durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness,
+                prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle,
+                perScreen, coverMode, detailShow, null);
+    }
+
+    /** 生成推荐 HTML；clipsByMedia 非空时给对应媒体注入已准备的真实视频片段。 */
+    public String buildHtml(List<Long> ids, String title, List<BgmTrack> bgmTracks, String subtitle,
+                            String coverSize, String groupBy, String groupStyle, List<Long> openingIds,
+                            String intro, Durations durations, String endingTitle, String endingText,
+                            String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
+                            String prologueTitle,
+                            String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
+                            Integer bgmScale,
+                            Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen, String coverMode,
+                            Map<String, Boolean> detailShow,
+                            Map<Long, List<RecommendClipSourceService.PreparedClip>> clipsByMedia) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
         String resolved = (title == null || title.isBlank()) ? DEFAULT_TITLE : title.trim();
         String template = readTemplate(groupStyle);
         String coverModeResolved = (coverMode == null || coverMode.isBlank()) ? "embed" : coverMode.trim();
-        String slidesJson = buildSlidesJson(ids, groupBy, openingIds, groupSort, coverModeResolved);
+        String slidesJson = buildSlidesJson(ids, groupBy, openingIds, groupSort, coverModeResolved, clipsByMedia);
         String bgmTracksJson = buildBgmTracksJson(bgmTracks);
         String sub = (subtitle == null || subtitle.isBlank()) ? "" : esc(subtitle.trim());
         String size = normalizeCoverSize(coverSize);
@@ -305,7 +322,7 @@ public class RecommendService {
     }
 
     private String buildSlidesJson(List<Long> ids, String groupBy, List<Long> openingIds, String groupSort,
-                                   String coverMode) {
+                                   String coverMode, Map<Long, List<RecommendClipSourceService.PreparedClip>> clipsByMedia) {
         List<Map<String, Object>> slides = new ArrayList<>();
         for (Long id : ids) {
             MediaDetail d;
@@ -315,7 +332,7 @@ public class RecommendService {
                 log.warn("推荐跳过不存在的媒体 {}: {}", id, e.getMessage());
                 continue; // 残留勾选 → 跳过不报错
             }
-            slides.add(slideOf(d, groupBy, openingIds, coverMode));
+            slides.add(slideOf(d, groupBy, openingIds, coverMode, clipsByMedia == null ? null : clipsByMedia.get(d.id())));
         }
         if (groupBy != null && !groupBy.isBlank() && !"none".equals(groupBy)) {
             slides = groupOrdered(slides, groupBy, groupSort);
@@ -346,7 +363,8 @@ public class RecommendService {
         return groups.size();
     }
 
-    private Map<String, Object> slideOf(MediaDetail d, String groupBy, List<Long> openingIds, String coverMode) {
+    private Map<String, Object> slideOf(MediaDetail d, String groupBy, List<Long> openingIds, String coverMode,
+                                        List<RecommendClipSourceService.PreparedClip> clips) {
         Map<String, Object> slide = new LinkedHashMap<>();
         slide.put("cover", resolveCoverDataUrl(d, coverMode));
         slide.put("cat", buildCategory(d));
@@ -354,6 +372,9 @@ public class RecommendService {
         slide.put("note", esc(d.note() == null || d.note().isBlank() ? "（暂无备注）" : d.note().trim()));
         slide.put("flag", STATUS_LABEL.getOrDefault(d.status(), d.status() == null ? "" : d.status()));
         slide.put("tags", buildTags(d.id()));
+        if (clips != null && !clips.isEmpty()) {
+            slide.put("clips", buildClipViews(clips));
+        }
         String group = groupOf(d, groupBy);
         if (group != null) {
             slide.put("group", group);
@@ -417,7 +438,34 @@ public class RecommendService {
         return out;
     }
 
-    /** 「2024 年」→ 2024；无法解析 → Integer.MIN_VALUE（排最后）。 */
+    private List<Map<String, Object>> buildClipViews(List<RecommendClipSourceService.PreparedClip> clips) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (RecommendClipSourceService.PreparedClip clip : clips) {
+            Map<String, Object> view = new LinkedHashMap<>();
+            view.put("id", clip.id());
+            view.put("title", esc(clip.title() == null || clip.title().isBlank() ? "未命名片段" : clip.title()));
+            view.put("note", esc(clip.note() == null ? "" : clip.note()));
+            view.put("path", esc(clip.path()));
+            view.put("startSec", clip.startSec());
+            view.put("endSec", clip.endSec());
+            view.put("badge", badgeView(clip.badge()));
+            result.add(view);
+        }
+        return result;
+    }
+
+    private Map<String, Object> badgeView(RecommendMediaClips.Badge badge) {
+        Map<String, Object> view = new LinkedHashMap<>();
+        if (badge == null) return view;
+        view.put("mediaTitle", Boolean.TRUE.equals(badge.mediaTitle()));
+        view.put("clipTitle", Boolean.TRUE.equals(badge.clipTitle()));
+        view.put("index", Boolean.TRUE.equals(badge.index()));
+        view.put("note", Boolean.TRUE.equals(badge.note()));
+        view.put("custom", badge.custom() == null ? "" : jsText(badge.custom()));
+        return view;
+    }
+
+
     private static int yearOf(String group) {
         String y = group.replace(" 年", "").trim();
         try {
@@ -506,15 +554,16 @@ public class RecommendService {
         }
     }
 
-    /** 分组样式归一化：未知/空 → stream（默认流式横幅）。 */
+    /** 推荐模板归一化：chapter/clip 为正式模板；历史 stream/overview 回退到 chapter。 */
     private static String normalizeStyle(String groupStyle) {
         if (groupStyle == null || groupStyle.isBlank()) {
-            return "stream";
+            return "chapter";
         }
         String s = groupStyle.trim().toLowerCase();
         return switch (s) {
-            case "chapter", "overview" -> s;
-            default -> "stream";
+            case "chapter", "clip" -> s;
+            case "stream", "overview" -> "chapter";
+            default -> "chapter";
         };
     }
 
