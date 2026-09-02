@@ -16,6 +16,7 @@ import com.videotagger.util.AnimekoPaths;
 import com.videotagger.util.VideoFingerprint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -48,6 +49,8 @@ public class AnimekoTagService {
     private final EmbeddingTaskService embeddingTaskService;
     private final MaterializationService materializationService;
     private final String dbPath;
+    /** 可选：片段封面抽帧（无封面能力时保持原行为）。 */
+    private final ClipFrameGrabber frameGrabber;
 
     public AnimekoTagService(EpisodeMapper episodeMapper,
                              ExternalWorkMapper externalWorkMapper,
@@ -59,7 +62,8 @@ public class AnimekoTagService {
                              TagSyncService tagSyncService,
                              EmbeddingTaskService embeddingTaskService,
                              MaterializationService materializationService,
-                             @Value("${videotagger.animeko.db-path:}") String dbPath) {
+                             @Value("${videotagger.animeko.db-path:}") String dbPath,
+                             @Autowired(required = false) ClipFrameGrabber frameGrabber) {
         this.episodeMapper = episodeMapper;
         this.externalWorkMapper = externalWorkMapper;
         this.externalEpisodeMapper = externalEpisodeMapper;
@@ -70,6 +74,7 @@ public class AnimekoTagService {
         this.tagSyncService = tagSyncService;
         this.embeddingTaskService = embeddingTaskService;
         this.materializationService = materializationService;
+        this.frameGrabber = frameGrabber;
         this.dbPath = AnimekoPaths.resolve(dbPath);
     }
 
@@ -202,6 +207,15 @@ public class AnimekoTagService {
         String channel = ev == null ? null : ev.channel();
         String state = ev == null ? null : ev.state();
         String channelMsg = ev == null ? null : ev.message();
+        // 渠道文件在场（C1/C2）→ 异步抽帧生成片段封面（当前画面=暂停位置帧）
+        if (frameGrabber != null && ev != null && "PRESENT".equals(ev.state()) && ev.filePath() != null) {
+            // 抽帧时刻：优先用户标定起点；无起点时用暂停位置。clamp 到集时长内（防 -ss 超界空输出）
+            long shotMs = clip.getStartMs() != null ? clip.getStartMs()
+                    : (view.positionMs() != null ? view.positionMs() : 0L);
+            long durMs = view.durationMs() != null ? view.durationMs() : Long.MAX_VALUE;
+            shotMs = Math.max(0, Math.min(shotMs, durMs - 500));
+            frameGrabber.grabFrameAsync(clip.getId(), ev.filePath(), shotMs);
+        }
         return new TagResult(true, "已打标片段 #" + clip.getId(), "OK", clip.getId(),
                 view.localEpisodeId(), view.mediaId(), channel, state, channelMsg);
     }

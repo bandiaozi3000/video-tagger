@@ -165,6 +165,11 @@ public class MaterializationService {
             VideoAsset byFp = assetMapper.selectByFingerprint(clip.getVideoFp());
             if (byFp != null) return byFp;
         }
+        // Animeko 现场打标 clip：无绑定资产/指纹匹配，但有 episodeId → 命中该集可用本地资产（C1）
+        if (clip.getEpisodeId() != null) {
+            VideoAsset byEp = assetMapper.selectAvailable(clip.getEpisodeId());
+            if (byEp != null && isLocalKind(byEp)) return byEp;
+        }
         return null;
     }
 

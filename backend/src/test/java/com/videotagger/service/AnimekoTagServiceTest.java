@@ -69,7 +69,7 @@ class AnimekoTagServiceTest {
         materializationService = mock(MaterializationService.class);
         service = new AnimekoTagService(episodeMapper, externalWorkMapper, externalEpisodeMapper,
                 mediaMapper, clipMapper, tagMapper, clipTagMapper, tagSyncService,
-                embeddingTaskService, materializationService, dbFile.toAbsolutePath().toString());
+                embeddingTaskService, materializationService, dbFile.toAbsolutePath().toString(), null);
     }
 
     @AfterEach
@@ -111,7 +111,7 @@ class AnimekoTagServiceTest {
     void unavailable() {
         AnimekoTagService svc = new AnimekoTagService(episodeMapper, externalWorkMapper, externalEpisodeMapper,
                 mediaMapper, clipMapper, tagMapper, clipTagMapper, tagSyncService,
-                embeddingTaskService, materializationService, "Z:/no/such/animeko.db");
+                embeddingTaskService, materializationService, "Z:/no/such/animeko.db", null);
         AnimekoTagService.PlayheadView v = svc.mappedPlayhead();
         assertFalse(v.reachable());
         assertTrue(v.message().contains("不存在"));
@@ -123,7 +123,7 @@ class AnimekoTagServiceTest {
         // 空/空白配置 = 自动探测 Windows 标准路径；测试机上有真实库时应可达
         AnimekoTagService svc = new AnimekoTagService(episodeMapper, externalWorkMapper, externalEpisodeMapper,
                 mediaMapper, clipMapper, tagMapper, clipTagMapper, tagSyncService,
-                embeddingTaskService, materializationService, " ");
+                embeddingTaskService, materializationService, " ", null);
         AnimekoTagService.PlayheadView v = svc.mappedPlayhead();
         // 若本机确实装了 Animeko（Roaming/Him188/Ani/data）则 reachable；否则按不可达处理也不报错
         boolean hasRealAnimeko = java.nio.file.Files.isRegularFile(java.nio.file.Path.of(

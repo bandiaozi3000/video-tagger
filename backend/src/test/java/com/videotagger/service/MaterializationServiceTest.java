@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -104,6 +105,24 @@ class MaterializationServiceTest {
 
         MaterializationService.Evaluation ev = service.evaluate(2L);
         assertEquals("C1", ev.channel());
+        assertEquals(file.toString(), ev.filePath());
+    }
+
+    @Test
+    @DisplayName("C1：Animeko 打标 clip 无绑定资产，按 episodeId 命中可用本地资产")
+    void c1ByEpisodeWhenNoBinding() throws Exception {
+        Path file = Files.createFile(assetRoot.resolve("by-ep.mp4"));
+        Clip c = clip(21);
+        c.setEpisodeId(66L);
+        c.setUrl("animeko://bangumi/40310/ep/198749");
+        when(clipMapper.selectById(21L)).thenReturn(c);
+        when(assetMapper.selectByFingerprint(any())).thenReturn(null);
+        when(assetMapper.selectAvailable(66L)).thenReturn(
+                asset(21L, "LOCAL_ORIGINAL", "AVAILABLE", "by-ep.mp4", null, 66L));
+
+        MaterializationService.Evaluation ev = service.evaluate(21L);
+        assertEquals("C1", ev.channel());
+        assertEquals("PRESENT", ev.state());
         assertEquals(file.toString(), ev.filePath());
     }
 
