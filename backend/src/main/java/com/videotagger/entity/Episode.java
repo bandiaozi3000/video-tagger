@@ -30,4 +30,6 @@ public class Episode {
     /** 集封面静态路径（自选高能画面/上传），可空；空时查询端解析到代表性片段帧 */
     private String coverPath;
     private Long createdAt;
+    /** 看过时间（epoch ms；来源：Animeko 观看导入 v0.24），可空 */
+    private Long watchedAt;
 }

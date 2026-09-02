@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS episode (
     video_fp        TEXT,
     cover_path      TEXT,
     created_at      INTEGER,
+    watched_at      INTEGER,
     UNIQUE (video_fp)
 );
 CREATE INDEX IF NOT EXISTS idx_episode_media ON episode(media_id);

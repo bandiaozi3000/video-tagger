@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * SqliteSchemaMigrator 单测（内存 SQLite，不启 Spring 上下文）。
- * test classpath 提供 v02-v09；最新版本 = 9。
+ * test classpath 提供 v02-v10；最新版本 = 10。
  */
 class SqliteSchemaMigratorTest {
 
@@ -42,15 +42,15 @@ class SqliteSchemaMigratorTest {
     @Test
     @DisplayName("最新版本 = max(基线1, migration-sqlite 目录里最大 vNN)")
     void latestVersionTracksScripts() throws Exception {
-        // test classpath 提供 v02-v09 → 最新 = 9
-        assertEquals(9, migrator.latestVersion());
+        // test classpath 提供 v02-v10 → 最新 = 10
+        assertEquals(10, migrator.latestVersion());
     }
 
     @Test
     @DisplayName("全新库（user_version=0）直接初始化为最新版本")
     void freshDatabaseInitializesToLatest() throws Exception {
         migrator.run(null);
-        assertEquals(9, readUserVersion());
+        assertEquals(10, readUserVersion());
     }
 
     @Test
@@ -58,11 +58,12 @@ class SqliteSchemaMigratorTest {
     void legacyUnversionedDatabaseRunsCleanup() throws Exception {
         try (Statement st = conn.createStatement()) {
             st.execute("CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, original_title TEXT, cover_url TEXT, source TEXT)");
+            st.execute("CREATE TABLE episode (id INTEGER PRIMARY KEY AUTOINCREMENT, media_id INTEGER NOT NULL, media_entry_id INTEGER, season INTEGER, episode_no INTEGER, title TEXT NOT NULL, note TEXT, url TEXT, video_fp TEXT, cover_path TEXT, created_at INTEGER)");
             st.execute("CREATE TABLE metadata_sync_task (id INTEGER PRIMARY KEY, task_id TEXT)");
         }
         migrator.run(null);
         Set<String> cols = tableColumns("media");
-        assertEquals(9, readUserVersion());
+        assertEquals(10, readUserVersion());
         assertTrue(!cols.contains("original_title"));
         assertTrue(!cols.contains("cover_url"));
         assertTrue(!cols.contains("source"));
@@ -88,7 +89,7 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 0");
         }
         migrator.run(null);
-        assertEquals(9, readUserVersion());
+        assertEquals(10, readUserVersion());
         try (Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery("SELECT task_id FROM metadata_sync_task WHERE task_id = 'keep-me'")) {
             assertTrue(rs.next(), "新版无版本号数据库中的任务数据应保留");
@@ -96,7 +97,7 @@ class SqliteSchemaMigratorTest {
     }
 
     @Test
-    @DisplayName("v1 老库逐步升级到 v9")
+    @DisplayName("v1 老库逐步升级到 v10")
     void oldDatabaseMigratesStepByStep() throws Exception {
         // 模拟 v1 结构的库：media 表只有基础列，user_version=1
         try (Statement st = conn.createStatement()) {
@@ -106,8 +107,8 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 1");
         }
         migrator.run(null);
-        assertEquals(9, readUserVersion());
-        // v02-v09 迁移应保留原有列，并创建资料库、片源、资产和数据源订阅结构
+        assertEquals(10, readUserVersion());
+        // v02-v10 迁移应保留原有列，并创建资料库、片源、资产和数据源订阅结构
         Set<String> cols = tableColumns("media");
         assertTrue(cols.contains("title"), "原有列应保留");
         assertTrue(tableExists("highlight_project"), "高光项目表应存在");
@@ -125,6 +126,7 @@ class SqliteSchemaMigratorTest {
         assertTrue(tableExists("video_source_instance"), "数据源实例表应存在");
         assertTrue(tableExists("video_asset"), "视频资产表应存在");
         assertTrue(tableColumns("clips").contains("start_ms"), "Clip 毫秒开始时间应存在");
+        assertTrue(tableColumns("episode").contains("watched_at"), "v0.24 Animeko 观看导入列应存在");
     }
 
     @Test
@@ -139,7 +141,7 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 2");
         }
         migrator.run(null);
-        assertEquals(9, readUserVersion());
+        assertEquals(10, readUserVersion());
         assertTrue(tableExists("highlight_project"));
     }
 
@@ -153,23 +155,24 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 3");
         }
         migrator.run(null);
-        assertEquals(9, readUserVersion());
+        assertEquals(10, readUserVersion());
         assertTrue(tableColumns("highlight_export").contains("stage"));
         assertTrue(tableColumns("highlight_export").contains("scene_message"));
     }
 
     @Test
-    @DisplayName("v5 资料库升级到 v9 会替换同步模型并增加视频资产结构")
+    @DisplayName("v5 资料库升级到 v10 会替换同步模型并增加视频资产结构")
     void v05DatabaseDropsRetiredMetadataStructures() throws Exception {
         try (Statement st = conn.createStatement()) {
             st.execute("CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, original_title TEXT, cover_url TEXT, source TEXT, aliases TEXT, created_at INTEGER)");
+            st.execute("CREATE TABLE episode (id INTEGER PRIMARY KEY AUTOINCREMENT, media_id INTEGER NOT NULL, media_entry_id INTEGER, season INTEGER, episode_no INTEGER, title TEXT NOT NULL, note TEXT, url TEXT, video_fp TEXT, cover_path TEXT, created_at INTEGER)");
             st.execute("CREATE TABLE metadata_sync_task (id INTEGER PRIMARY KEY, task_id TEXT)");
             st.execute("CREATE TABLE metadata_sync_candidate (id INTEGER PRIMARY KEY, task_id INTEGER)");
             st.execute("PRAGMA user_version = 5");
         }
         migrator.run(null);
         Set<String> cols = tableColumns("media");
-        assertEquals(9, readUserVersion());
+        assertEquals(10, readUserVersion());
         assertTrue(!cols.contains("original_title"), "原标题列应被物理删除");
         assertTrue(!cols.contains("cover_url"), "外部封面列应被物理删除");
         assertTrue(!cols.contains("source"), "来源列应被物理删除");
@@ -181,15 +184,16 @@ class SqliteSchemaMigratorTest {
     }
 
     @Test
-    @DisplayName("v7 Clip 时间升级到 v9 会回填毫秒字段且保持引用状态")
+    @DisplayName("v7 Clip 时间升级到 v10 会回填毫秒字段且保持引用状态")
     void v07ClipTimesBackfillToMilliseconds() throws Exception {
         try (Statement st = conn.createStatement()) {
             st.execute("CREATE TABLE clips (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, url TEXT NOT NULL, timestamp_sec REAL NOT NULL, end_sec REAL, tag TEXT NOT NULL, note TEXT, created_at INTEGER NOT NULL, episode_id INTEGER, video_fp TEXT, video_duration REAL, cover_path TEXT, detail_cover_path TEXT)");
+            st.execute("CREATE TABLE episode (id INTEGER PRIMARY KEY AUTOINCREMENT, media_id INTEGER NOT NULL, media_entry_id INTEGER, season INTEGER, episode_no INTEGER, title TEXT NOT NULL, note TEXT, url TEXT, video_fp TEXT, cover_path TEXT, created_at INTEGER)");
             st.execute("INSERT INTO clips (title, url, timestamp_sec, end_sec, tag, created_at) VALUES ('片段', 'local.mp4', 12.345, 18.9, '测试', 1)");
             st.execute("PRAGMA user_version = 7");
         }
         migrator.run(null);
-        assertEquals(9, readUserVersion());
+        assertEquals(10, readUserVersion());
         assertTrue(tableExists("video_source_package"));
         try (Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery("SELECT start_ms, end_ms, material_state FROM clips WHERE id = 1")) {
