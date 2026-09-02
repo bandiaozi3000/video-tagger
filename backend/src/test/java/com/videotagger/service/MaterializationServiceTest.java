@@ -77,6 +77,25 @@ class MaterializationServiceTest {
     // ---------- C1 ----------
 
     @Test
+    @DisplayName("已物化 READY + 产物在场 → ALREADY_READY（不重复剪）")
+    void alreadyReadySkipsRematerialize() throws Exception {
+        Path product = Files.createFile(assetRoot.resolve("prod.mp4"));
+        Clip c = clip(9);
+        c.setMaterialState("READY");
+        c.setVideoAssetId(90L);
+        c.setEpisodeId(66L);
+        when(clipMapper.selectById(9L)).thenReturn(c);
+        when(assetMapper.selectById(90L)).thenReturn(
+                asset(90L, "GENERATED_CLIP", "AVAILABLE", "prod.mp4", null, 66L));
+
+        MaterializationService.Evaluation ev = service.evaluate(9L);
+        assertEquals("C1", ev.channel());
+        assertEquals("ALREADY_READY", ev.strategy());
+        assertEquals("PRESENT", ev.state());
+        assertEquals(product.toString(), ev.filePath());
+    }
+
+    @Test
     @DisplayName("C1：clip 已绑本地资产且文件在场 → PRESENT/TRIM_LOCAL_ASSET")
     void c1BoundLocalAssetPresent() throws Exception {
         Path file = Files.createFile(assetRoot.resolve("ep1.mp4"));

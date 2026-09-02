@@ -76,6 +76,15 @@ public class MaterializationService {
      */
     public Evaluation evaluate(long clipId, boolean refreshHints) {
         Clip clip = require(clipId);
+        // 0) 已物化（READY + 产物资产在场）→ 不再重新裁剪，产物即最终素材
+        if ("READY".equals(clip.getMaterialState()) && clip.getVideoAssetId() != null) {
+            VideoAsset done = assetMapper.selectById(clip.getVideoAssetId());
+            String doneFile = done == null ? null : fileOf(done);
+            if (doneFile != null) {
+                return new Evaluation(clipId, "C1", "PRESENT", "ALREADY_READY",
+                        done.getId(), doneFile, null, "已就绪：产物 " + doneFile);
+            }
+        }
         // 1) channel_hints 里已登记的 present 线索优先（历史已定位成功的源不再重新探）
         List<ChannelHint> hints = ChannelHint.Codec.decode(clip.getChannelHints());
         ChannelHint known = ChannelHint.Codec.firstActionable(hints);

@@ -678,7 +678,9 @@ function renderClipDetailHead(clip, ep, media) {
             const chResp = await fetch(`/api/clips/${clip.id}/material/channels/refresh`);
             const ev = await chResp.json();
             if (!chResp.ok) throw new Error(ev.message || `HTTP ${chResp.status}`);
-            if (ev.state === 'PRESENT' && ev.strategy === 'TRIM_LOCAL_ASSET') {
+            if (ev.state === 'PRESENT' && ev.strategy === 'ALREADY_READY') {
+                provenance.textContent = '✓ 已物化就绪，无需再次准备（产物在本地，可「本地回顾」查看）';
+            } else if (ev.state === 'PRESENT' && ev.strategy === 'TRIM_LOCAL_ASSET') {
                 provenance.textContent = '本地资产在场，正在裁剪…';
                 const resp = await fetch(`/api/clips/${clip.id}/material`, { method: 'POST' });
                 const result = await resp.json();
