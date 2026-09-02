@@ -651,7 +651,10 @@ function renderClipDetailHead(clip, ep, media) {
         </div>`;
     clipDetailHeadEl.querySelector('.ad-title').textContent = clip.title || '(未命名)';
     const range = clip.endSec != null ? `${fmtTime(clip.timestampSec)} – ${fmtTime(clip.endSec)}` : fmtTime(clip.timestampSec);
-    clipDetailHeadEl.querySelector('.ad-meta').textContent = `片段 · ${range} · ${clip.tag}`;
+    // 物化产物：标注原视频打标位置（sourceStartMs）
+    const srcPos = clip.sourceStartMs != null
+        ? ` · 原视频 ${fmtTime(clip.sourceStartMs / 1000)} 处` : '';
+    clipDetailHeadEl.querySelector('.ad-meta').textContent = `片段 · ${range}${srcPos} · ${clip.tag}`;
     const provenance = clipDetailHeadEl.querySelector('.cd-source-provenance');
     provenance.innerHTML = `<span class="clip-channel-badge">资产 ${clip.videoAssetId ?? '未绑定'} · ${esc(clip.materialState || 'REFERENCE_ONLY')}</span> <button class="nav-link" data-channel-state></button><button class="nav-link" data-prepare-material>准备素材</button> <button class="nav-link" data-play-source>本地回顾</button>`;
     // v0.24 M3：渠道求值（C1 本地/C2 Animeko/C3 直链/C4 录屏）展示 + 素材化/回顾入口

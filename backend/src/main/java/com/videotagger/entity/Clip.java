@@ -19,6 +19,8 @@ public class Clip {
     private Long videoAssetId;
     private Long startMs;
     private Long endMs;
+    /** 物化前原视频起点（毫秒）：materialize 会把 startMs 归零为产物内区间，此字段保留原视频中的打标位置；未物化为 null */
+    private Long sourceStartMs;
     private String sourceRevision;
     private Long timeMappingId;
     private String materialState;

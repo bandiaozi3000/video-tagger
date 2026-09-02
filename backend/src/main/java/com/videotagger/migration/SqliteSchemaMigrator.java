@@ -178,6 +178,7 @@ public class SqliteSchemaMigrator implements ApplicationRunner {
         if (!tableExists(conn, "video_source_subscription")) return 8;
         if (!hasColumn(conn, "episode", "watched_at")) return 9;
         if (!hasColumn(conn, "clips", "channel_hints")) return 10;
+        if (!hasColumn(conn, "clips", "source_start_ms")) return 11;
         return latest;
     }
 
