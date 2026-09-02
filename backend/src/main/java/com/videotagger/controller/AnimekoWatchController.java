@@ -1,5 +1,6 @@
 package com.videotagger.controller;
 
+import com.videotagger.service.AnimekoActivator;
 import com.videotagger.service.AnimekoTagService;
 import com.videotagger.service.AnimekoWatchImportService;
 import org.springframework.web.bind.annotation.*;
@@ -11,10 +12,13 @@ public class AnimekoWatchController {
 
     private final AnimekoWatchImportService service;
     private final AnimekoTagService tagService;
+    private final AnimekoActivator activator;
 
-    public AnimekoWatchController(AnimekoWatchImportService service, AnimekoTagService tagService) {
+    public AnimekoWatchController(AnimekoWatchImportService service, AnimekoTagService tagService,
+                                  AnimekoActivator activator) {
         this.service = service;
         this.tagService = tagService;
+        this.activator = activator;
     }
 
     /** Animeko DB 可达性 + 有效播放记录数预览（不写库）。 */
@@ -39,5 +43,11 @@ public class AnimekoWatchController {
     @PostMapping("/tag")
     public AnimekoTagService.TagResult tag(@RequestBody AnimekoTagService.TagRequest request) {
         return tagService.tag(request);
+    }
+
+    /** M3：唤起 Animeko 桌面端窗口置前（无深链定位；运行中则激活，未运行则启动）。 */
+    @PostMapping("/activate")
+    public AnimekoActivator.ActivateResult activate() {
+        return activator.activate();
     }
 }

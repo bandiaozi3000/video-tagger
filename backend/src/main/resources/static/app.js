@@ -460,14 +460,46 @@ function buildJumpUrl(url, ts) {
 }
 
 async function jump(r) {
+    const url = r?.url;
+    // v0.24 A档：Animeko 引用无深链 → 唤起 Animeko 窗口置前 + 提示手动定位；网页源保持原逻辑跳转。
+    if (url && url.startsWith('animeko://')) {
+        return activateAnimekoWithHint(r, true);
+    }
+    if ((!url || url === 'null') && r && (r.watchedAt || r.animekoSource)) {
+        // Animeko 导入的集：无网页 url，但 watchedAt 已回灌 → 唤起 Animeko 提示
+        return activateAnimekoWithHint(r, false);
+    }
     try {
         await fetch('/api/jump', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: r.url, timestampSec: r.timestampSec })
+            body: JSON.stringify({ url, timestampSec: r.timestampSec ?? 0 })
         });
     } catch (err) { /* 跳转队列失败不阻塞打开页面 */ }
-    window.open(buildJumpUrl(r.url, r.timestampSec), '_blank');
+    window.open(buildJumpUrl(url, r.timestampSec ?? 0), '_blank');
+}
+
+/** Animeko 唤起 + 提示（片段给片段区间提示，集给集名提示）。 */
+async function activateAnimekoWithHint(r, isClip) {
+    let hint = '正在唤起 Animeko…';
+    showToast(hint, 1200);
+    try {
+        const resp = await fetch('/api/animeko/watch/activate', { method: 'POST' });
+        const a = await resp.json();
+        if (!resp.ok || !a.ok) {
+            showToast(a.message || '唤起 Animeko 失败', 4000);
+            return;
+        }
+        const label = r.title || (isClip ? '该片段' : '该集');
+        if (isClip) {
+            const range = r.endSec != null ? `${fmtTime(r.timestampSec)} – ${fmtTime(r.endSec)}` : fmtTime(r.timestampSec);
+            showToast(`已唤起 Animeko。片段《${label}》${range}：请在 Animeko 打开对应番剧集（Animeko 不支持外部定位）`, 6500);
+        } else {
+            showToast(`已唤起 Animeko。请在弹出的 Animeko 窗口打开《${label}》（Animeko 不支持外部定位）`, 6500);
+        }
+    } catch (e) {
+        showToast('唤起 Animeko 失败：' + e.message, 4000);
+    }
 }
 
 let currentViewName = 'search';
@@ -2849,12 +2881,12 @@ async function clearTrash() {
 
 /** 轻提示：全局唯一 toast，2.5s 自动消失，可打断重显。 */
 let toastTimer = null;
-function showToast(msg) {
+function showToast(msg, durationMs) {
     const el = document.getElementById('toast');
     el.textContent = msg;
     el.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.hidden = true; }, 2500);
+    toastTimer = setTimeout(() => { el.hidden = true; }, durationMs || 2500);
 }
 
 // ---------- 推荐导出向导（独立「推荐」tab：勾选 → 主题 → 预览导出） ----------
@@ -7476,7 +7508,7 @@ document.getElementById('ep-detail-timeline').addEventListener('click', () => {
     openTimeline({ fp: currentEpisode.videoFp, title: currentEpisode.title || '时间线' });
 });
 document.getElementById('ep-detail-jump').addEventListener('click', () => {
-    if (currentEpisode) jump({ url: currentEpisode.url, timestampSec: 0 });
+    if (currentEpisode) jump({ url: currentEpisode.url, watchedAt: currentEpisode.watchedAt, title: currentEpisode.title || '目标番剧/集', timestampSec: 0 });
 });
 document.getElementById('ep-detail-delete').addEventListener('click', () => { if (currentEpisode) deleteEpisode(currentEpisode); });
 
