@@ -656,8 +656,9 @@ function renderClipDetailHead(clip, ep, media) {
     const srcPos = clip.materialState === 'READY' && clip.sourceStartMs != null && clip.sourceStartMs !== Math.round(clip.timestampSec * 1000)
         ? ` · 原视频 ${fmtTime(clip.sourceStartMs / 1000)} 处` : '';
     clipDetailHeadEl.querySelector('.ad-meta').textContent = `片段 · ${range}${srcPos} · ${clip.tag}`;
+    const isReady = clip.materialState === 'READY' && clip.videoAssetId != null;
     const provenance = clipDetailHeadEl.querySelector('.cd-source-provenance');
-    provenance.innerHTML = `<span class="clip-channel-badge">资产 ${clip.videoAssetId ?? '未绑定'} · ${esc(clip.materialState || 'REFERENCE_ONLY')}</span> <button class="nav-link" data-channel-state></button><button class="nav-link" data-prepare-material>准备素材</button> <button class="nav-link" data-play-source>本地回顾</button>`;
+    provenance.innerHTML = `<span class="clip-channel-badge">${isReady ? '✓ 已物化' : `资产 ${clip.videoAssetId ?? '未绑定'} · ${esc(clip.materialState || 'REFERENCE_ONLY')}`}</span> <button class="nav-link" data-channel-state></button>${isReady ? '' : '<button class="nav-link" data-prepare-material>准备素材</button>'}<button class="nav-link" data-play-source>本地回顾</button>`;
     // v0.24 M3：渠道求值（C1 本地/C2 Animeko/C3 直链/C4 录屏）展示 + 素材化/回顾入口
     const channelState = provenance.querySelector('[data-channel-state]');
     const prepBtn = provenance.querySelector('[data-prepare-material]');
@@ -676,7 +677,7 @@ function renderClipDetailHead(clip, ep, media) {
             channelState.textContent = '渠道求值失败';
         }
     })();
-    prepBtn.addEventListener('click', async () => {
+    prepBtn?.addEventListener('click', async () => {
         provenance.textContent = '正在求值素材渠道…';
         try {
             const chResp = await fetch(`/api/clips/${clip.id}/material/channels/refresh`, { method: 'POST' });
