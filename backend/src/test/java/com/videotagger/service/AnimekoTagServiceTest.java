@@ -107,14 +107,28 @@ class AnimekoTagServiceTest {
     // ---------- playhead ----------
 
     @Test
-    @DisplayName("未配置 Animeko 路径 → configured=false")
-    void unconfigured() {
+    @DisplayName("Animeko 库不可达 → 功能关闭")
+    void unavailable() {
         AnimekoTagService svc = new AnimekoTagService(episodeMapper, externalWorkMapper, externalEpisodeMapper,
                 mediaMapper, clipMapper, tagMapper, clipTagMapper, tagSyncService,
-                embeddingTaskService, materializationService, "  ");
+                embeddingTaskService, materializationService, "Z:/no/such/animeko.db");
         AnimekoTagService.PlayheadView v = svc.mappedPlayhead();
-        assertFalse(v.configured());
         assertFalse(v.reachable());
+        assertTrue(v.message().contains("不存在"));
+    }
+
+    @Test
+    @DisplayName("空配置自动探测：本机真实 Animeko 库命中 → 可达")
+    void blankConfigAutoDetects() {
+        // 空/空白配置 = 自动探测 Windows 标准路径；测试机上有真实库时应可达
+        AnimekoTagService svc = new AnimekoTagService(episodeMapper, externalWorkMapper, externalEpisodeMapper,
+                mediaMapper, clipMapper, tagMapper, clipTagMapper, tagSyncService,
+                embeddingTaskService, materializationService, " ");
+        AnimekoTagService.PlayheadView v = svc.mappedPlayhead();
+        // 若本机确实装了 Animeko（Roaming/Him188/Ani/data）则 reachable；否则按不可达处理也不报错
+        boolean hasRealAnimeko = java.nio.file.Files.isRegularFile(java.nio.file.Path.of(
+                System.getProperty("user.home"), "AppData", "Roaming", "Him188", "Ani", "data", "ani_room_database_main.db"));
+        assertEquals(hasRealAnimeko, v.reachable());
     }
 
     @Test

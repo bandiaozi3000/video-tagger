@@ -12,6 +12,7 @@ import com.videotagger.mapper.ExternalEpisodeMapper;
 import com.videotagger.mapper.ExternalWorkMapper;
 import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.TagMapper;
+import com.videotagger.util.AnimekoPaths;
 import com.videotagger.util.VideoFingerprint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,7 +70,7 @@ public class AnimekoTagService {
         this.tagSyncService = tagSyncService;
         this.embeddingTaskService = embeddingTaskService;
         this.materializationService = materializationService;
-        this.dbPath = dbPath == null ? "" : dbPath.trim();
+        this.dbPath = AnimekoPaths.resolve(dbPath);
     }
 
     // ---------- 现场播放头 ----------

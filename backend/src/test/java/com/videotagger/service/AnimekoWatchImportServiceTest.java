@@ -67,14 +67,14 @@ class AnimekoWatchImportServiceTest {
     }
 
     @Test
-    @DisplayName("未配置路径时功能关闭")
+    @DisplayName("Animeko 库不可达时功能关闭")
     void disabledWhenNotConfigured() {
+        // 空配置=自动探测（本机会命中真实库）；用不存在的显式路径断言不可达关闭语义
         AnimekoWatchImportService off = new AnimekoWatchImportService(
-                episodeMapper, externalWorkMapper, externalEpisodeMapper, " ");
-        assertFalse(off.configured());
+                episodeMapper, externalWorkMapper, externalEpisodeMapper, "Z:/no/such/animeko.db");
         AnimekoWatchImportService.ImportResult result = off.importWatchHistory();
         assertFalse(result.ok());
-        assertEquals("未配置", result.message().substring(0, 3));
+        assertEquals("数据库文件不存在", result.message().substring(0, 8));
     }
 
     @Test

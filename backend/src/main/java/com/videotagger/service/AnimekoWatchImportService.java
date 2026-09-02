@@ -5,6 +5,7 @@ import com.videotagger.entity.ExternalWork;
 import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.ExternalEpisodeMapper;
 import com.videotagger.mapper.ExternalWorkMapper;
+import com.videotagger.util.AnimekoPaths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -47,7 +48,7 @@ public class AnimekoWatchImportService {
         this.episodeMapper = episodeMapper;
         this.externalWorkMapper = externalWorkMapper;
         this.externalEpisodeMapper = externalEpisodeMapper;
-        this.dbPath = dbPath == null ? "" : dbPath.trim();
+        this.dbPath = AnimekoPaths.resolve(dbPath);
     }
 
     public boolean configured() {
