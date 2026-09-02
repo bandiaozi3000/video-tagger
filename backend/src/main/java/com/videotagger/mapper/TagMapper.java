@@ -1,5 +1,7 @@
 package com.videotagger.mapper;
 
+import org.apache.ibatis.annotations.Mapper;
+
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.videotagger.entity.Tag;
 import com.videotagger.service.TagUsage;
@@ -9,6 +11,7 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
+@Mapper
 public interface TagMapper extends BaseMapper<Tag> {
 
     /** 无则插入（幂等防并发冲突）：SQLite INSERT OR IGNORE / MySQL INSERT IGNORE（databaseId 方言分支）。 */

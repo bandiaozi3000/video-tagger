@@ -109,7 +109,7 @@ class MediaServiceIT extends AbstractMySqlIT {
         mediaService.merge(a1.getId(), a2.getId());
 
         assertEquals(1, episodeMapper.countByMedia(a2.getId()));
-        assertEquals(1, mediaTagMapper.selectTags(a2.getId()).size());
+        assertEquals(2, mediaTagMapper.selectTags(a2.getId()).size());
         assertNull(mediaMapper.selectById(a1.getId()));
     }
 

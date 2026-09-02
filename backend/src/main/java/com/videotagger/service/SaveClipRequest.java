@@ -19,7 +19,11 @@ public record SaveClipRequest(
         @Size(max = 300_000) String coverDataUrl,
         @Size(max = 900_000) String detailCoverDataUrl,
         Long mediaId,
-        Boolean forceNewMedia
+        Boolean forceNewMedia,
+        Long videoAssetId,
+        @Size(max = 256) String sourceRevision,
+        Long startMs,
+        Long endMs
 ) {
     public SaveClipRequest {
         if (videoDuration != null && videoDuration < 0) {
@@ -34,19 +38,19 @@ public record SaveClipRequest(
                            Double videoDuration, String ogImage, String coverDataUrl,
                            String detailCoverDataUrl, Long mediaId, Boolean forceNewMedia) {
         this(title, url, timestampSec, null, tag, note, videoDuration, ogImage, coverDataUrl,
-                detailCoverDataUrl, mediaId, forceNewMedia);
+                detailCoverDataUrl, mediaId, forceNewMedia, null, null, null, null);
     }
 
     public SaveClipRequest(String title, String url, Double timestampSec, String tag, String note) {
-        this(title, url, timestampSec, null, tag, note, null, null, null, null, null, null);
+        this(title, url, timestampSec, null, tag, note, null, null, null, null, null, null, null, null, null, null);
     }
 
     public SaveClipRequest(String title, String url, Double timestampSec, String tag, String note, Double videoDuration) {
-        this(title, url, timestampSec, null, tag, note, videoDuration, null, null, null, null, null);
+        this(title, url, timestampSec, null, tag, note, videoDuration, null, null, null, null, null, null, null, null, null);
     }
 
     public SaveClipRequest(String title, String url, Double timestampSec, Double endSec,
                            String tag, String note, Double videoDuration) {
-        this(title, url, timestampSec, endSec, tag, note, videoDuration, null, null, null, null, null);
+        this(title, url, timestampSec, endSec, tag, note, videoDuration, null, null, null, null, null, null, null, null, null);
     }
 }

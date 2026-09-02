@@ -1,5 +1,7 @@
 package com.videotagger.mapper;
 
+import org.apache.ibatis.annotations.Mapper;
+
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.videotagger.entity.ClipTag;
 import com.videotagger.entity.Tag;
@@ -10,6 +12,7 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
+@Mapper
 public interface ClipTagMapper extends BaseMapper<ClipTag> {
 
     @Insert(value = "INSERT OR IGNORE INTO clip_tag(clip_id, tag_id) VALUES(#{clipId}, #{tagId})", databaseId = "sqlite")

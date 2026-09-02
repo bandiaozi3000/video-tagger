@@ -45,6 +45,7 @@ public class ClipService {
     private final MediaFormatMapper mediaFormatMapper;
     private final MediaSubcategoryMapper mediaSubcategoryMapper;
     private final EpisodeMapper episodeMapper;
+    private final MediaEntryService mediaEntryService;
     private final TagMapper tagMapper;
     private final ClipTagMapper clipTagMapper;
     private final CoverService coverService;
@@ -59,14 +60,14 @@ public class ClipService {
                        EpisodeMapper episodeMapper, TagMapper tagMapper, ClipTagMapper clipTagMapper,
                        CoverService coverService, EmbeddingTaskService embeddingTaskService,
                        TagSyncService tagSyncService, TitleMappingService titleMappingService) {
-        this(clipMapper, mediaMapper, mediaFormatMapper, mediaSubcategoryMapper, episodeMapper, tagMapper,
+        this(clipMapper, mediaMapper, mediaFormatMapper, mediaSubcategoryMapper, episodeMapper, null, tagMapper,
                 clipTagMapper, coverService, embeddingTaskService, tagSyncService, titleMappingService, null, null);
     }
 
     @Autowired
     public ClipService(ClipMapper clipMapper, MediaMapper mediaMapper,
                        MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
-                       EpisodeMapper episodeMapper, TagMapper tagMapper, ClipTagMapper clipTagMapper,
+                       EpisodeMapper episodeMapper, MediaEntryService mediaEntryService, TagMapper tagMapper, ClipTagMapper clipTagMapper,
                        CoverService coverService, EmbeddingTaskService embeddingTaskService,
                        TagSyncService tagSyncService, TitleMappingService titleMappingService,
                        ClipExportService clipExportService, HighlightProjectService highlightProjectService) {
@@ -75,6 +76,7 @@ public class ClipService {
         this.mediaFormatMapper = mediaFormatMapper;
         this.mediaSubcategoryMapper = mediaSubcategoryMapper;
         this.episodeMapper = episodeMapper;
+        this.mediaEntryService = mediaEntryService;
         this.tagMapper = tagMapper;
         this.clipTagMapper = clipTagMapper;
         this.coverService = coverService;
@@ -128,7 +130,13 @@ public class ClipService {
         clip.setVideoFp(VideoFingerprint.fingerprint(req.url()));
         clip.setEpisodeId(episode.getId());
         clip.setTimestampSec(req.timestampSec());
-        clip.setEndSec(validateEndSec(req.timestampSec(), req.endSec(), req.videoDuration()));
+        Double validatedEnd = validateEndSec(req.timestampSec(), req.endSec(), req.videoDuration());
+        clip.setEndSec(validatedEnd);
+        clip.setVideoAssetId(req.videoAssetId());
+        clip.setSourceRevision(req.sourceRevision());
+        clip.setStartMs(req.startMs() != null ? req.startMs() : Math.round(req.timestampSec() * 1000));
+        clip.setEndMs(req.endMs() != null ? req.endMs() : validatedEnd == null ? null : Math.round(validatedEnd * 1000));
+        clip.setMaterialState("REFERENCE_ONLY");
         clip.setVideoDuration(req.videoDuration());
         clip.setTag(req.tag());
         clip.setNote(req.note() == null ? "" : req.note());
@@ -192,6 +200,10 @@ public class ClipService {
         Double duration = req.videoDuration() != null ? req.videoDuration() : clip.getVideoDuration();
         Double end = req.endSec() != null ? req.endSec() : clip.getEndSec();
         clip.setEndSec(validateEndSec(req.timestampSec(), end, duration));
+        clip.setVideoAssetId(req.videoAssetId() != null ? req.videoAssetId() : clip.getVideoAssetId());
+        clip.setSourceRevision(req.sourceRevision() != null ? req.sourceRevision() : clip.getSourceRevision());
+        clip.setStartMs(req.startMs() != null ? req.startMs() : Math.round(req.timestampSec() * 1000));
+        clip.setEndMs(req.endMs() != null ? req.endMs() : end == null ? null : Math.round(end * 1000));
         clip.setVideoDuration(duration);
         clip.setTag(appendTag ? appendTag(oldTag, req.tag()) : req.tag());
         clip.setNote(req.note() == null ? "" : req.note());
@@ -393,6 +405,9 @@ public class ClipService {
         if (ep == null) {
             ep = new Episode();
             ep.setMediaId(mediaId);
+            if (mediaEntryService != null) {
+                ep.setMediaEntryId(mediaEntryService.ensureLegacy(mediaId, parsed.mediaTitle()).getId());
+            }
             ep.setSeason(parsed.season());   // 解析不到保持 null，前端「未识别」分组高亮提示编辑
             ep.setEpisodeNo(parsed.episodeNo());
             ep.setTitle(req.title());

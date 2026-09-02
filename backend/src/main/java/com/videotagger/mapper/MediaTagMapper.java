@@ -1,5 +1,7 @@
 package com.videotagger.mapper;
 
+import org.apache.ibatis.annotations.Mapper;
+
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.videotagger.entity.MediaTag;
 import com.videotagger.entity.Tag;
@@ -10,6 +12,7 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
+@Mapper
 public interface MediaTagMapper extends BaseMapper<MediaTag> {
 
     @Insert(value = "INSERT OR IGNORE INTO media_tag(media_id, tag_id) VALUES(#{mediaId}, #{tagId})", databaseId = "sqlite")

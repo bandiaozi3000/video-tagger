@@ -1,5 +1,7 @@
 package com.videotagger.mapper;
 
+import org.apache.ibatis.annotations.Mapper;
+
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.videotagger.entity.EmbeddingTask;
 import org.apache.ibatis.annotations.Delete;
@@ -8,6 +10,7 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
+@Mapper
 public interface EmbeddingTaskMapper extends BaseMapper<EmbeddingTask> {
 
     @Select("SELECT * FROM embedding_tasks WHERE status = 'PENDING' AND retry_count < 5")

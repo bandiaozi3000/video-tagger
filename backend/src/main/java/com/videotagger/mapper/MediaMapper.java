@@ -1,5 +1,7 @@
 package com.videotagger.mapper;
 
+import org.apache.ibatis.annotations.Mapper;
+
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.videotagger.entity.Media;
 import com.videotagger.service.MediaSummary;
@@ -8,6 +10,7 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
+@Mapper
 public interface MediaMapper extends BaseMapper<Media> {
 
     /** 代表性片段帧封面：番剧无显式封面时兜底（被标记最多、平分取最新）。 */
@@ -23,20 +26,25 @@ public interface MediaMapper extends BaseMapper<Media> {
     @Select("SELECT * FROM media WHERE title LIKE CONCAT(#{title}, '%') AND deleted_at IS NULL ORDER BY id LIMIT 1")
     Media selectByTitlePrefix(@Param("title") String title);
 
-    /** AniList 同步去重：标题或原标题任一命中即视为已有（title/original_title 精确匹配）。 */
-    @Select("SELECT * FROM media WHERE (title = #{title} OR original_title = #{title}) AND deleted_at IS NULL LIMIT 1")
+    /** 兼容旧方法名：标题或本地别名命中即可。 */
+    @Select("SELECT * FROM media WHERE (title = #{title} OR (aliases IS NOT NULL AND aliases LIKE CONCAT('%', #{title}, '%'))) AND deleted_at IS NULL LIMIT 1")
     Media selectByTitleOrOriginal(@Param("title") String title);
 
-    /** 留存了封面 URL 但尚无封面文件的媒体（异步下载中断/未下完），供「补下缺失封面」。 */
-    @Select("SELECT * FROM media WHERE cover_url IS NOT NULL AND cover_url != '' "
-            + "AND (cover_path IS NULL OR cover_path = '') AND deleted_at IS NULL")
-    List<Media> listMissingCovers();
+    @Select(value = "SELECT * FROM media WHERE (title = #{title} OR (aliases IS NOT NULL AND aliases LIKE '%' || #{title} || '%')) AND deleted_at IS NULL ORDER BY id", databaseId = "sqlite")
+    @Select(value = "SELECT * FROM media WHERE (title = #{title} OR (aliases IS NOT NULL AND aliases LIKE CONCAT('%', #{title}, '%'))) AND deleted_at IS NULL ORDER BY id", databaseId = "mysql")
+    List<Media> listByTitleOrAlias(@Param("title") String title);
+
+    @Select("SELECT ew.provider FROM external_work ew WHERE ew.media_id = #{mediaId} ORDER BY ew.id LIMIT 1")
+    String selectProviderByMedia(@Param("mediaId") long mediaId);
+
+    @Select("SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = #{mediaId} ORDER BY ew.id LIMIT 1")
+    String selectExternalCoverByMedia(@Param("mediaId") long mediaId);
 
     /** 番剧卡片墙：含片段数与最新标记时间，按创建倒序。 */
-    @Select("SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, a.source,"
+    @Select("SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, (SELECT ew.provider FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS source,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
             + "(SELECT COUNT(*) FROM media_collection mc WHERE mc.media_id = a.id) AS collectionCount, "
-            + FALLBACK_COVER + " "
+            + FALLBACK_COVER + ", (SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl "
             + "FROM media a "
             + "LEFT JOIN episode e ON e.media_id = a.id "
             + "LEFT JOIN clips c ON c.episode_id = e.id "
@@ -46,10 +54,10 @@ public interface MediaMapper extends BaseMapper<Media> {
 
     /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/format/子分类（子树收敛）/confirmed/collectionId/year 筛选。 */
     @Select("<script>"
-            + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, a.source,"
+            + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, (SELECT ew.provider FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS source,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
             + "(SELECT COUNT(*) FROM media_collection mc WHERE mc.media_id = a.id) AS collectionCount, "
-            + FALLBACK_COVER + " "
+            + FALLBACK_COVER + ", (SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl "
             + "FROM media a "
             + "LEFT JOIN episode e ON e.media_id = a.id "
             + "LEFT JOIN clips c ON c.episode_id = e.id "
@@ -65,7 +73,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
             + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
-            + "<if test='source != null'> AND a.source = #{source}</if>"
+            + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + "</where>"
             + "GROUP BY a.id HAVING latestAt IS NOT NULL "
@@ -96,7 +104,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
             + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
-            + "<if test='source != null'> AND a.source = #{source}</if>"
+            + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + "<if test='tagId != null'> AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
             + "</where>"
@@ -122,7 +130,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
             + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
-            + "<if test='source != null'> AND a.source = #{source}</if>"
+            + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + " AND EXISTS (SELECT 1 FROM clips c JOIN episode e ON e.id = c.episode_id WHERE e.media_id = a.id)"
             + "</where>"
@@ -138,10 +146,10 @@ public interface MediaMapper extends BaseMapper<Media> {
 
     /** 某收藏夹下的番剧列表；支持 status/format/子分类（子树收敛）/confirmed/year/source/q 筛选；sort=year 按首播年份排序（null 年份排最后），默认按 id 排序；order 控制升降序。 */
     @Select("<script>"
-            + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, a.source,"
+            + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, (SELECT ew.provider FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS source,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
             + "(SELECT COUNT(*) FROM media_collection mc WHERE mc.media_id = a.id) AS collectionCount, "
-            + FALLBACK_COVER + " "
+            + FALLBACK_COVER + ", (SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl "
             + "FROM media a "
             + "JOIN media_collection ac ON ac.media_id = a.id AND ac.collection_id = #{collectionId} "
             + "LEFT JOIN episode e ON e.media_id = a.id "
@@ -157,7 +165,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + ") SELECT id FROM cte)</if>"
             + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
-            + "<if test='source != null'> AND a.source = #{source}</if>"
+            + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + "</where>"
             + "GROUP BY a.id "
@@ -180,10 +188,10 @@ public interface MediaMapper extends BaseMapper<Media> {
 
     /** 媒体列表筛选：状态/格式/子分类/待确认/年份 组合，sort=latest 按最近标记倒序。 */
     @Select("<script>"
-            + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, a.source,"
+            + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, (SELECT ew.provider FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS source,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
             + "(SELECT COUNT(*) FROM media_collection mc WHERE mc.media_id = a.id) AS collectionCount, "
-            + FALLBACK_COVER + " "
+            + FALLBACK_COVER + ", (SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl "
             + "FROM media a "
             + "LEFT JOIN episode e ON e.media_id = a.id "
             + "LEFT JOIN clips c ON c.episode_id = e.id "
@@ -199,7 +207,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
             + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
             + "<if test='year != null'> AND a.year = #{year}</if>"
-            + "<if test='source != null'> AND a.source = #{source}</if>"
+            + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + "<if test='tagId != null'> AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
             + "<if test='ids != null and !ids.isEmpty()'> AND a.id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></if>"
@@ -227,9 +235,9 @@ public interface MediaMapper extends BaseMapper<Media> {
 
     /** 媒体关键词召回：标题/别名/备注/作品标签命中。 */
     @Select("<script>"
-            + "SELECT DISTINCT a.id, a.title, a.year, a.original_title AS originalTitle, a.aliases, a.note, a.media_format AS mediaFormat, a.subcategory, "
+            + "SELECT DISTINCT a.id, a.title, a.year, a.aliases, a.note, a.media_format AS mediaFormat, a.subcategory, "
             + "a.subcategory_id AS subcategoryId, "
-            + "a.status, a.rating, a.cover_path AS coverPath, a.confirmed, a.source, a.created_at "
+            + "a.status, a.rating, a.cover_path AS coverPath, a.confirmed, (SELECT ew.provider FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS source, a.created_at "
             + "FROM media a "
             + "LEFT JOIN media_tag at ON at.media_id = a.id "
             + "LEFT JOIN tag t ON t.id = at.tag_id "

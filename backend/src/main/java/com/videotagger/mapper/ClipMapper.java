@@ -1,5 +1,7 @@
 package com.videotagger.mapper;
 
+import org.apache.ibatis.annotations.Mapper;
+
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.videotagger.entity.Clip;
 import com.videotagger.service.StatsResponse.SiteCount;
@@ -13,7 +15,14 @@ import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
+@Mapper
 public interface ClipMapper extends BaseMapper<Clip> {
+
+    @Select("SELECT * FROM clips WHERE video_asset_id = #{videoAssetId} ORDER BY start_ms, id")
+    List<Clip> listByVideoAsset(@Param("videoAssetId") long videoAssetId);
+
+    @Update("UPDATE clips SET video_asset_id = #{videoAssetId}, source_revision = #{sourceRevision}, start_ms = #{startMs}, end_ms = #{endMs}, material_state = #{materialState} WHERE id = #{id}")
+    void bindVideoAsset(@Param("id") long id, @Param("videoAssetId") Long videoAssetId, @Param("sourceRevision") String sourceRevision, @Param("startMs") Long startMs, @Param("endMs") Long endMs, @Param("materialState") String materialState);
 
     @Select("SELECT * FROM clips "
             + "WHERE url = #{url} AND created_at > #{since} "
@@ -41,15 +50,12 @@ public interface ClipMapper extends BaseMapper<Clip> {
 
     /** 按最近活跃排序的视频列表，offset 分页（传统页码，配合 countVideos 计算总页数）。
      *  SQLite 版：SUBSTRING_INDEX/LPAD/CONCAT 无等价，改关联子查询取每 fp 的最近标题。 */
-    @Select("SELECT c.video_fp AS fp, g.count AS count, g.latest AS latest, c.title AS title "
+    @Select("SELECT g.video_fp AS fp, g.count AS count, g.latest AS latest, "
+            + "(SELECT c.title FROM clips c WHERE c.video_fp = g.video_fp ORDER BY c.created_at DESC, c.id DESC LIMIT 1) AS title "
             + "FROM (SELECT video_fp, COUNT(*) AS count, MAX(created_at) AS latest "
             + "      FROM clips WHERE video_fp IS NOT NULL AND video_fp <> '' "
             + "      GROUP BY video_fp) g "
-            + "JOIN clips c ON c.video_fp = g.video_fp "
-            + "  AND c.created_at = g.latest "
-            + "WHERE c.video_fp IS NOT NULL AND c.video_fp <> '' "
-            + "GROUP BY c.video_fp "
-            + "ORDER BY g.latest DESC, c.video_fp DESC "
+            + "ORDER BY g.latest DESC, g.video_fp DESC "
             + "LIMIT #{limit} OFFSET #{offset}")
     List<VideoSummary> listVideos(@Param("limit") int limit, @Param("offset") int offset);
 

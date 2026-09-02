@@ -1,0 +1,24 @@
+package com.videotagger.service;
+
+import com.videotagger.entity.VideoAsset;
+import com.videotagger.entity.VideoSourceItem;
+import com.videotagger.entity.VideoSourceResolutionCache;
+import com.videotagger.mapper.VideoAssetMapper;
+import com.videotagger.mapper.VideoSourceItemMapper;
+import com.videotagger.mapper.VideoSourcePackageMapper;
+import com.videotagger.mapper.VideoSourceResolutionCacheMapper;
+import com.videotagger.videosource.*;
+import org.springframework.stereotype.Service;
+
+import java.time.Instant;
+
+@Service
+public class VideoSourcePlaybackService {
+    public record PlaySession(long assetId,String locator,long expiresAt,String probeState,String sourcePageUrl) {}
+    private final VideoSourceProviderRegistry registry; private final VideoAssetMapper assetMapper; private final VideoSourceItemMapper itemMapper; private final VideoSourcePackageMapper packageMapper; private final VideoSourceResolutionCacheMapper cacheMapper;
+    public VideoSourcePlaybackService(VideoSourceProviderRegistry registry,VideoAssetMapper assetMapper,VideoSourceItemMapper itemMapper,VideoSourcePackageMapper packageMapper,VideoSourceResolutionCacheMapper cacheMapper){this.registry=registry;this.assetMapper=assetMapper;this.itemMapper=itemMapper;this.packageMapper=packageMapper;this.cacheMapper=cacheMapper;}
+    public VideoSourceResolution resolve(String provider,String packageId,String itemId,String revision){VideoSourceProvider p=registry.require(provider);if(!p.capabilities().supports(VideoSourceStatus.Capability.RESOLVE_PLAYBACK))throw new VideoSourceProviderException(provider,"PLAYBACK_UNSUPPORTED","Provider does not support playback",false);VideoSourceResolution resolution=p.resolve(new VideoSourceResolveRequest(packageId,itemId,revision,VideoSourceStatus.ResolutionPurpose.PLAYBACK,null,null,null));RemoteResourcePolicy.validateLocator(resolution.resolvedLocator(),false);if(resolution.expiredAt(Instant.now()))throw new VideoSourceProviderException(provider,"RESOLUTION_EXPIRED","Playback resolution expired",true);return resolution;}
+    public VideoSourceProbeResult probe(String provider,String packageId,String itemId,String revision){VideoSourceResolution r=resolve(provider,packageId,itemId,revision);return registry.require(provider).probe(new VideoSourceProbeRequest(packageId,itemId,revision,r));}
+    public PlaySession playSession(long assetId){VideoAsset asset=assetMapper.selectById(assetId);if(asset==null)throw new IllegalArgumentException("Asset not found");if(asset.getSourceItemId()==null)throw new IllegalArgumentException("Asset has no remote source item");VideoSourceItem item=itemMapper.selectById(asset.getSourceItemId());var sourcePackage=packageMapper.selectById(item.getPackageId());VideoSourceResolution resolution=resolve(sourcePackage.getProvider(),sourcePackage.getProviderPackageId(),item.getProviderItemId(),item.getRevision());VideoSourceProbeResult probe=registry.require(sourcePackage.getProvider()).probe(new VideoSourceProbeRequest(sourcePackage.getProviderPackageId(),item.getProviderItemId(),item.getRevision(),resolution));if(probe.state()!=VideoSourceStatus.ProbeState.PLAYABLE)throw new VideoSourceProviderException(sourcePackage.getProvider(),probe.reasonCode()==null?probe.state().name():probe.reasonCode(),probe.message(),probe.retryable());saveCache(item,resolution,probe);long expires=resolution.expiresAt()==null?System.currentTimeMillis()+300000:Math.min(resolution.expiresAt().toEpochMilli(),System.currentTimeMillis()+300000);return new PlaySession(assetId,resolution.resolvedLocator(),expires,probe.state().name(),asset.getSourcePageUrl());}
+    private void saveCache(VideoSourceItem item,VideoSourceResolution resolution,VideoSourceProbeResult probe){VideoSourceResolutionCache cache=cacheMapper.selectStable(item.getId(),item.getRevision(),"PLAYBACK","DEFAULT");long now=System.currentTimeMillis();if(cache==null){cache=new VideoSourceResolutionCache();cache.setSourceItemId(item.getId());cache.setRevision(item.getRevision());cache.setPurpose("PLAYBACK");cache.setSelectionKey("DEFAULT");cache.setCreatedAt(now);}cache.setResolvedLocator(resolution.resolvedLocator());cache.setMimeType(resolution.mimeType());cache.setContentLength(resolution.contentLength());cache.setRangeSupported(resolution.rangeSupported());cache.setProbeState(probe.state().name());cache.setProbeMessage(probe.message());cache.setRetryable(probe.retryable());cache.setResolvedAt(resolution.resolvedAt().toEpochMilli());cache.setExpiresAt(resolution.expiresAt()==null?null:resolution.expiresAt().toEpochMilli());cache.setCheckedAt(now);cache.setUpdatedAt(now);if(cache.getId()==null)cacheMapper.insert(cache);else cacheMapper.updateById(cache);}
+}

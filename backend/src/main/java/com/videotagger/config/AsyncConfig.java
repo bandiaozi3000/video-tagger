@@ -85,6 +85,27 @@ public class AsyncConfig {
         return executor;
     }
 
+    @Bean("videoSourceExecutor")
+    public Executor videoSourceExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("video-source-");
+        executor.initialize();
+        return executor;
+    }
+    @Bean("metadataSyncExecutor")
+    public Executor metadataSyncExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("metadata-sync-");
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("syncExecutor")
     public Executor syncExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

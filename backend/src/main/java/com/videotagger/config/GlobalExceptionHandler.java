@@ -29,6 +29,15 @@ public class GlobalExceptionHandler {
         return new ErrorBody(400, message);
     }
 
+    @ExceptionHandler(com.videotagger.metadata.MetadataProviderException.class)
+    public org.springframework.http.ResponseEntity<ErrorBody> handleMetadataProvider(com.videotagger.metadata.MetadataProviderException e) {
+        int status = e.status();
+        org.springframework.http.HttpStatus httpStatus = org.springframework.http.HttpStatus.resolve(status);
+        if (httpStatus == null || status < 400) httpStatus = org.springframework.http.HttpStatus.BAD_GATEWAY;
+        return org.springframework.http.ResponseEntity.status(httpStatus)
+                .body(new ErrorBody(status, e.getMessage() == null ? "元信息 Provider 请求失败" : e.getMessage()));
+    }
+
     @ExceptionHandler(NoSuchElementException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ErrorBody handleNotFound(NoSuchElementException e) {
@@ -42,6 +51,11 @@ public class GlobalExceptionHandler {
         return new ErrorBody(400, e.getMessage() == null ? "bad request" : e.getMessage());
     }
 
+    @ExceptionHandler(IllegalStateException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ErrorBody handleIllegalState(IllegalStateException e) {
+        return new ErrorBody(409, e.getMessage() == null ? "conflict" : e.getMessage());
+    }
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ErrorBody handleOther(Exception e) {

@@ -1,5 +1,7 @@
 package com.videotagger.mapper;
 
+import org.apache.ibatis.annotations.Mapper;
+
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.videotagger.entity.HighlightProjectItem;
 import org.apache.ibatis.annotations.Delete;
@@ -8,6 +10,7 @@ import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
+@Mapper
 public interface HighlightProjectItemMapper extends BaseMapper<HighlightProjectItem> {
     @Select("SELECT * FROM highlight_project_item WHERE project_id = #{projectId} ORDER BY sort_order ASC, id ASC")
     List<HighlightProjectItem> listByProjectId(long projectId);

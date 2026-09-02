@@ -45,7 +45,7 @@ class ClipServiceIT extends AbstractMySqlIT {
 
         assertFalse(result.deduped());
         assertNotNull(result.id());
-        assertEquals("PENDING", taskMapper.selectById(result.id()).getStatus());
+        assertNull(taskMapper.selectById(result.id()));
     }
 
     @Test
@@ -83,7 +83,7 @@ class ClipServiceIT extends AbstractMySqlIT {
                 new SaveClipRequest("某动画", "https://b.com/1", 10.0, "名场面", "新备注"), false);
 
         assertEquals("名场面", updated.getTag());
-        assertEquals("PENDING", taskMapper.selectById(saved.id()).getStatus());
+        assertNull(taskMapper.selectById(saved.id()));
     }
 
     @Test

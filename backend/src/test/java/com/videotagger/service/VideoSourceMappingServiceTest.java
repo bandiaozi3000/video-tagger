@@ -1,0 +1,12 @@
+package com.videotagger.service;
+
+import com.videotagger.entity.*;
+import com.videotagger.mapper.*;
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+class VideoSourceMappingServiceTest {
+ @Test void rejectsEpisodeOutsidePackageEntry(){VideoSourcePackageMapper packages=mock(VideoSourcePackageMapper.class);VideoSourceItemMapper items=mock(VideoSourceItemMapper.class);VideoSourceEpisodeMapMapper maps=mock(VideoSourceEpisodeMapMapper.class);EpisodeMapper episodes=mock(EpisodeMapper.class);MediaEntryMapper entries=mock(MediaEntryMapper.class);VideoSourceItem item=new VideoSourceItem();item.setId(1L);item.setPackageId(2L);VideoSourcePackage sourcePackage=new VideoSourcePackage();sourcePackage.setId(2L);sourcePackage.setMediaEntryId(10L);Episode episode=new Episode();episode.setId(3L);episode.setMediaEntryId(11L);when(items.selectById(1L)).thenReturn(item);when(packages.selectById(2L)).thenReturn(sourcePackage);when(episodes.selectById(3L)).thenReturn(episode);VideoSourceMappingService service=new VideoSourceMappingService(packages,items,maps,episodes,entries);assertThrows(IllegalArgumentException.class,()->service.confirm(1L,3L,"MANUAL"));}
+ @Test void rejectsManyToOneInsideSamePackage(){VideoSourcePackageMapper packages=mock(VideoSourcePackageMapper.class);VideoSourceItemMapper items=mock(VideoSourceItemMapper.class);VideoSourceEpisodeMapMapper maps=mock(VideoSourceEpisodeMapMapper.class);EpisodeMapper episodes=mock(EpisodeMapper.class);MediaEntryMapper entries=mock(MediaEntryMapper.class);VideoSourceItem item=new VideoSourceItem();item.setId(1L);item.setPackageId(2L);VideoSourcePackage sourcePackage=new VideoSourcePackage();sourcePackage.setId(2L);sourcePackage.setMediaEntryId(10L);Episode episode=new Episode();episode.setId(3L);episode.setMediaEntryId(10L);when(items.selectById(1L)).thenReturn(item);when(packages.selectById(2L)).thenReturn(sourcePackage);when(episodes.selectById(3L)).thenReturn(episode);when(maps.countConfirmedInPackage(2L,3L,1L)).thenReturn(1L);VideoSourceMappingService service=new VideoSourceMappingService(packages,items,maps,episodes,entries);assertThrows(IllegalArgumentException.class,()->service.confirm(1L,3L,"MANUAL"));}
+}

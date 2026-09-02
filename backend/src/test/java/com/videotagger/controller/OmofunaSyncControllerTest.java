@@ -18,7 +18,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** OmofunaSyncController 切片测试：POST 建任务 / 轮询状态 / 404 / current。 */
-@WebMvcTest(OmofunaSyncController.class)
+@WebMvcTest(value = OmofunaSyncController.class, properties = "videotagger.sync.enabled=true")
 class OmofunaSyncControllerTest {
 
     @Autowired

@@ -1,5 +1,7 @@
 package com.videotagger.mapper;
 
+import org.apache.ibatis.annotations.Mapper;
+
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.videotagger.entity.Episode;
 import org.apache.ibatis.annotations.Param;
@@ -7,7 +9,14 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
+@Mapper
 public interface EpisodeMapper extends BaseMapper<Episode> {
+
+    @Select("SELECT * FROM episode WHERE media_entry_id = #{mediaEntryId} ORDER BY IFNULL(season, 0), IFNULL(episode_no, 0), id")
+    List<Episode> listByMediaEntry(@Param("mediaEntryId") long mediaEntryId);
+
+    @Select("SELECT * FROM episode WHERE media_entry_id = #{mediaEntryId} AND episode_no = #{episodeNo} LIMIT 1")
+    Episode selectByMediaEntryAndEpisodeNo(@Param("mediaEntryId") long mediaEntryId, @Param("episodeNo") int episodeNo);
 
     @Select("SELECT * FROM episode WHERE video_fp = #{fp} LIMIT 1")
     Episode selectByFp(@Param("fp") String fp);
