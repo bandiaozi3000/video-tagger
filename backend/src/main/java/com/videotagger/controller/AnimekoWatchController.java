@@ -1,20 +1,20 @@
 package com.videotagger.controller;
 
+import com.videotagger.service.AnimekoTagService;
 import com.videotagger.service.AnimekoWatchImportService;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
-/** v0.24 Animeko 观看事实导入：状态预览 + 手动导入。 */
+/** v0.24 Animeko 观看事实导入：状态预览 + 手动导入 + M2 现场播放头/打标。 */
 @RestController
 @RequestMapping("/api/animeko/watch")
 public class AnimekoWatchController {
 
     private final AnimekoWatchImportService service;
+    private final AnimekoTagService tagService;
 
-    public AnimekoWatchController(AnimekoWatchImportService service) {
+    public AnimekoWatchController(AnimekoWatchImportService service, AnimekoTagService tagService) {
         this.service = service;
+        this.tagService = tagService;
     }
 
     /** Animeko DB 可达性 + 有效播放记录数预览（不写库）。 */
@@ -27,5 +27,17 @@ public class AnimekoWatchController {
     @PostMapping("/import")
     public AnimekoWatchImportService.ImportResult importWatchHistory() {
         return service.importWatchHistory();
+    }
+
+    /** M2：Animeko 最近一条有效播放记录（暂停即落盘）→ 浮层上下文。 */
+    @GetMapping("/playhead")
+    public AnimekoTagService.PlayheadView playhead() {
+        return tagService.mappedPlayhead();
+    }
+
+    /** M2：现场打标——按播放头映射建 Clip（带渠道线索），未建档返回 NEED_ARCHIVE。 */
+    @PostMapping("/tag")
+    public AnimekoTagService.TagResult tag(@RequestBody AnimekoTagService.TagRequest request) {
+        return tagService.tag(request);
     }
 }

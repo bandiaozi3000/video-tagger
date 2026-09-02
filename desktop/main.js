@@ -12,7 +12,7 @@
  *   6. 退出时优雅关闭子进程 + PID 兜底 kill，防进程残留
  */
 
-const { app, BrowserWindow, dialog, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, shell, ipcMain, globalShortcut } = require('electron');
 const { spawn, execSync } = require('child_process');
 const http = require('http');
 const fs = require('fs');
@@ -668,6 +668,61 @@ display:flex;flex-direction:column;align-items:center;justify-content:center;hei
 }
 
 app.whenReady().then(boot);
+
+// ---------- M2 现场打标：全局热键（Animeko 在前台也能触发）→ Animeko 打标浮层 ----------
+let tagWindow = null;
+const M2_TAG_HOTKEY = 'CommandOrControl+Alt+T';
+
+/** 打开/聚焦 Animeko 打标浮层（置顶小窗；后端未就绪时页面内提示）。 */
+function openAnimekoTagWindow() {
+  if (!backendPort) {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Video Tagger',
+      message: '后端尚未就绪，请稍后再试。',
+    });
+    return;
+  }
+  if (tagWindow && !tagWindow.isDestroyed()) {
+    if (tagWindow.isMinimized()) tagWindow.restore();
+    tagWindow.show();
+    tagWindow.focus();
+    return;
+  }
+  tagWindow = new BrowserWindow({
+    width: 400,
+    height: 620,
+    minWidth: 340,
+    minHeight: 420,
+    show: false,
+    frame: false,            // 无边框（页面自带小窗控件）
+    resizable: true,
+    alwaysOnTop: true,       // 盖在 Animeko 上
+    skipTaskbar: true,
+    autoHideMenuBar: true,
+    backgroundColor: '#0a0a15',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  tagWindow.setAlwaysOnTop(true, 'floating');
+  tagWindow.loadURL(`http://127.0.0.1:${backendPort}/animeko-tag.html`);
+  tagWindow.once('ready-to-show', () => tagWindow.show());
+  tagWindow.on('closed', () => { tagWindow = null; });
+}
+
+app.whenReady().then(() => {
+  const ok = globalShortcut.register(M2_TAG_HOTKEY, openAnimekoTagWindow);
+  if (!ok) console.warn(`[M2] 热键 ${M2_TAG_HOTKEY} 注册失败（可能被占用），请勿重复注册`);
+  else console.log(`[M2] 现场打标热键已注册：${M2_TAG_HOTKEY}`);
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+});
 
 // ---------- 窗控 IPC（自定义标题栏按钮） ----------
 ipcMain.on('win:minimize', (e) => { BrowserWindow.fromWebContents(e.sender)?.minimize(); });

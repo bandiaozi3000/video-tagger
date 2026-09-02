@@ -7056,6 +7056,10 @@ document.addEventListener('click', (e) => {
 });
 window.addEventListener('scroll', () => { if (favOverlay) closeFavPicker(); }, true);
 mediaFormatManageBtn.addEventListener('click', openMediaFormatModal);
+// v0.24 M2：Animeko 现场打标入口（浏览器无全局热键 → 独立小窗/页）
+document.getElementById('nav-animeko-tag')?.addEventListener('click', () => {
+    window.open('/animeko-tag.html', '_blank', 'width=420,height=640');
+});
 document.getElementById('back-to-media').addEventListener('click', goBack);
 document.getElementById('detail-edit').addEventListener('click', openEditMedia);
 document.getElementById('detail-rename').addEventListener('click', openRenameModal);

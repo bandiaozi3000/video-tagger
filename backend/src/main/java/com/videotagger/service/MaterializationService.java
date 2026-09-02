@@ -113,6 +113,11 @@ public class MaterializationService {
                     null, r2.filePath(), null, "C2 Animeko 文件命中: " + r2.filePath());
         }
         if (r2 != null && "PENDING".equals(r2.state())) {
+            if (refreshHints) {
+                persistHints(clipId, ChannelHint.Codec.upsert(hints, new ChannelHint(
+                        "C2", "PENDING", "animeko-cache", bangumiEpisodeId, null, null,
+                        null, null, null, System.currentTimeMillis())));
+            }
             return new Evaluation(clipId, "C2", "PENDING", "SOURCE_REQUIRED",
                     null, null, null, r2.message());
         }

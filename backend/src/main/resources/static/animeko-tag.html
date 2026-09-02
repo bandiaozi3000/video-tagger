@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Animeko 打标浮层 · Video Tagger</title>
+    <link rel="stylesheet" href="app.css?v=20260902-v024-m3b">
+    <style>
+        body { background: linear-gradient(160deg, rgba(20, 20, 38, .96), rgba(10, 10, 20, .97)); color: var(--text); font-family: var(--font-body); margin: 0; overflow: hidden; }
+        .tag-shell { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; height: 100vh; box-sizing: border-box; }
+        .tag-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .tag-head h1 { font: 800 15px var(--font-display); margin: 0; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        .tag-close { border: 0; background: rgba(255,255,255,.06); color: var(--text-dim); border-radius: 8px; width: 26px; height: 26px; cursor: pointer; font-size: 13px; }
+        .tag-close:hover { background: rgba(255, 77, 141, .25); color: #fff; }
+        .tag-card { background: rgba(255,255,255,.035); border: 1px solid var(--border); border-radius: 13px; padding: 12px 14px; }
+        .tag-now { font-size: 12.5px; color: var(--text-dim); line-height: 1.7; }
+        .tag-now b { color: var(--text); font-size: 13.5px; }
+        .tag-progress { margin-top: 7px; font: 600 13px var(--font-mono); color: var(--accent, #a78bfa); }
+        .tag-empty { color: var(--text-faint); font-size: 12.5px; line-height: 1.8; }
+        .tag-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+        .tag-field label { font-size: 11px; color: var(--text-faint); letter-spacing: .4px; }
+        .tag-field input, .tag-field textarea {
+            background: rgba(6,8,16,.6); border: 1px solid var(--border); border-radius: 9px;
+            color: var(--text); font-size: 13px; padding: 8px 10px; outline: none; font-family: inherit;
+        }
+        .tag-field input:focus, .tag-field textarea:focus { border-color: rgba(139, 92, 246, .55); }
+        .tag-range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .tag-actions { display: flex; gap: 8px; margin-top: 2px; }
+        .tag-actions .btn-primary { flex: 1; }
+        .tag-actions button { border: 0; border-radius: 10px; padding: 9px 10px; font: 700 13px var(--font-body); cursor: pointer; }
+        .btn-primary { background: var(--grad); color: #fff; }
+        .btn-mini-x { background: rgba(255,255,255,.06); color: var(--text-dim); flex: 0 0 auto; }
+        .tag-status { min-height: 18px; font-size: 12px; line-height: 1.6; color: var(--text-dim); }
+        .tag-status.ok { color: var(--green, #4ade80); }
+        .tag-status.err { color: #ff5d6d; }
+        .tag-status.warn { color: #fbbf24; }
+        .tag-hint { font-size: 11px; color: var(--text-faint); }
+        .m2-hidden { display: none !important; }
+        .tag-archive { margin-top: 6px; font-size: 12px; color: #fbbf24; line-height: 1.7; }
+        .tag-refresh { border: 0; background: transparent; color: var(--accent, #a78bfa); font-size: 11.5px; cursor: pointer; text-decoration: underline; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 3px; }
+    </style>
+</head>
+<body>
+<div class="tag-shell">
+    <div class="tag-head">
+        <h1>✦ Animeko 现场打标</h1>
+        <button type="button" class="tag-close" id="tag-min" title="最小化/收起" aria-label="收起">–</button>
+    </div>
+    <div id="tag-card" class="tag-card">
+        <div class="tag-now" id="tag-now">正在读取 Animeko 播放位置…</div>
+        <div class="tag-progress" id="tag-progress"></div>
+    </div>
+    <div id="tag-form" class="m2-hidden">
+        <div class="tag-field"><label>标签（必填，空格分隔可多个）</label><input id="tag-input" placeholder="例如：高燃 战斗名场面" maxlength="100"></div>
+        <div class="tag-field"><label>备注</label><textarea id="tag-note" rows="2" placeholder="人物、台词、用途或剪辑说明" maxlength="2000"></textarea></div>
+        <div class="tag-range">
+            <div class="tag-field"><label>起点（毫秒，默认=当前播放位置）</label><input id="tag-start" type="number" min="0" placeholder="自动"></div>
+            <div class="tag-field"><label>终点（毫秒，可空=瞬时点）</label><input id="tag-end" type="number" min="0" placeholder="可选"></div>
+        </div>
+        <div class="tag-actions">
+            <button type="button" class="btn-mini-x" id="tag-refresh">↻ 刷新位置</button>
+            <button type="button" class="btn-primary" id="tag-save">保存片段</button>
+        </div>
+    </div>
+    <div class="tag-status" id="tag-status"></div>
+    <div class="tag-archive m2-hidden" id="tag-archive"></div>
+</div>
+<script>
+    const $ = id => document.getElementById(id);
+    let current = null;      // playhead view
+    const pad = n => String(n).padStart(2, '0');
+    const fmtMs = ms => {
+        if (ms == null || isNaN(ms)) return '—';
+        const t = Math.floor(ms / 1000);
+        return `${pad(Math.floor(t / 3600))}:${pad(Math.floor(t / 60) % 60)}:${pad(t % 60)}`;
+    };
+    const fmtWhen = ms => ms ? new Date(ms).toLocaleString() : '';
+
+    async function loadPlayhead() {
+        $('tag-status').textContent = '';
+        try {
+            const resp = await fetch('/api/animeko/watch/playhead');
+            const v = await resp.json();
+            if (!resp.ok) throw new Error(v.message || `HTTP ${resp.status}`);
+            current = v;
+            render(v);
+        } catch (e) {
+            $('tag-now').textContent = '读取失败：' + e.message;
+            $('tag-form').classList.add('m2-hidden');
+        }
+    }
+
+    function render(v) {
+        if (!v.configured) {
+            $('tag-now').innerHTML = '未配置 Animeko 数据库路径。<br>请在 <b>设置</b> 填入 videotagger.animeko.db-path 后重启。';
+            $('tag-form').classList.add('m2-hidden');
+            return;
+        }
+        if (!v.reachable) {
+            $('tag-now').textContent = v.message || 'Animeko 数据库不可达';
+            $('tag-form').classList.add('m2-hidden');
+            return;
+        }
+        if (v.bangumiEpisodeId == null) {
+            $('tag-now').textContent = 'Animeko 暂无播放记录：先播一集并暂停，再回到这里打标。';
+            $('tag-form').classList.add('m2-hidden');
+            return;
+        }
+        const title = v.mediaTitle || v.subjectName || ('Bangumi #' + v.bangumiSubjectId);
+        const epLabel = v.episodeLabel || ('集 ' + v.bangumiEpisodeId);
+        $('tag-now').innerHTML = `<b>${esc(title)}</b> · ${esc(epLabel)}<br>${esc(v.episodeTitle || v.episodeName || '')} · 暂停于 ${fmtWhen(v.updatedAtMillis)}`;
+        $('tag-progress').textContent = `进度 ${fmtMs(v.positionMs)} / ${fmtMs(v.durationMs)}${Date.now() - (v.updatedAtMillis || 0) > 15000 ? ' · ⚠ 位置可能已变化（如在播放请先暂停）' : ''}`;
+        if (!v.mapped) {
+            $('tag-archive').classList.remove('m2-hidden');
+            $('tag-archive').textContent = `本地未建档（subject ${v.bangumiSubjectId}）：先去该媒体详情「同步资料」建档并绑定本地集，才能打标。`;
+            $('tag-form').classList.add('m2-hidden');
+            return;
+        }
+        $('tag-archive').classList.add('m2-hidden');
+        $('tag-form').classList.remove('m2-hidden');
+        if (!$('tag-start').value) $('tag-start').value = v.positionMs;
+    }
+
+    $('tag-save').addEventListener('click', async () => {
+        const tag = $('tag-input').value.trim();
+        if (!tag) { $('tag-status').className = 'tag-status err'; $('tag-status').textContent = '请先填写标签'; return; }
+        const startVal = $('tag-start').value.trim();
+        const endVal = $('tag-end').value.trim();
+        const body = { tag, note: $('tag-note').value.trim() };
+        if (startVal) body.startMs = Number(startVal);
+        if (endVal) body.endMs = Number(endVal);
+        $('tag-save').disabled = true;
+        $('tag-status').textContent = '保存中…';
+        try {
+            const resp = await fetch('/api/animeko/watch/tag', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const r = await resp.json();
+            if (!resp.ok || !r.ok) {
+                $('tag-status').className = 'tag-status err';
+                $('tag-status').textContent = r.message || '保存失败';
+                if (r.code === 'NEED_ARCHIVE') { $('tag-archive').classList.remove('m2-hidden'); $('tag-archive').textContent = r.message; }
+                return;
+            }
+            $('tag-status').className = 'tag-status ok';
+            const ch = r.state === 'PRESENT' ? `，${r.channel} 文件在场可当场剪` : r.state === 'PENDING' ? '，缺素材（可在片段详情准备/显式缓存）' : '';
+            $('tag-status').textContent = `✓ ${r.message}${ch}`;
+            $('tag-form').classList.add('m2-hidden');
+        } catch (e) {
+            $('tag-status').className = 'tag-status err';
+            $('tag-status').textContent = '保存失败：' + e.message;
+        } finally {
+            $('tag-save').disabled = false;
+        }
+    });
+
+    $('tag-refresh').addEventListener('click', loadPlayhead);
+    $('tag-min').addEventListener('click', () => {
+        if (window.vtDesktop && window.vtDesktop.close) window.vtDesktop.close();
+        else window.close();
+    });
+    $('tag-input').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('tag-save').click(); });
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    loadPlayhead();
+</script>
+</body>
+</html>
