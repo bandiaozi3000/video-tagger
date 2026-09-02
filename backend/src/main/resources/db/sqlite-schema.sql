@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS clips (
     source_revision   TEXT,
     time_mapping_id   INTEGER,
     material_state    TEXT NOT NULL DEFAULT 'REFERENCE_ONLY',
+    channel_hints     TEXT,
     video_fp          TEXT,
     video_duration    REAL,
     cover_path        TEXT,

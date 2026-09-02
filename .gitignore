@@ -59,3 +59,4 @@ backend/test-bg.png
 # AI 工具本地状态
 .pi/
 .claude/
+.tmp/

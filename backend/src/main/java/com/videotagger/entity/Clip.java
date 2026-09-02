@@ -22,6 +22,8 @@ public class Clip {
     private String sourceRevision;
     private Long timeMappingId;
     private String materialState;
+    /** v0.24 M3 素材化渠道线索（JSON 数组，见 ChannelHint）：C1 本地池/C2 Animeko/C3 直链/C4 录屏；老数据为空 */
+    private String channelHints;
     private Double timestampSec;
     /** 片段结束时间（秒，可空；为空时兼容旧的瞬时片段） */
     private Double endSec;

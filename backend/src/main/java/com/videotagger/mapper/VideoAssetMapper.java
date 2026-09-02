@@ -23,6 +23,14 @@ public interface VideoAssetMapper extends BaseMapper<VideoAsset> {
     @Select("SELECT * FROM video_asset WHERE episode_id = #{episodeId} AND source_item_id = #{sourceItemId} ORDER BY id LIMIT 1")
     VideoAsset selectByEpisodeSource(@Param("episodeId") long episodeId, @Param("sourceItemId") long sourceItemId);
 
+    /** C1 本地池：按视频指纹找已登记资产（含 LOCAL_ORIGINAL/DOWNLOADED，排除纯引用）。 */
+    @Select("SELECT * FROM video_asset WHERE fingerprint = #{fingerprint} "
+            + "AND asset_type IN ('LOCAL_ORIGINAL','DOWNLOADED','UPLOADED') "
+            + "AND availability_state = 'AVAILABLE' "
+            + "AND storage_path IS NOT NULL "
+            + "ORDER BY id DESC LIMIT 1")
+    VideoAsset selectByFingerprint(@Param("fingerprint") String fingerprint);
+
     @Update("UPDATE video_asset SET asset_role = 'FALLBACK', updated_at = #{updatedAt} WHERE episode_id = #{episodeId} AND asset_role = 'PRIMARY' AND id <> #{assetId}")
     int demoteOtherPrimary(@Param("episodeId") long episodeId, @Param("assetId") long assetId, @Param("updatedAt") long updatedAt);
 }
