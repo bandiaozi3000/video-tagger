@@ -76,9 +76,17 @@
         <div class="field"><label>标签（必填，空格分隔可多个，如：高燃 名场面）</label><input id="tag-input" placeholder="例如：高燃 战斗名场面" maxlength="100"></div>
         <div class="field"><label>备注（可选）</label><textarea id="tag-note" rows="2" placeholder="人物、台词、用途或剪辑说明" maxlength="2000"></textarea></div>
 
+        <!-- 封面截图源：默认整屏，可选指定播放器窗口（记住选择） -->
+        <div class="field" id="shot-source-field" hidden>
+            <label>封面截图源（无本地文件时用于截取当前画面）</label>
+            <select id="shot-source">
+                <option value="screen">整屏（当前显示器全部画面）</option>
+            </select>
+            <span class="mk-hint" id="shot-hint">选择正在播放 Animeko/网页的窗口，封面将只截该窗口内容。</span>
+        </div>
+
         <!-- 打标范围：基于「暂停位置」秒级微调，或区间 -->
-        <div class="mark-card">
-            <div class="mode-row">
+        <div class="mark-card">            <div class="mode-row">
                 <button type="button" class="on" id="mode-point">单点标记</button>
                 <button type="button" id="mode-range">区间片段</button>
             </div>
@@ -173,6 +181,60 @@
         // 首次/重读：起点未手动改过 → 同步到暂停位置
         if (sel.startMs == null) sel.startMs = v.positionMs;
         renderMarks();
+        maybeLoadShotSources();
+    }
+
+    // ---------- 封面截图源（Electron 专属） ----------
+    const SHOT_KEY = 'vt-animeko-shot-source';
+
+    async function maybeLoadShotSources() {
+        if (!window.vtDesktop || !window.vtDesktop.listWindows) return;   // web 无窗口选择
+        const field = $('shot-source-field');
+        const select = $('shot-source');
+        const saved = localStorage.getItem(SHOT_KEY);
+        const resp = await window.vtDesktop.listWindows();
+        if (!resp || !resp.ok || !resp.windows || !resp.windows.length) {
+            field.hidden = true;
+            return;
+        }
+        field.hidden = false;
+        // 记录当前选中，避免重建选项打断用户
+        const prev = select.value;
+        select.innerHTML = '<option value="screen">整屏（当前显示器全部画面）</option>';
+        for (const w of resp.windows) {
+            const opt = document.createElement('option');
+            opt.value = w.id;
+            opt.textContent = w.name.length > 46 ? w.name.slice(0, 46) + '…' : w.name;
+            select.appendChild(opt);
+        }
+        // 恢复记忆：整屏 or 仍存在的窗口 id；否则提示选窗口
+        const restoreId = saved && saved !== 'screen' ? saved : prev;
+        if (restoreId && [...select.options].some(o => o.value === restoreId)) select.value = restoreId;
+        else if (saved === 'screen') select.value = 'screen';
+        select.onchange = () => localStorage.setItem(SHOT_KEY, select.value);
+    }
+
+    /** 按当前选择的截图源截一帧，返回 dataUrl 或 null。 */
+    async function captureCoverFrame() {
+        if (!window.vtDesktop) return null;
+        const target = $('shot-source').value || 'screen';
+        try {
+            if (target === 'screen') {
+                if (!window.vtDesktop.captureScreen) return null;
+                const r = await window.vtDesktop.captureScreen();
+                return r && r.ok ? r.dataUrl : null;
+            }
+            if (window.vtDesktop.captureWindow) {
+                const r = await window.vtDesktop.captureWindow(target);
+                if (r && r.ok) return r.dataUrl;
+                // 窗口不可捕获（最小化/关闭）→ 回退整屏并提示
+                const fb = window.vtDesktop.captureScreen ? await window.vtDesktop.captureScreen() : null;
+                if (fb && fb.ok) { setStatus('窗口不可截（可能已最小化），已回退整屏', 'warn'); return fb.dataUrl; }
+            }
+            return null;
+        } catch (e) {
+            return null;
+        }
     }
 
     function renderMarks() {
@@ -254,19 +316,19 @@
             $('tag-form').classList.add('m2-hidden');
             // 封面兜底：渠道无本地文件（网页流等）→ Electron 截屏当前画面作封面
             const clipId = r.clipId;
-            if (clipId && r.state !== 'PRESENT' && window.vtDesktop && window.vtDesktop.captureScreen) {
+            if (clipId && r.state !== 'PRESENT' && window.vtDesktop && (window.vtDesktop.captureScreen || window.vtDesktop.captureWindow)) {
                 setStatus(`✓ ${r.message} · 正在截取画面作封面…`, 'ok');
                 try {
-                    const shot = await window.vtDesktop.captureScreen();
-                    if (shot && shot.ok && shot.dataUrl) {
+                    const dataUrl = await captureCoverFrame();
+                    if (dataUrl) {
                         const coverResp = await fetch(`/api/clips/${clipId}/cover`, {
                             method: 'POST', headers: { 'Content-Type': 'text/plain' },
-                            body: shot.dataUrl
+                            body: dataUrl
                         });
                         if (coverResp.ok) setStatus(`✓ ${r.message} · 封面已截取`, 'ok');
                         else setStatus(`✓ ${r.message} · 封面保存失败（可稍后手动补）`, 'warn');
                     } else {
-                        setStatus(`✓ ${r.message} · 截屏失败（可稍后手动补）`, 'warn');
+                        setStatus(`✓ ${r.message} · 截图源不可用（可稍后手动补）`, 'warn');
                     }
                 } catch (e) {
                     setStatus(`✓ ${r.message} · 截屏失败：${e.message}`, 'warn');

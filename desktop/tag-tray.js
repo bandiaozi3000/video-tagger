@@ -128,7 +128,7 @@ function openTagWindow() {
 ipcMain.on('win:minimize', (e) => { BrowserWindow.fromWebContents(e.sender)?.hide(); });
 ipcMain.on('win:close', (e) => { BrowserWindow.fromWebContents(e.sender)?.close(); });
 
-// M2 封面兜底：截主显示器当前画面（含 Animeko 播放窗口）→ JPEG dataURL（主进程 desktopCapturer 无需授权框）
+// M2 封面兜底：截主显示器当前画面（含 Animeko 播放窗口）→ JPEG base64（主进程 desktopCapturer 无需授权框）
 ipcMain.handle('tag:capture-screen', async () => {
   try {
     const sources = await desktopCapturer.getSources({
@@ -139,6 +139,37 @@ ipcMain.handle('tag:capture-screen', async () => {
     const src = sources.find(s => s.display_id === '0') || sources[0] || null;
     if (!src || src.thumbnail.isEmpty()) throw new Error('未捕获到屏幕画面');
     const jpg = src.thumbnail.toJPEG(88);   // Buffer
+    return { ok: true, dataUrl: jpg.toString('base64') };
+  } catch (e) {
+    return { ok: false, message: String(e.message || e) };
+  }
+});
+
+// M2 封面兜底：列出当前可见窗口（供用户挑选 Animeko/播放器窗口）
+ipcMain.handle('tag:list-windows', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({ types: ['window'] });
+    return {
+      ok: true,
+      windows: sources
+        .filter(s => !s.thumbnail.isEmpty() && s.name && s.name.trim())
+        .map(s => ({ id: s.id, name: s.name.trim() })),
+    };
+  } catch (e) {
+    return { ok: false, message: String(e.message || e) };
+  }
+});
+
+// M2 封面兜底：按窗口 id 截图（用户选定的播放器窗口）→ JPEG base64
+ipcMain.handle('tag:capture-window', async (_e, windowId) => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['window'],
+      thumbnailSize: { width: 1920, height: 1080 },
+    });
+    const src = sources.find(s => s.id === windowId) || null;
+    if (!src || src.thumbnail.isEmpty()) throw new Error('窗口不可捕获（可能已最小化/关闭），已回退整屏');
+    const jpg = src.thumbnail.toJPEG(88);
     return { ok: true, dataUrl: jpg.toString('base64') };
   } catch (e) {
     return { ok: false, message: String(e.message || e) };

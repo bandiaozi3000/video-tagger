@@ -22,4 +22,8 @@ contextBridge.exposeInMainWorld('vtDesktop', {
   onMaximize: (cb) => ipcRenderer.on('win:maximized-changed', (_e, isMax) => cb(isMax)),
   // M2 封面兜底：截主屏幕（Animeko 画面）→ { ok, dataUrl? | message? }
   captureScreen: () => ipcRenderer.invoke('tag:capture-screen'),
+  // M2 封面：列出当前窗口（挑播放器）
+  listWindows: () => ipcRenderer.invoke('tag:list-windows'),
+  // M2 封面：按窗口 id 截图
+  captureWindow: (id) => ipcRenderer.invoke('tag:capture-window', id),
 });
