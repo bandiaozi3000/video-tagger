@@ -7319,7 +7319,34 @@ document.getElementById('clip-detail-similar').addEventListener('click', () => c
 
 // ---------- 集详情操作 ----------
 document.getElementById('back-from-episode').addEventListener('click', goBack);
-document.getElementById('ep-detail-quick-play').addEventListener('click', () => {
+
+// v0.24 G6：v0.23 自建播放/片源 UI 默认隐藏（引擎保留；Animeko 接管播放）
+async function applyUiConfig() {
+    try {
+        const resp = await fetch('/api/app/ui-config');
+        if (!resp.ok) return;
+        const cfg = await resp.json();
+        if (cfg.showV023Player === false) {
+            document.querySelectorAll('.settings-cat[data-settings-cat="video-sources"]').forEach(el => el.hidden = true);
+            const settingsSection = document.getElementById('settings-section-video-sources');
+            if (settingsSection) settingsSection.hidden = true;
+            const quickPlay = document.getElementById('ep-detail-quick-play');
+            if (quickPlay) quickPlay.hidden = true;
+            // 兜底：即便有残留入口，点击也提示被隐藏
+            const panel = document.getElementById('ep-quick-play-panel');
+            if (panel) panel.hidden = true;
+            // v022 动态渲染的「管理片源」入口：标记隐藏并清除（含未来渲染的由 MutationObserver 处理）
+            window.__vtHideV023Player = true;
+            document.querySelectorAll('[data-v023-entry]').forEach(el => { el.remove(); });
+            const sheet = new CSSStyleSheet();
+            sheet.replaceSync('[data-v023-entry]{display:none!important}');
+            document.adoptedStyleSheets.push(sheet);
+        }
+    } catch (e) { /* 配置拉取失败不阻断 */ }
+}
+applyUiConfig();
+
+document.getElementById('ep-detail-quick-play')?.addEventListener('click', () => {
     if (currentEpisode) window.v023QuickPlayEpisode?.(currentEpisode.id, currentEpisode.title || '本集');
 });
 document.getElementById('ep-detail-tag').addEventListener('click', () => { if (currentEpisode) openEpisodeTagModal(currentEpisode); });

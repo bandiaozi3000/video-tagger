@@ -40,6 +40,9 @@ mybatis-plus:
     map-underscore-to-camel-case: true
 
 videotagger:
+  # v0.24 G6：v0.23 自建播放/片源 UI 隐藏开关（引擎保留；Animeko 接管播放前台）
+  ui:
+    show-v023-player: ${VT_SHOW_V023_PLAYER:false}
   video-sources:
     jellyfin:
       enabled: ${JELLYFIN_PROVIDER_ENABLED:false}
