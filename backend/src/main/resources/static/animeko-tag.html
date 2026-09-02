@@ -8,10 +8,11 @@
     <style>
         body { background: linear-gradient(160deg, rgba(20, 20, 38, .96), rgba(10, 10, 20, .97)); color: var(--text); font-family: var(--font-body); margin: 0; overflow: hidden; }
         .tag-shell { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; height: 100vh; box-sizing: border-box; }
-        .tag-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-        .tag-head h1 { font: 800 15px var(--font-display); margin: 0; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
-        .tag-close { border: 0; background: rgba(255,255,255,.06); color: var(--text-dim); border-radius: 8px; width: 26px; height: 26px; cursor: pointer; font-size: 13px; }
+        .tag-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; -webkit-app-region: drag; user-select: none; padding: 2px 0 6px; }
+        .tag-head h1 { font: 800 15px var(--font-display); margin: 0; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-app-region: drag; }
+        .tag-close { border: 0; background: rgba(255,255,255,.06); color: var(--text-dim); border-radius: 8px; width: 26px; height: 26px; cursor: pointer; font-size: 13px; -webkit-app-region: no-drag; }
         .tag-close:hover { background: rgba(255, 77, 141, .25); color: #fff; }
+        .tag-close:active { -webkit-app-region: no-drag; }
         .tag-card { background: rgba(255,255,255,.035); border: 1px solid var(--border); border-radius: 13px; padding: 12px 14px; }
         .tag-now { font-size: 12.5px; color: var(--text-dim); line-height: 1.7; }
         .tag-now b { color: var(--text); font-size: 13.5px; }

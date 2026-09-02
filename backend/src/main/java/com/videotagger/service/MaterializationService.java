@@ -130,6 +130,11 @@ public class MaterializationService {
         }
         // 5) C2 渠道本身不可用也要如实上报（区别于纯 C4 兜底）
         if (r2 != null) {
+            if (refreshHints) {
+                persistHints(clipId, ChannelHint.Codec.upsert(hints, new ChannelHint(
+                        "C2", r2.state(), "animeko-cache", bangumiEpisodeId, null, null,
+                        null, null, null, System.currentTimeMillis())));
+            }
             return new Evaluation(clipId, "C2", r2.state(), "SOURCE_REQUIRED", null, null, null, r2.message());
         }
         // 6) C4 录屏回退
