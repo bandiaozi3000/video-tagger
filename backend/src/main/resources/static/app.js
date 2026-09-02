@@ -753,23 +753,30 @@ function renderClipDetailHead(clip, ep, media) {
 /** v0.24 M3：本地回顾播放——blob 弹窗播放素材源，并 seek 到片段起点（本地精确回顾）。 */
 function openLocalVideoPlayer(blob, clip) {
     const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
+    overlay.className = 'modal-overlay player-overlay';
     overlay.style.zIndex = '1000';
     const srcName = (clip.title || '片段').replace(/[\\/:*?"<>|]/g, '_');
+    const range = `${fmtTime(clip.timestampSec)}${clip.endSec != null ? ' – ' + fmtTime(clip.endSec) : ''}`;
     overlay.innerHTML = `
-        <div class="modal modal-wide">
-            <div class="modal-head"><h2>本地回顾 · ${esc(clip.title || '片段')}</h2><button type="button" class="btn-mini danger modal-close">✕</button></div>
-            <video controls autoplay style="width:100%;max-height:60vh;border-radius:12px;background:#000"></video>
-            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-                <button type="button" class="btn-mini" data-cap-frame>📷 存当前帧</button>
-                <span class="cap-status detail-section-note" style="align-self:center"></span>
+        <div class="player-sheet">
+            <div class="player-top">
+                <div class="player-title"><span class="player-badge">${clip.materialState === 'READY' && clip.videoAssetId != null ? '产物' : '整集'}</span><h2>${esc(clip.title || '片段')}</h2></div>
+                <div class="player-top-side">
+                    <span class="player-range">${esc(range)}${clip.tag ? ` · ${esc(clip.tag)}` : ''}</span>
+                    <button type="button" class="btn-mini danger modal-close">✕</button>
+                </div>
             </div>
-            <p class="detail-section-note">区间 ${fmtTime(clip.timestampSec)}${clip.endSec != null ? ' – ' + fmtTime(clip.endSec) : ''}${clip.tag ? `（时间码 ${clip.tag}）` : ''}。暂停到目标帧后「存当前帧」，保存 PNG 截图。</p>
+            <div class="player-stage"><video controls autoplay playsinline></video></div>
+            <div class="player-bar">
+                <button type="button" class="btn-mini" data-cap-frame>📷 存当前帧</button>
+                <span class="player-status"></span>
+                <span class="player-hint">暂停到目标画面后点「存当前帧」，保存 PNG 截图</span>
+            </div>
         </div>`;
     document.body.appendChild(overlay);
     const url = URL.createObjectURL(blob);
     const video = overlay.querySelector('video');
-    const statusEl = overlay.querySelector('.cap-status');
+    const statusEl = overlay.querySelector('.player-status');
     video.src = url;
     video.addEventListener('loadedmetadata', () => {
         if (video.duration) {
