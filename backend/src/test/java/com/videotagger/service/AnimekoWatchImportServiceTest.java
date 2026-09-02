@@ -142,4 +142,48 @@ class AnimekoWatchImportServiceTest {
         assertTrue(result.message().contains("不存在"));
         verify(episodeMapper, never()).updateById(any(Episode.class));
     }
+
+    private void seedEpisodeCollection(String... inserts) throws Exception {
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + dbFile.toAbsolutePath());
+             Statement st = conn.createStatement()) {
+            st.execute("CREATE TABLE episode_collection ("
+                    + "episodeId INTEGER PRIMARY KEY, subjectId INTEGER, episodeType TEXT, "
+                    + "selfCollectionType TEXT, lastFetched INTEGER)");
+            for (String row : inserts) st.execute("INSERT INTO episode_collection " + row);
+        }
+    }
+
+    @Test
+    @DisplayName("episode_collection WATCHED 亦导入；与播放历史同集只写一次")
+    void collectionWatchedImportedAndDeduplicatedAcrossSources() throws Exception {
+        seedPlaybackHistory(
+                "VALUES (229, 100, 40310, 'A', 'Ep2', 1440000, 1750000000000, NULL)");
+        seedEpisodeCollection(
+                "VALUES (229, 40310, 'MainStory', 'WATCHED', 1760000000000)",
+                "VALUES (300, 40310, 'MainStory', 'WATCHED', 1760000001000)",
+                "VALUES (301, 40310, 'MainStory', 'NOT_COLLECTED', 1760000002000)");
+
+        ExternalWork work = new ExternalWork();
+        work.setId(9L);
+        when(externalWorkMapper.selectByProviderAndExternalId("BANGUMI", "40310")).thenReturn(work);
+        ExternalEpisode ep2 = new ExternalEpisode();
+        ep2.setId(1L);
+        ep2.setEpisodeId(100L);
+        ExternalEpisode epOther = new ExternalEpisode();
+        epOther.setId(2L);
+        epOther.setEpisodeId(101L);
+        when(externalEpisodeMapper.selectByProviderEpisode(9L, "229")).thenReturn(ep2);
+        when(externalEpisodeMapper.selectByProviderEpisode(9L, "300")).thenReturn(epOther);
+
+        AnimekoWatchImportService.ImportResult result = service.importWatchHistory();
+
+        assertEquals(3, result.total(), "历史 1 + 收藏 WATCHED 2（NOT_COLLECTED 不计）");
+        assertEquals(2, result.imported(), "229 跨源去重只写一次；300 来自收藏");
+        assertEquals(2, result.collectionWatched());
+        ArgumentCaptor<Episode> captor = ArgumentCaptor.forClass(Episode.class);
+        verify(episodeMapper, times(2)).updateById(captor.capture());
+        assertEquals(100L, captor.getAllValues().get(0).getId());
+        assertEquals(101L, captor.getAllValues().get(1).getId());
+        assertEquals(1760000001000L, captor.getAllValues().get(1).getWatchedAt(), "收藏已看时间取 lastFetched");
+    }
 }
