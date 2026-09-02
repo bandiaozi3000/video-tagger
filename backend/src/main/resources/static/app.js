@@ -7062,6 +7062,110 @@ document.getElementById('nav-animeko-tag')?.addEventListener('click', () => {
 });
 document.getElementById('back-to-media').addEventListener('click', goBack);
 document.getElementById('detail-edit').addEventListener('click', openEditMedia);
+
+// ---------- v0.24 批量物化（延迟物化：勾选片段→剪产物；无文件给预取清单） ----------
+let materializeClips = [];
+const materializeSel = new Set();
+
+async function openMaterializeModal() {
+    if (!currentMedia || !currentMedia.id) { showToast('请先打开媒体详情'); return; }
+    materializeSel.clear();
+    const listEl = document.getElementById('materialize-clip-list');
+    const statusEl = document.getElementById('materialize-status');
+    listEl.innerHTML = '<div class="status">加载片段…</div>';
+    statusEl.textContent = '';
+    document.getElementById('materialize-modal').hidden = false;
+    try {
+        const resp = await fetch(`/api/clips/media/${currentMedia.id}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        materializeClips = await resp.json();
+        renderMaterializeList();
+    } catch (e) {
+        statusEl.textContent = '加载失败：' + e.message;
+    }
+}
+
+function fmtClipRange(c) {
+    if (c.startMs != null) {
+        const s = Math.floor(c.startMs / 1000);
+        const e = c.endMs != null ? Math.floor(c.endMs / 1000) : null;
+        return e && e > s ? `${fmtT(s)}–${fmtT(e)}` : fmtT(s);
+    }
+    return c.timestampSec != null ? fmtT(c.timestampSec) : '';
+}
+function fmtT(sec) {
+    const p = n => String(n).padStart(2, '0');
+    return `${p(Math.floor(sec / 3600))}:${p(Math.floor(sec / 60) % 60)}:${p(sec % 60)}`;
+}
+
+function renderMaterializeList() {
+    const listEl = document.getElementById('materialize-clip-list');
+    if (!materializeClips.length) {
+        listEl.innerHTML = '<div class="status">该媒体还没有片段。</div>';
+        document.getElementById('materialize-run').disabled = true;
+        return;
+    }
+    listEl.innerHTML = materializeClips.map(c => `
+        <label class="episode-row" style="cursor:pointer;gap:10px">
+            <input type="checkbox" data-mz="${c.id}" ${materializeSel.has(c.id) ? 'checked' : ''}>
+            <span style="font-size:12px;color:var(--text-dim);min-width:52px">${c.episodeNo != null ? '第' + c.episodeNo + '集' : ''}</span>
+            <span class="ep-main" style="display:block"><b style="font-size:12.5px">${esc(c.title || '(未命名)')}</b>
+                <small style="color:var(--text-faint)">${esc(c.tag || '')} · ${fmtClipRange(c)} · ${esc(c.materialState || 'REFERENCE_ONLY')}</small></span>
+        </label>`).join('');
+    listEl.querySelectorAll('[data-mz]').forEach(cb => cb.addEventListener('change', () => {
+        if (cb.checked) materializeSel.add(Number(cb.dataset.mz)); else materializeSel.delete(Number(cb.dataset.mz));
+        updateMaterializeCount();
+    }));
+    updateMaterializeCount();
+}
+
+function updateMaterializeCount() {
+    const n = materializeSel.size;
+    document.getElementById('materialize-count').textContent = `已选 ${n}`;
+    document.getElementById('materialize-run').disabled = n === 0;
+}
+
+document.getElementById('detail-materialize-batch').addEventListener('click', openMaterializeModal);
+document.getElementById('materialize-close').addEventListener('click', () => { document.getElementById('materialize-modal').hidden = true; });
+document.getElementById('materialize-select-all').addEventListener('click', () => { materializeClips.forEach(c => materializeSel.add(c.id)); renderMaterializeList(); });
+document.getElementById('materialize-select-none').addEventListener('click', () => { materializeSel.clear(); renderMaterializeList(); });
+document.getElementById('materialize-run').addEventListener('click', async () => {
+    const runBtn = document.getElementById('materialize-run');
+    const statusEl = document.getElementById('materialize-status');
+    const ids = [...materializeSel];
+    runBtn.disabled = true;
+    statusEl.className = 'status';
+    statusEl.textContent = `正在物化 ${ids.length} 条…（文件在场的会 ffmpeg 裁剪，可能较慢）`;
+    try {
+        const resp = await fetch('/api/clips/materialize-batch', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clipIds: ids })
+        });
+        const r = await resp.json();
+        if (!resp.ok) throw new Error(r.message || `HTTP ${resp.status}`);
+        const ok = r.results.filter(x => x.ok);
+        const fail = r.results.filter(x => !x.ok && !x.prefetch);
+        const prefetch = r.prefetchNeeded || [];
+        let html = '';
+        if (ok.length) html += `<span style="color:var(--green)">✓ ${ok.length} 条已剪出产物</span><br>`;
+        if (fail.length) html += `<span style="color:#ff5d6d">✗ ${fail.length} 条失败：${esc(fail[0] ? (fail[0].message || '') : '')}</span><br>`;
+        if (prefetch.length) {
+            html += `<span style="color:#fbbf24">⚠ ${prefetch.length} 个集需先缓存整集：</span><br>` +
+                `<code style="font-size:11px;line-height:1.9;display:block">${prefetch.map(p =>
+                    `<b>subject ${esc(p.subjectId)}</b> / ep ${esc(p.episodeId)}`).join('<br>')}</code>`;
+            html += `<p class="detail-section-note">在 Animeko 中显式缓存这些集（或 fork CLI 批量预取）后，再回来勾选执行即可。</p>`;
+        }
+        statusEl.className = 'status';
+        statusEl.innerHTML = html || '完成';
+        statusEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (e) {
+        statusEl.className = 'status';
+        statusEl.textContent = '物化失败：' + e.message;
+    } finally {
+        runBtn.disabled = materializeSel.size === 0;
+    }
+});
+
 document.getElementById('detail-rename').addEventListener('click', openRenameModal);
 document.getElementById('detail-cover').addEventListener('click', openCoverModal);
 document.getElementById('detail-sync-metadata').addEventListener('click', async () => {

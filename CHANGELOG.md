@@ -435,6 +435,7 @@
 ### 新增
 - **Animeko 观看导入（M1）**：只读 Animeko 桌面 SQLite（playback_history ∪ episode_collection WATCHED），按 Bangumi id 桥映射回本地集并标记 watched_at；提供状态/导入 API；Animeko DB 路径自动探测（%USERPROFILE%\AppData\Roaming\Him188\Ani）。
 - **素材化管线渠道化（M3）**：Clip 增 channel_hints 渠道线索（C1 本地池/C2 Animeko 缓存/C3 网页直链/C4 录屏）；MaterializationService C1→C4 求值；AnimekoCacheLocator 读 datastore/mediaCacheMetadataV2 定位整集文件；外部文件裁剪 materializeFromFile；play-source 受控回放；`/api/clips/{id}/material/{channels,channels/refresh,materialize-from-file,play-source}`。
+- **批量素材化（延迟物化）**：POST /api/clips/materialize-batch——勾选片段逐个物化（在场即 ffmpeg 剪产物），无文件汇总「待预取清单」（Bangumi subject/ep），Animeko 缓存整集后可回来重跑；媒体详情新增「批量物化」工作台。
 - **Animeko 现场热键打标（M2）**：读 Animeko 播放头（暂停即落盘）→ BANGUMI 桥映射 → 建 Clip（animeko:// 引用 + 播放头起点/区间终点）+ 渠道线索；`GET /playhead`、`POST /tag`；NEED_ARCHIVE 建档引导。
 - **全局热键托盘 tag-tray**：独立 Electron 常驻（无主界面），Ctrl+Alt+T 弹 Animeko 打标浮层；VBS 无窗口启动；浮层单点/区间秒级标记、漂移提醒。
 - **片段封面**：本地文件在场自动 ffmpeg 抽帧（当前画面）；网页流（无整文件）自动截屏兜底（窗口级 desktopCapturer，可选播放器窗口记忆）。

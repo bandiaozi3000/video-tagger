@@ -324,7 +324,9 @@
                     <button type="button" id="detail-delete" class="btn-mini danger">删除</button>
                 </div>
                 <section class="detail-section detail-local-summary">
-                    <div class="detail-section-head"><div><span class="detail-kicker">LOCAL ARCHIVE</span><h3 class="stats-title">素材概览</h3></div></div>
+                    <div class="detail-section-head"><div><span class="detail-kicker">LOCAL ARCHIVE</span><h3 class="stats-title">素材概览</h3></div>
+                        <button type="button" id="detail-materialize-batch" class="btn-mini" title="对勾选片段按标签区间剪出本地视频；无文件的先给预取清单">批量物化</button>
+                    </div>
                     <div id="detail-local-summary" class="detail-local-summary-grid"></div>
                 </section>
             </aside>
@@ -857,6 +859,23 @@
 
 <!-- 打标输入补全候选（edit-modal / 集打标 / 媒体详情加标签共用） -->
 <datalist id="tag-suggest-list"></datalist>
+
+<div id="materialize-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide">
+        <div class="modal-head"><h3>批量物化片段</h3><button type="button" class="btn-mini" id="materialize-close">✕</button></div>
+        <p class="batch-del-hint">勾选要剪出本地视频的片段（按各片段的起点–终点精确裁剪）。<b>文件不在场的片段</b>会汇总为「待预取清单」，用 Animeko 显式缓存/fork CLI 缓存整集后再回来勾选执行。</p>
+        <div class="modal-actions">
+            <button type="button" class="btn-mini" id="materialize-select-all">全选</button>
+            <button type="button" class="btn-mini" id="materialize-select-none">清空</button>
+            <span id="materialize-count" class="detail-section-note">已选 0</span>
+        </div>
+        <div id="materialize-clip-list" class="episode-list" style="max-height:34vh;overflow:auto"></div>
+        <div class="modal-actions">
+            <button type="button" class="btn-primary" id="materialize-run" disabled>开始物化</button>
+        </div>
+        <div id="materialize-status" class="status"></div>
+    </div>
+</div>
 
 <div id="edit-modal" class="modal-overlay" hidden>
     <div class="modal">
@@ -1524,7 +1543,7 @@
     </div>
 </div>
 <button type="button" id="back-nav" title="去底部" aria-label="去底部">↓</button>
-<script src="app.js?v=20260902-v024-m2"></script>
+<script src="app.js?v=20260902-v024-m2b"></script>
 <script src="v022-media-metadata.js?v=20260829-v022-media-detail2"></script>
 <script src="v022-metadata-workspace.js?v=20260829-v022-sync-workspace2"></script>
 <script src="v023-video-sources.js?v=20260830-v023-1"></script>
