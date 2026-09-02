@@ -79,7 +79,9 @@ public class EpisodeReviewService {
     private String localAssetFile(long episodeId) {
         try {
             List<VideoAsset> assets = assetMapper.listByEpisode(episodeId);
+            // 只认本地原始源资产（整集）；GENERATED_CLIP 是该集片段产物，不是整集源
             for (VideoAsset a : assets) {
+                if ("GENERATED_CLIP".equals(a.getAssetType())) continue;
                 if (a.getAvailabilityState() == null || !"AVAILABLE".equals(a.getAvailabilityState())) continue;
                 if (a.getStoragePath() == null) continue;
                 Path p = assetRoot.resolve(a.getStoragePath()).normalize();

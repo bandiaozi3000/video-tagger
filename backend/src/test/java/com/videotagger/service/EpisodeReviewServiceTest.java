@@ -60,6 +60,7 @@ class EpisodeReviewServiceTest {
         when(episodeMapper.selectById(9L)).thenReturn(ep(9L));
         VideoAsset a = new VideoAsset();
         a.setEpisodeId(9L);
+        a.setAssetType("LOCAL_ORIGINAL");
         a.setAvailabilityState("AVAILABLE");
         a.setStoragePath("full-ep.mp4");
         when(assetMapper.listByEpisode(9L)).thenReturn(List.of(a));
@@ -67,6 +68,43 @@ class EpisodeReviewServiceTest {
         EpisodeReviewService.ReviewSource r = service(assets.toString(), "Z:/no/db.db").resolve(9L);
         assertEquals("PRESENT", r.state());
         assertEquals(file.toAbsolutePath().toString(), r.filePath());
+    }
+
+    @Test
+    @DisplayName("GENERATED_CLIP 产物不充当整集源：集只有产物时走 C2 Animeko 缓存")
+    void generatedClipSkippedThenAnimeko() throws Exception {
+        assets = Files.createTempDirectory("ep-assets-clip");
+        Path product = Files.createFile(assets.resolve("clip-product.mp4"));
+        when(episodeMapper.selectById(7L)).thenReturn(ep(7L));
+        VideoAsset gen = new VideoAsset();
+        gen.setEpisodeId(7L);
+        gen.setAssetType("GENERATED_CLIP");
+        gen.setAvailabilityState("AVAILABLE");
+        gen.setStoragePath("clip-product.mp4");
+        when(assetMapper.listByEpisode(7L)).thenReturn(List.of(gen));
+
+        // Animeko 缓存该集整集在场
+        dataRoot = Files.createTempDirectory("ep-review-genclip");
+        Path datastore = Files.createDirectories(dataRoot.resolve("datastore"));
+        Path downloads = Files.createDirectories(dataRoot.resolve("media-downloads").resolve("web-m3u"));
+        String mediaId = "bbb.集B-02";
+        Files.writeString(datastore.resolve("mediaCacheMetadataV2"),
+                "[{\"origin\":{\"mediaId\":\"" + mediaId + "\"},\"metadata\":{\"episodeId\":\"666\",\"subjectId\":\"1\"},\"engine\":\"web-m3u\"}]");
+        Path epFile = Files.createFile(downloads.resolve(mediaId + ".mp4"));
+        ExternalEpisode bridge = new ExternalEpisode();
+        bridge.setExternalWorkId(2L);
+        bridge.setProviderEpisodeId("666");
+        when(extEpMapper.listByLocalEpisode(7L)).thenReturn(List.of(bridge));
+        ExternalWork work = new ExternalWork();
+        work.setProvider("BANGUMI");
+        when(extWorkMapper.selectById(2L)).thenReturn(work);
+        Path fakeDb = dataRoot.resolve("ani_room_database_main.db");
+        Files.writeString(fakeDb, "x");
+
+        EpisodeReviewService.ReviewSource r = service(assets.toString(), fakeDb.toString()).resolve(7L);
+        assertEquals("PRESENT", r.state());
+        assertEquals(epFile.toAbsolutePath().toString(), r.filePath());
+        assert product.toAbsolutePath().toString() != r.filePath() : "不得返回片段产物";
     }
 
     @Test
