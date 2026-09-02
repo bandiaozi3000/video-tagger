@@ -12,12 +12,16 @@ public class Episode {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long mediaId;
+    /** v0.22 具体作品条目；历史集可为空并继续通过 mediaId 工作。 */
+    private Long mediaEntryId;
     /** 季号（标题无法解析时为空） */
     private Integer season;
     /** 集号（标题无法解析时为空） */
     private Integer episodeNo;
     /** 集标题（原始页面标题，含站点后缀） */
     private String title;
+    /** 1=用户/历史标题不被外部资料覆盖，0=可使用外部展示标题 */
+    private Integer titleOverride;
     /** 集备注（该集看点/重点等，供搜索），可空 */
     private String note;
     private String url;

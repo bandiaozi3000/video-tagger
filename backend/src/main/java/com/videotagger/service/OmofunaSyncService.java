@@ -12,12 +12,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 
 /**
- * omofuna 抓取产物导入：读 node omofuna.js 输出的 JSON，逐条 upsert 建媒体档案。
- *
- * 与 AniList 同步的区别：omofuna 只有中文标题，无日文原名 → {@code originalTitle} 显式留空，
- * 使「AniList 日文牌 + omofuna 中文牌」并存，用户靠既有 merge 功能手动合并（grilling 已拍板）。
- * 查重用 {@link MediaMapper#selectByTitleOrOriginal}（title 或 original_title 精确匹配）命中跳过。
- * 封面走 {@link CoverService#downloadAsync}（复用 coverExecutor，失败静默降级），不阻塞导入主链路。
+ * 旧 Provider 代码保留但当前不开放入口；不再写 Media 的外部重复字段或下载远程封面。
  */
 @Service
 public class OmofunaSyncService {
@@ -63,29 +58,16 @@ public class OmofunaSyncService {
     private SyncResult upsert(String title, int year, String cover) {
         Media existing = mediaMapper.selectByTitleOrOriginal(title);
         if (existing != null) {
-            // 命中已有：若尚无封面且本次带 URL → 补 URL + 触发补下（修复异步下载中断导致的封面缺失）
-            if ((existing.getCoverPath() == null || existing.getCoverPath().isBlank())
-                    && cover != null && !cover.isBlank()) {
-                existing.setCoverUrl(cover);
-                mediaMapper.updateById(existing);
-                coverService.downloadAsync(existing.getId(), cover);
-            }
             return new SyncResult(0, 1);
         }
         Media a = new Media();
-        a.setTitle(title);          // 中文标题
-        a.setOriginalTitle(null);   // omofuna 无日文原名，留空（与 AniList 日文牌并存，靠 merge 手动合）
+        a.setTitle(title);
         a.setYear(year);
-        a.setCoverUrl(cover);
         a.setMediaFormat("VIDEO");
         a.setStatus("WANT");
         a.setConfirmed(1);
-        a.setSource("OMOFUNA");
         a.setCreatedAt(System.currentTimeMillis());
         mediaMapper.insert(a);
-        if (cover != null && !cover.isBlank()) {
-            coverService.downloadAsync(a.getId(), cover);
-        }
         return new SyncResult(1, 0);
     }
 }

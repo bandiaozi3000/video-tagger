@@ -115,13 +115,9 @@ public class MediaService {
         return mediaMapper.listDistinctYears();
     }
 
-    /** 补下缺失封面：遍历 cover_url 非空但尚无封面的媒体重新异步下载（异步中断/未下完的可一键补齐），返回触发数量。 */
+    /** 补下缺失封面已停用：外部封面只从 external_work.cover_url 远程读取，用户封面仍走 cover_path。 */
     public int retryCovers() {
-        List<Media> missing = mediaMapper.listMissingCovers();
-        for (Media m : missing) {
-            coverService.downloadAsync(m.getId(), m.getCoverUrl());
-        }
-        return missing.size();
+        return 0;
     }
 
     public MediaDetail get(Long id) {
@@ -130,10 +126,12 @@ public class MediaService {
         long episodeCount = episodeMapper.countByMedia(id);
         String fallbackCoverPath = a.getCoverPath() == null
                 ? clipMapper.selectRepresentativeCoverByMedia(id) : null;
-        return new MediaDetail(a.getId(), a.getTitle(), a.getYear(), a.getOriginalTitle(), a.getAliases(), a.getMediaFormat(),
+        String source = mediaMapper.selectProviderByMedia(id);
+        String externalCoverUrl = mediaMapper.selectExternalCoverByMedia(id);
+        return new MediaDetail(a.getId(), a.getTitle(), a.getYear(), null, a.getAliases(), a.getMediaFormat(),
                 a.getSubcategory(), a.getSubcategoryId(), a.getNote(), a.getStatus(), a.getRating(), a.getCoverPath(),
-                a.getConfirmed(), a.getSource(), a.getCreatedAt(), clipCount, episodeCount, mediaTagMapper.selectTags(id),
-                mediaCollectionMapper.selectCollectionIdsByMedia(id), fallbackCoverPath);
+                a.getConfirmed(), source, a.getCreatedAt(), clipCount, episodeCount, mediaTagMapper.selectTags(id),
+                mediaCollectionMapper.selectCollectionIdsByMedia(id), fallbackCoverPath, externalCoverUrl);
     }
 
     @Transactional
@@ -141,7 +139,6 @@ public class MediaService {
         Media a = new Media();
         apply(a, req);
         a.setConfirmed(1); // 手动创建即已确认
-        a.setSource("MANUAL"); // 手动创建 → 手动来源（同步导入的由各 SyncService 分别标注）
         a.setCreatedAt(System.currentTimeMillis());
         mediaMapper.insert(a);
         embeddingTaskService.enqueue(EntityType.MEDIA, a.getId());
@@ -176,7 +173,7 @@ public class MediaService {
             return List.of();
         }
         List<Media> all = mediaMapper.selectList(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<Media>()
-                .select("id", "title", "year", "subcategory", "confirmed", "source")
+                .select("id", "title", "year", "subcategory", "confirmed")
                 .isNull("deleted_at"));
         List<MediaMatchCandidate> out = new ArrayList<>();
         for (Media m : all) {
@@ -347,7 +344,7 @@ public class MediaService {
     private void apply(Media a, MediaRequest req) {
         a.setTitle(req.title());
         a.setYear(req.year());
-        a.setOriginalTitle(req.originalTitle() == null ? null : req.originalTitle().trim());
+        // originalTitle 已迁移到 external_work，Media 只保留本地标题/别名。
         // 格式必须存在于字典；缺省/非法回退 VIDEO
         String format = req.mediaFormat() == null ? "" : req.mediaFormat().trim().toUpperCase();
         MediaFormat mf = format.isEmpty() ? null

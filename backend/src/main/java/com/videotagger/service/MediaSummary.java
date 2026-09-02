@@ -11,5 +11,5 @@ import java.math.BigDecimal;
 public record MediaSummary(Long id, String title, Integer year, String mediaFormat, String subcategory,
                            Long subcategoryId, String status, BigDecimal rating, String coverPath, Integer confirmed,
                            String source, Long clipCount, Long latestAt, Long collectionCount,
-                           String fallbackCoverPath) {
+                           String fallbackCoverPath, String externalCoverUrl) {
 }

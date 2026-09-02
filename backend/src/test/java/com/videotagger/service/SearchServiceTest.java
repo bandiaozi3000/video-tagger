@@ -195,24 +195,19 @@ class SearchServiceTest {
     }
 
     @Test
-    void sourceFilterKeepsOnlyMatchingMedia() {
-        // 来源过滤：media 维度结果带自身 source，只保留匹配项
-        com.videotagger.entity.Media aOmofuna = new com.videotagger.entity.Media();
-        aOmofuna.setId(1L);
-        aOmofuna.setTitle("中文番");
-        aOmofuna.setSource("OMOFUNA");
-        com.videotagger.entity.Media aManual = new com.videotagger.entity.Media();
-        aManual.setId(2L);
-        aManual.setTitle("手动画");
-        aManual.setSource("MANUAL");
-        when(mediaMapper.searchByKeyword(eq("番"), anyInt())).thenReturn(List.of(aOmofuna, aManual));
-        when(mediaMapper.selectBatchIds(anyCollection())).thenReturn(List.of(aOmofuna, aManual));
+    void sourceFilterUsesExternalProvider() {
+        com.videotagger.entity.Media media = new com.videotagger.entity.Media();
+        media.setId(1L);
+        media.setTitle("中文番");
+        when(mediaMapper.searchByKeyword(eq("番"), anyInt())).thenReturn(List.of(media));
+        when(mediaMapper.selectBatchIds(anyCollection())).thenReturn(List.of(media));
+        when(mediaMapper.selectProviderByMedia(1L)).thenReturn("BANGUMI");
         when(embeddingClient.isConfigured()).thenReturn(false);
 
-        SearchResponse resp = searchService.search("番", 10, 0, "media", null, null, null, null, "OMOFUNA");
+        SearchResponse resp = searchService.search("番", 10, 0, "media", null, null, null, null, "BANGUMI");
 
         assertEquals(1, resp.results().size());
-        assertEquals("OMOFUNA", resp.results().get(0).source());
+        assertEquals("BANGUMI", resp.results().get(0).source());
     }
 
     @Test
@@ -221,7 +216,6 @@ class SearchServiceTest {
         com.videotagger.entity.Media a = new com.videotagger.entity.Media();
         a.setId(1L);
         a.setTitle("某番");
-        a.setSource("MANUAL");
         when(mediaMapper.searchByKeyword(eq("某"), anyInt())).thenReturn(List.of(a));
         when(mediaMapper.selectBatchIds(anyCollection())).thenReturn(List.of(a));
         when(embeddingClient.isConfigured()).thenReturn(false);

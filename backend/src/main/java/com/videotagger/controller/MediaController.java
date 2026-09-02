@@ -147,8 +147,7 @@ public class MediaController {
         return ResponseEntity.noContent().build();
     }
 
-    /** 番剧同步（AniList）：按勾选年份批量建媒体（名称/年份/封面），命中库中已有则跳过。formats 可选过滤。 */
-    @PostMapping("/sync-anilist")
+    /** 旧 AniList 同步代码保留在 Service 中；当前不再开放 HTTP 入口。 */
     public AniListSyncService.SyncResult syncAnilist(@RequestBody SyncAnilistRequest req) {
         if (!syncEnabled) {
             throw new IllegalStateException("外部同步功能已禁用（桌面版暂不支持同步，请手动维护）");

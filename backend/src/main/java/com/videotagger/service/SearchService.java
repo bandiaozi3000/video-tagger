@@ -301,7 +301,7 @@ public class SearchService {
                 : clipMapper.selectRepresentativeCoverByMedia(a.getId());
         return new SearchResult(a.getId(), a.getTitle(), null, null, null,
                 null, a.getNote(), score, EntityType.MEDIA.name(), a.getId(), null, null, cover, null,
-                null, null, null, a.getSubcategoryId(), a.getSource(), a.getCreatedAt());
+                null, null, null, a.getSubcategoryId(), mediaMapper.selectProviderByMedia(a.getId()), a.getCreatedAt());
     }
 
     private SearchResult toEpisodeResult(Episode ep, Double score) {
@@ -358,7 +358,7 @@ public class SearchService {
                     m == null ? null : m.getMediaFormat(),
                     m == null ? null : m.getSubcategory(),
                     m == null ? null : m.getSubcategoryId(),
-                    m == null ? null : m.getSource(),
+                    m == null ? null : mediaMapper.selectProviderByMedia(m.getId()),
                     r.createdAt());
         }).toList();
     }

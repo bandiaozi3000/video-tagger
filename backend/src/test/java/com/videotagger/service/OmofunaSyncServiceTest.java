@@ -56,14 +56,11 @@ class OmofunaSyncServiceTest {
         verify(mediaMapper).insert(captor.capture());
         Media m = captor.getValue();
         assertEquals("轻松熊", m.getTitle());
-        assertNull(m.getOriginalTitle()); // omofuna 无日文原名 → 留空
         assertEquals(2026, m.getYear());
         assertEquals("VIDEO", m.getMediaFormat());
         assertEquals("WANT", m.getStatus());
         assertEquals(1, m.getConfirmed());
-        assertEquals("OMOFUNA", m.getSource());
-        // insert 后 a.getId() 为 null（mapper mock），用 eq(null) 匹配
-        verify(coverService).downloadAsync(eq(null), eq("https://x/1.webp"));
+        verify(coverService, never()).downloadAsync(any(), any());
     }
 
     @Test
@@ -81,7 +78,7 @@ class OmofunaSyncServiceTest {
     }
 
     @Test
-    void duplicateMissingCoverTriggersRedownload() throws Exception {
+    void duplicateDoesNotMutateLocalCover() throws Exception {
         Media existing = new Media();
         existing.setId(88L);
         when(mediaMapper.selectByTitleOrOriginal("轻松熊")).thenReturn(existing);
@@ -93,9 +90,8 @@ class OmofunaSyncServiceTest {
 
         assertEquals(0, r.added());
         assertEquals(1, r.skipped());
-        assertEquals("https://x/1.webp", existing.getCoverUrl());
-        verify(mediaMapper).updateById(existing);
-        verify(coverService).downloadAsync(88L, "https://x/1.webp");
+        verify(mediaMapper, never()).updateById(existing);
+        verify(coverService, never()).downloadAsync(any(), any());
     }
 
     @Test

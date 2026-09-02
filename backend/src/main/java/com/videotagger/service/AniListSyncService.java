@@ -18,11 +18,7 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * AniList 番剧同步：按年份拉取（名称/年份/封面）建媒体档案，命中库中已有（title 或 original_title）跳过。
- *
- * 数据源：graphql.anilist.co（免认证），按 seasonYear 循环分页，每页 50 条，hasNextPage 控制翻页。
- * 只同步名称 / 首播年份 / 封面三项；标题以 AniList 日文原名（title.native）入库，用户可后续编辑成中文。
- * 封面下载走 CoverService.downloadAsync（复用 coverExecutor，失败静默降级无封面），不阻塞同步主链路。
+ * 旧 Provider 代码保留但当前不开放入口；不再写 Media 的外部重复字段或下载远程封面。
  * 限流：AniList 对公开查询较宽松，仍保留每页 ~200ms 间隔避免大批量被 429。
  */
 @Service
@@ -162,29 +158,16 @@ public class AniListSyncService {
         String cover = m.path("coverImage").path("large").asText(null);
         Media existing = mediaMapper.selectByTitleOrOriginal(nativeTitle);
         if (existing != null) {
-            // 命中已有：若尚无封面且本次带 URL → 补 URL + 触发补下（修复异步下载中断导致的封面缺失）
-            if ((existing.getCoverPath() == null || existing.getCoverPath().isBlank())
-                    && cover != null && !cover.isBlank()) {
-                existing.setCoverUrl(cover);
-                mediaMapper.updateById(existing);
-                coverService.downloadAsync(existing.getId(), cover);
-            }
             return new SyncResult(0, 1);
         }
         Media a = new Media();
-        a.setTitle(nativeTitle);          // 占位：日文原名，用户后续可编辑成中文
-        a.setOriginalTitle(nativeTitle);
+        a.setTitle(nativeTitle);
         a.setYear(actualYear);
-        a.setCoverUrl(cover);
         a.setMediaFormat("VIDEO");
         a.setStatus("WANT");
         a.setConfirmed(1);
-        a.setSource("ANILIST");
         a.setCreatedAt(System.currentTimeMillis());
         mediaMapper.insert(a);
-        if (cover != null && !cover.isBlank()) {
-            coverService.downloadAsync(a.getId(), cover);
-        }
         return new SyncResult(1, 0);
     }
 }

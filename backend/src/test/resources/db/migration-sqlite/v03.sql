@@ -8,7 +8,6 @@ CREATE TABLE IF NOT EXISTS highlight_project (
     UNIQUE (media_id)
 );
 CREATE INDEX IF NOT EXISTS idx_highlight_project_updated ON highlight_project(updated_at);
-
 CREATE TABLE IF NOT EXISTS highlight_project_item (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,
@@ -29,7 +28,6 @@ CREATE TABLE IF NOT EXISTS highlight_project_item (
 );
 CREATE INDEX IF NOT EXISTS idx_highlight_item_project_sort ON highlight_project_item(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_highlight_item_clip ON highlight_project_item(clip_id);
-
 CREATE TABLE IF NOT EXISTS highlight_export (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL,

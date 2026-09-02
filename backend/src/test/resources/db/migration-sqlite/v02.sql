@@ -1,2 +1,2 @@
--- 测试专用：模拟未来加列迁移（test classpath 才有，生产打包不含）
-ALTER TABLE media ADD COLUMN test_col TEXT;
+-- v02：给片段增加可选结束时间
+ALTER TABLE clips ADD COLUMN end_sec REAL;

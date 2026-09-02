@@ -18,10 +18,6 @@ public class Media {
     private String title;
     /** 首播年份（AniList 同步或手动录入，可空=未知） */
     private Integer year;
-    /** 原标题（AniList 日文原名，供去重匹配与展示），可空 */
-    private String originalTitle;
-    /** AniList 封面 URL 留存（异步下载中断后补下用），可空 */
-    private String coverUrl;
     /** 别名（LLM 后台归组修正，可空） */
     private String aliases;
     /** 媒体备注（作品观感/待办等，供搜索），可空 */
@@ -40,8 +36,6 @@ public class Media {
     private String coverPath;
     /** 自动识别为低置信时置 0，需手工确认（B 做全的待确认标记） */
     private Integer confirmed;
-    /** 来源：MANUAL（手动）/ ANILIST / OMOFUNA（同步数据源细分，系统决定不手选） */
-    private String source;
     private Long createdAt;
     /** 删除时间戳（回收站软删除标记，null=正常；回收站查询 deleted_at 非空）。
      *  updateStrategy=IGNORED：撤回时 updateById 必须能把 deleted_at 更新回 NULL（MyBatis-Plus 默认忽略 null 字段）。 */

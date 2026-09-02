@@ -43,7 +43,7 @@ class AniListSyncServiceTest {
     }
 
     @Test
-    void syncYearCreatesMediaWithYearAndOriginalTitle() throws Exception {
+    void syncYearCreatesLocalMediaWithoutExternalDuplicates() throws Exception {
         server.enqueue(new MockResponse()
                 .setHeader("Content-Type", "application/json")
                 .setBody("""
@@ -62,14 +62,11 @@ class AniListSyncServiceTest {
         verify(mediaMapper, org.mockito.Mockito.times(2)).insert(captor.capture());
         Media inserted = captor.getAllValues().get(0);
         assertEquals("モンスター", inserted.getTitle());
-        assertEquals("モンスター", inserted.getOriginalTitle());
         assertEquals(2004, inserted.getYear());
         assertEquals("VIDEO", inserted.getMediaFormat());
         assertEquals("WANT", inserted.getStatus());
         assertEquals(1, inserted.getConfirmed());
-        assertEquals("ANILIST", inserted.getSource());
-        // 封面：仅第一条带 URL → downloadAsync 一次
-        verify(coverService).downloadAsync(eq(null), eq("https://x/cover.jpg"));
+        verify(coverService, never()).downloadAsync(any(), any());
     }
 
     @Test
@@ -164,7 +161,7 @@ class AniListSyncServiceTest {
     }
 
     @Test
-    void duplicateMissingCoverTriggersRedownload() throws Exception {
+    void duplicateDoesNotMutateLocalCover() throws Exception {
         server.enqueue(new MockResponse()
                 .setHeader("Content-Type", "application/json")
                 .setBody("""
@@ -175,17 +172,14 @@ class AniListSyncServiceTest {
         Media existing = new Media();
         existing.setId(99L);
         existing.setTitle("既存のタイトル");
-        existing.setOriginalTitle("既存のタイトル");
-        // coverPath 为空 → 命中重复时补 URL + 触发重新下载
         when(mediaMapper.selectByTitleOrOriginal("既存のタイトル")).thenReturn(existing);
 
         AniListSyncService.SyncResult r = service.sync(List.of(2005));
 
         assertEquals(0, r.added());
         assertEquals(1, r.skipped());
-        assertEquals("https://x/c.jpg", existing.getCoverUrl());
-        verify(mediaMapper).updateById(existing);
-        verify(coverService).downloadAsync(99L, "https://x/c.jpg");
+        verify(mediaMapper, never()).updateById(existing);
+        verify(coverService, never()).downloadAsync(any(), any());
     }
 
     @Test
