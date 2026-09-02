@@ -2,7 +2,13 @@ package com.videotagger.controller;
 
 import com.videotagger.service.ClipMaterializationService;
 import com.videotagger.service.MaterializationService;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.io.File;
 
 /**
  * v0.24 M3 素材渠道求值端点：
@@ -39,5 +45,32 @@ public class ClipMaterializationController {
     public ClipMaterializationService.Result materializeFromFile(@PathVariable long clipId,
                                                                  @RequestParam String path) throws Exception {
         return service.materializeFromFile(clipId, path);
+    }
+
+    /**
+     * 本地回顾播放源（M3）：按渠道求值（含既有 PRESENT 线索）定位本地文件并流式返回。
+     * 仅服务求值得出的文件路径（不接收任意路径）；仅放行视频扩展名；无可用本地源返回 409。
+     */
+    @GetMapping("/play-source")
+    public ResponseEntity<org.springframework.core.io.Resource> playSource(@PathVariable long clipId) {
+        MaterializationService.Evaluation ev = channelService.evaluate(clipId, false);
+        String path = ev.filePath();
+        if (path == null || !"PRESENT".equals(ev.state())) {
+            return ResponseEntity.status(409).build();
+        }
+        File file = new File(path);
+        if (!file.isFile()) return ResponseEntity.status(409).build();
+        String lower = path.toLowerCase();
+        MediaType mt = null;
+        if (lower.endsWith(".mp4")) mt = MediaType.parseMediaType("video/mp4");
+        else if (lower.endsWith(".webm")) mt = MediaType.parseMediaType("video/webm");
+        else if (lower.endsWith(".mkv")) mt = MediaType.parseMediaType("video/x-matroska");
+        else if (lower.endsWith(".mov")) mt = MediaType.parseMediaType("video/quicktime");
+        else if (lower.endsWith(".ts")) mt = MediaType.parseMediaType("video/mp2t");
+        else return ResponseEntity.status(409).build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, mt.toString())
+                .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                .body(new FileSystemResource(file));
     }
 }

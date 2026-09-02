@@ -32,7 +32,7 @@ public interface EpisodeMapper extends BaseMapper<Episode> {
     @Select("SELECT e.id, e.media_id AS mediaId, e.season, e.episode_no AS episodeNo, "
             + "e.title, e.url, e.video_fp AS videoFp, "
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
-            + "e.cover_path AS coverPath "
+            + "e.cover_path AS coverPath, e.watched_at AS watchedAt "
             + "FROM episode e LEFT JOIN clips c ON c.episode_id = e.id "
             + "WHERE e.media_id = #{mediaId} GROUP BY e.id "
             + "ORDER BY IFNULL(e.season, 0), IFNULL(e.episode_no, 0), e.id")

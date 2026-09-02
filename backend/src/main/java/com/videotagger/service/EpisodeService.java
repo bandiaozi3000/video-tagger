@@ -148,7 +148,7 @@ public class EpisodeService {
                 : clipMapper.selectRepresentativeCoverByEpisode(id);
         return new EpisodeDetail(id, ep.getMediaId(), ep.getSeason(), ep.getEpisodeNo(),
                 ep.getTitle(), ep.getNote(), ep.getUrl(), ep.getVideoFp(), clipCount, latestAt,
-                episodeTagMapper.selectTags(id), cover);
+                episodeTagMapper.selectTags(id), cover, ep.getWatchedAt());
     }
 
     public List<Clip> clips(Long id) {

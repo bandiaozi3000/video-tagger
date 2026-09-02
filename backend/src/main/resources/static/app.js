@@ -653,25 +653,88 @@ function renderClipDetailHead(clip, ep, media) {
     const range = clip.endSec != null ? `${fmtTime(clip.timestampSec)} – ${fmtTime(clip.endSec)}` : fmtTime(clip.timestampSec);
     clipDetailHeadEl.querySelector('.ad-meta').textContent = `片段 · ${range} · ${clip.tag}`;
     const provenance = clipDetailHeadEl.querySelector('.cd-source-provenance');
-    provenance.innerHTML = `<span>资产 ${clip.videoAssetId ?? '未绑定'} · revision ${esc(clip.sourceRevision || '未知')} · ${esc(clip.materialState || 'REFERENCE_ONLY')}</span> <button class="nav-link" data-prepare-material>准备素材</button>`;
-    provenance.querySelector('[data-prepare-material]').addEventListener('click', async () => {
-        provenance.textContent = '正在检查素材计划…';
+    provenance.innerHTML = `<span class="clip-channel-badge">资产 ${clip.videoAssetId ?? '未绑定'} · ${esc(clip.materialState || 'REFERENCE_ONLY')}</span> <button class="nav-link" data-channel-state></button><button class="nav-link" data-prepare-material>准备素材</button> <button class="nav-link" data-play-source>本地回顾</button>`;
+    // v0.24 M3：渠道求值（C1 本地/C2 Animeko/C3 直链/C4 录屏）展示 + 素材化/回顾入口
+    const channelState = provenance.querySelector('[data-channel-state]');
+    const prepBtn = provenance.querySelector('[data-prepare-material]');
+    const playBtn = provenance.querySelector('[data-play-source]');
+    channelState.textContent = '求值渠道…';
+    (async () => {
         try {
-            const planResp = await fetch(`/api/clips/${clip.id}/material/plan`);
-            const plan = await planResp.json();
-            if (!planResp.ok) throw new Error(plan.message || `HTTP ${planResp.status}`);
-            if (plan.strategy !== 'TRIM_LOCAL_ASSET') { provenance.textContent = `当前策略：${plan.strategy}，请先准备 Episode 本地资产。`; return; }
-            const resp = await fetch(`/api/clips/${clip.id}/material`, { method: 'POST' });
-            const result = await resp.json();
-            if (!resp.ok) throw new Error(result.message || `HTTP ${resp.status}`);
-            await renderClipDetail(clip.id);
+            const resp = await fetch(`/api/clips/${clip.id}/material/channels`);
+            const ev = await resp.json();
+            if (!resp.ok) throw new Error(ev.message || `HTTP ${resp.status}`);
+            channelState.textContent = ev.state === 'PRESENT'
+                ? `✓ ${ev.channel} ${ev.filePath ? ev.filePath.split(/[\\\/]/).pop() : ''}`
+                : ev.state === 'PENDING' ? `${ev.channel} 待定：${(ev.message || '').slice(0, 46)}` : `渠道不可用`;
+            channelState.title = ev.message || ev.strategy || '';
+        } catch (e) {
+            channelState.textContent = '渠道求值失败';
+        }
+    })();
+    prepBtn.addEventListener('click', async () => {
+        provenance.textContent = '正在求值素材渠道…';
+        try {
+            const chResp = await fetch(`/api/clips/${clip.id}/material/channels/refresh`);
+            const ev = await chResp.json();
+            if (!chResp.ok) throw new Error(ev.message || `HTTP ${chResp.status}`);
+            if (ev.state === 'PRESENT' && ev.strategy === 'TRIM_LOCAL_ASSET') {
+                provenance.textContent = '本地资产在场，正在裁剪…';
+                const resp = await fetch(`/api/clips/${clip.id}/material`, { method: 'POST' });
+                const result = await resp.json();
+                if (!resp.ok) throw new Error(result.message || `HTTP ${resp.status}`);
+                await renderClipDetail(clip.id);
+            } else if (ev.state === 'PRESENT' && ev.strategy === 'TRIM_EXTERNAL_FILE' && ev.filePath) {
+                provenance.textContent = 'Animeko/外部文件在场，正在裁剪…';
+                const resp = await fetch(`/api/clips/${clip.id}/material/materialize-from-file?path=${encodeURIComponent(ev.filePath)}`, { method: 'POST' });
+                const result = await resp.json();
+                if (!resp.ok) throw new Error(result.message || `HTTP ${resp.status}`);
+                await renderClipDetail(clip.id);
+            } else {
+                provenance.textContent = ev.message || '无可用本地素材源，可回退浏览器录制或先显式缓存该集';
+                playBtn.hidden = true;
+            }
         } catch (e) { provenance.textContent = `素材准备失败：${e.message}`; }
+    });
+    playBtn.addEventListener('click', async () => {
+        try {
+            const resp = await fetch(`/api/clips/${clip.id}/material/play-source`);
+            if (!resp.ok) throw new Error('无可用本地文件源，请回退原网页');
+            const blob = await resp.blob();
+            openLocalVideoPlayer(blob, clip);
+        } catch (e) { showToast(e.message); }
     });
     if (clip.note) clipDetailHeadEl.querySelector('.cd-note').textContent = `备注：${clip.note}`;
     clipDetailHeadEl.querySelector('[data-nav="episode"]')?.addEventListener('click', () => openEpisodeDetail(ep.id));
     clipDetailHeadEl.querySelector('[data-nav="media"]')?.addEventListener('click', () => openMediaDetail(media.id));
     renderClipTags(clip, media ? media.id : null);
     bindClipExportActions(clip);
+}
+
+/** v0.24 M3：本地回顾播放——blob 弹窗播放素材源，并 seek 到片段起点（本地精确回顾）。 */
+function openLocalVideoPlayer(blob, clip) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.zIndex = '1000';
+    overlay.innerHTML = `
+        <div class="modal modal-wide">
+            <div class="modal-head"><h2>本地回顾 · ${esc(clip.title || '片段')}</h2><button type="button" class="btn-mini danger modal-close">✕</button></div>
+            <video controls autoplay style="width:100%;max-height:68vh;border-radius:12px;background:#000"></video>
+            <p class="detail-section-note">区间 ${fmtTime(clip.timestampSec)}${clip.endSec != null ? ' – ' + fmtTime(clip.endSec) : ''}（时间码 ${clip.tag || ''}）。仅回放验证，导出仍走「准备素材→裁剪」。</p>
+        </div>`;
+    document.body.appendChild(overlay);
+    const url = URL.createObjectURL(blob);
+    const video = overlay.querySelector('video');
+    video.src = url;
+    video.addEventListener('loadedmetadata', () => {
+        if (clip.timestampSec != null && video.duration) video.currentTime = Math.max(0, Math.min(clip.timestampSec, video.duration - 0.1));
+    });
+    overlay.querySelector('.modal-close').onclick = () => {
+        URL.revokeObjectURL(url);
+        video.pause();
+        overlay.remove();
+    };
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) { URL.revokeObjectURL(url); video.pause(); overlay.remove(); } });
 }
 
 async function bindClipExportActions(clip) {
@@ -1037,6 +1100,7 @@ function renderEpisodeDetailHead(ep, media) {
         </div>`;
     episodeDetailHeadEl.querySelector('.ad-title').textContent = ep.title || '(未命名)';
     const meta = [no, `${ep.clipCount || 0} 条片段`];
+    if (ep.watchedAt) meta.push(`✓ 已看 ${fmtDateTime(ep.watchedAt)}`);
     if (ep.latestAt) meta.push(`最近标记 ${fmtDateTime(ep.latestAt)}`);
     const metaEl = episodeDetailHeadEl.querySelector('.ad-meta');
     metaEl.textContent = meta.join(' · ');
@@ -5568,6 +5632,13 @@ function buildEpisodeRow(ep, unknown) {
     row.querySelector('.ep-title').textContent = ep.title || '(未命名)';
     row.querySelector('.ep-meta').textContent = `${ep.clipCount || 0} 条片段`
         + (ep.latestAt ? ` · 最近标记 ${fmtDateTime(ep.latestAt)}` : '');
+    if (ep.watchedAt) {
+        const w = document.createElement('span');
+        w.className = 'ep-watched';
+        w.textContent = '✓ 已看';
+        w.title = `看过：${fmtDateTime(ep.watchedAt)}`;
+        row.querySelector('.ep-meta').appendChild(w);
+    }
     const tagsEl = row.querySelector('.ep-tags');
     for (const t of (ep.tags || [])) {
         const chip = document.createElement('span');
@@ -6974,6 +7045,14 @@ document.addEventListener('click', (e) => {
     if (!favOverlay) return;
     if (favOverlay.contains(e.target)) return;   // 浮层内（含 checkbox）不收起
     closeFavPicker();
+});
+
+// v0.24 M3 详情页：外部简介折叠展开（点击切换 .expanded；仅命中折叠态简介）
+document.addEventListener('click', (e) => {
+    const desc = e.target && e.target.closest && e.target.closest('.external-description');
+    if (!desc) return;
+    const isClamped = !desc.classList.contains('expanded');
+    desc.classList.toggle('expanded', isClamped);
 });
 window.addEventListener('scroll', () => { if (favOverlay) closeFavPicker(); }, true);
 mediaFormatManageBtn.addEventListener('click', openMediaFormatModal);

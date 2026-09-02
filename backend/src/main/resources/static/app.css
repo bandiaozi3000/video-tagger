@@ -2415,3 +2415,72 @@ body.desktop-mode .statusbar { display: flex; grid-row: 3; grid-column: 1 / -1; 
 body.desktop-mode .site-footer { display: none; }
 
 .cd-source-provenance{margin:8px 0;color:var(--muted);font-size:13px}.cd-source-provenance .nav-link{margin-left:8px}
+/* ═══════ v0.24 M3 详情页布局重构（override；放宽容器 / 主列加宽 / 集行紧凑 / 简介折叠）═══════ */
+.container { max-width: 1360px; }
+
+/* 媒体详情三列：主列显著加宽，左右收窄并 sticky 保持 */
+.media-detail-layout {
+    grid-template-columns: minmax(210px, .6fr) minmax(520px, 1.7fr) minmax(200px, .62fr);
+    gap: 18px;
+}
+.detail-column-main .detail-section { margin-bottom: 18px; }
+@media (min-width: 1500px) {
+    .media-detail-layout { grid-template-columns: minmax(230px, .58fr) minmax(560px, 1.8fr) minmax(220px, .6fr); }
+}
+
+/* 集列表：季内多集 → 自适应双列网格，降低整页纵向高度 */
+.episode-group-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 296px), 1fr));
+    gap: 10px;
+    align-items: stretch;
+}
+.episode-group-list > .episode-row { height: 100%; }
+
+/* 集行紧凑：封面 72px、标题单行、按钮收纳为紧凑行 */
+.episode-row { gap: 10px; padding: 10px 12px; }
+.ep-cover { width: 72px; border-radius: 8px; }
+.ep-no { min-width: 44px; font-size: 11px; padding: 5px 8px; }
+.ep-title { font-size: 13px; }
+.ep-actions { gap: 5px; }
+.ep-actions .btn-mini { font-size: 11px; padding: 4px 8px; }
+.ep-watched {
+    display: inline-flex; align-items: center; gap: 3px;
+    margin-left: 8px; color: var(--green, #4ade80);
+    background: rgba(74, 222, 128, .12); border: 1px solid rgba(74, 222, 128, .3);
+    font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 99px;
+}
+.ep-tags { margin-top: 5px; gap: 5px; }
+
+/* 外部资料：布局横向两段，简介默认 4 行折叠可展开（JS 控制 .expanded） */
+.external-metadata-layout { grid-template-columns: 88px minmax(0, 1fr); gap: 14px; }
+.external-cover-wrap { width: 88px; }
+.external-description {
+    position: relative; max-height: none; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+    cursor: pointer; transition: -webkit-line-clamp .2s ease;
+}
+.external-description.expanded { -webkit-line-clamp: unset; }
+.external-description::after {
+    content: '展开全部 ›'; display: none;
+    position: absolute; right: 0; bottom: 0;
+    background: linear-gradient(90deg, transparent, #10122a 45%);
+    color: var(--accent, #8b5cf6); font-size: 12px; padding: 0 4px 0 26px;
+}
+.external-description:not(.expanded)::after { display: block; }
+.external-description.expanded::after { content: '收起 ‹'; display: block; background: none; padding-left: 6px; }
+
+/* 中列小节间距收紧，减少长页空洞感 */
+.detail-section { margin-bottom: 14px; }
+.detail-section-head { margin-bottom: 10px; }
+.detail-section-episodes { padding-bottom: 14px; }
+
+/* v0.24 M3 渠道徽章/回顾按钮 */
+.clip-channel-badge { color: var(--text-dim); font-size: 12px; }
+.clip-channel-badge[data-state="PRESENT"] { color: var(--green, #4ade80); }
+.cd-source-provenance .nav-link[data-play-source] { color: var(--accent, #8b5cf6); }
+
+/* v0.24 M3：窄网格单元（双列时 ~300px）内集行自动换行，操作区独立成行 */
+.episode-group-list > .episode-row { flex-wrap: wrap; }
+.episode-group-list > .episode-row .ep-actions { width: 100%; justify-content: flex-start; }
+.episode-group-list > .episode-row .ep-main { min-width: 140px; }
