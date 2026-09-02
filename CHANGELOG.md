@@ -441,13 +441,20 @@
 - **片段封面**：本地文件在场自动 ffmpeg 抽帧（当前画面）；网页流（无整文件）自动截屏兜底（窗口级 desktopCapturer，可选播放器窗口记忆）。
 - **详情页 UI 重构**：容器放宽、三列主列加宽、集列表双列网格（高省 46%）、外部简介折叠；集行/详情头显示"✓已看"。
 - **v0.23 片源 UI 隐藏（G6）**：`VT_SHOW_V023_PLAYER` 开关默认 false 隐藏数据源管理/快捷播放/管理片源入口（引擎保留可恢复）。
+- **「去原视频」Animeko 判定（A 档）**：Animeko 引用/Animeko 导入集 → 唤起 Animeko 窗口置前（探测 exe 自动激活）+ 片段/集提示；网页源保持原跳转。
+- **本地回顾播放器内截图**：播放界面暂停到目标帧「📷 存当前帧」导出 PNG（取代旧单帧按钮）；旧「导出视频/单帧/连续截图」按钮退役（`VT_SHOW_V023_EXPORT` 开关，引擎保留）。
+- **集级本地回顾**：集详情新增「本地回顾」——定位该集本地资产或 Animeko 整集缓存整集播放（`GET /api/episodes/{id}/review-source`）。
+- **物化语义修正**：裁剪产物后 clip 保留源视频起止（不再归零）；source_start_ms 兼容列 V30/v12；已物化片段隐藏「准备素材」按钮。
 
 ### 双库
-- MySQL V28（watched_at）、V29（channel_hints）；SQLite v10、v11 + 推断分支补全。
+- MySQL V28（watched_at）、V29（channel_hints）；SQLite v10、v11 + 推断分支补全；V30/v12（source_start_ms）。
 
 ### 修复
 - Animeko 播放历史自清理 → 双源导入 + 跨源去重。
 - 详情页布局宽高失衡、外部简介截断。
 - ffmpeg 抽帧多坑（banner 截断/读阻塞/-ss 超时长/temp 路径）。
 - bat 编码致 cmd 解析错乱 → VBS 无窗口启动器。
+- C2 缓存定位器不适配真实 Animeko registry（无路径字段）→ engine/mediaId 推导 + 嵌套 episodeId 匹配 + 自动探测。
+- 已物化片段「准备素材」重复裁剪（405 + 重复物化）→ ALREADY_READY + 按钮隐藏。
+- 物化归零丢原位置 → 保留源坐标 + source_start_ms。
 - 保存打标误关窗 → 收起(hide)保留。

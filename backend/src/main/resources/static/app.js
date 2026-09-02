@@ -755,15 +755,21 @@ function openLocalVideoPlayer(blob, clip) {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.style.zIndex = '1000';
+    const srcName = (clip.title || '片段').replace(/[\\/:*?"<>|]/g, '_');
     overlay.innerHTML = `
         <div class="modal modal-wide">
             <div class="modal-head"><h2>本地回顾 · ${esc(clip.title || '片段')}</h2><button type="button" class="btn-mini danger modal-close">✕</button></div>
-            <video controls autoplay style="width:100%;max-height:68vh;border-radius:12px;background:#000"></video>
-            <p class="detail-section-note">区间 ${fmtTime(clip.timestampSec)}${clip.endSec != null ? ' – ' + fmtTime(clip.endSec) : ''}（时间码 ${clip.tag || ''}）。仅回放验证，导出仍走「准备素材→裁剪」。</p>
+            <video controls autoplay style="width:100%;max-height:60vh;border-radius:12px;background:#000"></video>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+                <button type="button" class="btn-mini" data-cap-frame>📷 存当前帧</button>
+                <span class="cap-status detail-section-note" style="align-self:center"></span>
+            </div>
+            <p class="detail-section-note">区间 ${fmtTime(clip.timestampSec)}${clip.endSec != null ? ' – ' + fmtTime(clip.endSec) : ''}${clip.tag ? `（时间码 ${clip.tag}）` : ''}。暂停到目标帧后「存当前帧」，保存 PNG 截图。</p>
         </div>`;
     document.body.appendChild(overlay);
     const url = URL.createObjectURL(blob);
     const video = overlay.querySelector('video');
+    const statusEl = overlay.querySelector('.cap-status');
     video.src = url;
     video.addEventListener('loadedmetadata', () => {
         if (video.duration) {
@@ -776,6 +782,40 @@ function openLocalVideoPlayer(blob, clip) {
             }
         }
     });
+    // 截图辅助：确保有可绘制帧
+    async function ensureFrame(t) {
+        return new Promise((resolve) => {
+            if (video.readyState >= 2) { resolve(); return; }
+            const h = () => { video.removeEventListener('seeked', h); resolve(); };
+            video.addEventListener('seeked', h);
+            try { video.currentTime = Math.min(t, (video.duration || 0) - 0.05); } catch (e) { resolve(); }
+        });
+    }
+    function drawToCanvas() {
+        const w = video.videoWidth || 1280, h = video.videoHeight || 720;
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(video, 0, 0, w, h);
+        return cv;
+    }
+    function downloadCanvas(cv, label) {
+        const a = document.createElement('a');
+        a.href = cv.toDataURL('image/png');
+        a.download = `${srcName}@${label}.png`;
+        a.click();
+    }
+    function fmtStamp(t) {
+        const s = Math.max(0, Math.floor(t));
+        return `${String(Math.floor(s / 60)).padStart(2, '0')}m${String(s % 60).padStart(2, '0')}s`;
+    }
+    overlay.querySelector('[data-cap-frame]').onclick = async () => {
+        video.pause();
+        await ensureFrame(video.currentTime);
+        try {
+            downloadCanvas(drawToCanvas(), fmtStamp(video.currentTime));
+            statusEl.textContent = `已保存 ${fmtStamp(video.currentTime)} 帧`;
+        } catch (e) { statusEl.textContent = '截图失败（请稍候再试）'; }
+    };
     overlay.querySelector('.modal-close').onclick = () => {
         URL.revokeObjectURL(url);
         video.pause();
@@ -7470,6 +7510,25 @@ document.getElementById('clip-detail-similar').addEventListener('click', () => c
 
 // ---------- 集详情操作 ----------
 document.getElementById('back-from-episode').addEventListener('click', goBack);
+document.getElementById('ep-detail-review')?.addEventListener('click', async () => {
+    if (!currentEpisode) return;
+    const btn = document.getElementById('ep-detail-review');
+    const orig = btn.textContent;
+    btn.textContent = '定位本地源…';
+    try {
+        const resp = await fetch(`/api/episodes/${currentEpisode.id}/review-source`);
+        if (!resp.ok) throw new Error('无本地源（需本地资产或 Animeko 显式缓存该集）');
+        const blob = await resp.blob();
+        openLocalVideoPlayer(blob, {
+            title: currentEpisode.title || '整集回顾',
+            materialState: 'REFERENCE_ONLY',   // 播整集从头（非产物）
+            timestampSec: 0,
+            endSec: null,
+            tag: ''
+        });
+    } catch (e) { showToast('本地回顾不可用：' + e.message, 3500); }
+    finally { btn.textContent = orig; }
+});
 
 // v0.24 G6：v0.23 自建播放/片源 UI 默认隐藏（引擎保留；Animeko 接管播放）
 async function applyUiConfig() {
@@ -7492,6 +7551,13 @@ async function applyUiConfig() {
             const sheet = new CSSStyleSheet();
             sheet.replaceSync('[data-v023-entry]{display:none!important}');
             document.adoptedStyleSheets.push(sheet);
+        }
+        // v0.24 素材化接管后：旧「导出视频/单帧/连续截图」按钮退役（截图移入本地回顾播放器）；引擎与 API 保留
+        if (cfg.showV023Export === false) {
+            ['clip-export-video', 'clip-export-frame', 'clip-export-sequence', 'clip-record-browser'].forEach(id => {
+                const btn = document.getElementById(id);
+                if (btn) btn.hidden = true;
+            });
         }
     } catch (e) { /* 配置拉取失败不阻断 */ }
 }

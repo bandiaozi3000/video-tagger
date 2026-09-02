@@ -1,6 +1,7 @@
 package com.videotagger.controller;
 
 import com.videotagger.entity.Clip;
+import com.videotagger.service.EpisodeReviewService;
 import com.videotagger.service.EpisodeService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -25,7 +26,7 @@ class EpisodeControllerTest {
         clip.setVideoAssetId(11L);
         clip.setStartMs(12_345L);
         when(service.clips(7L)).thenReturn(List.of(clip));
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new EpisodeController(service)).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new EpisodeController(service, mock(EpisodeReviewService.class))).build();
 
         mvc.perform(get("/api/episodes/7/clips").accept(APPLICATION_JSON))
                 .andExpect(status().isOk())

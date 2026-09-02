@@ -43,6 +43,8 @@ videotagger:
   # v0.24 G6：v0.23 自建播放/片源 UI 隐藏开关（引擎保留；Animeko 接管播放前台）
   ui:
     show-v023-player: ${VT_SHOW_V023_PLAYER:false}
+    # v0.24：旧「导出视频/单帧/连续截图」按钮退役（截图移入本地回顾播放器）
+    show-v023-export: ${VT_SHOW_V023_EXPORT:false}
   video-sources:
     jellyfin:
       enabled: ${JELLYFIN_PROVIDER_ENABLED:false}

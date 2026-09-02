@@ -17,8 +17,11 @@ public class UiConfigController {
 
     private final Map<String, Object> config;
 
-    public UiConfigController(@Value("${videotagger.ui.show-v023-player:false}") boolean showV023Player) {
-        this.config = Map.of("showV023Player", showV023Player);
+    public UiConfigController(@Value("${videotagger.ui.show-v023-player:false}") boolean showV023Player,
+                              @Value("${videotagger.ui.show-v023-export:false}") boolean showV023Export) {
+        this.config = Map.of(
+                "showV023Player", showV023Player,
+                "showV023Export", showV023Export);
     }
 
     @GetMapping
