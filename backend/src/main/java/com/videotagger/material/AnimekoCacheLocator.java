@@ -73,16 +73,21 @@ public class AnimekoCacheLocator {
                 return new LocateResult("PENDING", null,
                         "Animeko 缓存 registry 为空（无整文件缓存）；看片时可用「显式缓存」或 fork CLI 预取该集");
             }
-            // 宽松匹配：递归在数组元素中找 episodeId == 目标 的条目，收集其下全部字符串字段候选路径
-            List<String> candidatePaths = new ArrayList<>();
+            // 匹配 episodeId 的缓存条目
+            List<JsonNode> matched = new ArrayList<>();
             for (JsonNode entry : root) {
-                if (matchesEpisode(entry, bangumiEpisodeId)) {
-                    collectPathCandidates(entry, candidatePaths);
-                }
+                if (matchesEpisode(entry, bangumiEpisodeId)) matched.add(entry);
             }
-            if (candidatePaths.isEmpty()) {
+            if (matched.isEmpty()) {
                 return new LocateResult("PENDING", null,
                         "Animeko 有缓存记录但该集 (episodeId=" + bangumiEpisodeId + ") 无条目或文件已按留存清理；可显式缓存后重试");
+            }
+            // 候选：1) 由 engine 目录 + origin.mediaId 推导（真实 Animeko 布局 media-downloads/{engine}/{mediaId}.{ext}）
+            //       2) 条目内显式 file/path 字段（兼容其它引擎布局）
+            List<String> candidatePaths = new ArrayList<>();
+            for (JsonNode entry : matched) {
+                candidatePaths.addAll(engineFileCandidates(entry));
+                collectPathCandidates(entry, candidatePaths);
             }
             String hit = firstExistingPath(candidatePaths);
             if (hit != null) {
@@ -96,16 +101,63 @@ public class AnimekoCacheLocator {
         }
     }
 
+    /** 真实 Animeko 布局：文件在 media-downloads/{engine}/{origin.mediaId}.{ext}。engine=web-m3u/anitorrent 等。 */
+    private List<String> engineFileCandidates(JsonNode entry) {
+        List<String> out = new ArrayList<>();
+        String engine = textOf(entry, "engine");
+        if (engine == null || engine.isBlank() || downloadsRoot == null) return out;
+        String mediaId = firstValueByKey(entry, "mediaId");
+        if (mediaId == null || mediaId.isBlank()) return out;
+        for (String ext : List.of("mp4", "mkv", "webm", "mov", "flv", "ts", "m4v")) {
+            out.add(downloadsRoot.resolve(engine).resolve(mediaId + "." + ext).toString());
+        }
+        return out;
+    }
+
+    private String textOf(JsonNode node, String key) {
+        JsonNode v = node.get(key);
+        return v == null || v.isNull() || !v.isValueNode() ? null : v.asText();
+    }
+
+    /** 递归找给定 key 的第一个叶子字符串值（origin.mediaId 嵌套在 origin 对象内）。 */
+    private String firstValueByKey(JsonNode node, String key) {
+        if (node == null) return null;
+        if (node.isObject()) {
+            JsonNode direct = node.get(key);
+            if (direct != null && direct.isValueNode()) return direct.asText();
+            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                String found = firstValueByKey(fields.next().getValue(), key);
+                if (found != null) return found;
+            }
+        } else if (node.isArray()) {
+            for (JsonNode child : node) {
+                String found = firstValueByKey(child, key);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     private boolean matchesEpisode(JsonNode entry, String episodeId) {
         if (entry == null) return false;
-        Iterator<Map.Entry<String, JsonNode>> fields = entry.fields();
-        while (fields.hasNext()) {
-            Map.Entry<String, JsonNode> f = fields.next();
-            String name = f.getKey().toLowerCase();
-            JsonNode v = f.getValue();
-            if ((name.contains("episodeid") || name.equals("episode_id")) && v.isValueNode()) {
-                String text = v.asText();
-                if (text.equals(episodeId) || text.equals(String.valueOf(episodeId))) return true;
+        if (entry.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> fields = entry.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> f = fields.next();
+                String name = f.getKey().toLowerCase();
+                JsonNode v = f.getValue();
+                if ((name.contains("episodeid") || name.equals("episode_id")) && v.isValueNode()) {
+                    String text = v.asText();
+                    if (text.equals(episodeId) || text.equals(String.valueOf(episodeId))) return true;
+                }
+                if (v.isObject() || v.isArray()) {
+                    if (matchesEpisode(v, episodeId)) return true;
+                }
+            }
+        } else if (entry.isArray()) {
+            for (JsonNode child : entry) {
+                if (matchesEpisode(child, episodeId)) return true;
             }
         }
         return false;

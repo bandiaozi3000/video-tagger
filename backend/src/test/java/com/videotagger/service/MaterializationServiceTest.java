@@ -181,7 +181,7 @@ class MaterializationServiceTest {
     @DisplayName("C2 未配置 Animeko → UNAVAILABLE（不抛错）")
     void c2Unconfigured() {
         MaterializationService svc = new MaterializationService(clipMapper, assetMapper,
-                externalEpisodeMapper, externalWorkMapper, assetRoot.toString(), "   ");
+                externalEpisodeMapper, externalWorkMapper, assetRoot.toString(), "Z:/no/animeko.db");
         Clip c = clip(5);
         c.setEpisodeId(79L);
         when(clipMapper.selectById(5L)).thenReturn(c);

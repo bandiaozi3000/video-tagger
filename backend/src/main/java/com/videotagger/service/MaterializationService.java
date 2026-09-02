@@ -11,6 +11,7 @@ import com.videotagger.mapper.VideoAssetMapper;
 import com.videotagger.material.AnimekoCacheLocator;
 import com.videotagger.material.ChannelHint;
 import com.videotagger.material.MaterializationChannel;
+import com.videotagger.util.AnimekoPaths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -53,12 +54,12 @@ public class MaterializationService {
         this.externalEpisodeMapper = externalEpisodeMapper;
         this.externalWorkMapper = externalWorkMapper;
         this.assetRoot = Path.of(assetRoot).toAbsolutePath().normalize();
-        this.c2Locator = new AnimekoCacheLocator(animekoDataRoot(animekoDbPath));
+        this.c2Locator = new AnimekoCacheLocator(animekoDataRoot(AnimekoPaths.resolve(animekoDbPath)));
     }
 
-    private static Path animekoDataRoot(String dbPath) {
-        if (dbPath == null || dbPath.isBlank()) return null;
-        File db = new File(dbPath.trim());
+    private static Path animekoDataRoot(String resolvedDbPath) {
+        if (resolvedDbPath == null || resolvedDbPath.isBlank()) return null;
+        File db = new File(resolvedDbPath);
         File parent = db.getParentFile();
         return parent == null ? null : parent.toPath().toAbsolutePath().normalize();
     }
