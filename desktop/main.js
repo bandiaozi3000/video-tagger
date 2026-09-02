@@ -388,6 +388,7 @@ function startBackend(javaPath, jarPath, port) {
     // 显式固定 UTF-8：JVM 默认 file.encoding 随系统区域（中文 Windows=GBK），
     // 会把 UTF-8 的 schema 种子/日志读乱。不依赖目标机 Windows 区域设置。
     '-Dfile.encoding=UTF-8',
+    '-Djava.net.useSystemProxies=true',
     '-jar', jarPath,
     `--server.port=${port}`,
     '--server.address=127.0.0.1',
@@ -498,6 +499,28 @@ function createMainWindow(port) {
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const target = new URL(url);
+      if (target.origin === `http://127.0.0.1:${port}` && target.pathname === '/player.html') {
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            width: 1500,
+            height: 900,
+            minWidth: 860,
+            minHeight: 620,
+            autoHideMenuBar: true,
+            backgroundColor: '#0a0a15',
+            webPreferences: {
+              contextIsolation: true,
+              nodeIntegration: false,
+              sandbox: true,
+              preload: path.join(__dirname, 'preload.js'),
+            },
+          },
+        };
+      }
+    } catch (_) {}
     // 外部链接用系统浏览器打开，禁止应用内新窗
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };

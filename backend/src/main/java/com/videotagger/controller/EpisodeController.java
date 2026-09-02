@@ -1,5 +1,6 @@
 package com.videotagger.controller;
 
+import com.videotagger.entity.Clip;
 import com.videotagger.service.EpisodeDetail;
 import com.videotagger.service.EpisodeService;
 import com.videotagger.service.EpisodeUpdateRequest;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 /** 集级打标入口（Web UI 手动）+ 集封面（帧封面）+ 集详情页。 */
@@ -34,6 +36,11 @@ public class EpisodeController {
     @GetMapping("/{id}")
     public EpisodeDetail get(@PathVariable Long id) {
         return episodeService.detail(id);
+    }
+
+    @GetMapping("/{id}/clips")
+    public List<Clip> clips(@PathVariable Long id) {
+        return episodeService.clips(id);
     }
 
     /** 删除集：级联清理其下片段、标签、封面与向量。 */

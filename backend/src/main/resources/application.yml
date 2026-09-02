@@ -40,10 +40,53 @@ mybatis-plus:
     map-underscore-to-camel-case: true
 
 videotagger:
+  video-sources:
+    jellyfin:
+      enabled: ${JELLYFIN_PROVIDER_ENABLED:false}
+      base-url: ${JELLYFIN_BASE_URL:http://127.0.0.1:8096}
+      user-id: ${JELLYFIN_USER_ID:}
+      api-key: ${JELLYFIN_API_KEY:}
+      timeout-ms: ${JELLYFIN_TIMEOUT_MS:10000}
+      max-results: ${JELLYFIN_MAX_RESULTS:20}
+      allow-private-network: ${JELLYFIN_ALLOW_PRIVATE_NETWORK:false}
+    mikan:
+      enabled: ${MIKAN_PROVIDER_ENABLED:false}
+      base-url: ${MIKAN_BASE_URL:https://mikanani.me}
+      search-url-template: ${MIKAN_SEARCH_URL_TEMPLATE:https://mikanani.me/RSS/Search?searchstr={keyword}}
+      timeout-ms: ${MIKAN_TIMEOUT_MS:10000}
+      max-results: ${MIKAN_MAX_RESULTS:100}
+    dmhy:
+      enabled: ${DMHY_PROVIDER_ENABLED:false}
+      base-url: ${DMHY_BASE_URL:https://share.dmhy.org}
+      search-url-template: ${DMHY_SEARCH_URL_TEMPLATE:https://share.dmhy.org/topics/rss/rss.xml?keyword={keyword}}
+      timeout-ms: ${DMHY_TIMEOUT_MS:10000}
+      max-results: ${DMHY_MAX_RESULTS:100}
+    web-selector:
+      enabled: ${WEB_SELECTOR_PROVIDER_ENABLED:false}
+      id: ${WEB_SELECTOR_PROVIDER_ID:web-selector}
+      display-name: ${WEB_SELECTOR_DISPLAY_NAME:Web Selector}
+      base-url: ${WEB_SELECTOR_BASE_URL:https://example.com}
+      search-url-template: ${WEB_SELECTOR_SEARCH_URL_TEMPLATE:https://example.com/search?q={keyword}}
+      result-selector: ${WEB_SELECTOR_RESULT_SELECTOR:.result}
+      result-title-selector: ${WEB_SELECTOR_RESULT_TITLE_SELECTOR:.title}
+      result-link-selector: ${WEB_SELECTOR_RESULT_LINK_SELECTOR:a}
+      episode-selector: ${WEB_SELECTOR_EPISODE_SELECTOR:.episode}
+      episode-title-selector: ${WEB_SELECTOR_EPISODE_TITLE_SELECTOR:.title}
+      episode-link-selector: ${WEB_SELECTOR_EPISODE_LINK_SELECTOR:a}
+      media-selector: ${WEB_SELECTOR_MEDIA_SELECTOR:}
+      media-attribute: ${WEB_SELECTOR_MEDIA_ATTRIBUTE:src}
+      timeout-ms: ${WEB_SELECTOR_TIMEOUT_MS:10000}
+      max-results: ${WEB_SELECTOR_MAX_RESULTS:20}
+  metadata:
+    bangumi:
+      base-url: ${BANGUMI_BASE_URL:https://api.bgm.tv}
+      access-token: ${BANGUMI_ACCESS_TOKEN:}
   # 数据根统一走 VT_DATA_DIR（桌面版注入 %APPDATA%），各子目录跟随
   cover-dir: ${COVER_DIR:${VT_DATA_DIR:data}/covers}
   site-dir: ${SITE_DIR:${VT_DATA_DIR:data}/site}
   export-dir: ${EXPORT_DIR:${VT_DATA_DIR:data}/exports}
+  video-assets:
+    root-dir: ${VIDEO_ASSET_ROOT_DIR:${VT_DATA_DIR:data}/video-assets}
   clip-export:
     video-dir: ${VIDEO_LIBRARY_DIR:${VT_DATA_DIR:data}/videos}
     video-output-dir: ${CLIP_VIDEO_OUTPUT_DIR:${VT_DATA_DIR:data}/clip-videos}
@@ -63,9 +106,9 @@ videotagger:
     max-download-bytes: ${HIGHLIGHT_MAX_DOWNLOAD_BYTES:524288000}
     max-duration-sec: ${HIGHLIGHT_MAX_DURATION_SEC:7200}
     max-items: ${HIGHLIGHT_MAX_ITEMS:200}
-  # 外部同步（AniList/omofuna 按年份批量导入）：默认开启；需联网。设为 false 可禁用（同步入口 404）
+  # 旧 AniList/omofun 同步代码保留但不开放入口；当前开放同步仅走 Bangumi 元数据接口
   sync:
-    enabled: ${VIDEOTAGGER_SYNC_ENABLED:true}
+    enabled: ${VIDEOTAGGER_SYNC_ENABLED:false}
   llm:
     # LLM 后台归组（番剧别名识别）默认关闭；开启需在 .env 注入 LLM_* 环境变量
     base-url: ${LLM_BASE_URL:}
@@ -94,7 +137,6 @@ videotagger:
     node-path: ${RENDER_NODE_PATH:node}
     chrome-path: ${RENDER_CHROME_PATH:C:/Program Files/Google/Chrome/Application/chrome.exe}
     ffmpeg-path: ${RENDER_FFMPEG_PATH:${user.home}/.local/ffmpeg/bin/ffmpeg.exe}
-
 ---
 # MySQL profile：数据迁移工具专用（从 MySQL 读数据迁到 SQLite）。桌面版运行不启用。
 spring:

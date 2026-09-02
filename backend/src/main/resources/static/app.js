@@ -101,7 +101,7 @@ const filterSubcategoryEl = document.getElementById('filter-subcategory');
 const filterCollectionEl = document.getElementById('filter-collection');
 const filterUnconfirmedEl = document.getElementById('filter-unconfirmed');
 const filterYearEl = document.getElementById('filter-year');
-const filterSourceEl = document.getElementById('filter-source');
+const filterSourceEl = null;
 const filterSortEl = document.getElementById('filter-sort');
 const filterOrderBtn = document.getElementById('filter-order');
 const trashView = document.getElementById('trash-view');
@@ -156,27 +156,18 @@ const syncYearGridEl = document.getElementById('sync-year-grid');
 const mediaSyncStatusEl = document.getElementById('media-sync-status');
 const mediaSyncStartBtn = document.getElementById('media-sync-start');
 const mediaSyncProgressEl = document.getElementById('media-sync-progress');
-const syncSourceChips = document.querySelectorAll('#media-sync-modal .sync-source-chip');
+const syncSourceChips = document.querySelectorAll('#media-sync-modal [data-sync-mode]');
 const syncSourceHintEl = document.getElementById('sync-source-hint');
+const syncWorkBoxEl = document.getElementById('sync-work-box');
 const syncCategoryGridEl = document.getElementById('sync-category-grid');
-let syncSource = 'ANILIST'; // 同步数据源（弹层内单选，AniList/omofuna）
-let omofunaPollTimer = null; // omofuna 同步进度轮询定时器（关弹窗清除，刷新可恢复）
-// 分类 chips 选项：AniList 用 format，omofuna 用类目（多选，默认全选）
-const SYNC_FORMATS = [
-    { code: 'TV', name: 'TV' },
-    { code: 'TV_SHORT', name: 'TV 短片' },
-    { code: 'MOVIE', name: '剧场版' },
-    { code: 'OVA', name: 'OVA' },
-    { code: 'ONA', name: 'ONA' },
-    { code: 'SPECIAL', name: '特别篇' },
-    { code: 'MUSIC', name: '音乐' },
-];
-const SYNC_TYPES = [
-    { id: 1, name: '日漫' },
-    { id: 5, name: '动画' },
-    { id: 24, name: '剧场' },
-];
-const mediaRetryCoversBtn = document.getElementById('media-retry-covers');
+const syncSeasonGridEl = document.getElementById('sync-season-grid');
+const syncSeasonBoxEl = document.getElementById('sync-season-box');
+const syncYearBoxEl = document.getElementById('sync-year-box');
+const syncWorkInputEl = document.getElementById('sync-work-input');
+const metadataSyncCandidatesEl = document.getElementById('metadata-sync-candidates');
+let syncMode = 'YEAR';
+let metadataSyncCandidates = [];
+const mediaRetryCoversBtn = null;
 const mediaSelectAllBtn = document.getElementById('media-batch-select-all');
 const mediaPageSizeEl = document.getElementById('media-page-size');
 const mediaPagePrevEl = document.getElementById('media-page-prev');
@@ -299,7 +290,7 @@ const searchTimeCustom = document.getElementById('search-time-custom');
 const searchTimeFrom = document.getElementById('search-time-from');
 const searchTimeTo = document.getElementById('search-time-to');
 const searchGroupToggle = document.getElementById('search-group');
-const SEARCH_SOURCE_SELECT = document.getElementById('search-source');
+const SEARCH_SOURCE_SELECT = null;
 const searchMoreBtn = document.getElementById('search-more-btn');
 const searchFiltersMore = document.getElementById('search-filters-more');
 const searchPaginationEl = document.getElementById('search-pagination');
@@ -378,7 +369,7 @@ function closeConfirmModal() {
     confirmModal.hidden = true;
     confirmModalAction = null;
 }
-let mediaFilter = { q: '', status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', source: '', sort: '', order: 'desc' };
+let mediaFilter = { q: '', status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', sort: '', order: 'desc' };
 let displayView = 'card';   // 全局视图偏好：card 卡片 / list 列表（媒体页/收藏夹/推荐页共用，单按钮切换）
 let collSelectedId = null;           // 收藏夹 tab：当前选中的收藏夹 id
 let collectionsCache = [];           // 收藏夹列表缓存（管理视图用）
@@ -654,12 +645,28 @@ function renderClipDetailHead(clip, ep, media) {
         <div class="ad-info">
             <h2 class="ad-title"></h2>
             <div class="ad-meta"></div>
+            <div class="cd-source-provenance"></div>
             ${clip.note ? '<div class="cd-note"></div>' : ''}
             ${nav.length ? `<div class="cd-nav">${nav.join('')}</div>` : ''}
         </div>`;
     clipDetailHeadEl.querySelector('.ad-title').textContent = clip.title || '(未命名)';
     const range = clip.endSec != null ? `${fmtTime(clip.timestampSec)} – ${fmtTime(clip.endSec)}` : fmtTime(clip.timestampSec);
     clipDetailHeadEl.querySelector('.ad-meta').textContent = `片段 · ${range} · ${clip.tag}`;
+    const provenance = clipDetailHeadEl.querySelector('.cd-source-provenance');
+    provenance.innerHTML = `<span>资产 ${clip.videoAssetId ?? '未绑定'} · revision ${esc(clip.sourceRevision || '未知')} · ${esc(clip.materialState || 'REFERENCE_ONLY')}</span> <button class="nav-link" data-prepare-material>准备素材</button>`;
+    provenance.querySelector('[data-prepare-material]').addEventListener('click', async () => {
+        provenance.textContent = '正在检查素材计划…';
+        try {
+            const planResp = await fetch(`/api/clips/${clip.id}/material/plan`);
+            const plan = await planResp.json();
+            if (!planResp.ok) throw new Error(plan.message || `HTTP ${planResp.status}`);
+            if (plan.strategy !== 'TRIM_LOCAL_ASSET') { provenance.textContent = `当前策略：${plan.strategy}，请先准备 Episode 本地资产。`; return; }
+            const resp = await fetch(`/api/clips/${clip.id}/material`, { method: 'POST' });
+            const result = await resp.json();
+            if (!resp.ok) throw new Error(result.message || `HTTP ${resp.status}`);
+            await renderClipDetail(clip.id);
+        } catch (e) { provenance.textContent = `素材准备失败：${e.message}`; }
+    });
     if (clip.note) clipDetailHeadEl.querySelector('.cd-note').textContent = `备注：${clip.note}`;
     clipDetailHeadEl.querySelector('[data-nav="episode"]')?.addEventListener('click', () => openEpisodeDetail(ep.id));
     clipDetailHeadEl.querySelector('[data-nav="media"]')?.addEventListener('click', () => openMediaDetail(media.id));
@@ -994,16 +1001,13 @@ async function loadEpisodeDetail(id) {
         renderEpisodeNote(ep);
         renderEpisodeDetailTags(ep);
 
-        // 该集片段（左缩略图列表）
-        if (ep.videoFp) {
-            const clipsResp = await fetch(`/api/videos/${encodeURIComponent(ep.videoFp)}/clips`);
-            if (clipsResp.ok) {
-                const clips = await clipsResp.json();
-                if (clips.length === 0) {
-                    episodeDetailClipsEl.innerHTML = '<div class="status">该集还没有片段标记，去看片按 Alt+S 打一个</div>';
-                } else {
-                    for (const c of clips) appendClipCard(episodeDetailClipsEl, c, {});
-                }
+        const clipsResp = await fetch(`/api/episodes/${id}/clips`);
+        if (clipsResp.ok) {
+            const clips = await clipsResp.json();
+            if (clips.length === 0) {
+                episodeDetailClipsEl.innerHTML = '<div class="status">该集还没有片段标记，可以在播放工作台直接创建</div>';
+            } else {
+                for (const c of clips) appendClipCard(episodeDetailClipsEl, c, {});
             }
         }
         episodeDetailStatusEl.textContent = '';
@@ -1027,6 +1031,7 @@ function renderEpisodeDetailHead(ep, media) {
         <div class="ad-info">
             <h2 class="ad-title"></h2>
             <div class="ad-meta"></div>
+            <div class="cd-source-provenance"></div>
             <button type="button" class="btn-mini ep-no-edit-btn">编辑季/集</button>
             ${mediaNav}
         </div>`;
@@ -1763,7 +1768,6 @@ function buildMediaUrls() {
         if (mediaFilter.subcategoryId) p.set('subcategoryId', mediaFilter.subcategoryId);
         if (mediaFilter.unconfirmed) p.set('confirmed', '0');
         if (mediaFilter.year) p.set('year', mediaFilter.year);
-        if (mediaFilter.source) p.set('source', mediaFilter.source);
         if (mediaFilter.sort) p.set('sort', mediaFilter.sort);
         if (mediaFilter.order !== 'desc') p.set('order', mediaFilter.order);
     };
@@ -2425,15 +2429,14 @@ function renderMediaGrid(list, container = mediaGridEl, mode = 'media') {
         mediaById.set(a.id, a);
         const card = document.createElement('div');
         card.className = 'media-card' + (mediaBatchMode ? ' batch-mode' : '') + (mediaSelected.has(a.id) ? ' selected' : '');
-        const cover = (a.coverPath || a.fallbackCoverPath)
-            ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" onerror="this.style.display='none'">`
+        const cover = (a.coverPath || a.fallbackCoverPath || a.externalCoverUrl)
+            ? `<img src="${esc(a.coverPath || a.fallbackCoverPath || a.externalCoverUrl)}" alt="" onerror="this.style.display='none'">`
             : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
         const fmtBadge = a.mediaFormat
             ? `<span class="media-format-badge fmt-${esc(a.mediaFormat)}">${esc(formatName(a.mediaFormat))}</span>`
             : '';
-        // 来源角标：仅同步来源显示（手动为默认态不刷屏）
-        const srcBadge = (a.source === 'ANILIST' || a.source === 'OMOFUNA')
-            ? `<span class="media-source-badge">${esc(a.source === 'ANILIST' ? 'AniList' : 'omofuna')}</span>`
+        const srcBadge = a.source === 'BANGUMI'
+            ? '<span class="media-source-badge">Bangumi</span>'
             : '';
         card.innerHTML = `
             <div class="media-cover">${fmtBadge}${srcBadge}${cover}
@@ -2508,8 +2511,8 @@ function renderMediaRow(list, container, mode = 'media') {
         mediaById.set(a.id, a);
         const row = document.createElement('div');
         row.className = 'media-row' + (mediaBatchMode && mediaSelected.has(a.id) ? ' selected' : '');
-        const cover = (a.coverPath || a.fallbackCoverPath)
-            ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" loading="lazy" onerror="this.style.display='none'">`
+        const cover = (a.coverPath || a.fallbackCoverPath || a.externalCoverUrl)
+            ? `<img src="${esc(a.coverPath || a.fallbackCoverPath || a.externalCoverUrl)}" alt="" loading="lazy" onerror="this.style.display='none'">`
             : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
         const fmtBadge = a.mediaFormat
             ? `<span class="media-format-badge fmt-${esc(a.mediaFormat)}">${esc(formatName(a.mediaFormat))}</span>`
@@ -3051,15 +3054,14 @@ function renderRecommendGrid(list, container = recommendGridEl) {
         const card = document.createElement('div');
         card.className = 'media-card' + (recommendSelected.has(a.id) ? ' selected' : '');
         card.dataset.id = a.id;   // 框选批量操作按 data-id 定位
-        const cover = (a.coverPath || a.fallbackCoverPath)
-            ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" loading="lazy" onerror="this.style.display='none'">`
+        const cover = (a.coverPath || a.fallbackCoverPath || a.externalCoverUrl)
+            ? `<img src="${esc(a.coverPath || a.fallbackCoverPath || a.externalCoverUrl)}" alt="" loading="lazy" onerror="this.style.display='none'">`
             : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
         const fmtBadge = a.mediaFormat
             ? `<span class="media-format-badge fmt-${esc(a.mediaFormat)}">${esc(formatName(a.mediaFormat))}</span>`
             : '';
-        // 来源角标：仅同步来源显示（推荐勾选时便于识别 omofuna/AniList 重复来源）
-        const srcBadge = (a.source === 'ANILIST' || a.source === 'OMOFUNA')
-            ? `<span class="media-source-badge">${esc(a.source === 'ANILIST' ? 'AniList' : 'omofuna')}</span>`
+        const srcBadge = a.source === 'BANGUMI'
+            ? '<span class="media-source-badge">Bangumi</span>'
             : '';
         card.innerHTML = `
             <div class="media-cover">${fmtBadge}${srcBadge}${cover}
@@ -3111,14 +3113,14 @@ function renderRecommendRow(list, container = recommendGridEl) {
         const row = document.createElement('div');
         row.className = 'media-row' + (recommendSelected.has(a.id) ? ' selected' : '');
         row.dataset.id = a.id;   // 框选批量操作按 data-id 定位
-        const cover = (a.coverPath || a.fallbackCoverPath)
-            ? `<img src="${a.coverPath || a.fallbackCoverPath}" alt="" loading="lazy" onerror="this.style.display='none'">`
+        const cover = (a.coverPath || a.fallbackCoverPath || a.externalCoverUrl)
+            ? `<img src="${esc(a.coverPath || a.fallbackCoverPath || a.externalCoverUrl)}" alt="" loading="lazy" onerror="this.style.display='none'">`
             : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
         const fmtBadge = a.mediaFormat
             ? `<span class="media-format-badge fmt-${esc(a.mediaFormat)}">${esc(formatName(a.mediaFormat))}</span>`
             : '';
-        const srcBadge = (a.source === 'ANILIST' || a.source === 'OMOFUNA')
-            ? `<span class="media-source-badge">${esc(a.source === 'ANILIST' ? 'AniList' : 'omofuna')}</span>`
+        const srcBadge = a.source === 'BANGUMI'
+            ? '<span class="media-source-badge">Bangumi</span>'
             : '';
         row.innerHTML = `
             <div class="row-thumb">${fmtBadge}${srcBadge}${cover}
@@ -4500,21 +4502,128 @@ async function loadMediaDetail(id) {
         const eps = epResp.ok ? await epResp.json() : [];
         currentMedia = detail;
         renderMediaDetail(detail, eps);
+        loadExternalMetadata(detail.id);
         detailStatusEl.textContent = '';
     } catch (err) {
         detailStatusEl.textContent = '加载失败：后端未响应';
     }
 }
 
+async function loadExternalMetadata(mediaId) {
+    if (window.v022LoadMediaMetadata) return window.v022LoadMediaMetadata(mediaId);
+    const panel = document.getElementById('external-metadata-panel');
+    if (!panel) return;
+    panel.hidden = true;
+    try {
+        const resp = await fetch(`/api/metadata-sync/media/${mediaId}/metadata`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const work = data.work;
+        if (!work) return;
+        const aliases = parseMetadataList(work.aliasesJson);
+        const genres = parseMetadataList(work.genresJson);
+        const externalEpisodes = Array.isArray(data.episodes) ? data.episodes : [];
+        const relations = Array.isArray(data.relations) ? data.relations : [];
+        panel.innerHTML = `
+            <div class="detail-section-head external-metadata-head">
+                <div><span class="detail-kicker">EXTERNAL ARCHIVE</span><h3 class="stats-title">外部资料</h3></div>
+                <span class="metadata-provider-badge">${esc(work.provider || '未知来源')}</span>
+            </div>
+            <div class="external-metadata-layout">
+                <div class="external-cover-wrap">${work.coverUrl ? `<img src="${esc(work.coverUrl)}" alt="" loading="lazy">` : '<span class="cover-placeholder large">◇</span>'}</div>
+                <div class="external-metadata-main">
+                    <div class="external-title-stack"><h4></h4><p></p></div>
+                    <div class="external-facts"></div>
+                    <div class="external-description"></div>
+                    <div class="external-chip-row external-genres" hidden></div>
+                    <div class="external-chip-row external-aliases" hidden></div>
+                </div>
+            </div>
+            <div class="external-episode-library" hidden>
+                <div class="external-subhead"><span class="detail-kicker">EXTERNAL EPISODE INDEX</span><span class="external-episode-count"></span></div>
+                <div class="external-episode-list"></div>
+            </div>
+            <div class="external-relations" hidden><span class="detail-kicker">RELATIONS</span><div class="external-relation-list"></div></div>`;
+        panel.querySelector('.external-title-stack h4').textContent = work.canonicalTitle || work.nativeTitle || '未命名作品';
+        panel.querySelector('.external-title-stack p').textContent = [work.nativeTitle, work.romajiTitle, work.englishTitle].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i && x !== work.canonicalTitle).join(' · ');
+        const facts = [
+            work.externalId ? `ID ${work.externalId}` : '',
+            work.year ? `${work.year}${work.season ? ` · ${work.season}` : ''}` : '',
+            work.format || '',
+            work.episodeCount != null ? `${work.episodeCount} 集` : '',
+            work.airDate || work.endDate ? `${work.airDate || '?'}${work.endDate ? ` — ${work.endDate}` : ''}` : ''
+        ].filter(Boolean);
+        panel.querySelector('.external-facts').innerHTML = facts.map(x => `<span>${esc(x)}</span>`).join('');
+        panel.querySelector('.external-description').textContent = work.description || '暂无外部简介';
+        renderMetadataChips(panel.querySelector('.external-genres'), '题材', genres);
+        renderMetadataChips(panel.querySelector('.external-aliases'), '别名', aliases);
+        const externalEpisodeLibrary = panel.querySelector('.external-episode-library');
+        if (externalEpisodes.length) {
+            externalEpisodeLibrary.hidden = false;
+            panel.querySelector('.external-episode-count').textContent = `${externalEpisodes.length} 集资料`;
+            panel.querySelector('.external-episode-list').innerHTML = externalEpisodes.map(ep => {
+                const number = ep.episodeNo != null ? `第${ep.episodeNo}集` : '未编号';
+                const secondaryTitle = ep.titleCn && ep.titleCn !== ep.title ? ep.titleCn : '';
+                const meta = [ep.airDate, ep.durationSec ? `${Math.round(ep.durationSec / 60)} 分钟` : '', ep.episodeId ? '已绑定本地集' : '待绑定本地集'].filter(Boolean);
+                const state = ep.syncState || 'ACTIVE';
+                return `<article class="external-episode-row state-${esc(state.toLowerCase())}">
+                    <div class="external-episode-no">${esc(number)}</div>
+                    <div class="external-episode-copy">
+                        <div class="external-episode-title">${esc(ep.title || secondaryTitle || '未命名集')}</div>
+                        ${secondaryTitle ? `<div class="external-episode-secondary">${esc(secondaryTitle)}</div>` : ''}
+                        ${ep.description ? `<div class="external-episode-description">${esc(ep.description)}</div>` : ''}
+                        <div class="external-episode-meta">${meta.map(x => `<span>${esc(x)}</span>`).join('')}</div>
+                    </div>
+                    <span class="external-episode-state">${esc(state)}</span>
+                </article>`;
+            }).join('');
+        }
+        const episodeStateCounts = externalEpisodes.reduce((acc, ep) => { const state = ep.syncState || 'ACTIVE'; acc[state] = (acc[state] || 0) + 1; return acc; }, {});
+        if (Object.keys(episodeStateCounts).length) {
+            const episodeStates = document.createElement('div');
+            episodeStates.className = 'external-episode-states';
+            episodeStates.textContent = '集同步：' + Object.entries(episodeStateCounts).map(([state, count]) => `${state} ${count}`).join(' · ');
+            panel.querySelector('.external-metadata-main').appendChild(episodeStates);
+        }
+        const relationWrap = panel.querySelector('.external-relations');
+        if (relations.length) {
+            relationWrap.hidden = false;
+            panel.querySelector('.external-relation-list').innerHTML = relations.map(r => `<span>${esc(r.relationType || '相关作品')} · ${esc(r.title || r.relatedExternalId || '')}</span>`).join('');
+        }
+        const state = work.syncState || '未知';
+        const syncLabel = `同步 ${state} · ${work.lastSuccessAt ? new Date(work.lastSuccessAt).toLocaleString() : '暂无成功记录'}`;
+        const status = document.createElement('div');
+        status.className = 'external-sync-state';
+        status.textContent = work.lastError ? `${syncLabel} · ${work.lastError}` : syncLabel;
+        panel.appendChild(status);
+        panel.hidden = false;
+    } catch (e) { /* 外部缓存缺失不影响本地详情 */ }
+}
+
+function parseMetadataList(value) {
+    if (!value) return [];
+    try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed.filter(Boolean).map(String) : [];
+    } catch (e) { return []; }
+}
+
+function renderMetadataChips(container, label, values) {
+    if (!container || !values.length) return;
+    container.hidden = false;
+    container.innerHTML = `<span class="external-chip-label">${esc(label)}</span>` + values.map(v => `<span>${esc(v)}</span>`).join('');
+}
+
 function renderMediaDetail(d, eps) {
-    const cover = (d.coverPath || d.fallbackCoverPath)
-        ? `<img src="${d.coverPath || d.fallbackCoverPath}" alt="">`
+    const cover = (d.coverPath || d.fallbackCoverPath || d.externalCoverUrl)
+        ? `<img src="${esc(d.coverPath || d.fallbackCoverPath || d.externalCoverUrl)}" alt="">`
         : `<span class="cover-placeholder large">${esc(d.title).slice(0, 1)}</span>`;
     mediaDetailHeadEl.innerHTML = `
         <div class="ad-cover">${cover}</div>
         <div class="ad-info">
             <h2 class="ad-title"></h2>
             <div class="ad-meta"></div>
+            <div class="cd-source-provenance"></div>
             ${d.note ? '<div class="ad-note"></div>' : ''}
         </div>`;
     mediaDetailHeadEl.querySelector('.ad-title').textContent = d.title;
@@ -4532,13 +4641,42 @@ function renderMediaDetail(d, eps) {
     renderDetailTags(d);
     renderDetailCollections(d);
     renderDetailAliases(d);
-    // 仅视频格式展示「集列表」；图片/文字为单层媒体
+    renderLocalDetailSummary(d, eps, isVideo);
+    renderDetailProfile(d, isVideo);
     const epListTitle = document.getElementById('episode-list-title');
     episodeListEl.hidden = !isVideo;
     if (epListTitle) epListTitle.hidden = !isVideo;
     renderEpisodeList(eps);
     detailConfirmBtn.hidden = d.confirmed !== 0;
     if (detailHighlightBtn) detailHighlightBtn.hidden = !isVideo;
+}
+
+function renderLocalDetailSummary(d, eps, isVideo) {
+    const el = document.getElementById('detail-local-summary');
+    if (!el) return;
+    const values = [
+        ['片段', d.clipCount || 0],
+        ['集', isVideo ? (d.episodeCount || eps.length || 0) : '—'],
+        ['标签', Array.isArray(d.tags) ? d.tags.length : 0],
+        ['收藏', Array.isArray(d.collectionIds) ? d.collectionIds.length : 0]
+    ];
+    el.innerHTML = values.map(([label, value]) => `<div class="detail-local-stat"><b>${esc(String(value))}</b><span>${esc(label)}</span></div>`).join('');
+}
+
+function renderDetailProfile(d, isVideo) {
+    const el = document.getElementById('detail-profile');
+    if (!el) return;
+    const status = d.status ? (MEDIA_STATUS_LABEL[d.status] || d.status) : '未设置';
+    const rating = d.rating != null ? `★ ${d.rating} / 10` : '未评分';
+    const source = mediaSourceLabel(d.source);
+    const confirmed = d.confirmed !== 0 ? '已确认' : '待确认';
+    const facts = [
+        ['观看状态', status, 'profile-status'],
+        ['个人评分', rating, 'profile-rating'],
+        ['资料来源', source, ''],
+        ['档案状态', confirmed, d.confirmed === 0 ? 'profile-pending' : '']
+    ];
+    el.innerHTML = facts.map(([label, value, cls]) => `<div class="detail-profile-row"><span>${esc(label)}</span><b class="${cls}">${esc(value)}</b></div>`).join('');
 }
 
 /** 别名管理：该媒体全部标题映射（合并自动记的），逐个可解除。 */
@@ -4551,6 +4689,8 @@ async function renderDetailAliases(d) {
         if (resp.ok) aliases = await resp.json();
     } catch (e) { /* 忽略 */ }
     titleEl.hidden = aliases.length === 0;
+    const aliasSection = document.getElementById('detail-alias-section');
+    if (aliasSection) aliasSection.hidden = aliases.length === 0;
     el.innerHTML = aliases.length
         ? aliases.map(a => `
             <span class="alias-chip" title="保存标题为「${esc(a)}」的片段时自动归入「${esc(d.title)}」">${esc(a)}
@@ -5012,6 +5152,7 @@ function formatName(code) {
 
 /** 媒体来源 → 完整展示名（详情 meta 用；角标用短名直接内联）。 */
 function mediaSourceLabel(s) {
+    if (s === 'BANGUMI') return 'Bangumi 同步';
     if (s === 'ANILIST') return 'AniList 同步';
     if (s === 'OMOFUNA') return 'omofuna 同步';
     return '手动';
@@ -5543,12 +5684,17 @@ async function saveEpisodeCoverUpload() {
     refreshCurrentView();
 }
 
-/** 打开番剧同步弹窗：生成 2000~2026 年份勾选 chips，默认全不选。 */
-/** 打开同步弹窗：年份 chips + 来源 chips 状态 + 检查进行中 omofuna 任务（刷新恢复进度）。 */
 function openMediaSyncModal() {
+    syncMode = 'YEAR';
+    metadataSyncCandidates = [];
+    syncSourceChips.forEach(c => c.classList.toggle('on', c.dataset.syncMode === syncMode));
     syncYearGridEl.innerHTML = '';
+    metadataSyncCandidatesEl.hidden = true;
+    metadataSyncCandidatesEl.innerHTML = '';
     mediaSyncStatusEl.textContent = '';
     mediaSyncProgressEl.hidden = true;
+    mediaSyncStartBtn.textContent = '预览同步';
+    syncWorkInputEl.value = '';
     const now = new Date().getFullYear();
     for (let y = now; y >= 2000; y--) {
         const chip = document.createElement('button');
@@ -5556,178 +5702,186 @@ function openMediaSyncModal() {
         chip.className = 'sync-year-chip';
         chip.dataset.year = y;
         chip.textContent = y;
-        chip.addEventListener('click', () => {
-            chip.classList.toggle('on');
-        });
+        chip.addEventListener('click', () => chip.classList.toggle('on'));
         syncYearGridEl.appendChild(chip);
     }
-    syncSourceChips.forEach(c => c.classList.toggle('on', c.dataset.source === syncSource));
-    updateSyncSourceHint();
-    renderSyncCategories();
-    mediaSyncModal.hidden = false;
-    checkOmofunaCurrent();
-}
-
-/** 来源切换（单选互斥）；切换时重渲染分类 chips、清空状态/进度并停掉旧轮询。 */
-function setSyncSource(src) {
-    syncSource = src;
-    syncSourceChips.forEach(c => c.classList.toggle('on', c.dataset.source === src));
-    updateSyncSourceHint();
-    renderSyncCategories();
-    mediaSyncStatusEl.textContent = '';
-    mediaSyncProgressEl.hidden = true;
-    mediaSyncStartBtn.disabled = false;
-    if (omofunaPollTimer) { clearInterval(omofunaPollTimer); omofunaPollTimer = null; }
-}
-
-/** 按当前数据源渲染分类 chips（AniList format / omofuna 类目），多选默认全选。 */
-function renderSyncCategories() {
-    syncCategoryGridEl.innerHTML = '';
-    const list = syncSource === 'OMOFUNA' ? SYNC_TYPES : SYNC_FORMATS;
-    for (const c of list) {
+    syncSeasonGridEl.innerHTML = '';
+    for (const season of [['WINTER', '冬'], ['SPRING', '春'], ['SUMMER', '夏'], ['FALL', '秋']]) {
         const chip = document.createElement('button');
-        chip.type = 'button';
-        chip.className = 'sync-year-chip on';
-        chip.dataset.val = c.code != null ? c.code : String(c.id);
-        chip.textContent = c.name;
-        chip.addEventListener('click', () => chip.classList.toggle('on'));
-        syncCategoryGridEl.appendChild(chip);
+        chip.type = 'button'; chip.className = 'sync-source-chip';
+        chip.dataset.season = season[0]; chip.textContent = season[1];
+        chip.addEventListener('click', () => {
+            syncSeasonGridEl.querySelectorAll('.sync-source-chip').forEach(x => x.classList.remove('on'));
+            chip.classList.add('on');
+        });
+        syncSeasonGridEl.appendChild(chip);
     }
+    updateMetadataSyncMode();
+    mediaSyncModal.hidden = false;
 }
 
-/** 按数据源更新提示文案。 */
-function updateSyncSourceHint() {
-    syncSourceHintEl.textContent = syncSource === 'OMOFUNA'
-        ? 'omofuna：抓取中文标题（日漫/动画/剧场），后台运行约 20~40 分钟，刷新可恢复进度'
-        : 'AniList：日文原名占位，同步约几十秒，命中已有自动跳过';
+function updateMetadataSyncMode() {
+    syncWorkBoxEl.hidden = syncMode !== 'WORK';
+    syncSeasonBoxEl.hidden = syncMode !== 'YEAR_SEASON';
+    syncYearBoxEl.hidden = syncMode === 'WORK';
+    syncSourceHintEl.textContent = syncMode === 'WORK'
+        ? '输入作品名后实时查询 Bangumi，预览候选，确认后才导入。'
+        : syncMode === 'YEAR_SEASON'
+            ? '选择年份和季度，预览本季度作品后一次确认导入。'
+            : '选择年份，预览作品后一次确认导入。';
 }
 
-/** 全选 / 清空年份 chips。 */
+function setSyncMode(mode) {
+    syncMode = mode;
+    metadataSyncCandidates = [];
+    syncSourceChips.forEach(c => c.classList.toggle('on', c.dataset.syncMode === mode));
+    updateMetadataSyncMode();
+    metadataSyncCandidatesEl.hidden = true;
+    metadataSyncCandidatesEl.innerHTML = '';
+    mediaSyncStatusEl.textContent = '';
+    mediaSyncStartBtn.textContent = '预览同步';
+}
+
 function setSyncYears(on) {
     syncYearGridEl.querySelectorAll('.sync-year-chip').forEach(c => c.classList.toggle('on', on));
 }
 
-/** 开始同步：按数据源分流（AniList 同步阻塞 / omofuna 异步任务 + 轮询）。分类全选时不传（不过滤）。 */
-async function startMediaSync() {
-    const years = [...syncYearGridEl.querySelectorAll('.sync-year-chip.on')]
-        .map(c => Number(c.dataset.year));
-    if (years.length === 0) { mediaSyncStatusEl.textContent = '请先勾选至少一个年份'; return; }
-    const catVals = [...syncCategoryGridEl.querySelectorAll('.sync-year-chip.on')].map(c => c.dataset.val);
-    const allCats = catVals.length === syncCategoryGridEl.children.length;
-    if (syncSource === 'OMOFUNA') {
-        await startOmofunaSync(years, allCats ? null : catVals.map(Number));
+function syncQueryBody() {
+    const body = { mode: syncMode, limit: 1000 };
+    if (syncMode === 'WORK') {
+        body.keyword = syncWorkInputEl.value.trim();
+        if (!body.keyword) {
+            mediaSyncStatusEl.textContent = '请输入番剧名称';
+            return null;
+        }
     } else {
-        await startAnilistSync(years, allCats ? null : catVals);
+        const years = [...syncYearGridEl.querySelectorAll('.sync-year-chip.on')].map(c => Number(c.dataset.year));
+        if (years.length !== 1) {
+            mediaSyncStatusEl.textContent = '请选择一个年份';
+            return null;
+        }
+        body.year = years[0];
+        if (syncMode === 'YEAR_SEASON') {
+            const season = syncSeasonGridEl.querySelector('.sync-source-chip.on');
+            if (!season) {
+                mediaSyncStatusEl.textContent = '请选择季度';
+                return null;
+            }
+            body.season = season.dataset.season;
+        }
     }
+    return body;
 }
 
-/** AniList 同步（同步阻塞，几十秒）：POST → 展示结果 → 刷新媒体列表。formats 空=不过滤。 */
-async function startAnilistSync(years, formats) {
+async function startMediaSync() {
+    if (metadataSyncCandidates.length > 0) {
+        await confirmMetadataSync();
+        return;
+    }
+    const body = syncQueryBody();
+    if (!body) return;
     mediaSyncStartBtn.disabled = true;
-    mediaSyncStatusEl.textContent = `正在同步 ${Math.min(...years)}~${Math.max(...years)} 年…（数据源 AniList）`;
+    mediaSyncProgressEl.hidden = false;
+    mediaSyncStatusEl.textContent = '正在查询 Bangumi 资料…';
     try {
-        const body = { years };
-        if (formats && formats.length) body.formats = formats;
-        const resp = await fetch('/api/media/sync-anilist', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
+        const resp = await fetch('/api/metadata-sync/preview', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
         });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const r = await resp.json();
-        mediaSyncStatusEl.textContent = `完成：新增 ${r.added} 部，跳过 ${r.skipped} 部`;
-        showToast(`番剧同步完成：新增 ${r.added}，跳过 ${r.skipped}`);
-        loadMedia();
+        const data = await resp.json().catch(() => []);
+        if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+        metadataSyncCandidates = Array.isArray(data) ? data : [];
+        renderMetadataSyncCandidates();
     } catch (e) {
-        mediaSyncStatusEl.textContent = '同步失败：后端未响应，请确认后端已启动';
+        mediaSyncStatusEl.textContent = '预览失败：' + (e.message || 'Bangumi 不可用');
+        mediaSyncProgressEl.hidden = true;
     } finally {
         mediaSyncStartBtn.disabled = false;
     }
 }
 
-/** omofuna 同步（异步任务）：POST 建后台任务（立即返回 taskId）→ 轮询进度。types 空=全部类目。 */
-async function startOmofunaSync(years, types) {
+function renderMetadataSyncCandidates() {
+    metadataSyncCandidatesEl.innerHTML = metadataSyncCandidates.length ? metadataSyncCandidates.map(c => `
+        <label class="sync-candidate-row" data-target-media-id="${c.targetMediaId || ''}" data-external-id="${esc(c.externalId)}">
+            <input type="checkbox" checked data-external-id="${esc(c.externalId)}">
+            <span class="sync-candidate-cover">${c.coverUrl ? `<img src="${esc(c.coverUrl)}" alt="" loading="lazy">` : esc((c.titleCn || c.title || '?').slice(0, 1))}</span>
+            <span class="sync-candidate-copy">
+                <span class="sync-candidate-title">${esc(c.titleCn || c.title || c.externalId)}</span>
+                <span class="sync-candidate-native">${esc([c.nativeTitle, c.romajiTitle, c.englishTitle].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i && x !== (c.titleCn || c.title)).join(' · ') || (c.title && c.title !== c.titleCn ? c.title : ''))}</span>
+                <span class="sync-candidate-meta">${[c.year ? `${c.year}${c.season ? ` · ${c.season}` : ''}` : '', c.format, c.episodeCount != null ? `${c.episodeCount} 集` : '', c.airDate ? `开播 ${c.airDate}` : ''].filter(Boolean).map(x => `<span>${esc(x)}</span>`).join('')}</span>
+                ${c.description ? `<span class="sync-candidate-description">${esc(c.description)}</span>` : ''}
+                ${(c.genres || []).length ? `<span class="sync-candidate-genres">${c.genres.slice(0, 6).map(x => `<span>${esc(x)}</span>`).join('')}</span>` : ''}
+                <span class="sync-candidate-match">${c.targetMediaId ? '已找到本地媒体 · 将关联更新' : '新作品 · 将创建本地媒体'}</span>
+            </span>
+        </label>
+    `).join('') : '<div class="sync-empty">没有找到符合条件的作品，可以更换年份、季度或关键词后重试。</div>';
+    metadataSyncCandidatesEl.hidden = false;
+    mediaSyncProgressEl.hidden = true;
+    mediaSyncStatusEl.textContent = `预览完成：${metadataSyncCandidates.length} 个候选，可勾选后确认或直接全部同步`;
+    mediaSyncStartBtn.textContent = '确认导入选中作品';
+}
+
+async function syncAllMetadata() {
+    const body = syncQueryBody();
+    if (!body) return;
+    body.importMode = 'ALL';
     mediaSyncStartBtn.disabled = true;
-    mediaSyncStatusEl.textContent = '正在创建抓取任务…';
+    mediaSyncProgressEl.hidden = false;
+    mediaSyncStatusEl.textContent = '正在同步全部 Bangumi 资料…';
     try {
-        const body = { years };
-        if (types && types.length) body.types = types;
-        const resp = await fetch('/api/media/sync-omofuna', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
+        const resp = await fetch('/api/metadata-sync/sync', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
         });
-        if (!resp.ok) {
-            const err = await resp.json().catch(() => ({}));
-            throw new Error((err && err.message) || `HTTP ${resp.status}`);
-        }
-        const t = await resp.json();
-        mediaSyncStatusEl.textContent = `任务已启动，正在抓取 ${Math.min(...years)}~${Math.max(...years)} 年…`;
-        pollOmofunaTask(t.taskId);
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+        mediaSyncCandidates = [];
+        mediaSyncCandidatesEl.hidden = true;
+        mediaSyncStatusEl.textContent = `完成：新增 ${data.added || 0}，更新 ${data.updated || 0}，失败 ${data.failed || 0}`;
+        showToast('Bangumi 资料同步完成');
+        loadMedia();
     } catch (e) {
-        mediaSyncStatusEl.textContent = '启动失败：' + (e.message || '后端未响应');
+        mediaSyncStatusEl.textContent = '同步失败：' + (e.message || '后端未响应');
+    } finally {
+        mediaSyncProgressEl.hidden = true;
         mediaSyncStartBtn.disabled = false;
     }
 }
 
-/** 轮询 omofuna 任务进度；DONE 收尾刷新媒体列表，ERROR 展示失败原因。 */
-function pollOmofunaTask(taskId) {
-    if (omofunaPollTimer) clearInterval(omofunaPollTimer);
-    omofunaPollTimer = setInterval(async () => {
-        try {
-            const resp = await fetch('/api/media/sync-omofuna/' + taskId);
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const t = await resp.json();
-            if (t.status === 'RUNNING') {
-                mediaSyncProgressEl.hidden = false;
-                mediaSyncStatusEl.textContent = `正在抓取：已抓 ${t.processedPages} 页，约 ${t.itemsFound} 条`;
-            } else if (t.status === 'DONE') {
-                clearInterval(omofunaPollTimer);
-                omofunaPollTimer = null;
-                mediaSyncProgressEl.hidden = true;
-                mediaSyncStatusEl.textContent = `完成：新增 ${t.added} 部，跳过 ${t.skipped} 部`;
-                showToast(`omofuna 同步完成：新增 ${t.added}，跳过 ${t.skipped}`);
-                mediaSyncStartBtn.disabled = false;
-                loadMedia();
-            } else { // ERROR
-                clearInterval(omofunaPollTimer);
-                omofunaPollTimer = null;
-                mediaSyncProgressEl.hidden = true;
-                mediaSyncStatusEl.textContent = '同步失败：' + (t.message || '未知错误');
-                showToast('omofuna 同步失败');
-                mediaSyncStartBtn.disabled = false;
-            }
-        } catch (e) {
-            clearInterval(omofunaPollTimer);
-            omofunaPollTimer = null;
-            mediaSyncStatusEl.textContent = '轮询失败：后端未响应';
-            mediaSyncStartBtn.disabled = false;
-        }
-    }, 2000);
+async function confirmMetadataSync() {
+    const decisions = [...metadataSyncCandidatesEl.querySelectorAll('[data-external-id]')]
+        .filter(input => input.matches('input'))
+        .map(input => {
+            const row = input.closest('.sync-candidate-row');
+            return {
+                externalId: input.dataset.externalId,
+                action: input.checked ? (row?.dataset.targetMediaId ? 'LINK' : 'CREATE') : 'SKIP',
+                mediaId: row?.dataset.targetMediaId ? Number(row.dataset.targetMediaId) : null
+            };
+        });
+    if (!decisions.some(d => d.action !== 'SKIP')) {
+        mediaSyncStatusEl.textContent = '请至少勾选一个作品';
+        return;
+    }
+    mediaSyncStartBtn.disabled = true;
+    mediaSyncStatusEl.textContent = '正在导入并补齐集资料…';
+    try {
+        const resp = await fetch('/api/metadata-sync/sync', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ importMode: 'SELECTED', decisions })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+        metadataSyncCandidates = [];
+        metadataSyncCandidatesEl.hidden = true;
+        mediaSyncStatusEl.textContent = `完成：新增 ${data.added || 0}，更新 ${data.updated || 0}，失败 ${data.failed || 0}`;
+        showToast('Bangumi 资料同步完成');
+        loadMedia();
+    } catch (e) {
+        mediaSyncStatusEl.textContent = '导入失败：' + (e.message || '后端未响应');
+    } finally {
+        mediaSyncStartBtn.disabled = false;
+    }
 }
 
-/** 刷新恢复：打开弹窗时查最近 omofuna 任务，RUNNING 续轮询（来源自动切 omofuna）/ DONE·ERROR 展示上次结果。 */
-async function checkOmofunaCurrent() {
-    try {
-        const resp = await fetch('/api/media/sync-omofuna/current');
-        if (!resp.ok) return;
-        const t = await resp.json();
-        if (!t) return;
-        if (t.status === 'RUNNING') {
-            syncSource = 'OMOFUNA';
-            syncSourceChips.forEach(c => c.classList.toggle('on', c.dataset.source === 'OMOFUNA'));
-            updateSyncSourceHint();
-            mediaSyncStartBtn.disabled = true;
-            mediaSyncProgressEl.hidden = false;
-            mediaSyncStatusEl.textContent = `恢复进度：正在抓取 ${t.years.join(',')} 年…`;
-            pollOmofunaTask(t.taskId);
-        } else if (t.status === 'DONE') {
-            mediaSyncStatusEl.textContent = `上次 omofuna 结果：新增 ${t.added} 部，跳过 ${t.skipped} 部`;
-        } else if (t.status === 'ERROR') {
-            mediaSyncStatusEl.textContent = '上次 omofuna 同步失败：' + (t.message || '未知错误');
-        }
-    } catch (e) { /* 刷新恢复失败不阻塞 */ }
-}
 
 /** 全选本页：把当前已渲染的媒体全部加入勾选集合（批量删除前快速圈选）。 */
 function selectAllCurrent() {
@@ -6596,16 +6750,16 @@ document.getElementById('media-more-btn').addEventListener('click', (e) => {
 });
 document.addEventListener('click', () => { mediaMoreMenu.hidden = true; });
 // 番剧同步（AniList）：按钮 → 弹窗 → 勾选年份 → 开始同步
-document.getElementById('media-sync').addEventListener('click', openMediaSyncModal);
+document.getElementById('media-sync').addEventListener('click', () => window.openMetadataSyncWorkspace());
 document.getElementById('media-sync-cancel').addEventListener('click', () => { mediaSyncModal.hidden = true; });
 mediaSyncModal.addEventListener('click', (e) => { if (e.target === mediaSyncModal) mediaSyncModal.hidden = true; });
 document.getElementById('sync-year-all').addEventListener('click', () => setSyncYears(true));
 document.getElementById('sync-year-clear').addEventListener('click', () => setSyncYears(false));
 document.getElementById('media-sync-start').addEventListener('click', startMediaSync);
+document.getElementById('media-sync-all').addEventListener('click', syncAllMetadata);
 // 同步来源单选 chips：切换即分流（AniList 同步阻塞 / omofuna 异步任务）
-syncSourceChips.forEach(c => c.addEventListener('click', () => setSyncSource(c.dataset.source)));
-// 封面补下 / 全选本页 / 媒体列表分页（页大小 / 上页 / 下页）
-document.getElementById('media-retry-covers').addEventListener('click', retryCovers);
+syncSourceChips.forEach(c => c.addEventListener('click', () => setSyncMode(c.dataset.syncMode)));
+// 全选本页 / 媒体列表分页（页大小 / 上页 / 下页）
 document.getElementById('media-batch-select-all').addEventListener('click', selectAllCurrent);
 mediaPageSizeEl.addEventListener('change', () => { mediaPageSize = Number(mediaPageSizeEl.value); loadMedia(); });
 mediaPagePrevEl.addEventListener('click', () => { if (mediaPage > 1) { mediaPage--; loadMedia(false); } });
@@ -6827,6 +6981,26 @@ document.getElementById('back-to-media').addEventListener('click', goBack);
 document.getElementById('detail-edit').addEventListener('click', openEditMedia);
 document.getElementById('detail-rename').addEventListener('click', openRenameModal);
 document.getElementById('detail-cover').addEventListener('click', openCoverModal);
+document.getElementById('detail-sync-metadata').addEventListener('click', async () => {
+    if (!currentMedia) return;
+    const button = document.getElementById('detail-sync-metadata');
+    if (window.v022HandleMediaMetadataAction) {
+        await window.v022HandleMediaMetadataAction(currentMedia.id, button);
+        return;
+    }
+    button.disabled = true;
+    try {
+        const resp = await fetch(`/api/metadata-sync/media/${currentMedia.id}`, { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+        showToast(`资料同步完成：新增 ${data.added || 0}，更新 ${data.updated || 0}`);
+        await refreshMediaDetail();
+    } catch (e) {
+        showToast('资料同步失败：' + (e.message || '后端未响应'));
+    } finally {
+        button.disabled = false;
+    }
+});
 document.getElementById('detail-confirm').addEventListener('click', async () => {
     if (!currentMedia) return;
     await fetch(`/api/media/${currentMedia.id}/confirm`, { method: 'POST' });
@@ -6845,7 +7019,7 @@ filterQEl.addEventListener('input', () => {
 filterCollectionEl.addEventListener('change', () => { mediaFilter.collectionId = filterCollectionEl.value; loadMedia(); });
 filterUnconfirmedEl.addEventListener('change', () => { mediaFilter.unconfirmed = filterUnconfirmedEl.checked; loadMedia(); });
 filterYearEl.addEventListener('change', () => { mediaFilter.year = filterYearEl.value; loadMedia(); });
-filterSourceEl.addEventListener('change', () => { mediaFilter.source = filterSourceEl.value; loadMedia(); });
+// 来源筛选已改由外部资料关联派生，当前界面不开放旧来源控件。
 filterSortEl.addEventListener('change', () => { mediaFilter.sort = filterSortEl.value; loadMedia(); });
 filterOrderBtn.addEventListener('click', () => {
     mediaFilter.order = mediaFilter.order === 'desc' ? 'asc' : 'desc';
@@ -7062,6 +7236,9 @@ document.getElementById('clip-detail-similar').addEventListener('click', () => c
 
 // ---------- 集详情操作 ----------
 document.getElementById('back-from-episode').addEventListener('click', goBack);
+document.getElementById('ep-detail-quick-play').addEventListener('click', () => {
+    if (currentEpisode) window.v023QuickPlayEpisode?.(currentEpisode.id, currentEpisode.title || '本集');
+});
 document.getElementById('ep-detail-tag').addEventListener('click', () => { if (currentEpisode) openEpisodeTagModal(currentEpisode); });
 document.getElementById('ep-detail-cover').addEventListener('click', () => { if (currentEpisode) openEpisodeCoverModal(currentEpisode); });
 document.getElementById('ep-detail-timeline').addEventListener('click', () => {

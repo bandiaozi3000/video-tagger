@@ -5,7 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Tagger · 二次元打标库</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="app.css?v=20260825-v021-clip">
+    <link rel="stylesheet" href="app.css?v=20260829-v022-media-detail1">
+    <link rel="stylesheet" href="v022-metadata.css?v=20260829-v022-media-detail2">
+    <link rel="stylesheet" href="v023-video-sources.css?v=20260830-v023-1">
+    <link rel="stylesheet" href="v023-source-interactions.css?v=20260901-v023-5">
+    <link rel="stylesheet" href="v023-player-workbench.css?v=20260901-v023-3">
 </head>
 <body>
 <!-- 网站背景图层（设置里上传，多图轮播；z-index 在 bg-fx 之下） -->
@@ -133,8 +137,7 @@
                 <div class="more-menu-wrap">
                     <button type="button" id="media-more-btn" class="btn-mini" title="更多操作">⋯</button>
                     <div id="media-more-menu" class="more-menu" hidden>
-                        <button type="button" id="media-sync" class="more-menu-item" title="选择数据源（AniList/omofuna）与年份批量导入">⇄ 同步番剧</button>
-                        <button type="button" id="media-retry-covers" class="more-menu-item" title="补齐异步下载中断/未完成的封面">⇩ 补下封面</button>
+                        <button type="button" id="media-sync" class="more-menu-item" title="从 Bangumi 按年份、季度或作品导入资料">⇄ 同步番剧</button>
                         <button type="button" id="media-format-manage" class="more-menu-item" title="维护媒体格式与子分类字典">⚙ 管理格式</button>
                     </div>
                 </div>
@@ -168,12 +171,6 @@
             </select>
             <select id="filter-year">
                 <option value="">全部年份</option>
-            </select>
-            <select id="filter-source" title="按来源筛选（手动/AniList/omofuna 导入）">
-                <option value="">来源</option>
-                <option value="MANUAL">手动</option>
-                <option value="ANILIST">AniList 同步</option>
-                <option value="OMOFUNA">omofuna 同步</option>
             </select>
             <select id="filter-sort" title="排序方式（时间/评分）">
                 <option value="">时间</option>
@@ -211,26 +208,147 @@
         </div>
     </section>
 
+    <!-- v0.22 番剧元信息同步中心 -->
+    <section id="view-metadata-sync" class="view metadata-sync-view" hidden>
+        <header class="ms-hero">
+            <button type="button" id="ms-back" class="back-btn">← 返回媒体库</button>
+            <div class="ms-hero-copy">
+                <span class="ms-eyebrow">BANGUMI INGEST CONSOLE</span>
+                <h1>元信息同步中心</h1>
+                <p>先查询完整候选快照，再本地筛选、分页和审核。提交后任务在后台持续执行。</p>
+            </div>
+            <div class="ms-hero-status" id="ms-hero-status" aria-live="polite">未加载草稿</div>
+        </header>
+
+        <div class="ms-tabs" role="tablist" aria-label="同步中心">
+            <button type="button" class="ms-tab active" data-ms-tab="new" role="tab">新建同步</button>
+            <button type="button" class="ms-tab" data-ms-tab="tasks" role="tab">任务记录 <span id="ms-task-count">0</span></button>
+        </div>
+
+        <section id="ms-new-panel" class="ms-panel">
+            <div id="ms-draft-banner" class="ms-draft-banner" hidden>
+                <div><strong>发现上次审核草稿</strong><span id="ms-draft-time"></span></div>
+                <div><button type="button" id="ms-draft-discard" class="btn-mini">放弃并新建</button><button type="button" id="ms-draft-resume" class="btn-primary">继续审核</button></div>
+            </div>
+
+            <section class="ms-query-deck">
+                <div class="ms-query-heading">
+                    <div><span class="ms-step-index">01</span><strong>定义查询范围</strong></div>
+                    <span id="ms-query-semantic">按年份获取 Bangumi 动画条目</span>
+                </div>
+                <div class="ms-query-grid">
+                    <label><span>查询方式</span><select id="ms-query-mode"><option value="YEAR">按年份</option><option value="YEAR_SEASON">按季度</option><option value="WORK">关键词</option></select></label>
+                    <label id="ms-year-field"><span>年份</span><select id="ms-query-year"></select></label>
+                    <label id="ms-season-field" hidden><span>季度</span><select id="ms-query-season"><option value="WINTER">冬季 · 1–3月</option><option value="SPRING">春季 · 4–6月</option><option value="SUMMER">夏季 · 7–9月</option><option value="FALL">秋季 · 10–12月</option></select></label>
+                    <label id="ms-keyword-field" hidden><span>作品关键词</span><input id="ms-query-keyword" autocomplete="off" maxlength="200" placeholder="例如：机械手臂"></label>
+                    <button type="button" id="ms-run-query" class="btn-primary ms-query-button">获取全部候选</button>
+                </div>
+                <div id="ms-query-status" class="ms-query-status" aria-live="polite"></div>
+            </section>
+
+            <section id="ms-review-stage" class="ms-review-stage" hidden>
+                <div class="ms-review-toolbar">
+                    <div class="ms-review-heading"><span class="ms-step-index">02</span><div><strong>审核候选</strong><small id="ms-result-count">0 个候选</small></div></div>
+                    <div class="ms-filter-grid">
+                        <select id="ms-filter-state" title="匹配状态"><option value="">全部状态</option><option value="NONE">新作品</option><option value="EXTERNAL_ID">稳定关联</option><option value="TITLE">标题疑似</option><option value="CONFLICT">冲突</option></select>
+                        <select id="ms-filter-format" title="作品类型"><option value="">全部类型</option></select>
+                        <select id="ms-filter-genre" title="题材"><option value="">全部题材</option></select>
+                        <select id="ms-filter-month" title="开播月份"><option value="">全部月份</option></select>
+                        <input id="ms-filter-keyword" autocomplete="off" placeholder="筛选标题 / ID">
+                        <select id="ms-filter-selected"><option value="">全部候选</option><option value="selected">仅已选择</option><option value="unselected">仅未选择</option></select>
+                        <select id="ms-sort"><option value="upstream">Bangumi 默认顺序</option><option value="date">播出日期</option><option value="title">标题</option><option value="match">匹配状态</option><option value="action">计划动作</option></select>
+                    </div>
+                </div>
+
+                <div class="ms-review-layout">
+                    <main class="ms-candidate-column">
+                        <div class="ms-page-tools">
+                            <button type="button" id="ms-select-page" class="btn-mini">选择当前页</button>
+                            <button type="button" id="ms-clear-page" class="btn-mini">清除当前页</button>
+                            <span id="ms-filter-summary">显示全部候选</span>
+                            <label>每页 <select id="ms-page-size"><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></label>
+                        </div>
+                        <div id="ms-candidate-list" class="ms-candidate-list"></div>
+                        <div class="ms-pagination">
+                            <button type="button" id="ms-page-prev" class="btn-mini">‹ 上一页</button>
+                            <span id="ms-page-info">1 / 1</span>
+                            <button type="button" id="ms-page-next" class="btn-mini">下一页 ›</button>
+                        </div>
+                    </main>
+                    <aside id="ms-drawer" class="ms-drawer" aria-live="polite">
+                        <div class="ms-drawer-empty"><span>DETAIL</span><strong>选择一张候选卡</strong><p>在这里查看完整简介、别名、题材、本地匹配和计划动作。</p></div>
+                    </aside>
+                </div>
+
+                <footer class="ms-selection-dock">
+                    <button type="button" id="ms-selected-toggle" class="ms-selection-count"><span id="ms-selected-count">0</span><small>已选择</small></button>
+                    <div class="ms-action-counts" id="ms-action-counts"></div>
+                    <div class="ms-dock-actions"><button type="button" id="ms-auto-all" class="btn-mini danger-soft">自动处理全部</button><button type="button" id="ms-review-confirm" class="btn-primary" disabled>进入确认</button></div>
+                    <div id="ms-selected-list" class="ms-selected-list" hidden></div>
+                </footer>
+            </section>
+
+            <section id="ms-confirm-stage" class="ms-confirm-stage" hidden>
+                <div class="ms-confirm-head"><button type="button" id="ms-confirm-back" class="back-btn">← 返回审核</button><div><span class="ms-step-index">03</span><strong>确认后台任务</strong></div></div>
+                <div id="ms-confirm-groups" class="ms-confirm-groups"></div>
+                <div class="ms-protection-note"><strong>本地资料保护</strong><span>同步不会覆盖个人标题、备注、评分、观看状态、标签、收藏、本地封面、视频 URL / 指纹或 Clip。</span></div>
+                <div class="ms-confirm-actions"><button type="button" id="ms-submit-task" class="btn-primary">提交后台任务</button></div>
+            </section>
+
+            <section id="ms-submitted-stage" class="ms-submitted-stage" hidden aria-live="polite"></section>
+        </section>
+
+        <section id="ms-tasks-panel" class="ms-panel" hidden>
+            <div class="ms-task-toolbar"><div><span class="ms-step-index">LOG</span><strong>后台任务记录</strong></div><button type="button" id="ms-refresh-tasks" class="btn-mini">刷新</button></div>
+            <div id="ms-task-list" class="ms-task-list"></div>
+        </section>
+    </section>
     <!-- 媒体详情视图 -->
     <section id="view-media-detail" class="view" hidden>
         <button type="button" id="back-to-media" class="back-btn">← 返回媒体</button>
-        <div id="media-detail-head" class="media-detail-head"></div>
-        <div class="detail-actions">
-            <button type="button" id="detail-edit" class="btn-mini">编辑信息</button>
-            <button type="button" id="detail-rename" class="btn-mini">改名/合并</button>
-            <button type="button" id="detail-cover" class="btn-mini">设置封面</button>
-            <button type="button" id="detail-confirm" class="btn-mini" hidden>确认档案</button>
-            <button type="button" id="detail-highlight" class="btn-primary" hidden>制作推荐视频</button>
-            <button type="button" id="detail-delete" class="btn-mini danger">删除</button>
+        <div class="media-detail-layout">
+            <aside class="detail-column detail-column-left">
+                <div id="media-detail-head" class="media-detail-head"></div>
+                <div class="detail-actions detail-actions-primary">
+                    <button type="button" id="detail-edit" class="btn-mini">编辑信息</button>
+                    <button type="button" id="detail-rename" class="btn-mini">改名/合并</button>
+                    <button type="button" id="detail-cover" class="btn-mini">设置封面</button>
+                    <button type="button" id="detail-sync-metadata" class="btn-mini">同步资料</button>
+                    <button type="button" id="detail-confirm" class="btn-mini" hidden>确认档案</button>
+                    <button type="button" id="detail-highlight" class="btn-primary" hidden>制作推荐视频</button>
+                    <button type="button" id="detail-delete" class="btn-mini danger">删除</button>
+                </div>
+                <section class="detail-section detail-local-summary">
+                    <div class="detail-section-head"><div><span class="detail-kicker">LOCAL ARCHIVE</span><h3 class="stats-title">素材概览</h3></div></div>
+                    <div id="detail-local-summary" class="detail-local-summary-grid"></div>
+                </section>
+            </aside>
+            <main class="detail-column detail-column-main">
+                <section class="detail-section detail-section-aliases" id="detail-alias-section">
+                    <div class="detail-section-head"><div><span class="detail-kicker">TITLE INDEX</span><h3 class="stats-title" id="detail-aliases-title" hidden>别名</h3></div></div>
+                    <div id="detail-aliases" class="detail-aliases"></div>
+                </section>
+                <section id="external-metadata-panel" class="detail-section external-metadata-panel" hidden></section>
+                <section class="detail-section detail-section-episodes">
+                    <div class="detail-section-head"><div><span class="detail-kicker">EPISODE LIBRARY</span><h3 class="stats-title" id="episode-list-title">集列表</h3></div><span class="detail-section-note">点击集进入详情</span></div>
+                    <section id="episode-list" class="episode-list"></section>
+                </section>
+            </main>
+            <aside class="detail-column detail-column-right">
+                <section class="detail-section detail-section-profile">
+                    <div class="detail-section-head"><div><span class="detail-kicker">ARCHIVE PROFILE</span><h3 class="stats-title">档案信息</h3></div></div>
+                    <div id="detail-profile" class="detail-profile"></div>
+                </section>
+                <section class="detail-section detail-section-tags">
+                    <div class="detail-section-head"><div><span class="detail-kicker">PERSONAL INDEX</span><h3 class="stats-title">标签池</h3></div></div>
+                    <div id="detail-tags" class="detail-tags"></div>
+                </section>
+                <section class="detail-section detail-section-collections">
+                    <div class="detail-section-head"><div><span class="detail-kicker">YOUR SHELVES</span><h3 class="stats-title">收藏夹</h3></div></div>
+                    <div id="detail-collections" class="detail-collections"></div>
+                </section>
+            </aside>
         </div>
-        <h3 class="stats-title">标签池</h3>
-        <div id="detail-tags" class="detail-tags"></div>
-        <h3 class="stats-title">收藏夹</h3>
-        <div id="detail-collections" class="detail-collections"></div>
-        <h3 class="stats-title" id="detail-aliases-title" hidden>别名</h3>
-        <div id="detail-aliases" class="detail-aliases"></div>
-        <h3 class="stats-title" id="episode-list-title">集列表</h3>
-        <section id="episode-list" class="episode-list"></section>
         <div id="detail-status" class="status"></div>
     </section>
 
@@ -288,12 +406,14 @@
         <div id="episode-detail-head" class="episode-detail-head"></div>
         <div id="episode-detail-note" class="detail-note" hidden></div>
         <div class="detail-actions">
+            <button type="button" id="ep-detail-quick-play" class="btn-primary">自动查找并播放</button>
             <button type="button" id="ep-detail-tag" class="btn-mini">打标签</button>
             <button type="button" id="ep-detail-cover" class="btn-mini">设封面</button>
             <button type="button" id="ep-detail-timeline" class="btn-mini">时间线</button>
             <button type="button" id="ep-detail-jump" class="btn-mini">去原视频</button>
             <button type="button" id="ep-detail-delete" class="btn-mini danger">删除该集</button>
         </div>
+        <section id="ep-quick-play-panel" class="ep-quick-play-panel" hidden></section>
         <h3 class="stats-title">集标签池</h3>
         <div id="episode-detail-tags" class="detail-tags"></div>
         <h3 class="stats-title">该集片段</h3>
@@ -344,12 +464,6 @@
         <div class="search-filters">
             <select id="search-format"><option value="">格式</option></select>
             <select id="search-subcategory"><option value="">子分类</option></select>
-            <select id="search-source" title="按来源筛选（所属媒体的导入来源）">
-                <option value="">来源</option>
-                <option value="MANUAL">手动</option>
-                <option value="ANILIST">AniList 同步</option>
-                <option value="OMOFUNA">omofuna 同步</option>
-            </select>
             <button type="button" id="search-more-btn" class="search-more-btn" title="展开更多筛选">更多筛选 ▾</button>
         </div>
         <!-- 折叠区：次要筛选项（时间/聚合）+ 未来新增项放这里，保持主行简洁 -->
@@ -825,30 +939,40 @@
     </div>
 </div>
 
-<!-- 番剧同步：选择数据源（AniList/omofuna）与年份批量导入 -->
+<!-- v0.22 元信息同步：只在用户明确操作时访问 Bangumi -->
 <div id="media-sync-modal" class="modal-overlay" hidden>
-    <div class="modal">
-        <h2>同步番剧</h2>
-        <p class="batch-del-hint">选择数据源与年份批量导入番剧（名称 / 年份 / 封面），库中已存在的自动跳过。</p>
-        <div class="sync-source-label">数据源</div>
+    <div class="modal modal-wide">
+        <h2>同步番剧资料</h2>
+        <p class="batch-del-hint">普通搜索只查本地库；这里按需从 Bangumi 获取作品、条目和集资料。</p>
+        <div class="sync-source-label">同步范围</div>
         <div class="sync-source-chips">
-            <button type="button" class="sync-source-chip on" data-source="ANILIST">AniList</button>
-            <button type="button" class="sync-source-chip" data-source="OMOFUNA">omofuna</button>
+            <button type="button" class="sync-source-chip on" data-sync-mode="YEAR">按年份</button>
+            <button type="button" class="sync-source-chip" data-sync-mode="YEAR_SEASON">按季度</button>
+            <button type="button" class="sync-source-chip" data-sync-mode="WORK">指定番剧</button>
         </div>
-        <div id="sync-source-hint" class="sync-source-hint"></div>
-        <div class="sync-source-label">分类</div>
-        <div id="sync-category-grid" class="sync-year-grid"></div>
-        <div class="sync-year-toolbar">
-            <span class="sync-year-label">选择年份</span>
-            <button type="button" id="sync-year-all" class="btn-mini">全选</button>
-            <button type="button" id="sync-year-clear" class="btn-mini">清空</button>
+        <div id="sync-source-hint" class="sync-source-hint">选择年份后先预览，确认后才写入本地媒体库。</div>
+        <div id="sync-work-box" hidden>
+            <div class="sync-year-toolbar"><span class="sync-year-label">番剧名称</span><input id="sync-work-input" class="text-input" placeholder="输入作品名" maxlength="200"></div>
         </div>
-        <div id="sync-year-grid" class="sync-year-grid"></div>
+        <div id="sync-season-box" hidden>
+            <div class="sync-year-toolbar"><span class="sync-year-label">季度</span><div id="sync-season-grid" class="sync-source-chips"></div></div>
+        </div>
+        <div id="sync-year-box">
+            <div class="sync-year-toolbar">
+                <span class="sync-year-label">年份</span>
+                <button type="button" id="sync-year-all" class="btn-mini">全选</button>
+                <button type="button" id="sync-year-clear" class="btn-mini">清空</button>
+            </div>
+            <div id="sync-year-grid" class="sync-year-grid"></div>
+        </div>
+        <div id="sync-category-grid" hidden></div>
+        <div id="metadata-sync-candidates" class="sync-candidates" hidden></div>
         <div id="media-sync-progress" class="sync-progress" hidden><div class="sync-progress-fill"></div></div>
         <div id="media-sync-status" class="status"></div>
         <div class="modal-actions">
             <button id="media-sync-cancel" type="button">取消</button>
-            <button id="media-sync-start" type="button" class="btn-primary">开始同步</button>
+            <button id="media-sync-all" type="button">直接同步全部</button>
+            <button id="media-sync-start" type="button" class="btn-primary">预览同步</button>
         </div>
     </div>
 </div>
@@ -997,6 +1121,7 @@
         <div class="settings-body">
             <aside class="settings-side">
                 <button type="button" class="settings-cat active" data-settings-cat="appearance">外观</button>
+                <button type="button" class="settings-cat" data-settings-cat="video-sources">数据源与播放</button>
             </aside>
             <div class="settings-content">
                 <div class="settings-section" id="settings-section-appearance">
@@ -1033,6 +1158,14 @@
                             <b id="bg-blur-val">30%</b>
                         </div>
                         <p class="wizard-hint">添加多张图片后按轮换时间自动淡入淡出切换；透明度过高会遮挡内容，建议 50%~70%。</p>
+                    </div>
+                </div>
+                <div class="settings-section" id="settings-section-video-sources" hidden>
+                    <h4>数据源与播放</h4>
+                    <div class="setting-group">
+                        <label class="setting-label">数据源管理</label>
+                        <p class="wizard-hint">订阅和数据源只需配置一次；播放时自动查询已启用来源。Jellyfin 为可选个人媒体服务器，不配置不会影响使用。</p>
+                        <button type="button" id="open-video-source-management" class="btn-primary">打开数据源管理</button>
                     </div>
                 </div>
             </div>
@@ -1386,6 +1519,11 @@
     </div>
 </div>
 <button type="button" id="back-nav" title="去底部" aria-label="去底部">↓</button>
-<script src="app.js?v=20260825-v021-clip"></script>
+<script src="app.js?v=20260829-v022-media-detail1"></script>
+<script src="v022-media-metadata.js?v=20260829-v022-media-detail2"></script>
+<script src="v022-metadata-workspace.js?v=20260829-v022-sync-workspace2"></script>
+<script src="v023-video-sources.js?v=20260830-v023-1"></script>
+<script src="v023-player-workbench.js?v=20260901-v023-3"></script>
+<script src="v023-source-interactions.js?v=20260901-v023-5"></script>
 </body>
 </html>

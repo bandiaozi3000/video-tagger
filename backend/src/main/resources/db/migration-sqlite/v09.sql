@@ -1,0 +1,55 @@
+CREATE TABLE IF NOT EXISTS video_source_subscription (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    display_name TEXT NOT NULL,
+    url TEXT NOT NULL UNIQUE,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    refresh_interval_minutes INTEGER NOT NULL DEFAULT 60,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    etag TEXT,
+    last_modified TEXT,
+    last_attempt_at INTEGER,
+    last_success_at INTEGER,
+    source_count INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    snapshot_json TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_video_source_subscription_refresh ON video_source_subscription(enabled, last_attempt_at);
+
+CREATE TABLE IF NOT EXISTS video_source_definition (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subscription_id INTEGER,
+    import_key TEXT NOT NULL,
+    factory_id TEXT NOT NULL,
+    format_version INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    icon_url TEXT,
+    config_json TEXT NOT NULL,
+    tier INTEGER NOT NULL DEFAULT 2,
+    compatibility TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    last_seen_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(subscription_id, import_key)
+);
+CREATE INDEX IF NOT EXISTS idx_video_source_definition_subscription ON video_source_definition(subscription_id);
+CREATE INDEX IF NOT EXISTS idx_video_source_definition_status ON video_source_definition(status, compatibility);
+
+CREATE TABLE IF NOT EXISTS video_source_instance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    definition_id INTEGER NOT NULL UNIQUE,
+    provider_id TEXT NOT NULL UNIQUE,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 1000,
+    health_state TEXT NOT NULL DEFAULT 'UNTESTED',
+    health_message TEXT,
+    last_tested_at INTEGER,
+    last_success_at INTEGER,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_video_source_instance_enabled ON video_source_instance(enabled, sort_order);

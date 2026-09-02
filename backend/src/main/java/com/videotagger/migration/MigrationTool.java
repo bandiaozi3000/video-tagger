@@ -89,11 +89,51 @@ public class MigrationTool {
 
             // 2. 按依赖序迁移（保留原 id）
             migrateTable(mysql, sqlite, "media",
-                    "SELECT id, title, year, original_title, cover_url, aliases, note, media_format, subcategory, subcategory_id, status, rating, cover_path, confirmed, source, created_at, deleted_at FROM media");
+                    "SELECT id, title, year, aliases, note, media_format, subcategory, subcategory_id, status, rating, cover_path, confirmed, created_at, deleted_at FROM media");
+            migrateTable(mysql, sqlite, "media_entry",
+                    "SELECT id, media_id, entry_type, sort_order, title, title_cn, note, created_at, updated_at FROM media_entry");
+            migrateTable(mysql, sqlite, "external_work",
+                    "SELECT id, provider, external_id, media_id, media_entry_id, canonical_title, native_title, romaji_title, english_title, aliases_json, description, cover_url, genres_json, format, year, season, air_date, end_date, episode_count, relations_json, raw_json, payload_hash, sync_state, last_fetched_at, last_success_at, last_error, created_at, updated_at FROM external_work");
+            migrateTable(mysql, sqlite, "external_episode",
+                    "SELECT id, external_work_id, provider_episode_id, episode_id, season, episode_no, title, title_cn, description, air_date, duration_sec, last_seen_at, sync_state, created_at, updated_at FROM external_episode");
+            migrateTable(mysql, sqlite, "external_relation",
+                    "SELECT id, external_work_id, provider, related_external_id, relation_type, title, created_at FROM external_relation");
+            migrateTable(mysql, sqlite, "metadata_sync_draft",
+                    "SELECT id, provider, query_json, candidates_json, review_json, view_json, created_at, updated_at FROM metadata_sync_draft");
+            migrateTable(mysql, sqlite, "metadata_sync_task",
+                    "SELECT id, task_id, provider, scope_type, query_json, status, stage, total, selected_total, create_count, update_count, link_count, skip_count, processed, succeeded, failed, pending_review, summary_json, error_message, created_at, started_at, completed_at, retention_until, updated_at FROM metadata_sync_task");
+            migrateTable(mysql, sqlite, "metadata_sync_task_item",
+                    "SELECT id, task_id, provider, external_id, title, title_cn, action, target_media_id, status, stage, error_message, attempts, last_attempt_at, snapshot_json, created_at, updated_at FROM metadata_sync_task_item");
             migrateTable(mysql, sqlite, "episode",
-                    "SELECT id, media_id, season, episode_no, title, note, url, video_fp, cover_path, created_at FROM episode");
+                    "SELECT id, media_id, media_entry_id, season, episode_no, title, title_override, note, url, video_fp, cover_path, created_at FROM episode");
             migrateTable(mysql, sqlite, "clips",
-                    "SELECT id, title, url, timestamp_sec, tag, note, created_at, episode_id, video_fp, video_duration, cover_path, detail_cover_path FROM clips");
+                    "SELECT id, title, url, timestamp_sec, end_sec, tag, note, created_at, episode_id, video_asset_id, source_revision, time_mapping_id, material_state, video_fp, video_duration, cover_path, detail_cover_path, start_ms, end_ms FROM clips");
+            migrateTable(mysql, sqlite, "video_source_package",
+                    "SELECT id, media_entry_id, provider, provider_package_id, revision, status, title, release_group, year, season, media_format, episode_count, subtitle_languages_json, audio_languages_json, quality, video_codec, container, capabilities_json, source_page_url, sanitized_snapshot_json, match_reason_json, adopted_at, last_refreshed_at, created_at, updated_at FROM video_source_package");
+            migrateTable(mysql, sqlite, "video_source_item",
+                    "SELECT id, package_id, provider_item_id, revision, item_kind, episode_no, episode_end_no, title, duration_ms, subtitle_languages_json, audio_languages_json, quality, capabilities_json, source_page_url, sanitized_snapshot_json, status, last_seen_at, created_at, updated_at FROM video_source_item");
+            migrateTable(mysql, sqlite, "video_source_episode_map",
+                    "SELECT id, source_item_id, episode_id, mapping_reason, confidence, status, manual_confirmed, conflict_code, conflict_message, created_at, updated_at FROM video_source_episode_map");
+            migrateTable(mysql, sqlite, "video_source_resolution_cache",
+                    "SELECT id, source_item_id, revision, purpose, selection_key, resolved_locator, mime_type, content_length, range_supported, probe_state, probe_message, retryable, resolved_at, expires_at, checked_at, created_at, updated_at FROM video_source_resolution_cache");
+            migrateTable(mysql, sqlite, "video_source_subscription",
+                    "SELECT id, display_name, url, enabled, refresh_interval_minutes, status, etag, last_modified, last_attempt_at, last_success_at, source_count, error_message, snapshot_json, created_at, updated_at FROM video_source_subscription");
+            migrateTable(mysql, sqlite, "video_source_definition",
+                    "SELECT id, subscription_id, import_key, factory_id, format_version, name, description, icon_url, config_json, tier, compatibility, status, last_seen_at, created_at, updated_at FROM video_source_definition");
+            migrateTable(mysql, sqlite, "video_source_instance",
+                    "SELECT id, definition_id, provider_id, enabled, sort_order, health_state, health_message, last_tested_at, last_success_at, failure_count, created_at, updated_at FROM video_source_instance");
+            migrateTable(mysql, sqlite, "video_asset",
+                    "SELECT id, episode_id, source_item_id, asset_type, asset_role, priority, availability_state, source_revision, display_name, stable_locator, source_page_url, storage_path, mime_type, duration_ms, container, video_codec, audio_codec, width, height, file_size, fingerprint, failure_reason, last_verified_at, created_at, updated_at FROM video_asset");
+            migrateTable(mysql, sqlite, "video_asset_track",
+                    "SELECT id, video_asset_id, track_type, track_index, language, title, format, codec, default_track, forced_track, external_locator, storage_path, created_at, updated_at FROM video_asset_track");
+            migrateTable(mysql, sqlite, "video_time_mapping",
+                    "SELECT id, old_asset_id, new_asset_id, parent_mapping_id, status, offset_ms, drift_ratio, confidence, notes, created_at, confirmed_at, updated_at FROM video_time_mapping");
+            migrateTable(mysql, sqlite, "video_time_mapping_anchor",
+                    "SELECT id, time_mapping_id, sort_order, old_time_ms, new_time_ms, confidence, created_at FROM video_time_mapping_anchor");
+            migrateTable(mysql, sqlite, "video_source_task",
+                    "SELECT id, task_id, task_type, provider, status, package_id, video_asset_id, clip_id, total, processed, succeeded, failed, bytes_total, bytes_processed, plan_json, message, created_at, started_at, completed_at, updated_at FROM video_source_task");
+            migrateTable(mysql, sqlite, "video_source_task_item",
+                    "SELECT id, task_id, item_key, task_type, provider, status, source_item_id, video_asset_id, clip_id, bytes_total, bytes_processed, attempts, temp_path, resume_json, error_code, error_message, last_attempt_at, created_at, updated_at FROM video_source_task_item");
             migrateTable(mysql, sqlite, "tag",
                     "SELECT id, name, created_at FROM tag");
             migrateTable(mysql, sqlite, "media_tag",

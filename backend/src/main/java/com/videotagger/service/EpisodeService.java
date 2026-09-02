@@ -151,6 +151,11 @@ public class EpisodeService {
                 episodeTagMapper.selectTags(id), cover);
     }
 
+    public List<Clip> clips(Long id) {
+        requireEpisode(id);
+        return clipMapper.listByEpisode(id);
+    }
+
     /** 删除集：级联删除其下片段（含封面/标签/向量）与集标签/集封面/集向量。 */
     @Transactional
     public void delete(Long id) {
