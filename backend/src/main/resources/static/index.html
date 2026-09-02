@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Tagger · 二次元打标库</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="app.css?v=20260902-v024-m3">
+    <link rel="stylesheet" href="app.css?v=20260903-v024-hero4">
     <link rel="stylesheet" href="v022-metadata.css?v=20260829-v022-media-detail2">
     <link rel="stylesheet" href="v023-video-sources.css?v=20260830-v023-1">
     <link rel="stylesheet" href="v023-source-interactions.css?v=20260901-v023-5">
@@ -311,51 +311,7 @@
     <!-- 媒体详情视图 -->
     <section id="view-media-detail" class="view" hidden>
         <button type="button" id="back-to-media" class="back-btn">← 返回媒体</button>
-        <div class="media-detail-layout">
-            <aside class="detail-column detail-column-left">
-                <div id="media-detail-head" class="media-detail-head"></div>
-                <div class="detail-actions detail-actions-primary">
-                    <button type="button" id="detail-edit" class="btn-mini">编辑信息</button>
-                    <button type="button" id="detail-rename" class="btn-mini">改名/合并</button>
-                    <button type="button" id="detail-cover" class="btn-mini">设置封面</button>
-                    <button type="button" id="detail-sync-metadata" class="btn-mini">同步资料</button>
-                    <button type="button" id="detail-confirm" class="btn-mini" hidden>确认档案</button>
-                    <button type="button" id="detail-highlight" class="btn-primary" hidden>制作推荐视频</button>
-                    <button type="button" id="detail-delete" class="btn-mini danger">删除</button>
-                </div>
-                <section class="detail-section detail-local-summary">
-                    <div class="detail-section-head"><div><span class="detail-kicker">LOCAL ARCHIVE</span><h3 class="stats-title">素材概览</h3></div>
-                        <button type="button" id="detail-materialize-batch" class="btn-mini" title="对勾选片段按标签区间剪出本地视频；无文件的先给预取清单">批量物化</button>
-                    </div>
-                    <div id="detail-local-summary" class="detail-local-summary-grid"></div>
-                </section>
-            </aside>
-            <main class="detail-column detail-column-main">
-                <section class="detail-section detail-section-aliases" id="detail-alias-section">
-                    <div class="detail-section-head"><div><span class="detail-kicker">TITLE INDEX</span><h3 class="stats-title" id="detail-aliases-title" hidden>别名</h3></div></div>
-                    <div id="detail-aliases" class="detail-aliases"></div>
-                </section>
-                <section id="external-metadata-panel" class="detail-section external-metadata-panel" hidden></section>
-                <section class="detail-section detail-section-episodes">
-                    <div class="detail-section-head"><div><span class="detail-kicker">EPISODE LIBRARY</span><h3 class="stats-title" id="episode-list-title">集列表</h3></div><span class="detail-section-note">点击集进入详情</span></div>
-                    <section id="episode-list" class="episode-list"></section>
-                </section>
-            </main>
-            <aside class="detail-column detail-column-right">
-                <section class="detail-section detail-section-profile">
-                    <div class="detail-section-head"><div><span class="detail-kicker">ARCHIVE PROFILE</span><h3 class="stats-title">档案信息</h3></div></div>
-                    <div id="detail-profile" class="detail-profile"></div>
-                </section>
-                <section class="detail-section detail-section-tags">
-                    <div class="detail-section-head"><div><span class="detail-kicker">PERSONAL INDEX</span><h3 class="stats-title">标签池</h3></div></div>
-                    <div id="detail-tags" class="detail-tags"></div>
-                </section>
-                <section class="detail-section detail-section-collections">
-                    <div class="detail-section-head"><div><span class="detail-kicker">YOUR SHELVES</span><h3 class="stats-title">收藏夹</h3></div></div>
-                    <div id="detail-collections" class="detail-collections"></div>
-                </section>
-            </aside>
-        </div>
+        <div id="media-detail"></div>
         <div id="detail-status" class="status"></div>
     </section>
 

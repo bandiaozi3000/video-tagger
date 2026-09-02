@@ -2097,25 +2097,24 @@ async function renderDetailCollections(d) {
     } catch (e) { /* 忽略 */ }
     const current = new Set(d.collectionIds || []);
     for (const c of list) {
-        const label = document.createElement('label');
-        label.className = 'coll-check';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = current.has(c.id);
-        cb.addEventListener('change', async () => {
-            if (cb.checked) {
+        const row = document.createElement('div');
+        row.className = 'coll-row' + (current.has(c.id) ? ' active' : '');
+        row.innerHTML = `<span class="coll-dot"></span><span class="coll-name"></span><span class="coll-count"></span>`;
+        row.querySelector('.coll-name').textContent = c.name;
+        row.querySelector('.coll-count').textContent = String(c.mediaCount != null ? c.mediaCount : 0);
+        row.addEventListener('click', async () => {
+            const checked = current.has(c.id);
+            if (!checked) {
                 await fetch(`/api/collections/${c.id}/media`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mediaId: d.id })
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mediaId: d.id })
                 });
             } else {
                 await fetch(`/api/collections/${c.id}/media/${d.id}`, { method: 'DELETE' });
             }
+            current.has(c.id) ? current.delete(c.id) : current.add(c.id);
+            row.classList.toggle('active', current.has(c.id));
         });
-        label.appendChild(cb);
-        label.appendChild(document.createTextNode(` ${c.name}`));
-        detailCollectionsEl.appendChild(label);
+        detailCollectionsEl.appendChild(row);
     }
 }
 
@@ -4646,9 +4645,8 @@ function openMediaDetail(id) {
 async function loadMediaDetail(id) {
     currentMedia = { id };
     fromMediaDetail = false;
-    mediaDetailHeadEl.innerHTML = '';
-    episodeListEl.innerHTML = '';
-    detailTagsEl.innerHTML = '';
+    const mdBox = document.getElementById('media-detail');
+    if (mdBox) mdBox.innerHTML = '<div style="color:var(--text-dim);padding:20px">加载中…</div>';
     detailStatusEl.textContent = '加载中…';
     try {
         const [detailResp, epResp] = await Promise.all([
@@ -4659,8 +4657,7 @@ async function loadMediaDetail(id) {
         const detail = await detailResp.json();
         const eps = epResp.ok ? await epResp.json() : [];
         currentMedia = detail;
-        renderMediaDetail(detail, eps);
-        loadExternalMetadata(detail.id);
+        await renderMediaDetail(detail, eps);
         detailStatusEl.textContent = '';
     } catch (err) {
         detailStatusEl.textContent = '加载失败：后端未响应';
@@ -4668,7 +4665,6 @@ async function loadMediaDetail(id) {
 }
 
 async function loadExternalMetadata(mediaId) {
-    if (window.v022LoadMediaMetadata) return window.v022LoadMediaMetadata(mediaId);
     const panel = document.getElementById('external-metadata-panel');
     if (!panel) return;
     panel.hidden = true;
@@ -4678,83 +4674,44 @@ async function loadExternalMetadata(mediaId) {
         const data = await resp.json();
         const work = data.work;
         if (!work) return;
+        const nativeEl = document.querySelector('#detail-title .hero-native');
+        if (nativeEl) nativeEl.textContent = work.nativeTitle || '';
         const aliases = parseMetadataList(work.aliasesJson);
         const genres = parseMetadataList(work.genresJson);
-        const externalEpisodes = Array.isArray(data.episodes) ? data.episodes : [];
         const relations = Array.isArray(data.relations) ? data.relations : [];
+        const chipRow = (label, values, limit, isFirst) => {
+            if (!values || !values.length) return '';
+            const shown = values.slice(0, limit).map(v => `<span class="md-tag">${esc(String(v))}</span>`).join('');
+            const rest = values.slice(limit).map(v => `<span class="md-tag">${esc(String(v))}</span>`).join('');
+            const overflow = values.length - limit;
+            return `<div class="md-row ${isFirst ? 'first' : ''}"><span class="md-label">${esc(label)}</span><div class="md-chips"><span class="md-shown">${shown}</span>${overflow > 0 ? `<button class="md-more" data-overflow="${overflow}">更多 (+${overflow})</button><span class="md-full" style="display:none">${rest}</span>` : ''}</div></div>`;
+        };
+        const desc = work.description || '';
         panel.innerHTML = `
-            <div class="detail-section-head external-metadata-head">
-                <div><span class="detail-kicker">EXTERNAL ARCHIVE</span><h3 class="stats-title">外部资料</h3></div>
-                <span class="metadata-provider-badge">${esc(work.provider || '未知来源')}</span>
-            </div>
-            <div class="external-metadata-layout">
-                <div class="external-cover-wrap">${work.coverUrl ? `<img src="${esc(work.coverUrl)}" alt="" loading="lazy">` : '<span class="cover-placeholder large">◇</span>'}</div>
-                <div class="external-metadata-main">
-                    <div class="external-title-stack"><h4></h4><p></p></div>
-                    <div class="external-facts"></div>
-                    <div class="external-description"></div>
-                    <div class="external-chip-row external-genres" hidden></div>
-                    <div class="external-chip-row external-aliases" hidden></div>
-                </div>
-            </div>
-            <div class="external-episode-library" hidden>
-                <div class="external-subhead"><span class="detail-kicker">EXTERNAL EPISODE INDEX</span><span class="external-episode-count"></span></div>
-                <div class="external-episode-list"></div>
-            </div>
-            <div class="external-relations" hidden><span class="detail-kicker">RELATIONS</span><div class="external-relation-list"></div></div>`;
-        panel.querySelector('.external-title-stack h4').textContent = work.canonicalTitle || work.nativeTitle || '未命名作品';
-        panel.querySelector('.external-title-stack p').textContent = [work.nativeTitle, work.romajiTitle, work.englishTitle].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i && x !== work.canonicalTitle).join(' · ');
-        const facts = [
-            work.externalId ? `ID ${work.externalId}` : '',
-            work.year ? `${work.year}${work.season ? ` · ${work.season}` : ''}` : '',
-            work.format || '',
-            work.episodeCount != null ? `${work.episodeCount} 集` : '',
-            work.airDate || work.endDate ? `${work.airDate || '?'}${work.endDate ? ` — ${work.endDate}` : ''}` : ''
-        ].filter(Boolean);
-        panel.querySelector('.external-facts').innerHTML = facts.map(x => `<span>${esc(x)}</span>`).join('');
-        panel.querySelector('.external-description').textContent = work.description || '暂无外部简介';
-        renderMetadataChips(panel.querySelector('.external-genres'), '题材', genres);
-        renderMetadataChips(panel.querySelector('.external-aliases'), '别名', aliases);
-        const externalEpisodeLibrary = panel.querySelector('.external-episode-library');
-        if (externalEpisodes.length) {
-            externalEpisodeLibrary.hidden = false;
-            panel.querySelector('.external-episode-count').textContent = `${externalEpisodes.length} 集资料`;
-            panel.querySelector('.external-episode-list').innerHTML = externalEpisodes.map(ep => {
-                const number = ep.episodeNo != null ? `第${ep.episodeNo}集` : '未编号';
-                const secondaryTitle = ep.titleCn && ep.titleCn !== ep.title ? ep.titleCn : '';
-                const meta = [ep.airDate, ep.durationSec ? `${Math.round(ep.durationSec / 60)} 分钟` : '', ep.episodeId ? '已绑定本地集' : '待绑定本地集'].filter(Boolean);
-                const state = ep.syncState || 'ACTIVE';
-                return `<article class="external-episode-row state-${esc(state.toLowerCase())}">
-                    <div class="external-episode-no">${esc(number)}</div>
-                    <div class="external-episode-copy">
-                        <div class="external-episode-title">${esc(ep.title || secondaryTitle || '未命名集')}</div>
-                        ${secondaryTitle ? `<div class="external-episode-secondary">${esc(secondaryTitle)}</div>` : ''}
-                        ${ep.description ? `<div class="external-episode-description">${esc(ep.description)}</div>` : ''}
-                        <div class="external-episode-meta">${meta.map(x => `<span>${esc(x)}</span>`).join('')}</div>
-                    </div>
-                    <span class="external-episode-state">${esc(state)}</span>
-                </article>`;
-            }).join('');
-        }
-        const episodeStateCounts = externalEpisodes.reduce((acc, ep) => { const state = ep.syncState || 'ACTIVE'; acc[state] = (acc[state] || 0) + 1; return acc; }, {});
-        if (Object.keys(episodeStateCounts).length) {
-            const episodeStates = document.createElement('div');
-            episodeStates.className = 'external-episode-states';
-            episodeStates.textContent = '集同步：' + Object.entries(episodeStateCounts).map(([state, count]) => `${state} ${count}`).join(' · ');
-            panel.querySelector('.external-metadata-main').appendChild(episodeStates);
-        }
-        const relationWrap = panel.querySelector('.external-relations');
-        if (relations.length) {
-            relationWrap.hidden = false;
-            panel.querySelector('.external-relation-list').innerHTML = relations.map(r => `<span>${esc(r.relationType || '相关作品')} · ${esc(r.title || r.relatedExternalId || '')}</span>`).join('');
-        }
-        const state = work.syncState || '未知';
-        const syncLabel = `同步 ${state} · ${work.lastSuccessAt ? new Date(work.lastSuccessAt).toLocaleString() : '暂无成功记录'}`;
-        const status = document.createElement('div');
-        status.className = 'external-sync-state';
-        status.textContent = work.lastError ? `${syncLabel} · ${work.lastError}` : syncLabel;
-        panel.appendChild(status);
+            <div class="md-desc-wrap"><div class="md-desc">${esc(desc)}</div>${desc.length > 120 ? `<span class="md-more desc-toggle">展开更多</span>` : ''}</div>
+            ${chipRow('题材', genres, 6, true)}
+            ${chipRow('别名', aliases, 4, false)}
+            ${chipRow('关联作品', relations.map(r => r.title || r.relatedExternalId || ''), 3, false)}`;
         panel.hidden = false;
+        panel.querySelectorAll('.md-more').forEach(btn => {
+            if (btn.classList.contains('desc-toggle')) {
+                btn.addEventListener('click', () => {
+                    const descEl = panel.querySelector('.md-desc');
+                    const open = descEl.classList.toggle('expanded');
+                    btn.textContent = open ? '收起' : '展开更多';
+                });
+                return;
+            }
+            btn.addEventListener('click', () => {
+                const chips = btn.parentElement;
+                const full = chips.querySelector('.md-full');
+                const shown = chips.querySelector('.md-shown');
+                if (!full) return;
+                const open = full.style.display !== 'none';
+                if (open) { full.style.display = 'none'; if (shown) shown.style.display = 'inline-flex'; btn.textContent = '更多 (+' + btn.dataset.overflow + ')'; }
+                else { full.style.display = 'inline-flex'; if (shown) shown.style.display = 'none'; btn.textContent = '收起'; }
+            });
+        });
     } catch (e) { /* 外部缓存缺失不影响本地详情 */ }
 }
 
@@ -4772,41 +4729,110 @@ function renderMetadataChips(container, label, values) {
     container.innerHTML = `<span class="external-chip-label">${esc(label)}</span>` + values.map(v => `<span>${esc(v)}</span>`).join('');
 }
 
-function renderMediaDetail(d, eps) {
+async function renderMediaDetail(d, eps) {
+    const box = document.getElementById('media-detail');
+    if (!box) return;
+    const mediaId = d.id;
+    // 并行取外部资料 + 收藏夹
+    let meta = { work: {}, relations: [], works: [] }, colls = [];
+    try {
+        const [mResp, cResp] = await Promise.all([
+            fetch(`/api/metadata-sync/media/${mediaId}/metadata`),
+            fetch('/api/collections')
+        ]);
+        if (mResp.ok) meta = await mResp.json();
+        if (cResp.ok) colls = await cResp.json();
+    } catch (e) { /* 外部缺失不影响 */ }
+    const w = meta.work || {};
+    const genres = parseMetadataList(w.genresJson);
+    const aliases = parseMetadataList(w.aliasesJson);
+    const rels = Array.isArray(meta.relations) ? meta.relations : [];
+    const inColl = new Set(d.collectionIds || []);
+    const sorted = [...eps].sort((a,b) => (a.season||0)-(b.season||0) || (a.episodeNo||0)-(b.episodeNo||0));
+    const statusLabel = s => ({WANT:'想看',WATCHING:'在看',WATCHED:'已看'}[s] || s || '');
+    const fmtDate = ms => ms ? new Date(ms).toLocaleDateString() : '';
+    // chip 行（题材/别名/关联）
+    const chipRow = (label, values, limit, isFirst) => {
+        if (!values || !values.length) return '';
+        const shown = values.slice(0, limit).map(v => `<span class="md-tag">${esc(String(v))}</span>`).join('');
+        const rest = values.slice(limit).map(v => `<span class="md-tag">${esc(String(v))}</span>`).join('');
+        const overflow = values.length - limit;
+        return `<div class="md-row ${isFirst ? 'first' : ''}"><span class="md-label">${esc(label)}</span><div class="md-chips"><span class="md-shown">${shown}</span>${overflow > 0 ? `<button class="md-more" data-overflow="${overflow}">更多 (+${overflow})</button><span class="md-full" style="display:none">${rest}</span>` : ''}</div></div>`;
+    };
     const cover = (d.coverPath || d.fallbackCoverPath || d.externalCoverUrl)
-        ? `<img src="${esc(d.coverPath || d.fallbackCoverPath || d.externalCoverUrl)}" alt="">`
+        ? `<img src="${esc(d.coverPath || d.fallbackCoverPath || d.externalCoverUrl)}" alt="" onerror="this.remove()">`
         : `<span class="cover-placeholder large">${esc(d.title).slice(0, 1)}</span>`;
-    mediaDetailHeadEl.innerHTML = `
-        <div class="ad-cover">${cover}</div>
-        <div class="ad-info">
-            <h2 class="ad-title"></h2>
-            <div class="ad-meta"></div>
-            <div class="cd-source-provenance"></div>
-            ${d.note ? '<div class="ad-note"></div>' : ''}
-        </div>`;
-    mediaDetailHeadEl.querySelector('.ad-title').textContent = d.title;
-    const meta = [];
-    meta.push(mediaSourceLabel(d.source)); // 手动 / AniList 同步 / omofuna 同步
-    if (d.mediaFormat) meta.push(formatName(d.mediaFormat));
-    if (d.year) meta.push(String(d.year));
-    if (d.subcategory) meta.push(d.subcategory);
-    if (d.status) meta.push(MEDIA_STATUS_LABEL[d.status] || d.status);
-    if (d.rating != null) meta.push(`★ ${d.rating}`);
-    const isVideo = d.mediaFormat === 'VIDEO';
-    meta.push(isVideo ? `${d.episodeCount || 0} 集 · ${d.clipCount || 0} 条片段` : `${d.clipCount || 0} 条`);
-    mediaDetailHeadEl.querySelector('.ad-meta').textContent = meta.join(' · ');
-    if (d.note) mediaDetailHeadEl.querySelector('.ad-note').textContent = `备注：${d.note}`;
-    renderDetailTags(d);
-    renderDetailCollections(d);
-    renderDetailAliases(d);
-    renderLocalDetailSummary(d, eps, isVideo);
-    renderDetailProfile(d, isVideo);
-    const epListTitle = document.getElementById('episode-list-title');
-    episodeListEl.hidden = !isVideo;
-    if (epListTitle) epListTitle.hidden = !isVideo;
-    renderEpisodeList(eps);
-    detailConfirmBtn.hidden = d.confirmed !== 0;
-    if (detailHighlightBtn) detailHighlightBtn.hidden = !isVideo;
+    const desc = w.description || '';
+    const btn = (id, label, cls) => `<button type="button" id="${id}" class="btn-mini ${cls}">${label}</button>`;
+
+    const epRows = sorted.length ? sorted.map((e,i) => `<div class="ep-row" data-ep="${e.id}">
+        <div class="ep-thumb">${e.coverPath ? `<img src="${esc(e.coverPath)}" alt="">` : `EP${e.episodeNo ?? '?'}`}</div>
+        <div class="ep-body"><span class="ep-title">${esc(e.title || '(未命名)')}</span><span class="ep-status">${e.watchedAt ? '<span class="ep-watched">✓已看</span> · ' : ''}<span class="ep-clips">${e.clipCount||0} 条</span></span></div>
+        <button class="ep-more" data-ep="${e.id}" title="操作">⋯</button></div>`).join('') : '<div style="color:var(--text-faint);padding:16px">该媒体还没有集</div>';
+
+    const profile = [['观看状态', statusLabel(d.status), d.status === 'WATCHED' ? 'green' : ''], ['个人评分', d.rating != null ? '★ ' + d.rating : '未评分', 'green'], ['资料来源', mediaSourceLabel(d.source), ''], ['档案状态', d.confirmed ? '已确认' : '待确认', 'amber']]
+        .map(([l,v,c]) => `<div class="profile-row"><span>${l}</span><b class="${c}">${v}</b></div>`).join('');
+    const shelves = colls.map(c => `<div class="shelf-row ${inColl.has(c.id) ? 'active' : ''}" data-coll="${c.id}"><span class="shelf-dot"></span><span class="shelf-name">${esc(c.name)}</span><span class="shelf-count">${c.mediaCount ?? 0}</span></div>`).join('');
+    const tagCloud = (d.tags||[]).map(t => `<span class="tag">${esc(t.name)}</span>`).join('') || '<span style="color:var(--text-faint);font-size:12px">暂无标签</span>';
+
+    box.innerHTML = `
+      <div class="hero">
+        <div class="hero-top">
+          <div class="hero-cover">${cover}<span class="src-badge">${esc(mediaSourceLabel(d.source))}</span></div>
+          <div class="hero-info">
+            <div class="hero-title-line"><h1 class="hero-title">${esc(d.title)}</h1>${w.nativeTitle ? `<span class="hero-native">${esc(w.nativeTitle)}</span>` : ''}<div class="hero-actions">${btn('detail-edit','编辑信息','')}${btn('detail-rename','改名/合并','')}${btn('detail-cover','设置封面','')}${btn('detail-sync-metadata','同步资料','')}${btn('detail-confirm','确认档案','')}${btn('detail-highlight','制作推荐视频','')}${btn('detail-materialize-batch','批量物化','')}${btn('detail-delete','删除','danger')}</div></div>
+            ${desc ? `<div><div class="ext-desc">${esc(desc)}</div>${desc.length > 120 ? `<span class="desc-toggle">展开更多</span>` : ''}</div>` : ''}
+            ${genres.length ? chipRow('题材', genres, 6, true) : ''}
+            ${aliases.length ? chipRow('别名', aliases, 4, false) : ''}
+            ${rels.length ? chipRow('关联作品', rels.map(r => r.title || r.relatedExternalId || ''), 3, false) : ''}
+          </div>
+        </div>
+      </div>
+      <div class="layout">
+        <div class="main-col">
+          <div class="section"><div class="section-head"><div><span class="kicker">EPISODE LIBRARY</span><h3>集列表</h3></div><span class="section-note">共 ${sorted.length} 集</span></div><div class="section-body" id="episode-list"><div class="ep-list">${epRows}</div></div></div>
+        </div>
+        <div class="side-col">
+          <div class="panel"><div class="panel-head"><span class="kicker">ARCHIVE PROFILE</span><h3>档案信息</h3></div><div class="panel-body">${profile}</div></div>
+          <div class="panel"><div class="panel-head"><span class="kicker">LOCAL ARCHIVE</span><h3>素材概览</h3></div><div class="panel-body"><div class="asset-grid"><div class="asset-cell"><b>${d.clipCount||0}</b><span>片段</span></div><div class="asset-cell"><b>${d.episodeCount||0}</b><span>集</span></div><div class="asset-cell"><b>${d.tags?.length||0}</b><span>标签</span></div><div class="asset-cell"><b>${colls.length}</b><span>收藏</span></div></div></div></div>
+          <div class="panel"><div class="panel-head"><span class="kicker">PERSONAL INDEX</span><h3>标签池</h3></div><div class="panel-body"><div class="tag-cloud">${tagCloud}</div></div></div>
+          <div class="panel"><div class="panel-head"><span class="kicker">YOUR SHELVES</span><h3>收藏夹</h3></div><div class="panel-body">${shelves}</div></div>
+        </div>
+      </div>`;
+
+    // 交互绑定
+    box.querySelectorAll('.md-more').forEach(btn2 => {
+        if (btn2.classList.contains('desc-toggle')) return;
+        btn2.addEventListener('click', () => {
+            const chips = btn2.parentElement;
+            const full = chips.querySelector('.md-full'), shown = chips.querySelector('.md-shown');
+            if (!full) return;
+            const open = full.style.display !== 'none';
+            if (open) { full.style.display = 'none'; if (shown) shown.style.display = 'inline-flex'; btn2.textContent = '更多 (+' + btn2.dataset.overflow + ')'; }
+            else { full.style.display = 'inline-flex'; if (shown) shown.style.display = 'none'; btn2.textContent = '收起'; }
+        });
+    });
+    const descToggle = box.querySelector('.desc-toggle');
+    if (descToggle) descToggle.addEventListener('click', () => {
+        const e = descToggle.previousElementSibling;
+        const open = e.classList.toggle('expanded');
+        descToggle.textContent = open ? '收起' : '展开更多';
+    });
+    // 集行点击进详情
+    box.querySelectorAll('.ep-row').forEach(row => row.addEventListener('click', (e) => {
+        if (e.target.closest('.ep-more')) return;
+        const id = row.dataset.ep;
+        if (id) openEpisodeDetail(Number(id));
+    }));
+    box.querySelectorAll('.shelf-row').forEach(row => row.addEventListener('click', async () => {
+        const cid = row.dataset.coll; const add = !row.classList.contains('active');
+        await fetch(`/api/collections/${cid}/media${add ? '' : '/' + mediaId}`, { method: add ? 'POST' : 'DELETE', headers: {'Content-Type':'application/json'}, body: add ? JSON.stringify({mediaId}) : undefined });
+        row.classList.toggle('active', add);
+    }));
+    const cfm = box.querySelector('#detail-confirm');
+    if (cfm) cfm.hidden = d.confirmed !== 0;
+    const hl = box.querySelector('#detail-highlight');
+    if (hl) hl.hidden = d.mediaFormat !== 'VIDEO';
 }
 
 function renderLocalDetailSummary(d, eps, isVideo) {
@@ -5703,11 +5729,11 @@ function renderEpisodeList(eps) {
 
 function buildEpisodeRow(ep, unknown) {
     const row = document.createElement('div');
-    row.className = 'episode-row' + (unknown ? ' ep-unknown' : '');
+    row.className = 'episode-row' + (unknown ? ' ep-unknown' : '') + ' ep-compact';
     const no = unknown ? '？' : (ep.episodeNo != null ? `第${ep.episodeNo}集` : '?');
     const coverHtml = ep.coverPath
         ? `<div class="ep-cover"><img src="${ep.coverPath}" alt="" loading="lazy" onerror="this.parentElement.classList.add('broken')"></div>`
-        : `<div class="ep-cover ep-cover-empty">◇</div>`;
+        : `<div class="ep-cover ep-cover-empty">${unknown ? '？' : (ep.episodeNo || '?')}</div>`;
     row.innerHTML = `
         <div class="ep-no"></div>
         ${coverHtml}
@@ -5716,15 +5742,18 @@ function buildEpisodeRow(ep, unknown) {
             <div class="ep-meta"></div>
             <div class="ep-tags"></div>
         </div>
-        <div class="ep-actions">
-            <button type="button" class="btn-mini ep-cover-btn">封面</button>
-            <button type="button" class="btn-mini ep-tag-btn">打标签</button>
-            <button type="button" class="btn-mini ep-time-btn">时间线</button>
-            <button type="button" class="btn-mini danger ep-del-btn">删除</button>
+        <div class="ep-menu-wrap">
+            <button type="button" class="ep-more" aria-label="更多操作">⋯</button>
+            <div class="ep-menu">
+                <button type="button" class="ep-menu-item ep-cover-btn">封面</button>
+                <button type="button" class="ep-menu-item ep-tag-btn">打标签</button>
+                <button type="button" class="ep-menu-item ep-time-btn">时间线</button>
+                <button type="button" class="ep-menu-item ep-del-btn danger">删除</button>
+            </div>
         </div>`;
     row.querySelector('.ep-no').textContent = no;
     row.querySelector('.ep-title').textContent = ep.title || '(未命名)';
-    row.querySelector('.ep-meta').textContent = `${ep.clipCount || 0} 条片段`
+    row.querySelector('.ep-meta').textContent = (ep.clipCount || 0) + ' 条片段'
         + (ep.latestAt ? ` · 最近标记 ${fmtDateTime(ep.latestAt)}` : '');
     if (ep.watchedAt) {
         const w = document.createElement('span');
@@ -5737,7 +5766,7 @@ function buildEpisodeRow(ep, unknown) {
     for (const t of (ep.tags || [])) {
         const chip = document.createElement('span');
         chip.className = 'ep-tag-chip';
-        chip.textContent = t.name;
+        chip.textContent = String(t.name || '').slice(0, 12);
         const rm = document.createElement('span');
         rm.className = 'chip-remove';
         rm.textContent = '×';
@@ -5749,13 +5778,12 @@ function buildEpisodeRow(ep, unknown) {
         chip.appendChild(rm);
         tagsEl.appendChild(chip);
     }
+    // 按钮事件（收进 ⋯ 菜单，功能保持）
     row.querySelector('.ep-tag-btn').addEventListener('click', (e) => {
-        e.stopPropagation();
-        openEpisodeTagModal(ep);
+        e.stopPropagation(); openEpisodeTagModal(ep);
     });
     row.querySelector('.ep-cover-btn').addEventListener('click', (e) => {
-        e.stopPropagation();
-        openEpisodeCoverModal(ep);
+        e.stopPropagation(); openEpisodeCoverModal(ep);
     });
     row.querySelector('.ep-time-btn').addEventListener('click', (e) => {
         e.stopPropagation();
@@ -5763,8 +5791,14 @@ function buildEpisodeRow(ep, unknown) {
         openTimeline({ fp: ep.videoFp, title: (currentMedia.title || '') + (unknown ? ' · 未识别' : ` · 第${ep.episodeNo}集`) });
     });
     row.querySelector('.ep-del-btn').addEventListener('click', (e) => {
+        e.stopPropagation(); deleteEpisode(ep);
+    });
+    // ⋯ 菜单开合（点外部关闭由全局处理）
+    row.querySelector('.ep-more').addEventListener('click', (e) => {
         e.stopPropagation();
-        deleteEpisode(ep);
+        const menu = row.querySelector('.ep-menu');
+        document.querySelectorAll('.ep-menu.open').forEach(m => { if (m !== menu) m.classList.remove('open'); });
+        menu.classList.toggle('open');
     });
     row.addEventListener('click', () => openEpisodeDetail(ep.id)); // 点集行进集详情
     return row;
@@ -7154,10 +7188,36 @@ mediaFormatManageBtn.addEventListener('click', openMediaFormatModal);
 document.getElementById('nav-animeko-tag')?.addEventListener('click', () => {
     window.open('/animeko-tag.html', '_blank', 'width=420,height=640');
 });
+// v0.24 媒体详情：集行「⋯」菜单点击外部收起
+window.addEventListener('click', (e) => {
+    if (!e.target || !e.target.closest) return;
+    if (e.target.closest('.ep-more') || e.target.closest('.ep-menu')) return;
+    document.querySelectorAll('.ep-menu.open').forEach(m => m.classList.remove('open'));
+});
 document.getElementById('back-to-media').addEventListener('click', goBack);
-document.getElementById('detail-edit').addEventListener('click', openEditMedia);
 
-// ---------- v0.24 批量物化（延迟物化：勾选片段→剪产物；无文件给预取清单） ----------
+// v0.24 媒体详情按钮：事件委托（#media-detail 渲染后才存在）
+document.addEventListener('click', (e) => {
+    const id = e.target && e.target.id;
+    if (id === 'detail-edit') openEditMedia();
+    else if (id === 'detail-rename') openRenameModal();
+    else if (id === 'detail-cover') openCoverModal();
+    else if (id === 'detail-materialize-batch') openMaterializeModal();
+    else if (id === 'detail-confirm') { if (currentMedia) fetch(`/api/media/${currentMedia.id}/confirm`, { method: 'POST' }).then(() => refreshMediaDetail()); }
+    else if (id === 'detail-delete') deleteMedia();
+    else if (id === 'detail-sync-metadata') {
+        if (!currentMedia) return;
+        const button = e.target;
+        if (window.v022HandleMediaMetadataAction) { window.v022HandleMediaMetadataAction(currentMedia.id, button); return; }
+        button.disabled = true;
+        fetch(`/api/metadata-sync/media/${currentMedia.id}`, { method: 'POST' })
+            .then(async r => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.message || `HTTP ${r.status}`); showToast(`资料同步完成：新增 ${d.added || 0}，更新 ${d.updated || 0}`); await refreshMediaDetail(); })
+            .catch(err => showToast('资料同步失败：' + (err.message || '后端未响应')))
+            .finally(() => { button.disabled = false; });
+    }
+});
+
+// ---------- v0.24 批量物化（延迟物化） ----------
 let materializeClips = [];
 const materializeSel = new Set();
 
@@ -7219,7 +7279,6 @@ function updateMaterializeCount() {
     document.getElementById('materialize-run').disabled = n === 0;
 }
 
-document.getElementById('detail-materialize-batch').addEventListener('click', openMaterializeModal);
 document.getElementById('materialize-close').addEventListener('click', () => { document.getElementById('materialize-modal').hidden = true; });
 document.getElementById('materialize-select-all').addEventListener('click', () => { materializeClips.forEach(c => materializeSel.add(c.id)); renderMaterializeList(); });
 document.getElementById('materialize-select-none').addEventListener('click', () => { materializeSel.clear(); renderMaterializeList(); });
@@ -7260,34 +7319,7 @@ document.getElementById('materialize-run').addEventListener('click', async () =>
     }
 });
 
-document.getElementById('detail-rename').addEventListener('click', openRenameModal);
-document.getElementById('detail-cover').addEventListener('click', openCoverModal);
-document.getElementById('detail-sync-metadata').addEventListener('click', async () => {
-    if (!currentMedia) return;
-    const button = document.getElementById('detail-sync-metadata');
-    if (window.v022HandleMediaMetadataAction) {
-        await window.v022HandleMediaMetadataAction(currentMedia.id, button);
-        return;
-    }
-    button.disabled = true;
-    try {
-        const resp = await fetch(`/api/metadata-sync/media/${currentMedia.id}`, { method: 'POST' });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
-        showToast(`资料同步完成：新增 ${data.added || 0}，更新 ${data.updated || 0}`);
-        await refreshMediaDetail();
-    } catch (e) {
-        showToast('资料同步失败：' + (e.message || '后端未响应'));
-    } finally {
-        button.disabled = false;
-    }
-});
-document.getElementById('detail-confirm').addEventListener('click', async () => {
-    if (!currentMedia) return;
-    await fetch(`/api/media/${currentMedia.id}/confirm`, { method: 'POST' });
-    refreshMediaDetail();
-});
-document.getElementById('detail-delete').addEventListener('click', deleteMedia);
+
 filterStatusEl.addEventListener('change', () => { mediaFilter.status = filterStatusEl.value; loadMedia(); });
 filterSubcategoryEl.addEventListener('change', () => { mediaFilter.subcategoryId = filterSubcategoryEl.value; loadMedia(); });
 /* 标题模糊搜索（300ms 防抖） */
@@ -7855,3 +7887,4 @@ if (RECOMMEND_DESKTOP_MODE) {
     document.title = '推荐视频导出工具';
     showView('media');
 }
+
