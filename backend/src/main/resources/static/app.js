@@ -650,9 +650,10 @@ function renderClipDetailHead(clip, ep, media) {
             ${nav.length ? `<div class="cd-nav">${nav.join('')}</div>` : ''}
         </div>`;
     clipDetailHeadEl.querySelector('.ad-title').textContent = clip.title || '(未命名)';
+    // v0.24: clip 主时间轴恒为源视频坐标（物化不改，产物时长记 asset）。
+    // 旧模型已归零数据（sourceStartMs 有值）仍回退标注原位置。
     const range = clip.endSec != null ? `${fmtTime(clip.timestampSec)} – ${fmtTime(clip.endSec)}` : fmtTime(clip.timestampSec);
-    // 物化产物：标注原视频打标位置（sourceStartMs）
-    const srcPos = clip.sourceStartMs != null
+    const srcPos = clip.materialState === 'READY' && clip.sourceStartMs != null && clip.sourceStartMs !== Math.round(clip.timestampSec * 1000)
         ? ` · 原视频 ${fmtTime(clip.sourceStartMs / 1000)} 处` : '';
     clipDetailHeadEl.querySelector('.ad-meta').textContent = `片段 · ${range}${srcPos} · ${clip.tag}`;
     const provenance = clipDetailHeadEl.querySelector('.cd-source-provenance');
@@ -678,7 +679,7 @@ function renderClipDetailHead(clip, ep, media) {
     prepBtn.addEventListener('click', async () => {
         provenance.textContent = '正在求值素材渠道…';
         try {
-            const chResp = await fetch(`/api/clips/${clip.id}/material/channels/refresh`);
+            const chResp = await fetch(`/api/clips/${clip.id}/material/channels/refresh`, { method: 'POST' });
             const ev = await chResp.json();
             if (!chResp.ok) throw new Error(ev.message || `HTTP ${chResp.status}`);
             if (ev.state === 'PRESENT' && ev.strategy === 'ALREADY_READY') {
@@ -732,7 +733,15 @@ function openLocalVideoPlayer(blob, clip) {
     const video = overlay.querySelector('video');
     video.src = url;
     video.addEventListener('loadedmetadata', () => {
-        if (clip.timestampSec != null && video.duration) video.currentTime = Math.max(0, Math.min(clip.timestampSec, video.duration - 0.1));
+        if (video.duration) {
+            if (clip.materialState === 'READY' && clip.videoAssetId != null) {
+                // 已物化：blob 是产物文件（本体即片段），从头播，无需 seek
+                video.currentTime = 0;
+            } else if (clip.timestampSec != null) {
+                // 未物化：blob 是源整集，seek 到源视频坐标
+                video.currentTime = Math.max(0, Math.min(clip.timestampSec, video.duration - 0.1));
+            }
+        }
     });
     overlay.querySelector('.modal-close').onclick = () => {
         URL.revokeObjectURL(url);
