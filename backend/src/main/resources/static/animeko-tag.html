@@ -7,39 +7,55 @@
     <link rel="stylesheet" href="app.css?v=20260902-v024-m3b">
     <style>
         body { background: linear-gradient(160deg, rgba(20, 20, 38, .96), rgba(10, 10, 20, .97)); color: var(--text); font-family: var(--font-body); margin: 0; overflow: hidden; }
-        .tag-shell { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; height: 100vh; box-sizing: border-box; }
-        .tag-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; -webkit-app-region: drag; user-select: none; padding: 2px 0 6px; }
-        .tag-head h1 { font: 800 15px var(--font-display); margin: 0; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-app-region: drag; }
-        .tag-close { border: 0; background: rgba(255,255,255,.06); color: var(--text-dim); border-radius: 8px; width: 26px; height: 26px; cursor: pointer; font-size: 13px; -webkit-app-region: no-drag; }
-        .tag-close:hover { background: rgba(255, 77, 141, .25); color: #fff; }
-        .tag-close:active { -webkit-app-region: no-drag; }
-        .tag-card { background: rgba(255,255,255,.035); border: 1px solid var(--border); border-radius: 13px; padding: 12px 14px; }
-        .tag-now { font-size: 12.5px; color: var(--text-dim); line-height: 1.7; }
-        .tag-now b { color: var(--text); font-size: 13.5px; }
-        .tag-progress { margin-top: 7px; font: 600 13px var(--font-mono); color: var(--accent, #a78bfa); }
-        .tag-empty { color: var(--text-faint); font-size: 12.5px; line-height: 1.8; }
-        .tag-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
-        .tag-field label { font-size: 11px; color: var(--text-faint); letter-spacing: .4px; }
-        .tag-field input, .tag-field textarea {
+        .tag-shell { padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 10px; height: 100vh; box-sizing: border-box; }
+        .tag-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; -webkit-app-region: drag; user-select: none; padding: 2px 0 6px; cursor: grab; }
+        .tag-head h1 { font: 800 14px var(--font-display); margin: 0; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        .tag-head .win-btns { display: flex; gap: 6px; -webkit-app-region: no-drag; }
+        .win-btns button { border: 0; background: rgba(255,255,255,.06); color: var(--text-dim); border-radius: 8px; width: 26px; height: 26px; cursor: pointer; font-size: 13px; line-height: 1; }
+        .win-btns button:hover { background: rgba(255, 77, 141, .25); color: #fff; }
+        .win-btns .wb-close:hover { background: rgba(255, 60, 90, .55); }
+        .tag-card { background: rgba(255,255,255,.035); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+        .tag-now { font-size: 12px; color: var(--text-dim); line-height: 1.65; }
+        .tag-now b { color: var(--text); font-size: 13px; }
+        .tag-progress { margin-top: 5px; font: 600 12.5px var(--font-mono); color: var(--accent, #a78bfa); }
+        .tag-progress.warn { color: #fbbf24; }
+        .tag-empty { color: var(--text-faint); font-size: 12px; line-height: 1.8; }
+        .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; }
+        .field label { font-size: 10.5px; color: var(--text-faint); letter-spacing: .4px; }
+        .field input, .field textarea {
             background: rgba(6,8,16,.6); border: 1px solid var(--border); border-radius: 9px;
-            color: var(--text); font-size: 13px; padding: 8px 10px; outline: none; font-family: inherit;
+            color: var(--text); font-size: 13px; padding: 7px 10px; outline: none; font-family: inherit;
         }
-        .tag-field input:focus, .tag-field textarea:focus { border-color: rgba(139, 92, 246, .55); }
-        .tag-range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        .tag-actions { display: flex; gap: 8px; margin-top: 2px; }
-        .tag-actions .btn-primary { flex: 1; }
-        .tag-actions button { border: 0; border-radius: 10px; padding: 9px 10px; font: 700 13px var(--font-body); cursor: pointer; }
-        .btn-primary { background: var(--grad); color: #fff; }
-        .btn-mini-x { background: rgba(255,255,255,.06); color: var(--text-dim); flex: 0 0 auto; }
-        .tag-status { min-height: 18px; font-size: 12px; line-height: 1.6; color: var(--text-dim); }
+        .field input:focus, .field textarea:focus { border-color: rgba(139, 92, 246, .55); }
+        /* 打标范围 */
+        .mark-card { background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 12px; padding: 9px 11px; display: flex; flex-direction: column; gap: 7px; }
+        .mode-row { display: flex; gap: 6px; }
+        .mode-row button { flex: 1; border: 1px solid var(--border); background: rgba(255,255,255,.04); color: var(--text-dim); border-radius: 9px; padding: 6px 0; font: 700 11.5px var(--font-body); cursor: pointer; }
+        .mode-row button.on { background: var(--grad); color: #fff; border-color: transparent; }
+        .mk-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .mk-label { font-size: 10.5px; color: var(--text-faint); white-space: nowrap; width: 30px; }
+        .mk-time { font: 700 14px var(--font-mono); color: var(--text); min-width: 74px; }
+        .mk-time small { font-weight: 400; font-size: 10px; color: var(--text-faint); }
+        .mk-btns { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+        .mk-btns button {
+            border: 1px solid rgba(255,255,255,.09); background: rgba(255,255,255,.05); color: var(--text-dim);
+            border-radius: 7px; padding: 4px 7px; font-size: 10.5px; cursor: pointer; font-family: var(--font-body);
+        }
+        .mk-btns button:hover { border-color: rgba(139,92,246,.5); color: var(--text); }
+        .mk-btns button.set { border-color: rgba(74,222,128,.4); color: var(--green, #4ade80); }
+        .mk-hint { font-size: 10px; color: var(--text-faint); line-height: 1.6; }
+        .tag-actions { display: flex; gap: 8px; }
+        .tag-actions button { border: 0; border-radius: 9px; padding: 8px 10px; font: 700 12.5px var(--font-body); cursor: pointer; }
+        .btn-save { background: var(--grad); color: #fff; flex: 1.4; }
+        .btn-refresh { background: rgba(255,255,255,.06); color: var(--text-dim); flex: 1; }
+        .btn-refresh:hover { color: var(--text); }
+        .tag-status { min-height: 15px; font-size: 11.5px; line-height: 1.55; color: var(--text-dim); }
         .tag-status.ok { color: var(--green, #4ade80); }
         .tag-status.err { color: #ff5d6d; }
         .tag-status.warn { color: #fbbf24; }
-        .tag-hint { font-size: 11px; color: var(--text-faint); }
+        .tag-archive { font-size: 11.5px; color: #fbbf24; line-height: 1.7; }
         .m2-hidden { display: none !important; }
-        .tag-archive { margin-top: 6px; font-size: 12px; color: #fbbf24; line-height: 1.7; }
-        .tag-refresh { border: 0; background: transparent; color: var(--accent, #a78bfa); font-size: 11.5px; cursor: pointer; text-decoration: underline; }
-        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar { width: 5px; }
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 3px; }
     </style>
 </head>
@@ -47,22 +63,52 @@
 <div class="tag-shell">
     <div class="tag-head">
         <h1>✦ Animeko 现场打标</h1>
-        <button type="button" class="tag-close" id="tag-min" title="最小化/收起" aria-label="收起">–</button>
+        <div class="win-btns">
+            <button type="button" id="win-min" title="收起（回到 Animeko 播放，热键再唤出）" aria-label="收起">–</button>
+            <button type="button" class="wb-close" id="win-close" title="关闭" aria-label="关闭">✕</button>
+        </div>
     </div>
     <div id="tag-card" class="tag-card">
         <div class="tag-now" id="tag-now">正在读取 Animeko 播放位置…</div>
         <div class="tag-progress" id="tag-progress"></div>
     </div>
     <div id="tag-form" class="m2-hidden">
-        <div class="tag-field"><label>标签（必填，空格分隔可多个）</label><input id="tag-input" placeholder="例如：高燃 战斗名场面" maxlength="100"></div>
-        <div class="tag-field"><label>备注</label><textarea id="tag-note" rows="2" placeholder="人物、台词、用途或剪辑说明" maxlength="2000"></textarea></div>
-        <div class="tag-range">
-            <div class="tag-field"><label>起点（毫秒，默认=当前播放位置）</label><input id="tag-start" type="number" min="0" placeholder="自动"></div>
-            <div class="tag-field"><label>终点（毫秒，可空=瞬时点）</label><input id="tag-end" type="number" min="0" placeholder="可选"></div>
+        <div class="field"><label>标签（必填，空格分隔可多个，如：高燃 名场面）</label><input id="tag-input" placeholder="例如：高燃 战斗名场面" maxlength="100"></div>
+        <div class="field"><label>备注（可选）</label><textarea id="tag-note" rows="2" placeholder="人物、台词、用途或剪辑说明" maxlength="2000"></textarea></div>
+
+        <!-- 打标范围：基于「暂停位置」秒级微调，或区间 -->
+        <div class="mark-card">
+            <div class="mode-row">
+                <button type="button" class="on" id="mode-point">单点标记</button>
+                <button type="button" id="mode-range">区间片段</button>
+            </div>
+            <div class="mk-row">
+                <span class="mk-label">起点</span>
+                <span class="mk-time" id="mk-start">—</span>
+                <span class="mk-btns" id="mk-start-btns">
+                    <button type="button" data-nudge="start" data-d="-5000">−5s</button>
+                    <button type="button" data-nudge="start" data-d="-1000">−1s</button>
+                    <button type="button" class="set" data-set="start">＝暂停位置</button>
+                    <button type="button" data-nudge="start" data-d="1000">+1s</button>
+                    <button type="button" data-nudge="start" data-d="5000">+5s</button>
+                </span>
+            </div>
+            <div class="mk-row" id="mk-end-row" hidden>
+                <span class="mk-label">终点</span>
+                <span class="mk-time" id="mk-end">—</span>
+                <span class="mk-btns" id="mk-end-btns">
+                    <button type="button" class="set" data-set="end">＝暂停位置</button>
+                    <button type="button" data-nudge="end" data-d="1000">+1s</button>
+                    <button type="button" data-nudge="end" data-d="3000">+3s</button>
+                    <button type="button" data-nudge="end" data-d="10000">+10s</button>
+                </span>
+            </div>
+            <div class="mk-hint" id="mk-hint">起点默认＝暂停位置；区间片段请填终点。时间基于 Animeko 落盘的播放位置，精确到毫秒。</div>
         </div>
+
         <div class="tag-actions">
-            <button type="button" class="btn-mini-x" id="tag-refresh">↻ 刷新位置</button>
-            <button type="button" class="btn-primary" id="tag-save">保存片段</button>
+            <button type="button" class="btn-refresh" id="tag-refresh">↻ 重读位置</button>
+            <button type="button" class="btn-save" id="tag-save">保存片段</button>
         </div>
     </div>
     <div class="tag-status" id="tag-status"></div>
@@ -70,14 +116,18 @@
 </div>
 <script>
     const $ = id => document.getElementById(id);
-    let current = null;      // playhead view
+    let current = null;              // playhead view（含暂停位置）
+    let markMode = 'point';          // point | range
+    let sel = { startMs: null, endMs: null };
+
     const pad = n => String(n).padStart(2, '0');
     const fmtMs = ms => {
         if (ms == null || isNaN(ms)) return '—';
-        const t = Math.floor(ms / 1000);
+        const t = Math.max(0, Math.floor(ms / 1000));
         return `${pad(Math.floor(t / 3600))}:${pad(Math.floor(t / 60) % 60)}:${pad(t % 60)}`;
     };
     const fmtWhen = ms => ms ? new Date(ms).toLocaleString() : '';
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
     async function loadPlayhead() {
         $('tag-status').textContent = '';
@@ -95,79 +145,144 @@
 
     function render(v) {
         if (!v.configured) {
-            $('tag-now').innerHTML = '未配置 Animeko 数据库路径。<br>请在 <b>设置</b> 填入 videotagger.animeko.db-path 后重启。';
-            $('tag-form').classList.add('m2-hidden');
-            return;
+            $('tag-now').innerHTML = '未配置 Animeko 数据库路径。<br>请设置 videotagger.animeko.db-path 后重启后端。';
+            $('tag-form').classList.add('m2-hidden'); return;
         }
         if (!v.reachable) {
             $('tag-now').textContent = v.message || 'Animeko 数据库不可达';
-            $('tag-form').classList.add('m2-hidden');
-            return;
+            $('tag-form').classList.add('m2-hidden'); return;
         }
         if (v.bangumiEpisodeId == null) {
-            $('tag-now').textContent = 'Animeko 暂无播放记录：先播一集并暂停，再回到这里打标。';
-            $('tag-form').classList.add('m2-hidden');
-            return;
+            $('tag-now').textContent = 'Animeko 暂无播放记录：先播一集并暂停，再回来打标。';
+            $('tag-form').classList.add('m2-hidden'); return;
         }
         const title = v.mediaTitle || v.subjectName || ('Bangumi #' + v.bangumiSubjectId);
         const epLabel = v.episodeLabel || ('集 ' + v.bangumiEpisodeId);
-        $('tag-now').innerHTML = `<b>${esc(title)}</b> · ${esc(epLabel)}<br>${esc(v.episodeTitle || v.episodeName || '')} · 暂停于 ${fmtWhen(v.updatedAtMillis)}`;
-        $('tag-progress').textContent = `进度 ${fmtMs(v.positionMs)} / ${fmtMs(v.durationMs)}${Date.now() - (v.updatedAtMillis || 0) > 15000 ? ' · ⚠ 位置可能已变化（如在播放请先暂停）' : ''}`;
+        $('tag-now').innerHTML = `<b>${esc(title)}</b> · ${esc(epLabel)}<br>${esc(v.episodeTitle || v.episodeName || '')}`;
+        const stale = Date.now() - (v.updatedAtMillis || 0) > 15000;
+        const prog = $('tag-progress');
+        prog.classList.toggle('warn', stale);
+        prog.textContent = `暂停位置 ${fmtMs(v.positionMs)} / ${fmtMs(v.durationMs)} · ${fmtWhen(v.updatedAtMillis)}${stale ? ' · ⚠ 若还在播放请先暂停，再点「＝暂停位置」同步' : ''}`;
         if (!v.mapped) {
             $('tag-archive').classList.remove('m2-hidden');
             $('tag-archive').textContent = `本地未建档（subject ${v.bangumiSubjectId}）：先去该媒体详情「同步资料」建档并绑定本地集，才能打标。`;
-            $('tag-form').classList.add('m2-hidden');
-            return;
+            $('tag-form').classList.add('m2-hidden'); return;
         }
         $('tag-archive').classList.add('m2-hidden');
         $('tag-form').classList.remove('m2-hidden');
-        if (!$('tag-start').value) $('tag-start').value = v.positionMs;
+        // 首次/重读：起点未手动改过 → 同步到暂停位置
+        if (sel.startMs == null) sel.startMs = v.positionMs;
+        renderMarks();
     }
 
+    function renderMarks() {
+        const dur = current && current.durationMs ? current.durationMs : null;
+        // clamp 安全
+        if (sel.startMs != null && dur && sel.startMs > dur) sel.startMs = dur;
+        if (sel.endMs != null && dur && sel.endMs > dur) sel.endMs = dur;
+        $('mk-start').textContent = fmtMs(sel.startMs);
+        $('mk-start').title = sel.startMs == null ? '' : `${sel.startMs} ms`;
+        const endOn = markMode === 'range' && sel.endMs != null;
+        $('mk-end-row').hidden = markMode !== 'range';
+        $('mk-end').textContent = endOn ? fmtMs(sel.endMs) : '—（瞬时点）';
+        $('mk-end').title = endOn ? `${sel.endMs} ms` : '';
+        if (markMode === 'range' && sel.endMs == null && sel.startMs != null) {
+            sel.endMs = Math.min((current?.durationMs ?? sel.startMs + 5000), sel.startMs + 3000);
+            $('mk-end').textContent = fmtMs(sel.endMs);
+        }
+        $('mode-point').classList.toggle('on', markMode === 'point');
+        $('mode-range').classList.toggle('on', markMode === 'range');
+        $('mk-hint').textContent = markMode === 'point'
+            ? '保存后按「暂停位置」记一个点标记；可用 ±秒微调起点。'
+            : '保存起点–终点区间；可用 ±秒微调，或点「＝暂停位置」对齐。';
+    }
+
+    // 事件：模式切换
+    $('mode-point').addEventListener('click', () => { markMode = 'point'; renderMarks(); });
+    $('mode-range').addEventListener('click', () => { markMode = 'range'; renderMarks(); });
+
+    // 事件：起点/终点 微调与对齐
+    document.querySelectorAll('.mk-btns').forEach(grp => {
+        grp.addEventListener('click', e => {
+            const btn = e.target.closest('button'); if (!btn) return;
+            const d = Number(btn.dataset.d || 0);
+            const which = btn.dataset.nudge ? btn.dataset.nudge : btn.dataset.set;
+            if (!which) return;
+            if (btn.dataset.set) {                       // ＝暂停位置
+                if (sel.startMs == null && current) sel.startMs = current.positionMs;
+                sel[which + 'Ms'] = current ? current.positionMs : sel[which + 'Ms'];
+                if (which === 'end' && markMode === 'range' && sel.endMs != null && sel.startMs != null && sel.endMs <= sel.startMs) {
+                    sel.endMs = sel.startMs + 3000;
+                }
+            } else if (btn.dataset.nudge) {              // ± 微调
+                const cur = sel[which + 'Ms'];
+                if (cur == null && current) { sel[which + 'Ms'] = current.positionMs; return; }
+                if (which === 'end' && (markMode !== 'range')) { markMode = 'range'; }
+                sel[which + 'Ms'] = Math.max(0, cur + d);
+                if (which === 'end' && sel.endMs != null && sel.startMs != null && sel.endMs <= sel.startMs) {
+                    sel.endMs = sel.startMs + 1;
+                }
+            }
+            renderMarks();
+        });
+    });
+
+    // 保存
     $('tag-save').addEventListener('click', async () => {
         const tag = $('tag-input').value.trim();
-        if (!tag) { $('tag-status').className = 'tag-status err'; $('tag-status').textContent = '请先填写标签'; return; }
-        const startVal = $('tag-start').value.trim();
-        const endVal = $('tag-end').value.trim();
+        if (!tag) { setStatus('请先填写标签', 'err'); return; }
         const body = { tag, note: $('tag-note').value.trim() };
-        if (startVal) body.startMs = Number(startVal);
-        if (endVal) body.endMs = Number(endVal);
+        // 起点明确则带出（默认让后端取最新暂停位置）
+        if (sel.startMs != null && (markMode === 'range' || sel.startMs !== (current?.positionMs ?? null))) {
+            body.startMs = sel.startMs;
+        }
+        if (markMode === 'range' && sel.endMs != null) body.endMs = sel.endMs;
         $('tag-save').disabled = true;
-        $('tag-status').textContent = '保存中…';
+        setStatus('保存中…', '');
         try {
             const resp = await fetch('/api/animeko/watch/tag', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
             });
             const r = await resp.json();
             if (!resp.ok || !r.ok) {
-                $('tag-status').className = 'tag-status err';
-                $('tag-status').textContent = r.message || '保存失败';
+                setStatus(r.message || '保存失败', 'err');
                 if (r.code === 'NEED_ARCHIVE') { $('tag-archive').classList.remove('m2-hidden'); $('tag-archive').textContent = r.message; }
                 return;
             }
-            $('tag-status').className = 'tag-status ok';
-            const ch = r.state === 'PRESENT' ? `，${r.channel} 文件在场可当场剪` : r.state === 'PENDING' ? '，缺素材（可在片段详情准备/显式缓存）' : '';
-            $('tag-status').textContent = `✓ ${r.message}${ch}`;
+            const ch = r.state === 'PRESENT' ? `，${r.channel} 文件在场可当场剪` : r.state === 'PENDING' ? '，缺素材（可显式缓存/预取）' : '';
+            setStatus(`✓ ${r.message}${ch}`, 'ok');
             $('tag-form').classList.add('m2-hidden');
+            if (window.vtDesktop && window.vtDesktop.close) window.vtDesktop.close();  // 打标完自动收起
+            else setTimeout(() => { $('tag-form').classList.remove('m2-hidden'); loadPlayhead(); }, 1200);
         } catch (e) {
-            $('tag-status').className = 'tag-status err';
-            $('tag-status').textContent = '保存失败：' + e.message;
+            setStatus('保存失败：' + e.message, 'err');
         } finally {
             $('tag-save').disabled = false;
         }
     });
 
-    $('tag-refresh').addEventListener('click', loadPlayhead);
-    $('tag-min').addEventListener('click', () => {
+    function setStatus(msg, kind) { const el = $('tag-status'); el.className = 'tag-status' + (kind ? ' ' + kind : ''); el.textContent = msg; }
+
+    // 重读位置：重置选择为暂停位置（若尚未手动改过起点则同步；显式对齐用「＝暂停位置」）
+    $('tag-refresh').addEventListener('click', async () => {
+        const hadManual = sel.startMs != null && current && sel.startMs !== current.positionMs;
+        await loadPlayhead();
+        if (!hadManual && current && sel.startMs == null) sel.startMs = current.positionMs;
+        renderMarks();
+        setStatus(`已同步暂停位置 ${fmtMs(current?.positionMs)}`, 'warn');
+    });
+
+    // 窗口控制：– 收起（IPC hide）；✕ 关闭；web 环境用 window.close()
+    $('win-min').addEventListener('click', () => {
+        if (window.vtDesktop && window.vtDesktop.minimize) window.vtDesktop.minimize();
+        else window.close();
+    });
+    $('win-close').addEventListener('click', () => {
         if (window.vtDesktop && window.vtDesktop.close) window.vtDesktop.close();
         else window.close();
     });
-    $('tag-input').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('tag-save').click(); });
 
-    function esc(s) {
-        return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    }
+    $('tag-input').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('tag-save').click(); });
 
     loadPlayhead();
 </script>

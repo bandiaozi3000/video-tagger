@@ -10,7 +10,7 @@
  * 退出：托盘图标左键=弹打标窗；右键菜单=退出。
  */
 
-const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, dialog, ipcMain } = require('electron');
 const path = require('path');
 const zlib = require('zlib');
 
@@ -93,6 +93,7 @@ async function backendReady() {
 function openTagWindow() {
   if (tagWindow && !tagWindow.isDestroyed()) {
     if (tagWindow.isMinimized()) tagWindow.restore();
+    if (!tagWindow.isVisible()) tagWindow.show();
     tagWindow.show();
     tagWindow.focus();
     return;
@@ -117,10 +118,15 @@ function openTagWindow() {
     },
   });
   tagWindow.setAlwaysOnTop(true, 'floating');
-  tagWindow.loadURL(`${BACKEND_URL}/animeko-tag.html`);
+  // 每次打开加随机 query 绕过 Electron 页面缓存（保证拿到最新 UI）
+  tagWindow.loadURL(`${BACKEND_URL}/animeko-tag.html?_ts=${Date.now()}`);
   tagWindow.once('ready-to-show', () => tagWindow.show());
   tagWindow.on('closed', () => { tagWindow = null; });
 }
+
+// 窗控 IPC：主壳 preload 发 win:minimize/win:close（无边框浮层用）；收起=hide（热键/托盘再唤出）
+ipcMain.on('win:minimize', (e) => { BrowserWindow.fromWebContents(e.sender)?.hide(); });
+ipcMain.on('win:close', (e) => { BrowserWindow.fromWebContents(e.sender)?.close(); });
 
 async function handleHotkey() {
   if (shuttingDown) return;
