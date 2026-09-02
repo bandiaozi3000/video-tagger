@@ -12,6 +12,7 @@
 
 ## 目录（按日期）
 
+- [2026-08-26](#2026-08-26)
 - [2026-08-24](#2026-08-24)
 - [2026-08-17](#2026-08-17)
 - [2026-08-10](#2026-08-10)
@@ -425,3 +426,305 @@
 - **涉及技术**：MyBatis `DatabaseIdProvider` / `@Insert(databaseId=)`、mybatis-plus 3.5.7 auto-config、`CONCAT()` 跨库可移植、SQLite 3.45 / MySQL 8、Flyway V1~V19、`@MapperScan`。
 - **关键文件**：`VideoTaggerApplication.java`、`config/MybatisConfig.java`、`mapper/{Tag,ClipTag,MediaTag,EpisodeTag,MediaCollection,Clip,Media,Episode}Mapper.java`、`application.yml`（mysql profile）。
 - **当前状态**：已修复并双库验证（2026-08-18），已提交（commit `63df261`）；Web 连 MySQL 的标签/搜索功能恢复正常；待用户在真实环境（IDEA/docker）重跑确认。
+
+---
+
+## 2026-08-26
+
+### Docker MySQL 数据卷损坏与数据恢复完整复盘
+
+- **日期**：2026-08-26
+- **业务场景**：video-tagger 的 MySQL 数据（Docker 卷 `video-tagger_mysql_data`，MySQL 8.0.45，库 `video_tagger`）因 Docker 异常退出而"看起来全丢"，且 Docker Desktop 自身也无法启动。目标：**最大程度恢复数据 + 修复 Docker**。
+- **事故链**（怎么发生的）：
+  1. Docker 异常退出 → 数据盘（ext4 文件系统）损坏；
+  2. 当日曾执行 `e2fsck -fy` 强制修复 → 清掉了 Docker 的目录结构（inode 索引）；
+  3. Docker Desktop 重建新数据盘时**清零了旧盘 VHDX 的 BAT（块分配表）元数据** → 旧盘 `docker_data.vhdx.old-20260826`（123G）无法再作为虚拟磁盘挂载；
+  4. 雪上加霜：`D:\learn\docker\DockerDesktopWSL\main` 目录损坏（D 盘 exFAT 被标 dirty），Docker Desktop 彻底起不来。
+- **怎么解决**（完整时间线，桌面项目三个连续会话）：
+  | 阶段 | 本地时间 | 做了什么 | 结果 |
+  |---|---|---|---|
+  | ① 发现 | 14:55 | 用户发现 `D:\learn\docker` 下有两个 DockerDesktopWSL 目录，`docker_data.vhdx` 被截断（新 1G vs 旧 123G） | 锁定旧数据盘 |
+  | ② 诊断 | 15:00 | 旧盘挂载失败 `0x80070570`（目录损坏）；文件头 `vhdxfile` 签名仍在 → 物理数据可能还在 | 放弃虚拟层挂载，转字节级捞 |
+  | ③ 二进制定位 | 15:20 | 直接对 123G 物理文件扫内容特征：`video_tagger` 字符串命中 12986 次、binlog 魔数 `fe 62 69 6e`、InnoDB infimum/supremum 页特征 | 定位到 28 个 binlog（覆盖 8/12~8/25） |
+  | ④ 环境重建 | 15:30 | Docker 起不来 → 安装 Ubuntu-24.04 WSL + MySQL 8.0.46 作恢复沙箱 | 恢复环境就绪 |
+  | ⑤ binlog 提取+重放 | 15:59 | 从物理文件按偏移区间提取 28 个 binlog（2.8G）到 `D:/recovery/binlogs/`；mysqlbinlog 解析 + 顺序重放 | 单独重放有限（DML 依赖前置状态，报 ERROR 1032/1050） |
+  | ⑥ 备份+binlog 补齐 ★ | 16:25 | 发现用户备份 `data/backup/video_tagger_20260813.sql`（8/13，44.7M）→ 导入备份 → 重放 binlog_13~28（8/13 之后）补齐 | **恢复 8367 行**，导出 `D:/recovery/video_tagger_final.sql`（45M 完整库） |
+  | ⑦ 修 Docker | 16:44 | 根因 `main` 目录损坏 + D 盘 exFAT dirty → 用户拍板 `chkdsk D: /f`（UAC，跑较久）→ "Windows made corrections" / NOT Dirty → 删 main 目录 → Docker Desktop 重启 | 引擎 29.7.2 就绪 |
+  | ⑧ 导入验证 | 17:17 | `docker compose up` 拉起 mysql，导入 final.sql | 行数核对一致（media 5528 等） |
+- **恢复结果**（数据源 = 8/13 完整备份 + 8/13 之后 binlog 补齐）：
+  | 表 | 行数 | 表 | 行数 |
+  |---|---|---|---|
+  | media | 5528 | media_collection | 2148 |
+  | tag | 140 | media_tag | 108 |
+  | embedding_tasks | 348 | clips / episode / episode_tag / clip_tag | 各 10 |
+  | media_subcategory | 15 | collection | 5 |
+  | title_mapping | 4 | recommend_draft / template | 1 / 3 |
+  | site_setting | 1 | highlight_export / project / project_item | 各 1 |
+
+  导出文件：`D:/recovery/video_tagger_final.sql`（45M，完整 schema + 数据）。
+- **原理**（排障中学到的硬知识）：
+  - **VHDX 双层结构**：header（`vhdxfile` 魔数）+ **BAT（Block Allocation Table）**。BAT 是"虚拟块 → 物理块"映射表，被清零后物理数据块仍在磁盘上，但**无法通过虚拟层定位**——"数据看着没了，字节其实还在"，所以要字节级扫内容特征。
+  - **binlog 可做地毯式恢复**：MySQL 8 binlog 文件头魔数 `fe 62 69 6e`（".bin"），物理文件里按魔数 + 事件链（FORMAT_DESCRIPTION_EVENT 开头）可定位整段 binlog 区间，用 `dd` 按偏移提取即得完整文件；事件类型有 QUERY_EVENT（DDL/语句）、TABLE_MAP + ROWS_EVENT（行变更）。
+  - **InnoDB 页恢复优先级低**：页特征（FSP_HDR 页类型 0x0008、infimum/supremum 固定字节）能定位页头，但页内聚簇记录文本段大多已损坏，重组成功率低，**优先级低于 binlog/备份**。
+  - **binlog 默认只留约 2 周**：只能覆盖近期增量，**全量备份才是唯一保险**。
+  - **MySQL 客户端"乱码"假象**：数据本身是 utf8mb4 正确存储，但 `mysql` 客户端默认会话字符集是 **latin1** → 中文 SELECT 显示成 `?`/乱码；用 `--default-character-set=utf8mb4` 连接即正常。**判断"数据真乱码"前先查 `SHOW CREATE TABLE` 确认列字符集 + 用正确字符集连接验证，再下结论。**
+- **关键教训 / 行动项**：
+  1. **Docker 数据卷必须定期备份**（本次全靠 8/13 的偶然备份兜底）——定时 `mysqldump` 或 `docker run --rm -v <vol>:/data -v D:/backup:/backup alpine tar czf /backup/mysql_$(date +%F).tar.gz -C /data .`。
+  2. **故障时先停写、少折腾**：`e2fsck -fy` 强制修复 + Docker 重建数据盘的双重打击，把本可挽救的盘彻底变成只能"字节级捞"。
+  3. **备份 + binlog 双保险**：备份管全量、binlog 管近 2 周增量，结合才是完整恢复路径。
+  4. **恢复后 schema 会落后**：备份是旧时间点快照，恢复后需 Flyway 补跑到最新（本案例缺 V20/V23，需 `SPRING_FLYWAY_OUT_OF_ORDER=true` 补跑中间版本）。
+- **涉及技术**：MySQL 8.0.45 / 8.0.46、binlog（`.bin` 魔数 + 事件链）、mysqlbinlog、InnoDB 页结构（FSP_HDR / infimum/supremum）、VHDX（BAT 映射表）、WSL2（Ubuntu-24.04 恢复沙箱 + 旧盘挂载）、chkdsk（exFAT 脏盘）、Docker Desktop、Flyway。
+- **遗留 / 后续**：恢复数据已导入新卷；V20/V23 迁移补跑与应用层验证见当日工作日志；旧 123G 数据盘已删除。
+
+---
+
+### Docker MySQL 数据卷事故后的自动备份监控落地
+
+#### 1. 起因：一次存储层事故暴露了“手工备份不等于备份机制”
+
+本次工作的直接起因，是当天发生的 Docker MySQL 数据卷损坏事故。事故链不是已证实的业务 SQL 写错数据，而是存储层连续受损：
+
+```text
+Docker 异常退出
+→ Docker 数据盘 ext4 文件系统损坏
+→ 对现场执行 e2fsck -fy，Docker 目录结构被清理
+→ Docker Desktop 重建数据盘，旧 VHDX 的 BAT 元数据被清零
+→ MySQL 数据卷无法正常挂载，数据库看起来像“全丢”
+```
+
+恢复过程曾尝试从 123G 旧盘进行字节级扫描，找到 28 个 binlog（覆盖 8/12~8/25，共约 2.8G），但 binlog 单独重放受前置状态依赖影响，出现 `ERROR 1032/1050`，无法独立构成完整恢复来源。最终能够恢复，依赖的是：
+
+1. 找到 8/13 的完整 `data/backup/video_tagger_20260813.sql`；
+2. 导入该全量快照；
+3. 按顺序重放 8/13 之后的 binlog；
+4. 恢复 8367 行并导出完整 `D:/recovery/video_tagger_final.sql`。
+
+这次事故形成了三个直接结论：
+
+- **全量 SQL 快照是基础保险**，不能把希望寄托在损坏后的 InnoDB 页恢复上；
+- **binlog 不能替代全量备份**，且默认保留窗口有限（复盘中观察到约两周）；
+- **偶然手工做过一次备份，不等于系统具备备份能力**：没有自动触发、固定副本、旧版本保护和持续监控，下一次仍可能从头救火。
+
+项目规划原本也记录过“当前完全没有备份/恢复机制”的缺口，但本次实际需求被明确收窄为先把 MySQL 数据定期保存下来，不扩展到完整灾备平台。
+
+#### 2. 需求如何收敛
+
+本次讨论经历了从大范围数据安全建议到最小可用备份机制的收敛过程：
+
+1. **初始建议范围较大**：曾考虑数据库约束、数据一致性、同步幂等、恢复演练、Milvus 和本地资产等治理事项；复盘后确认这超出了当前诉求。
+2. **用户明确目标**：只需要备份 MySQL，不处理 SQLite、Milvus、MinIO、etcd、封面、导出文件和恢复功能。
+3. **曾考虑 MySQL → SQLite 作为第二副本**：项目已有 `MigrationTool`，可以按依赖顺序迁移 MySQL 全表到 SQLite，并做行数比对；但它会先删除目标 SQLite 再重建（`MigrationTool.java` 的 `Files.deleteIfExists`），是迁移工具而不是备份工具。同步失败可能留下不完整数据库，且把备份问题扩大成双数据库维护问题，因此最终排除。
+4. **最终数据范围**：只导出 MySQL 数据库 `video_tagger`，不改 Java 业务写入路径，不改 SQLite 迁移工具。
+5. **最终保存位置**：每份 SQL 保存两份——项目目录 `data/backup/` 和 C 盘 `%LOCALAPPDATA%/VideoTagger/backup/`。当前机器实际为 `C:\\Users\\86132\\AppData\\Local\\VideoTagger\\backup\\`。
+6. **物理风险边界**：C 盘副本和项目所在 D 盘副本可以防目录误删或部分单盘逻辑问题，但如果 C、D 属于同一块物理盘，整盘损坏时仍可能一起丢失；本次按用户指定的“双目录备份”先落地，不额外引入异机/云端方案。
+
+#### 3. 备份频率与旧文件策略讨论
+
+##### 3.1 旧备份是否删除
+
+不能在新备份开始前删除旧文件，否则新一轮 dump 中途断电、Docker 退出或复制失败时，可能连上一份可用快照都没有。最终采用“双副本成功后再轮转”：
+
+```text
+生成新的临时 SQL
+→ 项目目录临时副本成功且非空
+→ C 盘临时副本成功且大小一致
+→ 两处临时文件改名为正式时间戳文件
+→ 再清理超过保留数量的旧成对备份
+```
+
+默认保留最近 **3 轮**。只有项目目录和 C 盘都存在的成对 SQL 才参与轮转；如果新备份失败，旧正式文件不删除。当前数据库约 45 MB，两个位置保留 3 轮约占 270 MB，保留少量历史版本还能避免“误删后立即备份”覆盖唯一快照。
+
+##### 3.2 每小时全量 dump 与 binlog 变更检测
+
+讨论过两种策略：
+
+| 策略 | 优点 | 代价 | 结论 |
+|---|---|---|---|
+| 开启 binlog，比较位点，有变化才 dump | 数据库空闲时少做重复读写；不依赖业务 Service，人工 SQL 也能被识别 | 要修改 Compose 的 MySQL 参数，维护 `server-id`、binlog、过期策略和位点状态，还要处理重启/轮转 | 当前不采用 |
+| 每小时无条件完整 mysqldump | 实现简单；每份都是独立完整快照；不需要改 MySQL 配置和维护状态文件 | 即使无变化也会读取和写入约 45 MB | **最终采用** |
+
+以当前约 45 MB 数据估算，每小时一次、两处落盘的写入量约为：
+
+```text
+45 MB × 24 次 × 2 个位置 ≈ 2.1 GB/天
+```
+
+对当前个人项目和普通磁盘而言可接受，换来的却是更简单、更直观、故障面更小的备份链路。binlog 更适合后续的时间点恢复、增量备份或主从复制；当前既不要求这些能力，也不需要为了“判断是否变化”额外启用它。
+
+##### 3.3 监控周期与 Docker 状态
+
+最终采用长期运行的 PowerShell watcher，而不是 Docker 退出后直接结束的脚本：
+
+```text
+Windows 用户登录
+→ watcher 常驻
+→ 每 30 秒检查 Docker / vt-mysql
+→ healthy 后立即备份
+→ 后续每 60 分钟备份一次
+→ Docker/MySQL 不可用时暂停备份，继续等待
+→ 恢复 healthy 后立即备份，不等待下一个整点
+```
+
+只检查 Docker Desktop 进程不够，因为 Docker 引擎可用不代表 MySQL 已完成初始化；只检查容器 `running` 也不够，因为容器可能仍未接受连接。项目的 `docker-compose.yml` 已有 MySQL healthcheck，因此脚本使用三层条件：Docker CLI 存在、`docker info` 成功、`vt-mysql` 的状态为 `running` 且 health 为 `healthy`。
+
+Docker 退出时的行为明确为：不执行 dump、不删除已有备份、不操作数据卷；Docker 恢复后重新检查并立即做一份当前快照。若 Docker 在 dump 过程中退出，本轮使用临时文件，失败后清理临时文件，上一份正式备份继续保留。
+
+#### 4. 最终技术方案
+
+新增两个独立 PowerShell 文件：
+
+##### 4.1 `scripts/backup-mysql-watch.ps1`
+
+- 默认容器名 `vt-mysql`，数据库名 `video_tagger`；数据库名限制为字母、数字和下划线，避免拼接 SQL 命令时引入 shell 参数风险；
+- 启动时创建项目备份目录和 C 盘备份目录；
+- 通过 `Get-Command docker.exe/docker` 定位 Docker CLI；如果开机阶段 PATH 尚未准备好，不退出，而是在后续扫描中重新查找；
+- 用 `docker info` 判断 Docker daemon 是否可用，用 `docker inspect` 读取容器运行状态和 healthcheck 状态；
+- 使用命名 Mutex `Global\\VideoTagger-MySqlBackupWatcher` 防止用户重复启动多个 watcher，避免同时写同一批备份；
+- 首次 healthy 时立即导出，此后默认每 60 分钟导出一次；失败时 5 分钟后重试；
+- 使用 `mysqldump` 参数：
+  - `--single-transaction`：对 InnoDB 做在线一致性快照，不需要停库；
+  - `--routines --events --triggers`：保留数据库对象定义；
+  - `--hex-blob`：避免二进制字段在文本导出中产生歧义；
+  - `--default-character-set=utf8mb4`：与项目 MySQL 字符集约定一致，避免中文导出问题；
+  - `--set-gtid-purged=OFF`：避免恢复到不同实例时写入不必要的 GTID 信息；
+  - `--no-tablespaces`：降低导出所需额外权限和环境要求；
+  - `--databases video_tagger`：只导出项目业务库，不导出 MySQL 系统库；
+- 密码不写入 PowerShell 命令参数，而是在容器内将已有 `MYSQL_ROOT_PASSWORD` 赋给 `MYSQL_PWD`，再调用 `mysqldump`；这样避免密码参数泄露，也避免 MySQL 客户端 warning 被脚本误判；
+- SQL 先写到容器 `/tmp` 的随机文件，再通过 `docker cp` 复制到项目目录临时文件；复制到 C 盘临时文件后比较大小，两个临时文件都成功后才改名为 `video_tagger_yyyyMMdd_HHmmss.sql`；
+- 旧备份只按成对文件轮转，默认保留 3 轮；
+- 日志写入 C 盘 `backup-watcher.log`；
+- `-OneShot` 参数仅用于手动执行一次测试，正式计划任务不带此参数。
+
+##### 4.2 `scripts/install-backup-watcher.ps1`
+
+- 检查 watcher 文件存在并创建 C 盘备份目录；
+- 注册任务名 `VideoTagger MySQL Backup Watcher`；
+- 使用当前用户登录触发（不是无用户会话的系统底层启动），因为任务以 `InteractiveToken`、普通权限运行，需要访问当前用户 `%LOCALAPPDATA%` 和 Docker CLI；
+- 配置 `StartWhenAvailable`、失败后每 5 分钟最多重启 3 次、无限执行时间；
+- 注册后立即启动任务；watcher 使用 `-WindowStyle Hidden` 在后台运行，不弹出常驻 PowerShell 窗口；
+- 不自动替用户执行系统任务注册，需手动运行安装脚本。
+
+这里对“开机启动”作了准确化：实际是**Windows 启动后用户登录时自动启动**，不是用户尚未登录时就运行。对当前 Docker Desktop 和用户目录场景，这比无交互系统任务更可靠。
+
+#### 5. 实施过程中的问题与修正
+
+##### 5.1 相对路径导致“文件不存在”
+
+用户首次执行 `./scripts/install-backup-watcher.ps1` 时报告文件不存在。排查后确认仓库中的两个脚本均存在，原因是当时 PowerShell 当前工作目录不是项目根目录，相对路径自然无法解析。使用绝对路径：
+
+```powershell
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
+  -File "D:\\learn\\myLearn\\video-tagger\\scripts\\install-backup-watcher.ps1"
+```
+
+后注册成功。后续使用相对路径时必须先切换到项目根目录。
+
+##### 5.2 `mysqldump` warning 被误当成失败
+
+第一次 `-OneShot` 测试时，容器内 `mysqldump` 已经执行并生成 SQL，但日志显示失败，错误内容只有：
+
+```text
+mysqldump: [Warning] Using a password on the command line interface can be insecure.
+```
+
+根因是 PowerShell 严格错误模式下把 `docker exec` 合并输出中的 stderr warning 当成异常路径信息。随后直接在容器内复现，确认命令能生成约 47 MB 文件；脚本改为：
+
+1. 使用容器已有环境变量设置 `MYSQL_PWD`，不再使用 `--password=...`；
+2. 屏蔽已知 stderr warning；
+3. 只根据 `docker exec` 和 `docker cp` 的退出码判断成功；
+4. 仍检查最终文件非空和双副本大小一致。
+
+修正后测试通过。
+
+##### 5.3 Docker 状态竞态
+
+验证过程中曾观察到 `vt-mysql` 为 `exited|starting`。脚本没有尝试操作数据卷，而是按设计等待；容器恢复为 `running|healthy` 后才执行 dump。这验证了“容器启动”和“数据库可用”必须区分。
+
+##### 5.4 Docker CLI 开机时 PATH 不完整
+
+Windows 计划任务启动阶段可能早于 Docker CLI PATH 完全准备好。脚本不把一次 `Get-Command` 失败当作永久故障；它会记录 `docker-cli-missing` 并在每轮扫描重新寻找 Docker CLI，避免开机顺序导致 watcher 永久失效。
+
+#### 6. 实际验证结果
+
+验证分为静态验证、容器内命令验证、真实双副本验证和计划任务验证：
+
+1. 两个 PowerShell 脚本通过 PowerShell AST 语法解析；
+2. `git diff --check` 通过；
+3. Docker 引擎版本为 `29.7.2`；
+4. `vt-mysql` 恢复到 `running|healthy` 后，容器内 `mysqldump` 成功生成 `47,498,933` 字节 SQL；
+5. 一次性脚本真实执行成功，生成：
+   - `data/backup/video_tagger_20260826_232708.sql`；
+   - `C:\\Users\\86132\\AppData\\Local\\VideoTagger\\backup\\video_tagger_20260826_232708.sql`；
+6. 两份文件大小均为 `47,498,933` 字节，SHA-256 均为：
+
+```text
+7067361E0ED2D2E2419613D647C2F5B9080C80F3F9F12D5F9FAF31557A724BB2
+```
+
+7. 临时文件数量为 0；
+8. 使用绝对路径注册计划任务成功，任务名为 `VideoTagger MySQL Backup Watcher`，状态为 `Running`；
+9. 计划任务启动后的日志记录了 23:45:51 发现 MySQL healthy，并于 23:45:52 完成新的 `video_tagger_20260826_234551.sql` 备份；
+10. 最终再次检查两处最新 SQL，文件名、大小和 SHA-256 一致。
+
+这次只验证了“导出成功并形成两个一致副本”，**没有执行恢复导入验证**，符合本次明确的需求边界。
+
+#### 7. 最终使用方式
+
+安装或重新注册常驻监控：
+
+```powershell
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
+  -File "D:\\learn\\myLearn\\video-tagger\\scripts\\install-backup-watcher.ps1"
+```
+
+手动只执行一次备份测试：
+
+```powershell
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+  -File "D:\\learn\\myLearn\\video-tagger\\scripts\\backup-mysql-watch.ps1" -OneShot
+```
+
+查看任务：
+
+```powershell
+Get-ScheduledTask -TaskName 'VideoTagger MySQL Backup Watcher' |
+  Select-Object TaskName, State
+Get-ScheduledTaskInfo -TaskName 'VideoTagger MySQL Backup Watcher' |
+  Format-List
+```
+
+查看日志：
+
+```powershell
+Get-Content "$env:LOCALAPPDATA\\VideoTagger\\backup\\backup-watcher.log" -Tail 30
+```
+
+卸载计划任务：
+
+```powershell
+Unregister-ScheduledTask -TaskName 'VideoTagger MySQL Backup Watcher' -Confirm:$false
+```
+
+#### 8. 最终敲定版本与边界
+
+本次最终敲定的是一个**轻量版 MySQL 自动全量备份 v1**，不是生产级主从或灾备平台：
+
+```text
+只备份 MySQL video_tagger
++ Windows 用户登录后常驻监控
++ 每 30 秒检查 Docker/MySQL healthy
++ healthy 后立即备份
++ 每 60 分钟完整 mysqldump
++ 项目目录和 C 盘各保存一份
++ 保留最近 3 轮成对备份
++ Docker 退出时暂停，恢复后立即继续
++ 不开启 binlog
++ 不备份 SQLite/其他资产
++ 不实现恢复和恢复演练
+```
+
+不选择主从的原因是：主从主要解决高可用和故障切换，不是独立备份；误删和错误 SQL 也可能同步到从库。当前数据库只有约 45 MB，部署主从的维护成本明显高于每小时全量 dump 的成本。
+
+不选择“每次业务写操作后立即 dump”的原因是：当前写入口分散在多个 Service/Mapper，人工 SQL、Flyway 和其他工具也可能绕过业务入口；每次事务都生成完整 45 MB 文件会造成不必要的 I/O 和并发复杂度。每小时快照将理论备份缺口控制在约 1 小时，符合当前目标。
+
+后续若数据量明显增长或需要时间点恢复，再考虑启用 binlog 并做异盘归档；若要求主机/磁盘级灾难保护，则需要把副本放到另一块物理盘、NAS 或云端。本次不扩展这些范围，也不升级业务版本。

@@ -55,3 +55,7 @@ packaging/
 
 # 测试残留
 backend/test-bg.png
+
+# AI 工具本地状态
+.pi/
+.claude/
