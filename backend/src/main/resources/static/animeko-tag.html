@@ -252,13 +252,33 @@
             const ch = r.state === 'PRESENT' ? `，${r.channel} 文件在场可当场剪` : r.state === 'PENDING' ? '，缺素材（可显式缓存/预取）' : '';
             setStatus(`✓ ${r.message}${ch}`, 'ok');
             $('tag-form').classList.add('m2-hidden');
+            // 封面兜底：渠道无本地文件（网页流等）→ Electron 截屏当前画面作封面
+            const clipId = r.clipId;
+            if (clipId && r.state !== 'PRESENT' && window.vtDesktop && window.vtDesktop.captureScreen) {
+                setStatus(`✓ ${r.message} · 正在截取画面作封面…`, 'ok');
+                try {
+                    const shot = await window.vtDesktop.captureScreen();
+                    if (shot && shot.ok && shot.dataUrl) {
+                        const coverResp = await fetch(`/api/clips/${clipId}/cover`, {
+                            method: 'POST', headers: { 'Content-Type': 'text/plain' },
+                            body: shot.dataUrl
+                        });
+                        if (coverResp.ok) setStatus(`✓ ${r.message} · 封面已截取`, 'ok');
+                        else setStatus(`✓ ${r.message} · 封面保存失败（可稍后手动补）`, 'warn');
+                    } else {
+                        setStatus(`✓ ${r.message} · 截屏失败（可稍后手动补）`, 'warn');
+                    }
+                } catch (e) {
+                    setStatus(`✓ ${r.message} · 截屏失败：${e.message}`, 'warn');
+                }
+            }
             // 打标成功：短暂显示成功 → 收起（hide 而非 close，窗口保留可再唤出）；web 端 1.5s 后复位继续
             const reset = () => { $('tag-form').classList.remove('m2-hidden'); sel = { startMs: null, endMs: null }; loadPlayhead(); };
             if (window.vtDesktop && window.vtDesktop.minimize) {
-                setTimeout(() => window.vtDesktop.minimize(), 1400);   // Electron：收起到托盘（不销毁）
-                setTimeout(reset, 200);                                 // 立即复位，下次唤出即新表单
+                setTimeout(() => window.vtDesktop.minimize(), 1800);   // Electron：收起到托盘（不销毁）
+                setTimeout(reset, 250);                                 // 立即复位，下次唤出即新表单
             } else {
-                setTimeout(reset, 1600);
+                setTimeout(reset, 2000);
             }
         } catch (e) {
             setStatus('保存失败：' + e.message, 'err');

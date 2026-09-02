@@ -10,7 +10,7 @@
  * 退出：托盘图标左键=弹打标窗；右键菜单=退出。
  */
 
-const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, dialog, ipcMain, desktopCapturer } = require('electron');
 const path = require('path');
 const zlib = require('zlib');
 
@@ -127,6 +127,23 @@ function openTagWindow() {
 // 窗控 IPC：主壳 preload 发 win:minimize/win:close（无边框浮层用）；收起=hide（热键/托盘再唤出）
 ipcMain.on('win:minimize', (e) => { BrowserWindow.fromWebContents(e.sender)?.hide(); });
 ipcMain.on('win:close', (e) => { BrowserWindow.fromWebContents(e.sender)?.close(); });
+
+// M2 封面兜底：截主显示器当前画面（含 Animeko 播放窗口）→ JPEG dataURL（主进程 desktopCapturer 无需授权框）
+ipcMain.handle('tag:capture-screen', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 1920, height: 1080 },
+    });
+    // 优先主显示器；thumbnail 为空则回退任意
+    const src = sources.find(s => s.display_id === '0') || sources[0] || null;
+    if (!src || src.thumbnail.isEmpty()) throw new Error('未捕获到屏幕画面');
+    const jpg = src.thumbnail.toJPEG(88);   // Buffer
+    return { ok: true, dataUrl: jpg.toString('base64') };
+  } catch (e) {
+    return { ok: false, message: String(e.message || e) };
+  }
+});
 
 async function handleHotkey() {
   if (shuttingDown) return;

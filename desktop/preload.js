@@ -20,4 +20,6 @@ contextBridge.exposeInMainWorld('vtDesktop', {
   maximize: () => ipcRenderer.send('win:maximize'),
   close: () => ipcRenderer.send('win:close'),
   onMaximize: (cb) => ipcRenderer.on('win:maximized-changed', (_e, isMax) => cb(isMax)),
+  // M2 封面兜底：截主屏幕（Animeko 画面）→ { ok, dataUrl? | message? }
+  captureScreen: () => ipcRenderer.invoke('tag:capture-screen'),
 });

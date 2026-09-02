@@ -251,6 +251,37 @@ public class ClipService {
         return clip;
     }
 
+    /** M2：设置片段封面（base64 data URL → 缩略图 + 详情大图 + 回写）。供截图兜底/手动换封面。 */
+    public Clip setCoverFromDataUrl(Long id, String dataUrl) {
+        Clip clip = requireClip(id);
+        if (dataUrl == null || dataUrl.isBlank()) {
+            throw new IllegalArgumentException("cover data url is required");
+        }
+        try {
+            byte[] cover = coverService.decodeDataUrl(dataUrl);
+            String coverPath = coverService.saveClipCover(clip.getId(), cover);
+            String detailPath = coverService.saveClipDetailCover(clip.getId(), cover);
+            Clip patch = new Clip();
+            patch.setId(id);
+            patch.setCoverPath(coverPath);
+            patch.setDetailCoverPath(detailPath);
+            clipMapper.updateById(patch);
+            return clipMapper.selectById(id);
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("封面保存失败: " + e.getMessage(), e);
+        }
+    }
+
+    private Clip requireClip(Long id) {
+        Clip clip = clipMapper.selectById(id);
+        if (clip == null) {
+            throw new NoSuchElementException("clip not found: " + id);
+        }
+        return clip;
+    }
+
     /**
      * 标签补全建议：从词库按三级引用聚合计数（媒体/集/片段全覆盖）。
      * mediaId != null 时该媒体已用标签优先（媒体上下文），再补全局高频兜底。

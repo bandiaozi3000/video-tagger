@@ -60,6 +60,12 @@ public class ClipController {
         return clipService.update(id, req, appendTag);
     }
 
+    /** M2：设置片段封面（body = base64 data URL，截图兜底/手动换封面用）。 */
+    @PostMapping("/{id}/cover")
+    public Clip setCover(@PathVariable Long id, @RequestBody String dataUrl) {
+        return clipService.setCoverFromDataUrl(id, dataUrl.trim());
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         boolean deleted = clipService.delete(id);
