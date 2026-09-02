@@ -252,8 +252,14 @@
             const ch = r.state === 'PRESENT' ? `，${r.channel} 文件在场可当场剪` : r.state === 'PENDING' ? '，缺素材（可显式缓存/预取）' : '';
             setStatus(`✓ ${r.message}${ch}`, 'ok');
             $('tag-form').classList.add('m2-hidden');
-            if (window.vtDesktop && window.vtDesktop.close) window.vtDesktop.close();  // 打标完自动收起
-            else setTimeout(() => { $('tag-form').classList.remove('m2-hidden'); loadPlayhead(); }, 1200);
+            // 打标成功：短暂显示成功 → 收起（hide 而非 close，窗口保留可再唤出）；web 端 1.5s 后复位继续
+            const reset = () => { $('tag-form').classList.remove('m2-hidden'); sel = { startMs: null, endMs: null }; loadPlayhead(); };
+            if (window.vtDesktop && window.vtDesktop.minimize) {
+                setTimeout(() => window.vtDesktop.minimize(), 1400);   // Electron：收起到托盘（不销毁）
+                setTimeout(reset, 200);                                 // 立即复位，下次唤出即新表单
+            } else {
+                setTimeout(reset, 1600);
+            }
         } catch (e) {
             setStatus('保存失败：' + e.message, 'err');
         } finally {
