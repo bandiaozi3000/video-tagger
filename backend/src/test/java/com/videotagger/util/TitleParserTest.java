@@ -85,6 +85,16 @@ class TitleParserTest {
     }
 
     @Test
+    void parseSeasonOnlyRecognizesSeasonMarks() {
+        assertEquals(2, TitleParser.parseSeason("进击的巨人 第二季"));
+        assertEquals(2, TitleParser.parseSeason("进击的巨人 第2季"));
+        assertEquals(3, TitleParser.parseSeason("刀剑神域 Season 3"));
+        assertEquals(2, TitleParser.parseSeason("某番 第二期"));
+        assertNull(TitleParser.parseSeason("进击的巨人"));
+        assertNull(TitleParser.parseSeason(null));
+    }
+
+    @Test
     void subcategoryDetectedForSeriesMarks() {
         // 含集/季标记 → 子分类「番剧」
         assertEquals("番剧", TitleParser.parse("芙莉莲 第3集").subcategory());

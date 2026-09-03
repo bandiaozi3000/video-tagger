@@ -16,6 +16,7 @@ import com.videotagger.mapper.ExternalWorkMapper;
 import com.videotagger.mapper.MediaEntryMapper;
 import com.videotagger.mapper.MediaMapper;
 import com.videotagger.service.ExternalMetadataDetail;
+import com.videotagger.util.TitleParser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -409,7 +410,6 @@ public class MetadataSyncService {
                 local = new Episode();
                 local.setMediaId(entry.getMediaId());
                 local.setMediaEntryId(entry.getId());
-                local.setSeason(0);
                 local.setEpisodeNo(remote.episodeNo());
                 local.setTitle(remote.titleCn() == null ? remote.title() : remote.titleCn());
                 local.setTitleOverride(0);
@@ -465,6 +465,7 @@ public class MetadataSyncService {
         Media media = new Media();
         media.setTitle(record.displayTitle());
         media.setYear(record.year());
+        media.setSeason(resolveSeason(record));
         media.setAliases(record.aliases() == null || record.aliases().isEmpty()
                 ? null : String.join("\n", record.aliases()));
         media.setMediaFormat("VIDEO");
@@ -472,6 +473,21 @@ public class MetadataSyncService {
         media.setConfirmed(1);
         media.setCreatedAt(System.currentTimeMillis());
         return media;
+    }
+
+    /** 从标题/别名正则识别季序号，识别不到默认 1。 */
+    private int resolveSeason(MetadataRecord record) {
+        Integer season = TitleParser.parseSeason(record.displayTitle());
+        if (season == null) {
+            season = TitleParser.parseSeason(record.nativeTitle());
+        }
+        if (season == null && record.aliases() != null) {
+            for (String alias : record.aliases()) {
+                season = TitleParser.parseSeason(alias);
+                if (season != null) break;
+            }
+        }
+        return season == null ? 1 : season;
     }
 
     private MediaEntry ensureEntry(long mediaId, MetadataRecord record) {

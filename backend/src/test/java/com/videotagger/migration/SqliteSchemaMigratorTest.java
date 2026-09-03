@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * SqliteSchemaMigrator 单测（内存 SQLite，不启 Spring 上下文）。
- * test classpath 提供 v02-v10；最新版本 = 10。
+ * test classpath 提供 v02-v13；最新版本 = 13。
  */
 class SqliteSchemaMigratorTest {
 
@@ -42,15 +42,15 @@ class SqliteSchemaMigratorTest {
     @Test
     @DisplayName("最新版本 = max(基线1, migration-sqlite 目录里最大 vNN)")
     void latestVersionTracksScripts() throws Exception {
-        // test classpath 提供 v02-v11 → 最新 = 11
-        assertEquals(12, migrator.latestVersion());
+        // test classpath 提供 v02-v13 → 最新 = 13
+        assertEquals(13, migrator.latestVersion());
     }
 
     @Test
     @DisplayName("全新库（user_version=0）直接初始化为最新版本")
     void freshDatabaseInitializesToLatest() throws Exception {
         migrator.run(null);
-        assertEquals(12, readUserVersion());
+        assertEquals(13, readUserVersion());
     }
 
     @Test
@@ -63,7 +63,7 @@ class SqliteSchemaMigratorTest {
         }
         migrator.run(null);
         Set<String> cols = tableColumns("media");
-        assertEquals(12, readUserVersion());
+        assertEquals(13, readUserVersion());
         assertTrue(!cols.contains("original_title"));
         assertTrue(!cols.contains("cover_url"));
         assertTrue(!cols.contains("source"));
@@ -79,7 +79,7 @@ class SqliteSchemaMigratorTest {
             st.execute("CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL)");
             st.execute("CREATE TABLE highlight_project (id INTEGER PRIMARY KEY)");
             st.execute("CREATE TABLE highlight_export (id INTEGER PRIMARY KEY, stage TEXT)");
-            st.execute("CREATE TABLE episode (id INTEGER PRIMARY KEY, media_id INTEGER NOT NULL, media_entry_id INTEGER)");
+            st.execute("CREATE TABLE episode (id INTEGER PRIMARY KEY, media_id INTEGER NOT NULL, media_entry_id INTEGER, season INTEGER)");
             st.execute("CREATE TABLE metadata_sync_draft (id INTEGER PRIMARY KEY, provider TEXT NOT NULL, query_json TEXT NOT NULL, candidates_json TEXT NOT NULL, review_json TEXT NOT NULL, view_json TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)");
             st.execute("CREATE TABLE metadata_sync_task (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL)");
             st.execute("CREATE TABLE clips (id INTEGER PRIMARY KEY, start_ms INTEGER, video_asset_id INTEGER, time_mapping_id INTEGER, material_state TEXT)");
@@ -89,7 +89,7 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 0");
         }
         migrator.run(null);
-        assertEquals(12, readUserVersion());
+        assertEquals(13, readUserVersion());
         try (Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery("SELECT task_id FROM metadata_sync_task WHERE task_id = 'keep-me'")) {
             assertTrue(rs.next(), "新版无版本号数据库中的任务数据应保留");
@@ -107,7 +107,7 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 1");
         }
         migrator.run(null);
-        assertEquals(12, readUserVersion());
+        assertEquals(13, readUserVersion());
         // v02-v10 迁移应保留原有列，并创建资料库、片源、资产和数据源订阅结构
         Set<String> cols = tableColumns("media");
         assertTrue(cols.contains("title"), "原有列应保留");
@@ -143,7 +143,7 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 2");
         }
         migrator.run(null);
-        assertEquals(12, readUserVersion());
+        assertEquals(13, readUserVersion());
         assertTrue(tableExists("highlight_project"));
     }
 
@@ -157,7 +157,7 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 3");
         }
         migrator.run(null);
-        assertEquals(12, readUserVersion());
+        assertEquals(13, readUserVersion());
         assertTrue(tableColumns("highlight_export").contains("stage"));
         assertTrue(tableColumns("highlight_export").contains("scene_message"));
     }
@@ -174,7 +174,7 @@ class SqliteSchemaMigratorTest {
         }
         migrator.run(null);
         Set<String> cols = tableColumns("media");
-        assertEquals(12, readUserVersion());
+        assertEquals(13, readUserVersion());
         assertTrue(!cols.contains("original_title"), "原标题列应被物理删除");
         assertTrue(!cols.contains("cover_url"), "外部封面列应被物理删除");
         assertTrue(!cols.contains("source"), "来源列应被物理删除");
@@ -189,13 +189,14 @@ class SqliteSchemaMigratorTest {
     @DisplayName("v7 Clip 时间升级到 v10 会回填毫秒字段且保持引用状态")
     void v07ClipTimesBackfillToMilliseconds() throws Exception {
         try (Statement st = conn.createStatement()) {
+            st.execute("CREATE TABLE media (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, created_at INTEGER)");
             st.execute("CREATE TABLE clips (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, url TEXT NOT NULL, timestamp_sec REAL NOT NULL, end_sec REAL, tag TEXT NOT NULL, note TEXT, created_at INTEGER NOT NULL, episode_id INTEGER, video_fp TEXT, video_duration REAL, cover_path TEXT, detail_cover_path TEXT)");
             st.execute("CREATE TABLE episode (id INTEGER PRIMARY KEY AUTOINCREMENT, media_id INTEGER NOT NULL, media_entry_id INTEGER, season INTEGER, episode_no INTEGER, title TEXT NOT NULL, note TEXT, url TEXT, video_fp TEXT, cover_path TEXT, created_at INTEGER)");
             st.execute("INSERT INTO clips (title, url, timestamp_sec, end_sec, tag, created_at) VALUES ('片段', 'local.mp4', 12.345, 18.9, '测试', 1)");
             st.execute("PRAGMA user_version = 7");
         }
         migrator.run(null);
-        assertEquals(12, readUserVersion());
+        assertEquals(13, readUserVersion());
         assertTrue(tableExists("video_source_package"));
         try (Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery("SELECT start_ms, end_ms, material_state FROM clips WHERE id = 1")) {

@@ -26,4 +26,6 @@ contextBridge.exposeInMainWorld('vtDesktop', {
   listWindows: () => ipcRenderer.invoke('tag:list-windows'),
   // M2 封面：按窗口 id 截图
   captureWindow: (id) => ipcRenderer.invoke('tag:capture-window', id),
+  // 详情页：打开本地文件夹定位素材文件（仅桌面壳内可用）
+  showInFolder: (p) => ipcRenderer.invoke('vt:show-in-folder', p),
 });

@@ -57,9 +57,9 @@ public class EpisodeService {
         this.highlightProjectService = highlightProjectService;
     }
 
-    /** 更新集信息：备注/季/集号。字段传 null 表示不改；note 传空串表示清空；变更后入队重嵌。 */
+    /** 更新集信息：备注/集号。字段传 null 表示不改；note 传空串表示清空；变更后入队重嵌。 */
     @Transactional
-    public void update(Long id, String note, Integer season, Integer episodeNo) {
+    public void update(Long id, String note, Integer episodeNo) {
         Episode ep = requireEpisode(id);
         boolean changed = false;
         if (note != null) {
@@ -68,10 +68,6 @@ public class EpisodeService {
                 ep.setNote(trimmed);
                 changed = true;
             }
-        }
-        if (season != null && !season.equals(ep.getSeason())) {
-            ep.setSeason(season);
-            changed = true;
         }
         if (episodeNo != null && !episodeNo.equals(ep.getEpisodeNo())) {
             ep.setEpisodeNo(episodeNo);
@@ -146,7 +142,7 @@ public class EpisodeService {
         long latestAt = clips.stream().mapToLong(Clip::getCreatedAt).max().orElse(0L);
         String cover = ep.getCoverPath() != null ? ep.getCoverPath()
                 : clipMapper.selectRepresentativeCoverByEpisode(id);
-        return new EpisodeDetail(id, ep.getMediaId(), ep.getSeason(), ep.getEpisodeNo(),
+        return new EpisodeDetail(id, ep.getMediaId(), ep.getEpisodeNo(),
                 ep.getTitle(), ep.getNote(), ep.getUrl(), ep.getVideoFp(), clipCount, latestAt,
                 episodeTagMapper.selectTags(id), cover, ep.getWatchedAt());
     }

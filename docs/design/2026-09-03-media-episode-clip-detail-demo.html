@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Tagger · 详情页家族统一布局 Demo（集 / 片段，参照媒体详情）</title>
+<style>
+:root {
+  --bg:#0a0a15; --bg-deep:#07070f; --surface:#141426; --surface-2:#1b1b31; --surface-3:#22223b;
+  --border:rgba(255,255,255,.08); --border-strong:rgba(255,255,255,.15);
+  --pink:#ff4d8d; --violet:#a78bfa; --cyan:#35d6f2;
+  --pink-soft:rgba(255,77,141,.16); --violet-soft:rgba(167,139,250,.16); --cyan-soft:rgba(53,214,242,.14);
+  --text:#edeaf7; --text-dim:#9d9bb8; --text-faint:#6a6886; --green:#4ade80; --amber:#fbbf24; --red:#fb7185;
+  --grad:linear-gradient(135deg,#ff4d8d,#a78bfa 55%,#35d6f2);
+  --font-display:"Yuanti SC","YouYuan","PingFang SC","Microsoft YaHei UI",sans-serif;
+  --font-body:"PingFang SC","Hiragino Sans GB","Microsoft YaHei UI",system-ui,sans-serif;
+  --font-mono:"Cascadia Code",ui-monospace,"SF Mono",Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-height:100vh;line-height:1.6;-webkit-font-smoothing:antialiased;padding:34px 6vw 80px}
+body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(900px 600px at 12% 0%,rgba(255,77,141,.10),transparent 60%),
+    radial-gradient(800px 700px at 92% 18%,rgba(53,214,242,.08),transparent 55%),
+    radial-gradient(1200px 900px at 50% 100%,rgba(167,139,250,.07),transparent 60%),var(--bg-deep)}
+.page{position:relative;z-index:1;max-width:1180px;margin:0 auto}
+.page h1{font-family:var(--font-display);font-size:24px;margin-bottom:4px}
+.page .sub{color:var(--text-faint);font-size:13px;margin-bottom:36px}
+.part{font-family:var(--font-display);color:var(--pink);letter-spacing:3px;font-size:12px;margin:52px 0 16px;text-transform:uppercase}
+.part small{color:var(--text-faint);letter-spacing:0;font-family:var(--font-body)}
+
+/* ===== 与媒体详情一致的 hero 卡 ===== */
+.back-row{margin-bottom:18px}
+.back-btn{display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--border);color:var(--text-dim);border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer}
+.back-btn:hover{color:#fff;border-color:var(--pink)}
+.hero{display:block;padding:26px;margin-bottom:22px;
+  background:linear-gradient(180deg,var(--surface),var(--surface-2));border:1px solid var(--border);border-radius:22px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:0;left:26px;right:26px;height:3px;background:var(--grad);border-radius:0 0 8px 8px}
+.hero-top{display:flex;gap:32px;min-width:0;align-items:flex-start}
+.hero-cover{position:relative;border-radius:16px;overflow:hidden;background:var(--surface-3);box-shadow:0 12px 32px rgba(0,0,0,.5);flex:none;align-self:flex-start}
+.hero-cover .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);color:rgba(255,255,255,.7);letter-spacing:1px}
+.hero-cover .src-badge{position:absolute;top:10px;left:10px;font-size:11px;padding:3px 9px;border-radius:999px;background:rgba(0,0,0,.62);color:#fff;letter-spacing:.4px;backdrop-filter:blur(6px);z-index:2}
+.ep-cover{width:300px;height:169px;aspect-ratio:16/9}
+.clip-cover{width:300px;height:169px;aspect-ratio:16/9}
+.hero-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
+.hero-title-line{display:flex;align-items:flex-start;gap:12px;min-width:0;flex-wrap:wrap}
+.hero-title{font-family:var(--font-display);font-size:clamp(22px,2.4vw,30px);color:#fff;letter-spacing:.4px;line-height:1.25}
+.hero-native{font-size:13px;color:var(--text-faint);align-self:center}
+/* 状态徽标（右推） */
+.link-badge{margin-left:auto;align-self:center;flex:none;display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:3px 11px;border-radius:999px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-faint);cursor:pointer;user-select:none}
+.link-badge.live{background:var(--cyan-soft);border-color:rgba(53,214,242,.45);color:var(--cyan)}
+.link-badge.live b{font-family:var(--font-mono);color:#fff}
+.link-badge.warn{background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.4);color:var(--amber)}
+/* meta chips 行 */
+.hero-meta{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:2px}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:999px;background:var(--surface-3);border:1px solid var(--border);color:var(--text-dim);font-size:12.5px}
+.chip.ok{color:var(--green);border-color:rgba(74,222,128,.35)}
+.chip.nav{border-color:rgba(167,139,250,.35);color:#b7a1f7;cursor:pointer}
+.chip.nav:hover{background:var(--violet-soft)}
+/* 素材渠道行（片段） */
+.prov{margin-top:2px;font-size:12.5px;color:var(--text-dim);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.prov .chan{border:1px solid rgba(74,222,128,.35);background:rgba(74,222,128,.08);color:var(--green);padding:2px 10px;border-radius:999px;font-size:11.5px}
+.prov .src{color:var(--text-faint);font-family:var(--font-mono);font-size:11.5px}
+/* 备注行 */
+.note{margin-top:4px;font-size:13px;color:var(--text-dim);background:rgba(167,139,250,.07);border:1px solid rgba(167,139,250,.2);border-left:3px solid var(--violet);border-radius:9px;padding:9px 13px;line-height:1.7}
+/* ops 操作区（底部，border-top 分隔） */
+.hero-ops{border-top:1px solid var(--border);margin-top:18px;padding-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.ops-main{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.ops-side{margin-left:auto;display:flex;gap:8px;align-items:center}
+.ops-divider{width:1px;height:22px;background:var(--border);margin:0 2px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 15px;border-radius:10px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-dim);font-size:12.5px;cursor:pointer;font-family:var(--font-body);transition:.15s}
+.btn:hover{border-color:var(--pink);color:#fff}
+.btn.primary{background:var(--grad);border-color:transparent;color:#fff;box-shadow:0 4px 16px rgba(255,77,141,.25)}
+.btn.danger{background:rgba(251,113,133,.12);border-color:rgba(251,113,133,.3);color:#fb7185}
+.btn.live{border-color:rgba(53,214,242,.5);color:var(--cyan);background:var(--cyan-soft);box-shadow:0 0 12px rgba(53,214,242,.18)}
+.btn.live:hover{border-color:var(--cyan);background:rgba(53,214,242,.18);color:#fff}
+.btn:disabled{opacity:.42;cursor:not-allowed;box-shadow:none;color:var(--text-faint);border-color:var(--border);background:var(--surface-3)}
+.btn:disabled:hover{border-color:var(--border);color:var(--text-faint);transform:none}
+
+/* ===== body：主区 + 右栏（媒体详情同款） ===== */
+.layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,340px);gap:22px;align-items:start}
+.main-col{display:flex;flex-direction:column;gap:22px;min-width:0}
+.side-col{display:flex;flex-direction:column;gap:18px}
+.section,.panel{background:linear-gradient(180deg,var(--surface),var(--surface-2));border:1px solid var(--border);border-radius:18px;overflow:hidden}
+.section-head,.panel-head{padding:16px 20px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px}
+.kicker{font-size:10px;letter-spacing:2px;color:var(--text-faint);text-transform:uppercase;display:block;margin-bottom:3px}
+.section-head h3,.panel-head h3{font-size:15px;color:#fff;font-family:var(--font-display);letter-spacing:.4px}
+.section-note{font-size:12px;color:var(--text-faint)}
+.section-body,.panel-body{padding:16px 18px}
+/* 片段/集 双列卡 */
+.ep-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.c-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border);transition:.15s;position:relative}
+.c-row:hover{border-color:rgba(255,77,141,.3);background:var(--surface-3)}
+.c-thumb{flex:none;width:64px;height:40px;border-radius:7px;overflow:hidden;background:var(--surface-3);display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:11px;font-family:var(--font-mono)}
+.c-thumb img{width:100%;height:100%;object-fit:cover}
+.c-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.c-title{font-size:13.5px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c-meta{font-size:11.5px;color:var(--text-faint)}
+.c-meta b{color:var(--cyan);font-weight:600}
+.more{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--border);background:var(--surface-3);color:var(--text-dim);cursor:pointer;opacity:.55}
+.c-row:hover .more{opacity:1}
+/* 标签池热度 */
+.tag-pool-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid;border-radius:99px;padding:5px 13px;font-size:12.5px;font-weight:600;font-family:inherit}
+.tag-pool-chip .cnt{font-size:11px;font-weight:800;font-family:var(--font-mono);opacity:.85}
+.s1{background:rgba(148,163,184,.1);border-color:rgba(148,163,184,.28);color:#a3aec4}
+.s2{background:rgba(167,139,250,.14);border-color:rgba(167,139,250,.35);color:var(--violet)}
+.s3{background:rgba(255,77,141,.15);border-color:rgba(255,77,141,.4);color:var(--pink)}
+.panel-body.tags{display:flex;flex-wrap:wrap;gap:8px}
+/* 相似片段提示卡 */
+.hint{font-size:12.5px;color:var(--text-faint);padding:2px 0}
+</style>
+</head>
+<body>
+<div class="page">
+<h1>详情页家族统一布局 Demo</h1>
+<div class="sub">集详情 / 片段详情 —— 采用与媒体详情一致的 hero 卡（渐变卡片 · 标题行+右侧徽标 · meta chips · 底部操作区），操作按钮带可用态（可用高亮 cyan / 不可用置灰）。假数据仅示意布局。</div>
+
+<!-- ============================ PART A：集详情 ============================ -->
+<div class="part">Part A · 集详情 <small>—— 对应 view-episode-detail（参照媒体详情 hero）</small></div>
+<div class="back-row"><button class="back-btn">← 返回媒体：《少女与战车》</button></div>
+<div class="hero">
+  <div class="hero-top">
+    <div class="hero-cover ep-cover">
+      <div class="ph">EP2 封面占位</div>
+      <span class="src-badge">本地资产</span>
+    </div>
+    <div class="hero-info">
+      <div class="hero-title-line">
+        <h1 class="hero-title">选拔赛！</h1>
+        <span class="hero-native">S1-Ep2</span>
+        <span class="link-badge live" title="整集源已就绪">✓ 整集缓存 <b>Animeko</b></span>
+      </div>
+      <div class="hero-meta">
+        <span class="chip ok">✓ 已看 2026-07-28</span>
+        <span class="chip">23 条片段</span>
+        <span class="chip">最近标记 08-02</span>
+        <span class="chip nav">所属媒体：《少女与战车》</span>
+      </div>
+      <div class="note">备注：新队伍第一次合练，美穗 vs 西住流 —— 打标签时留意分镜。</div>
+      <div class="hero-ops">
+        <div class="ops-main">
+          <button class="btn primary">自动查找并播放</button>
+          <button class="btn">打标签</button>
+          <button class="btn">设封面</button>
+          <button class="btn">时间线</button>
+          <button class="btn">编辑季/集</button>
+          <button class="btn danger">删除该集</button>
+        </div>
+        <div class="ops-side">
+          <button class="btn live">去原视频</button>
+          <button class="btn" disabled title="无本地文件源，先显式缓存该集">本地回顾</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="layout">
+  <div class="main-col">
+    <div class="section">
+      <div class="section-head"><div><span class="kicker">CLIP LIBRARY</span><h3>该集片段</h3></div><span class="section-note">共 23 条 · 点击进片段详情</span></div>
+      <div class="section-body">
+        <div class="ep-list">
+          <div class="c-row">
+            <div class="c-thumb"><img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='40'><rect width='64' height='40' fill='%2322223b'/></svg>" alt=""></div>
+            <div class="c-body"><span class="c-title">美穗下令「前方行进」</span><span class="c-meta">04:12 – 05:40 · <b>战车道</b></span></div>
+            <button class="more">⋯</button>
+          </div>
+          <div class="c-row">
+            <div class="c-thumb"><img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='40'><rect width='64' height='40' fill='%2322223b'/></svg>" alt=""></div>
+            <div class="c-body"><span class="c-title">鮟鱇队初次交战</span><span class="c-meta">08:02 – 09:15 · <b>百合</b> ✓</span></div>
+            <button class="more">⋯</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="side-col">
+    <div class="panel">
+      <div class="panel-head"><span class="kicker">PERSONAL INDEX</span><h3>集标签池</h3></div>
+      <div class="panel-body tags">
+        <span class="tag-pool-chip s3">战车道 <span class="cnt">×12</span></span>
+        <span class="tag-pool-chip s3">美少女贴贴 <span class="cnt">×8</span></span>
+        <span class="tag-pool-chip s2">分镜 <span class="cnt">×3</span></span>
+        <span class="tag-pool-chip s1">百合元素 <span class="cnt">×1</span></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ PART B：片段详情 ============================ -->
+<div class="part">Part B · 片段详情 <small>—— 对应 view-clip-detail（素材渠道/去原视频/本地回顾入 hero）</small></div>
+<div class="back-row"><button class="back-btn">← 返回</button></div>
+<div class="hero">
+  <div class="hero-top">
+    <div class="hero-cover clip-cover">
+      <div class="ph">片段画面占位</div>
+      <span class="src-badge">Animeko 片段</span>
+    </div>
+    <div class="hero-info">
+      <div class="hero-title-line">
+        <h1 class="hero-title">美穗下令「前方行进」</h1>
+        <span class="hero-native">S1-Ep2</span>
+        <span class="link-badge live" title="产物就绪">✓ 已物化 <b>C1</b></span>
+      </div>
+      <div class="hero-meta">
+        <span class="chip">04:12 – 05:40</span>
+        <span class="chip">战车道</span>
+        <span class="chip nav">所属集：选拔赛！</span>
+        <span class="chip nav">所属媒体：《少女与战车》</span>
+      </div>
+      <div class="prov">
+        <span class="chan">素材渠道：C1 本地 · 产物 clip/164.mp4</span>
+        <span class="src">源坐标 04:12 · 产物时长 01:28</span>
+      </div>
+      <div class="hero-ops">
+        <div class="ops-main">
+          <button class="btn">相似</button>
+          <button class="btn">编辑</button>
+          <button class="btn" disabled title="已退役：截图已并入本地回顾播放器「存当前帧」">导出视频</button>
+          <button class="btn" disabled title="已退役">导出单帧</button>
+          <button class="btn" disabled title="已退役">连续截图</button>
+          <button class="btn danger">删除</button>
+        </div>
+        <div class="ops-side">
+          <button class="btn" disabled title="无网页引用，也无 Animeko 观看记录可唤起">去原视频</button>
+          <button class="btn live">本地回顾</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="layout">
+  <div class="main-col">
+    <div class="section">
+      <div class="section-head"><div><span class="kicker">SAME EPISODE</span><h3>同集片段</h3></div><span class="section-note">共 23 条</span></div>
+      <div class="section-body">
+        <div class="ep-list">
+          <div class="c-row">
+            <div class="c-thumb"><img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='40'><rect width='64' height='40' fill='%2322223b'/></svg>" alt=""></div>
+            <div class="c-body"><span class="c-title">鮟鱇队初次交战</span><span class="c-meta">08:02 – 09:15 · <b>百合</b></span></div>
+            <button class="more">⋯</button>
+          </div>
+          <div class="c-row">
+            <div class="c-thumb"><img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='40'><rect width='64' height='40' fill='%2322223b'/></svg>" alt=""></div>
+            <div class="c-body"><span class="c-title">大洗队通过山道</span><span class="c-meta">11:30 – 12:05 · <b>原创</b></span></div>
+            <button class="more">⋯</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="side-col">
+    <div class="panel">
+      <div class="panel-head"><span class="kicker">ASSET PROVENANCE</span><h3>素材来源</h3></div>
+      <div class="panel-body" style="font-size:13px;color:var(--text-dim);display:flex;flex-direction:column;gap:8px">
+        <div>物化状态：<b style="color:var(--green)">READY ✓ 已物化</b></div>
+        <div>资产：<span style="font-family:var(--font-mono);color:var(--text-faint)">videoAsset #164</span></div>
+        <div>产物时长：<span style="font-family:var(--font-mono)">01:28</span>（源坐标 04:12 起）</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><span class="kicker">PERSONAL INDEX</span><h3>片段标签</h3></div>
+      <div class="panel-body tags">
+        <span class="tag-pool-chip s3">战车道 <span class="cnt">×12</span></span>
+        <span class="tag-pool-chip s2">发令 <span class="cnt">×2</span></span>
+      </div>
+    </div>
+    <div class="section" style="margin-top:0">
+      <div class="section-head"><div><span class="kicker">RELATED</span><h3>相似片段</h3></div></div>
+      <div class="section-body"><div class="hint">相似度 Top N（保留现有相似算法卡片/条目标题处）…</div></div>
+    </div>
+  </div>
+</div>
+</div>
+</body>
+</html>

@@ -155,13 +155,13 @@ class AnimekoTagServiceTest {
         Episode ep = new Episode();
         ep.setId(77L);
         ep.setMediaId(5609L);
-        ep.setSeason(1);
         ep.setEpisodeNo(2);
         ep.setTitle("战车，搭乘了！");
         when(episodeMapper.selectById(77L)).thenReturn(ep);
         Media m = new Media();
         m.setId(5609L);
         m.setTitle("少女与战车");
+        m.setSeason(1);
         when(mediaMapper.selectById(5609L)).thenReturn(m);
 
         AnimekoTagService.PlayheadView v = service.mappedPlayhead();

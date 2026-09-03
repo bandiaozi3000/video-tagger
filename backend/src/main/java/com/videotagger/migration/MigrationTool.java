@@ -89,7 +89,7 @@ public class MigrationTool {
 
             // 2. 按依赖序迁移（保留原 id）
             migrateTable(mysql, sqlite, "media",
-                    "SELECT id, title, year, aliases, note, media_format, subcategory, subcategory_id, status, rating, cover_path, confirmed, created_at, deleted_at FROM media");
+                    "SELECT id, title, year, season, aliases, note, media_format, subcategory, subcategory_id, status, rating, cover_path, confirmed, created_at, deleted_at FROM media");
             migrateTable(mysql, sqlite, "media_entry",
                     "SELECT id, media_id, entry_type, sort_order, title, title_cn, note, created_at, updated_at FROM media_entry");
             migrateTable(mysql, sqlite, "external_work",
@@ -105,7 +105,7 @@ public class MigrationTool {
             migrateTable(mysql, sqlite, "metadata_sync_task_item",
                     "SELECT id, task_id, provider, external_id, title, title_cn, action, target_media_id, status, stage, error_message, attempts, last_attempt_at, snapshot_json, created_at, updated_at FROM metadata_sync_task_item");
             migrateTable(mysql, sqlite, "episode",
-                    "SELECT id, media_id, media_entry_id, season, episode_no, title, title_override, note, url, video_fp, cover_path, created_at FROM episode");
+                    "SELECT id, media_id, media_entry_id, episode_no, title, title_override, note, url, video_fp, cover_path, created_at FROM episode");
             migrateTable(mysql, sqlite, "clips",
                     "SELECT id, title, url, timestamp_sec, end_sec, tag, note, created_at, episode_id, video_asset_id, source_revision, time_mapping_id, material_state, video_fp, video_duration, cover_path, detail_cover_path, start_ms, end_ms FROM clips");
             migrateTable(mysql, sqlite, "video_source_package",

@@ -14,8 +14,6 @@ public class Episode {
     private Long mediaId;
     /** v0.22 具体作品条目；历史集可为空并继续通过 mediaId 工作。 */
     private Long mediaEntryId;
-    /** 季号（标题无法解析时为空） */
-    private Integer season;
     /** 集号（标题无法解析时为空） */
     private Integer episodeNo;
     /** 集标题（原始页面标题，含站点后缀） */

@@ -52,7 +52,7 @@ public class EpisodeReviewService {
                 : new AnimekoCacheLocator(Path.of(new File(resolvedDb).getParentFile().toURI()).toAbsolutePath().normalize());
     }
 
-    public record ReviewSource(String state, String filePath, String message) {
+    public record ReviewSource(String channel, String state, String filePath, String message) {
     }
 
     /** 定位集的可播放本地文件；无可用源返回 state=UNAVAILABLE（不抛错）。 */
@@ -62,17 +62,17 @@ public class EpisodeReviewService {
         // 1) C1：该集绑定的本地 asset（LOCAL_ORIGINAL 优先，文件在场）
         String c1 = localAssetFile(episodeId);
         if (c1 != null) {
-            return new ReviewSource("PRESENT", c1, "本地集资产: " + c1);
+            return new ReviewSource("C1", "PRESENT", c1, "本地集资产: " + c1);
         }
         // 2) C2：Animeko 整集缓存
         String bangumiEp = resolveBangumiEpisodeId(episodeId);
         if (bangumiEp != null) {
             AnimekoCacheLocator.LocateResult r = animekoLocator.locate(bangumiEp);
             if ("PRESENT".equals(r.state()) && r.filePath() != null) {
-                return new ReviewSource("PRESENT", r.filePath(), r.message());
+                return new ReviewSource("C2", "PRESENT", r.filePath(), r.message());
             }
         }
-        return new ReviewSource("UNAVAILABLE", null,
+        return new ReviewSource(null, "UNAVAILABLE", null,
                 "该集无本地源（无本地资产、无 Animeko 整集缓存）；可先在 Animeko 显式缓存该集");
     }
 

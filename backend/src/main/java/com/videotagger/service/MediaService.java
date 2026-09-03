@@ -131,7 +131,7 @@ public class MediaService {
         return new MediaDetail(a.getId(), a.getTitle(), a.getYear(), null, a.getAliases(), a.getMediaFormat(),
                 a.getSubcategory(), a.getSubcategoryId(), a.getNote(), a.getStatus(), a.getRating(), a.getCoverPath(),
                 a.getConfirmed(), source, a.getCreatedAt(), clipCount, episodeCount, mediaTagMapper.selectTags(id),
-                mediaCollectionMapper.selectCollectionIdsByMedia(id), fallbackCoverPath, externalCoverUrl);
+                mediaCollectionMapper.selectCollectionIdsByMedia(id), fallbackCoverPath, externalCoverUrl, a.getSeason());
     }
 
     @Transactional
@@ -344,6 +344,7 @@ public class MediaService {
     private void apply(Media a, MediaRequest req) {
         a.setTitle(req.title());
         a.setYear(req.year());
+        a.setSeason(req.season() == null ? 1 : req.season());
         // originalTitle 已迁移到 external_work，Media 只保留本地标题/别名。
         // 格式必须存在于字典；缺省/非法回退 VIDEO
         String format = req.mediaFormat() == null ? "" : req.mediaFormat().trim().toUpperCase();

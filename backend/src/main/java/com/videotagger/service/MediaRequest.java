@@ -12,6 +12,7 @@ import java.math.BigDecimal;
 public record MediaRequest(
         @NotBlank @Size(max = 512) String title,
         Integer year,
+        Integer season,
         @Size(max = 16) String mediaFormat,
         Long subcategoryId,
         @Size(max = 32) String subcategory,
@@ -19,9 +20,4 @@ public record MediaRequest(
         @DecimalMin("0.0") @DecimalMax("10.0") BigDecimal rating,
         @Size(max = 2000) String note
 ) {
-    /** 兼容旧客户端参数：已废弃的原始标题会被忽略，外部原文只存 external_work。 */
-    public MediaRequest(String title, Integer year, String ignoredOriginalTitle, String mediaFormat,
-                        Long subcategoryId, String subcategory, String status, BigDecimal rating, String note) {
-        this(title, year, mediaFormat, subcategoryId, subcategory, status, rating, note);
-    }
 }

@@ -332,7 +332,7 @@ public class VideoSourceQuickPlayService {
         }
         long mediaEntryId = episode.getMediaEntryId() == null ? 0 : episode.getMediaEntryId();
         return new VideoSourceDiscoveryQuery(mediaEntryId, externalIds, episodeExternalIds, titles, episodeTitles,
-                media == null ? null : media.getYear(), episode.getSeason() == null ? null : String.valueOf(episode.getSeason()),
+                media == null ? null : media.getYear(), media == null || media.getSeason() == null ? null : String.valueOf(media.getSeason()),
                 "VIDEO", null, episode.getEpisodeNo(), episode.getEpisodeNo(), 0, 50);
     }
 

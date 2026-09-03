@@ -28,12 +28,22 @@ public final class TitleParser {
     private static final Pattern SEASON_CN = Pattern.compile("第\\s*([0-9一二三四五六七八九十百]+)\\s*季");
     private static final Pattern SEASON_EN = Pattern.compile("(?i)season\\s*([0-9]+)");
     private static final Pattern SEASON_SN = Pattern.compile("(?i)s([0-9]+)\\s*e[0-9]+");
+    /** 日式季标记：第X期（只认「第…期」形式，避免误伤） */
+    private static final Pattern SEASON_TERM = Pattern.compile("第\\s*([0-9一二三四五六七八九十百]+)\\s*期");
 
     /** 集：第X集/话/章 / Episode X / Ep.X / SXEXX / EXX（E 后须紧跟数字，避免误伤英文单词） */
     private static final Pattern EP_CN = Pattern.compile("第\\s*([0-9一二三四五六七八九十百]+)\\s*[集话章]");
     private static final Pattern EP_EN = Pattern.compile("(?i)(?:episode|ep)\\s*\\.?\\s*([0-9]+)");
     private static final Pattern EP_SN = Pattern.compile("(?i)s[0-9]+\\s*e([0-9]+)");
     private static final Pattern EP_BARE_E = Pattern.compile("(?i)\\be([0-9]{1,3})\\b");
+
+    /** 只解析季序号（Bangumi 同步用）：第X季 / Season X / 第X期；识别不到返回 null（调用方默认 1）。 */
+    public static Integer parseSeason(String title) {
+        if (title == null || title.isBlank()) {
+            return null;
+        }
+        return firstInt(title, SEASON_CN, SEASON_EN, SEASON_TERM);
+    }
 
     public static ParsedTitle parse(String rawTitle) {
         if (rawTitle == null) {

@@ -67,6 +67,17 @@ public class EpisodeController {
                 .body(new FileSystemResource(file));
     }
 
+    /** v0.24 集级素材渠道求值（C1 本地资产 / C2 Animeko 整集缓存）→ 页面渠道展示 + 「本地回顾」可用态 + 打开本地文件夹。 */
+    @GetMapping("/{id}/material/channels")
+    public Map<String, Object> channels(@PathVariable Long id) {
+        EpisodeReviewService.ReviewSource src = reviewService.resolve(id);
+        return Map.of(
+                "channel", src.channel() == null ? "" : src.channel(),
+                "state", src.state() == null ? "" : src.state(),
+                "filePath", src.filePath() == null ? "" : src.filePath(),
+                "message", src.message() == null ? "" : src.message());
+    }
+
     @GetMapping("/{id}/clips")
     public List<Clip> clips(@PathVariable Long id) {
         return episodeService.clips(id);
@@ -79,10 +90,10 @@ public class EpisodeController {
         return ResponseEntity.noContent().build();
     }
 
-    /** 更新集信息（备注/季/集号；字段传 null 不改）。 */
+    /** 更新集信息（备注/集号；字段传 null 不改）。 */
     @PutMapping("/{id}")
     public ResponseEntity<Void> update(@PathVariable Long id, @RequestBody EpisodeUpdateRequest req) {
-        episodeService.update(id, req.note(), req.season(), req.episodeNo());
+        episodeService.update(id, req.note(), req.episodeNo());
         return ResponseEntity.noContent().build();
     }
 

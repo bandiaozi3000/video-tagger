@@ -150,6 +150,7 @@ const mediaInlineAddBtn = document.getElementById('media-inline-add');
 const mediaStatusSelect = document.getElementById('media-status-select');
 const mediaRatingInput = document.getElementById('media-rating');
 const mediaYearInput = document.getElementById('media-year');
+const mediaSeasonInput = document.getElementById('media-season');
 const mediaNoteInput = document.getElementById('media-note');
 const mediaSyncModal = document.getElementById('media-sync-modal');
 const syncYearGridEl = document.getElementById('sync-year-grid');
@@ -241,7 +242,6 @@ const episodeDetailClipsEl = document.getElementById('episode-detail-clips');
 const episodeDetailStatusEl = document.getElementById('episode-detail-status');
 const clipDetailHeadEl = document.getElementById('clip-detail-head');
 const clipDetailSiblingsEl = document.getElementById('clip-detail-siblings');
-const clipDetailSimilarEl = document.getElementById('clip-detail-similar');
 const clipDetailStatusEl = document.getElementById('clip-detail-status');
 const clipExportVideoBtn = document.getElementById('clip-export-video');
 const clipExportFrameBtn = document.getElementById('clip-export-frame');
@@ -479,6 +479,20 @@ async function jump(r) {
     window.open(buildJumpUrl(url, r.timestampSec ?? 0), '_blank');
 }
 
+/** v0.24：片段「去原视频」可用性——有网页/Animeko 引用可跳则高亮，否则置灰。 */
+function syncClipJumpAvailability(clip) {
+    const btn = document.getElementById('clip-detail-jump');
+    if (!btn) return;
+    const url = clip.url && clip.url !== 'null' ? String(clip.url) : '';
+    const animekoFallback = !url && ((clip.watchedAt) || (clip.animekoSource));
+    const can = !!url || animekoFallback;
+    btn.disabled = !can;
+    btn.classList.toggle('live', can);
+    btn.title = can
+        ? (url.startsWith('animeko://') ? '唤起 Animeko 定位该片段' : '在原始视频页打开该时间点')
+        : '无原视频来源（片段无网页引用，也无 Animeko 观看记录可唤起）';
+}
+
 /** Animeko 唤起 + 提示（片段给片段区间提示，集给集名提示）。 */
 async function activateAnimekoWithHint(r, isClip) {
     let hint = '正在唤起 Animeko…';
@@ -631,13 +645,13 @@ function openClipDetail(r) {
 async function renderClipDetail(id) {
     clipDetailHeadEl.innerHTML = '';
     clipDetailSiblingsEl.innerHTML = '';
-    clipDetailSimilarEl.innerHTML = '';
     clipDetailStatusEl.textContent = '加载中…';
     try {
         const clipResp = await fetch(`/api/clips/${id}`);
         if (!clipResp.ok) throw new Error(`HTTP ${clipResp.status}`);
         const clip = await clipResp.json();
         currentClip = clip;
+        syncClipJumpAvailability(clip);
 
         // 集 / 媒体导航信息
         let ep = null, media = null;
@@ -663,91 +677,160 @@ function renderClipDetailHead(clip, ep, media) {
     const heroSrc = clip.detailCoverPath || clip.coverPath; // 详情页优先用大图
     const cover = heroSrc
         ? `<img src="${heroSrc}" alt="">`
-        : `<span class="cover-placeholder large">${esc(clip.tag || '片段').slice(0, 1)}</span>`;
-    const nav = [];
-    if (ep) {
-        const epNo = ep.episodeNo != null
-            ? (ep.season != null ? `S${ep.season}-Ep${ep.episodeNo}` : `第${ep.episodeNo}集`)
-            : (ep.season != null ? `S${ep.season}` : '本集');
-        nav.push(`<button class="nav-link" data-nav="episode">所属集：${esc(epNo)}</button>`);
-    }
-    if (media) nav.push(`<button class="nav-link" data-nav="media">所属媒体：《${esc(media.title)}》</button>`);
+        : `<span class="cover-placeholder large">${esc((clip.tag || '片').slice(0, 1))}</span>`;
+    // hero 只保留画面/标题/备注；基础信息入档案卡、素材渠道入左栏面板、播放类按钮在底部 ops
     clipDetailHeadEl.innerHTML = `
         <div class="ad-cover">${cover}</div>
         <div class="ad-info">
             <h2 class="ad-title"></h2>
-            <div class="ad-meta"></div>
-            <div class="cd-source-provenance"></div>
-            ${clip.note ? '<div class="cd-note"></div>' : ''}
-            ${nav.length ? `<div class="cd-nav">${nav.join('')}</div>` : ''}
+            <div id="clip-detail-note" class="detail-note" hidden></div>
         </div>`;
     clipDetailHeadEl.querySelector('.ad-title').textContent = clip.title || '(未命名)';
-    // v0.24: clip 主时间轴恒为源视频坐标（物化不改，产物时长记 asset）。
-    // 旧模型已归零数据（sourceStartMs 有值）仍回退标注原位置。
-    const range = clip.endSec != null ? `${fmtTime(clip.timestampSec)} – ${fmtTime(clip.endSec)}` : fmtTime(clip.timestampSec);
-    const srcPos = clip.materialState === 'READY' && clip.sourceStartMs != null && clip.sourceStartMs !== Math.round(clip.timestampSec * 1000)
-        ? ` · 原视频 ${fmtTime(clip.sourceStartMs / 1000)} 处` : '';
-    clipDetailHeadEl.querySelector('.ad-meta').textContent = `片段 · ${range}${srcPos} · ${clip.tag}`;
-    const isReady = clip.materialState === 'READY' && clip.videoAssetId != null;
-    const provenance = clipDetailHeadEl.querySelector('.cd-source-provenance');
-    provenance.innerHTML = `<span class="clip-channel-badge">${isReady ? '✓ 已物化' : `资产 ${clip.videoAssetId ?? '未绑定'} · ${esc(clip.materialState || 'REFERENCE_ONLY')}`}</span> <button class="nav-link" data-channel-state></button>${isReady ? '' : '<button class="nav-link" data-prepare-material>准备素材</button>'}<button class="nav-link" data-play-source>本地回顾</button>`;
-    // v0.24 M3：渠道求值（C1 本地/C2 Animeko/C3 直链/C4 录屏）展示 + 素材化/回顾入口
-    const channelState = provenance.querySelector('[data-channel-state]');
-    const prepBtn = provenance.querySelector('[data-prepare-material]');
-    const playBtn = provenance.querySelector('[data-play-source]');
-    channelState.textContent = '求值渠道…';
-    (async () => {
-        try {
-            const resp = await fetch(`/api/clips/${clip.id}/material/channels`);
-            const ev = await resp.json();
-            if (!resp.ok) throw new Error(ev.message || `HTTP ${resp.status}`);
-            channelState.textContent = ev.state === 'PRESENT'
-                ? `✓ ${ev.channel} ${ev.filePath ? ev.filePath.split(/[\\\/]/).pop() : ''}`
-                : ev.state === 'PENDING' ? `${ev.channel} 待定：${(ev.message || '').slice(0, 46)}` : `渠道不可用`;
-            channelState.title = ev.message || ev.strategy || '';
-        } catch (e) {
-            channelState.textContent = '渠道求值失败';
-        }
-    })();
-    prepBtn?.addEventListener('click', async () => {
-        provenance.textContent = '正在求值素材渠道…';
-        try {
-            const chResp = await fetch(`/api/clips/${clip.id}/material/channels/refresh`, { method: 'POST' });
-            const ev = await chResp.json();
-            if (!chResp.ok) throw new Error(ev.message || `HTTP ${chResp.status}`);
-            if (ev.state === 'PRESENT' && ev.strategy === 'ALREADY_READY') {
-                provenance.textContent = '✓ 已物化就绪，无需再次准备（产物在本地，可「本地回顾」查看）';
-            } else if (ev.state === 'PRESENT' && ev.strategy === 'TRIM_LOCAL_ASSET') {
-                provenance.textContent = '本地资产在场，正在裁剪…';
-                const resp = await fetch(`/api/clips/${clip.id}/material`, { method: 'POST' });
-                const result = await resp.json();
-                if (!resp.ok) throw new Error(result.message || `HTTP ${resp.status}`);
-                await renderClipDetail(clip.id);
-            } else if (ev.state === 'PRESENT' && ev.strategy === 'TRIM_EXTERNAL_FILE' && ev.filePath) {
-                provenance.textContent = 'Animeko/外部文件在场，正在裁剪…';
-                const resp = await fetch(`/api/clips/${clip.id}/material/materialize-from-file?path=${encodeURIComponent(ev.filePath)}`, { method: 'POST' });
-                const result = await resp.json();
-                if (!resp.ok) throw new Error(result.message || `HTTP ${resp.status}`);
-                await renderClipDetail(clip.id);
-            } else {
-                provenance.textContent = ev.message || '无可用本地素材源，可回退浏览器录制或先显式缓存该集';
-                playBtn.hidden = true;
-            }
-        } catch (e) { provenance.textContent = `素材准备失败：${e.message}`; }
-    });
-    playBtn.addEventListener('click', async () => {
-        try {
-            const resp = await fetch(`/api/clips/${clip.id}/material/play-source`);
-            if (!resp.ok) throw new Error('无可用本地文件源，请回退原网页');
-            const blob = await resp.blob();
-            openLocalVideoPlayer(blob, clip);
-        } catch (e) { showToast(e.message); }
-    });
-    if (clip.note) clipDetailHeadEl.querySelector('.cd-note').textContent = `备注：${clip.note}`;
-    clipDetailHeadEl.querySelector('[data-nav="episode"]')?.addEventListener('click', () => openEpisodeDetail(ep.id));
-    clipDetailHeadEl.querySelector('[data-nav="media"]')?.addEventListener('click', () => openMediaDetail(media.id));
+    renderClipNote(clip);
+    renderClipProfile(clip, ep, media);
     renderClipTags(clip, media ? media.id : null);
+    // 本地回顾按钮（hero-ops 静态）——onclick 覆盖绑定，避免重复渲染叠加
+    const reviewBtn = document.getElementById('clip-detail-review');
+    if (reviewBtn) {
+        reviewBtn.onclick = async () => {
+            try {
+                const resp = await fetch(`/api/clips/${clip.id}/material/play-source`);
+                if (!resp.ok) throw new Error('无可用本地文件源');
+                const blob = await resp.blob();
+                openLocalVideoPlayer(blob, clip);
+            } catch (e) { showToast(e.message || '本地回顾不可用', 3500); }
+        };
+    }
+    syncClipReviewAvailability(clip);
     bindClipExportActions(clip);
+}
+
+/** 片段备注：Hero 封面右侧，点击内联编辑（PUT /api/clips/{id} 全量字段，仅改 note）。 */
+function renderClipNote(clip) {
+    const el = document.getElementById('clip-detail-note');
+    if (!el) return;
+    el.hidden = false;
+    el.classList.remove('editing');
+    const note = (clip.note || '').trim();
+    el.classList.toggle('empty', !note);
+    el.innerHTML = '';
+    const openEditor = () => {
+        el.classList.add('editing');
+        el.innerHTML = '';
+        const ta = document.createElement('textarea');
+        ta.className = 'note-edit-input';
+        ta.rows = 3;
+        ta.placeholder = '片段备注（看点/重点），参与搜索；留空保存即清空';
+        ta.value = note;
+        const actions = document.createElement('div');
+        actions.className = 'note-edit-actions';
+        const save = document.createElement('button'); save.type = 'button'; save.className = 'btn-mini'; save.textContent = '保存';
+        const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn-mini'; cancel.textContent = '取消';
+        actions.append(save, cancel);
+        el.append(ta, actions);
+        ta.focus();
+        cancel.addEventListener('click', () => renderClipDetail(clip.id));
+        save.addEventListener('click', async () => {
+            const payload = {
+                title: clip.title || '(未命名)',
+                url: clip.url || '',
+                timestampSec: clip.timestampSec ?? 0,
+                endSec: clip.endSec != null ? clip.endSec : null,
+                tag: clip.tag || '',
+                note: ta.value.trim()
+            };
+            const resp = await fetch(`/api/clips/${clip.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (resp.ok) { renderClipDetail(clip.id); }
+            else { el.innerHTML = '<span class="note-err">保存失败</span>'; }
+        });
+    };
+    const body = document.createElement('div');
+    body.className = 'note-editable';
+    body.tabIndex = 0;
+    body.title = '点击编辑备注';
+    body.setAttribute('role', 'button');
+    const label = document.createElement('span');
+    label.className = 'note-kicker';
+    label.textContent = note ? '备注' : '备注（空）';
+    const txt = document.createElement('span');
+    txt.className = 'note-text';
+    txt.textContent = note || '＋ 点击添加备注';
+    body.append(label, txt);
+    body.addEventListener('click', openEditor);
+    body.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEditor(); } });
+    el.appendChild(body);
+}
+
+/** 片段档案卡（左栏）：所属媒体 / 所属集（可点跳转）/ 片段时间 / 创建时间。 */
+function renderClipProfile(clip, ep, media) {
+    const el = document.getElementById('clip-detail-profile');
+    if (!el) return;
+    const season = media && media.season != null ? media.season : 1;
+    const epNo = ep && ep.episodeNo != null
+        ? `第${season}季 · 第${ep.episodeNo}集`
+        : (ep ? `第${season}季` : null);
+    const range = clip.endSec != null ? `${fmtTime(clip.timestampSec)} – ${fmtTime(clip.endSec)}` : fmtTime(clip.timestampSec);
+    const rows = [
+        { l: '所属媒体', v: media ? media.title : '—', k: media ? 'media' : '' },
+        { l: '所属集', v: epNo || '—', k: ep ? 'ep' : '' },
+        { l: '片段时间', v: range, k: '' },
+        { l: '创建时间', v: clip.createdAt ? fmtDateTime(clip.createdAt) : '—', k: '' },
+    ];
+    el.innerHTML = rows.map(r => `<div class="profile-row${r.k ? ' link-row' : ''}"${r.k === 'media' ? ' data-open-media="1" title="点击进入媒体详情"' : ''}${r.k === 'ep' ? ' data-open-ep="1" title="点击进入该集详情"' : ''}><span>${esc(r.l)}</span><span class="pv">${r.k ? `<b class="m-link">${esc(r.v)}</b>` : `<b>${esc(r.v)}</b>`}</span></div>`).join('');
+    const m = el.querySelector('[data-open-media]');
+    if (m) m.addEventListener('click', () => { if (media) openMediaDetail(media.id); });
+    const e = el.querySelector('[data-open-ep]');
+    if (e) e.addEventListener('click', () => { if (ep) openEpisodeDetail(ep.id); });
+}
+
+/** 片段渠道求值：本地回顾可用态 + 素材来源面板（未剪出时含「准备素材」）。 */
+async function syncClipReviewAvailability(clip) {
+    const reviewBtn = document.getElementById('clip-detail-review');
+    const apply = (ev) => {
+        const present = ev && ev.state === 'PRESENT';
+        if (reviewBtn) {
+            reviewBtn.disabled = !present;
+            reviewBtn.classList.toggle('live', present);
+            reviewBtn.title = present ? `本地回顾播放（${ev.channel || ''}）` : ((ev && ev.message) || '无本地文件源');
+        }
+        renderClipSourcePanel(clip, ev);
+    };
+    try {
+        const resp = await fetch(`/api/clips/${clip.id}/material/channels`);
+        const ev = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(ev.message || `HTTP ${resp.status}`);
+        apply(ev);
+    } catch (e) { apply(null); }
+}
+
+/** 准备素材（左栏素材来源面板按钮）：刷新渠道 → 就地物化/外部文件裁剪，完成后重载详情。 */
+async function handleClipPrepare(clip, panelEl) {
+    if (!panelEl) return;
+    panelEl.innerHTML = '<span class="source-muted">正在求值素材渠道…</span>';
+    try {
+        const chResp = await fetch(`/api/clips/${clip.id}/material/channels/refresh`, { method: 'POST' });
+        const ev = await chResp.json();
+        if (!chResp.ok) throw new Error(ev.message || `HTTP ${chResp.status}`);
+        if (ev.state === 'PRESENT' && ev.strategy === 'ALREADY_READY') {
+            showToast('✓ 已物化就绪，可「本地回顾」查看');
+            renderClipDetail(clip.id);
+        } else if (ev.state === 'PRESENT' && (ev.strategy === 'TRIM_LOCAL_ASSET' || (ev.strategy === 'TRIM_EXTERNAL_FILE' && ev.filePath))) {
+            panelEl.innerHTML = '<span class="source-muted">素材在场，正在裁剪…</span>';
+            const url = ev.strategy === 'TRIM_LOCAL_ASSET'
+                ? `/api/clips/${clip.id}/material`
+                : `/api/clips/${clip.id}/material/materialize-from-file?path=${encodeURIComponent(ev.filePath)}`;
+            const resp = await fetch(url, { method: 'POST' });
+            const result = await resp.json();
+            if (!resp.ok) throw new Error(result.message || `HTTP ${resp.status}`);
+            await renderClipDetail(clip.id);
+        } else {
+            renderClipSourcePanel(clip, ev);
+            showToast(ev.message || '无可用本地素材源，可回退浏览器录制或先显式缓存该集', 4000);
+        }
+    } catch (e) {
+        renderClipSourcePanel(clip, null);
+        showToast('素材准备失败：' + e.message, 4000);
+    }
 }
 
 /** v0.24 M3：本地回顾播放——blob 弹窗播放素材源，并 seek 到片段起点（本地精确回顾）。 */
@@ -1117,18 +1200,6 @@ async function loadClipDetailExtras(clip) {
             }
         } catch (e) { /* 忽略 */ }
     }
-    // 相似片段
-    try {
-        const resp = await fetch(`/api/search/similar?id=${clip.id}&limit=8`);
-        if (resp.ok) {
-            const list = await resp.json();
-            if (list.length === 0) {
-                clipDetailSimilarEl.innerHTML = '<div class="status">没有找到相似片段</div>';
-            } else {
-                for (const s of list) appendClipCard(clipDetailSimilarEl, s, {});
-            }
-        }
-    } catch (e) { /* 忽略 */ }
 }
 
 // ---------- 集详情 ----------
@@ -1156,7 +1227,9 @@ async function loadEpisodeDetail(id) {
         }
         renderEpisodeDetailHead(ep, media);
         renderEpisodeNote(ep);
+        renderEpisodeProfile(ep, media);
         renderEpisodeDetailTags(ep);
+        syncEpisodeAvailability(ep);
 
         const clipsResp = await fetch(`/api/episodes/${id}/clips`);
         if (clipsResp.ok) {
@@ -1177,91 +1250,68 @@ function renderEpisodeDetailHead(ep, media) {
     const cover = ep.coverPath
         ? `<img src="${ep.coverPath}" alt="">`
         : `<span class="cover-placeholder large">${esc((ep.title || '?')).slice(0, 1)}</span>`;
-    const no = ep.episodeNo != null
-        ? (ep.season != null ? `S${ep.season}-Ep${ep.episodeNo}` : `第${ep.episodeNo}集`)
-        : (ep.season != null ? `S${ep.season}` : '本集');
-    const mediaNav = media
-        ? `<div class="cd-nav"><button class="nav-link" data-nav="media">所属媒体：《${esc(media.title)}》</button></div>`
-        : '';
+    // hero 只保留封面/标题/备注；集号·片段数·标记时间·所属媒体统一收左栏档案卡（避免信息重复）
     episodeDetailHeadEl.innerHTML = `
         <div class="ad-cover">${cover}</div>
         <div class="ad-info">
             <h2 class="ad-title"></h2>
-            <div class="ad-meta"></div>
-            <div class="cd-source-provenance"></div>
-            <button type="button" class="btn-mini ep-no-edit-btn">编辑季/集</button>
-            ${mediaNav}
+            <div id="episode-detail-note" class="detail-note" hidden></div>
         </div>`;
     episodeDetailHeadEl.querySelector('.ad-title').textContent = ep.title || '(未命名)';
-    const meta = [no, `${ep.clipCount || 0} 条片段`];
-    if (ep.watchedAt) meta.push(`✓ 已看 ${fmtDateTime(ep.watchedAt)}`);
-    if (ep.latestAt) meta.push(`最近标记 ${fmtDateTime(ep.latestAt)}`);
-    const metaEl = episodeDetailHeadEl.querySelector('.ad-meta');
-    metaEl.textContent = meta.join(' · ');
-    // 季/集号内联编辑：保存走 PUT /api/episodes/{id}（season/episodeNo）
-    episodeDetailHeadEl.querySelector('.ep-no-edit-btn').addEventListener('click', () => {
-        const oldNo = metaEl.textContent;
-        const sInput = document.createElement('input');
-        sInput.type = 'number'; sInput.min = '1'; sInput.placeholder = '季';
-        sInput.value = ep.season != null ? ep.season : '';
-        sInput.className = 'no-edit-input';
-        const eInput = document.createElement('input');
-        eInput.type = 'number'; eInput.min = '1'; eInput.placeholder = '集';
-        eInput.value = ep.episodeNo != null ? ep.episodeNo : '';
-        eInput.className = 'no-edit-input';
-        const save = document.createElement('button'); save.type = 'button'; save.className = 'btn-mini'; save.textContent = '保存';
-        const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn-mini'; cancel.textContent = '取消';
-        const wrap = document.createElement('div');
-        wrap.className = 'no-edit';
-        wrap.append('季', sInput, '集', eInput, save, cancel);
-        metaEl.replaceWith(wrap);
-        sInput.focus();
-        cancel.addEventListener('click', () => loadEpisodeDetail(ep.id));
-        save.addEventListener('click', async () => {
-            const body = {};
-            const s = parseInt(sInput.value, 10);
-            const e = parseInt(eInput.value, 10);
-            if (!isNaN(s) && s >= 1) body.season = s;
-            if (!isNaN(e) && e >= 1) body.episodeNo = e;
-            if (body.season == null && body.episodeNo == null) { loadEpisodeDetail(ep.id); return; }
-            try {
-                const resp = await fetch(`/api/episodes/${ep.id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
-                if (resp.ok) { loadEpisodeDetail(ep.id); return; }
-            } catch (err) { }
-            wrap.replaceWith(metaEl);
-            metaEl.textContent = oldNo + '（保存失败）';
-        });
-    });
-    episodeDetailHeadEl.querySelector('[data-nav="media"]')?.addEventListener('click', () => openMediaDetail(media.id));
 }
 
-// 集备注：展示 + 内联编辑（保存走 PUT /api/episodes/{id}，仅改 note；变更后端入队重嵌）
+/** 编辑集号：hero-ops 按钮触发，head meta 行内联替换为 集 输入（保存走 PUT /api/episodes/{id}）。 */
+function openEpisodeNoEditor() {
+    const ep = currentEpisode;
+    if (!ep) return;
+    const anchor = episodeDetailHeadEl && episodeDetailHeadEl.querySelector('.ad-title');
+    if (!anchor) return;
+    const eInput = document.createElement('input');
+    eInput.type = 'number'; eInput.min = '1'; eInput.placeholder = '集';
+    eInput.value = ep.episodeNo != null ? ep.episodeNo : '';
+    eInput.className = 'no-edit-input';
+    const save = document.createElement('button'); save.type = 'button'; save.className = 'btn-mini'; save.textContent = '保存';
+    const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn-mini'; cancel.textContent = '取消';
+    const wrap = document.createElement('div');
+    wrap.className = 'no-edit';
+    wrap.append('集', eInput, save, cancel);
+    anchor.after(wrap);
+    eInput.focus();
+    cancel.addEventListener('click', () => loadEpisodeDetail(ep.id));
+    save.addEventListener('click', async () => {
+        const body = {};
+        const e = parseInt(eInput.value, 10);
+        if (!isNaN(e) && e >= 1) body.episodeNo = e;
+        if (body.episodeNo == null) { loadEpisodeDetail(ep.id); return; }
+        try {
+            const resp = await fetch(`/api/episodes/${ep.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            if (resp.ok) { loadEpisodeDetail(ep.id); return; }
+        } catch (err) { }
+        wrap.remove();
+        showToast('集号保存失败');
+    });
+}
+
+// 集备注：Hero 卡内展示 + 点击内联编辑（保存走 PUT /api/episodes/{id}，仅改 note；变更后端入队重嵌）
 function renderEpisodeNote(ep) {
-    const el = episodeDetailNoteEl;
+    const el = document.getElementById('episode-detail-note');
+    if (!el) return;
     el.hidden = false;
+    el.classList.remove('editing');
     const note = (ep.note || '').trim();
     el.classList.toggle('empty', !note);
     el.innerHTML = '';
-    if (note) {
-        const txt = document.createElement('div');
-        txt.className = 'detail-note-text';
-        txt.textContent = `备注：${note}`;
-        el.appendChild(txt);
-    }
-    const editBtn = document.createElement('button');
-    editBtn.type = 'button';
-    editBtn.className = 'btn-mini note-edit-btn';
-    editBtn.textContent = note ? '编辑备注' : '＋ 添加备注';
-    editBtn.addEventListener('click', () => {
+    const openEditor = () => {
+        el.classList.add('editing');
         el.innerHTML = '';
         const ta = document.createElement('textarea');
         ta.className = 'note-edit-input';
         ta.rows = 3;
-        ta.placeholder = '集备注（该集看点/重点），参与搜索';
+        ta.placeholder = '集备注（该集看点/重点），参与搜索；留空保存即清空';
         ta.value = note;
         const actions = document.createElement('div');
         actions.className = 'note-edit-actions';
@@ -1281,14 +1331,41 @@ function renderEpisodeNote(ep) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ note: ta.value.trim() })
             });
-            if (resp.ok) {
-                loadEpisodeDetail(ep.id);
-            } else {
-                el.innerHTML = '<span class="note-err">保存失败</span>';
-            }
+            if (resp.ok) { loadEpisodeDetail(ep.id); }
+            else { el.innerHTML = '<span class="note-err">保存失败</span>'; }
         });
-    });
-    el.appendChild(editBtn);
+    };
+    const body = document.createElement('div');
+    body.className = 'note-editable';
+    body.tabIndex = 0;
+    body.title = '点击编辑备注';
+    body.setAttribute('role', 'button');
+    const label = document.createElement('span');
+    label.className = 'note-kicker';
+    label.textContent = note ? '备注' : '备注（空）';
+    const txt = document.createElement('span');
+    txt.className = 'note-text';
+    txt.textContent = note || '＋ 点击添加备注';
+    body.append(label, txt);
+    body.addEventListener('click', openEditor);
+    body.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEditor(); } });
+    el.appendChild(body);
+}
+
+/** 集详情左栏：档案信息展示卡（所属媒体/集数/片段/标记时间）。 */
+function renderEpisodeProfile(ep, media) {
+    const el = document.getElementById('episode-detail-profile');
+    if (!el) return;
+    const no = ep.episodeNo != null ? `第${ep.episodeNo}集` : '本集';
+    const rows = [
+        ['所属媒体', media ? media.title : '—', media ? 'link' : ''],
+        ['集数', no, ''],
+        ['片段', `${ep.clipCount || 0} 条`, ''],
+        ['标记时间', ep.latestAt ? fmtDateTime(ep.latestAt) : '—', ''],
+    ];
+    el.innerHTML = rows.map(([l, v, c]) => `<div class="profile-row${c === 'link' ? ' link-row' : ''}"${c === 'link' ? ' data-open-media="1" title="点击进入媒体详情"' : ''}><span>${esc(l)}</span><span class="pv">${c === 'link' ? `<b class="m-link">${esc(v)}</b>` : `<b>${esc(v)}</b>`}</span></div>`).join('');
+    const link = el.querySelector('[data-open-media]');
+    if (link) link.addEventListener('click', () => { if (media) openMediaDetail(media.id); });
 }
 
 /** 集标签池：集内聚合热度视图（集本身 + 其下片段引用），集标签可删，保留添加；接口失败兜底回集标签。 */
@@ -1502,10 +1579,13 @@ function appendClipCard(container, r, opts) {
             </div>
             ${resultBadges(r)}
             ${scoreBar}
-            <div class="card-actions">
-                <button class="btn-similar" type="button">相似</button>
-                <button class="btn-edit" type="button">编辑</button>
-                <button class="btn-delete" type="button">删除</button>
+            <div class="card-ops">
+                <button class="cmenu-btn" type="button" aria-label="更多操作" title="操作">⋯</button>
+                <div class="cmenu">
+                    <button class="cmenu-item" data-ca="similar" type="button">相似</button>
+                    <button class="cmenu-item" data-ca="edit" type="button">编辑</button>
+                    <button class="cmenu-item danger" data-ca="delete" type="button">删除</button>
+                </div>
             </div>
         </div>`;
     card.querySelector('.card-title').innerHTML = hl(r.title, currentQuery);
@@ -1513,21 +1593,56 @@ function appendClipCard(container, r, opts) {
     card.querySelector('.card-tag').innerHTML = hl(tagNote, currentQuery);
     const thumbEl = card.querySelector('.cc-thumb');
     if (thumbEl) bindHoverPreview(thumbEl, r.detailCoverPath || r.coverPath); // 悬浮展示详情大图
-    card.addEventListener('click', () => openClipDetail(r)); // 点卡片进片段详情页
-    card.querySelector('.btn-similar').addEventListener('click', (e) => {
+    // ⋯ 菜单开合：浮层定位到 body（不受列表容器 overflow 裁剪），自动判断向上/向下弹
+    const cmenuBtn = card.querySelector('.cmenu-btn');
+    if (cmenuBtn) cmenuBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        openSimilar(r);
+        openClipMenu(card);
     });
-    card.querySelector('.btn-edit').addEventListener('click', (e) => {
-        e.stopPropagation();
-        openEditModal(r);
-    });
-    card.querySelector('.btn-delete').addEventListener('click', (e) => {
-        e.stopPropagation();
-        confirmDelete(r);
+    const act = (fn) => (e) => { e.stopPropagation(); closeClipMenus(); fn(); };
+    card.querySelector('[data-ca="similar"]').addEventListener('click', act(() => openSimilar(r)));
+    card.querySelector('[data-ca="edit"]').addEventListener('click', act(() => openEditModal(r)));
+    card.querySelector('[data-ca="delete"]').addEventListener('click', act(() => confirmDelete(r)));
+    card.addEventListener('click', (e) => {
+        if (e.target.closest('.cmenu, .cmenu-btn')) return;
+        openClipDetail(r); // 点卡片主体进片段详情页
     });
     container.appendChild(card);
 }
+
+/** 打开片段卡 ⋯ 菜单（浮层定位，自适应视口不裁剪；已在 body 后再次点击关闭）。 */
+function openClipMenu(card) {
+    const cmenu = card.querySelector('.cmenu');
+    if (!cmenu) return;
+    if (cmenu.classList.contains('open')) { closeClipMenus(); return; }
+    closeClipMenus();
+    const btn = card.querySelector('.cmenu-btn');
+    if (!btn) return;
+    if (cmenu.parentElement !== document.body) document.body.appendChild(cmenu);
+    cmenu.classList.add('open');
+    const rect = btn.getBoundingClientRect();
+    const mw = cmenu.offsetWidth, mh = cmenu.offsetHeight;
+    cmenu.style.position = 'fixed';
+    let top = rect.bottom + 6;
+    if (top + mh > window.innerHeight - 8) top = Math.max(8, rect.top - mh - 6);
+    let left = Math.max(8, rect.right - mw);
+    if (left + mw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - mw - 8);
+    cmenu.style.top = top + 'px';
+    cmenu.style.left = left + 'px';
+}
+
+/** 收起全部片段卡 ⋯ 菜单。 */
+function closeClipMenus() {
+    document.querySelectorAll('.cmenu.open').forEach(m => m.classList.remove('open'));
+}
+
+// 点卡片/菜单外收起；滚动/缩放时收起（fixed 定位菜单需重算）
+document.addEventListener('click', (e) => {
+    if (e.target && e.target.closest && (e.target.closest('.cmenu') || e.target.closest('.cmenu-btn') || e.target.closest('.card'))) return;
+    closeClipMenus();
+});
+window.addEventListener('scroll', closeClipMenus, { passive: true, capture: true });
+window.addEventListener('resize', closeClipMenus);
 
 // ---------- 悬浮详情大图预览 ----------
 
@@ -4664,57 +4779,6 @@ async function loadMediaDetail(id) {
     }
 }
 
-async function loadExternalMetadata(mediaId) {
-    const panel = document.getElementById('external-metadata-panel');
-    if (!panel) return;
-    panel.hidden = true;
-    try {
-        const resp = await fetch(`/api/metadata-sync/media/${mediaId}/metadata`);
-        if (!resp.ok) return;
-        const data = await resp.json();
-        const work = data.work;
-        if (!work) return;
-        const nativeEl = document.querySelector('#detail-title .hero-native');
-        if (nativeEl) nativeEl.textContent = work.nativeTitle || '';
-        const aliases = parseMetadataList(work.aliasesJson);
-        const genres = parseMetadataList(work.genresJson);
-        const relations = Array.isArray(data.relations) ? data.relations : [];
-        const chipRow = (label, values, limit, isFirst) => {
-            if (!values || !values.length) return '';
-            const shown = values.slice(0, limit).map(v => `<span class="md-tag">${esc(String(v))}</span>`).join('');
-            const rest = values.slice(limit).map(v => `<span class="md-tag">${esc(String(v))}</span>`).join('');
-            const overflow = values.length - limit;
-            return `<div class="md-row ${isFirst ? 'first' : ''}"><span class="md-label">${esc(label)}</span><div class="md-chips"><span class="md-shown">${shown}</span>${overflow > 0 ? `<button class="md-more" data-overflow="${overflow}">更多 (+${overflow})</button><span class="md-full" style="display:none">${rest}</span>` : ''}</div></div>`;
-        };
-        const desc = work.description || '';
-        panel.innerHTML = `
-            <div class="md-desc-wrap"><div class="md-desc">${esc(desc)}</div>${desc.length > 120 ? `<span class="md-more desc-toggle">展开更多</span>` : ''}</div>
-            ${chipRow('题材', genres, 6, true)}
-            ${chipRow('别名', aliases, 4, false)}
-            ${chipRow('关联作品', relations.map(r => r.title || r.relatedExternalId || ''), 3, false)}`;
-        panel.hidden = false;
-        panel.querySelectorAll('.md-more').forEach(btn => {
-            if (btn.classList.contains('desc-toggle')) {
-                btn.addEventListener('click', () => {
-                    const descEl = panel.querySelector('.md-desc');
-                    const open = descEl.classList.toggle('expanded');
-                    btn.textContent = open ? '收起' : '展开更多';
-                });
-                return;
-            }
-            btn.addEventListener('click', () => {
-                const chips = btn.parentElement;
-                const full = chips.querySelector('.md-full');
-                const shown = chips.querySelector('.md-shown');
-                if (!full) return;
-                const open = full.style.display !== 'none';
-                if (open) { full.style.display = 'none'; if (shown) shown.style.display = 'inline-flex'; btn.textContent = '更多 (+' + btn.dataset.overflow + ')'; }
-                else { full.style.display = 'inline-flex'; if (shown) shown.style.display = 'none'; btn.textContent = '收起'; }
-            });
-        });
-    } catch (e) { /* 外部缓存缺失不影响本地详情 */ }
-}
-
 function parseMetadataList(value) {
     if (!value) return [];
     try {
@@ -4748,68 +4812,88 @@ async function renderMediaDetail(d, eps) {
     const aliases = parseMetadataList(w.aliasesJson);
     const rels = Array.isArray(meta.relations) ? meta.relations : [];
     const inColl = new Set(d.collectionIds || []);
-    const sorted = [...eps].sort((a,b) => (a.season||0)-(b.season||0) || (a.episodeNo||0)-(b.episodeNo||0));
+    const sorted = [...eps].sort((a,b) => (a.episodeNo||0)-(b.episodeNo||0));
     const statusLabel = s => ({WANT:'想看',WATCHING:'在看',WATCHED:'已看'}[s] || s || '');
     const fmtDate = ms => ms ? new Date(ms).toLocaleDateString() : '';
-    // chip 行（题材/别名/关联）
+    // chip 行（题材/别名/关联；对齐 _demo-realtime：ext-row 标签列 + tag 胶囊 + 更多(+N) 展开）
     const chipRow = (label, values, limit, isFirst) => {
         if (!values || !values.length) return '';
-        const shown = values.slice(0, limit).map(v => `<span class="md-tag">${esc(String(v))}</span>`).join('');
-        const rest = values.slice(limit).map(v => `<span class="md-tag">${esc(String(v))}</span>`).join('');
+        const shown = values.slice(0, limit).map(v => `<span class="tag">${esc(String(v))}</span>`).join('');
+        const rest = values.slice(limit).map(v => `<span class="tag">${esc(String(v))}</span>`).join('');
         const overflow = values.length - limit;
-        return `<div class="md-row ${isFirst ? 'first' : ''}"><span class="md-label">${esc(label)}</span><div class="md-chips"><span class="md-shown">${shown}</span>${overflow > 0 ? `<button class="md-more" data-overflow="${overflow}">更多 (+${overflow})</button><span class="md-full" style="display:none">${rest}</span>` : ''}</div></div>`;
+        return `<div class="ext-row ${isFirst ? 'first' : ''}"><span class="ext-label">${esc(label)}</span><div class="chips"><span class="chips-shown">${shown}</span>${overflow > 0 ? `<button class="more-btn" data-overflow="${overflow}">更多 (+${overflow})</button><span class="chips-full" style="display:none">${rest}</span>` : ''}</div></div>`;
     };
-    const cover = (d.coverPath || d.fallbackCoverPath || d.externalCoverUrl)
-        ? `<img src="${esc(d.coverPath || d.fallbackCoverPath || d.externalCoverUrl)}" alt="" onerror="this.remove()">`
+    // 封面：Bangumi 外链优先（用户指定）；外链加载失败（如 bgm.tv 超时）自动降级本地 coverPath，再失败才移除
+    const coverSrc = d.externalCoverUrl || d.coverPath || d.fallbackCoverPath;
+    const coverBackup = (d.coverPath || d.fallbackCoverPath || '') === coverSrc ? '' : (d.coverPath || d.fallbackCoverPath || '');
+    const cover = coverSrc
+        ? `<img src="${esc(coverSrc)}" alt=""${coverBackup
+            ? ` onerror="if(this.dataset.fb){this.remove()}else{this.dataset.fb=1;this.src='${esc(coverBackup)}';}"`
+            : ` onerror="this.remove()"`}>`
         : `<span class="cover-placeholder large">${esc(d.title).slice(0, 1)}</span>`;
     const desc = w.description || '';
     const btn = (id, label, cls) => `<button type="button" id="${id}" class="btn-mini ${cls}">${label}</button>`;
 
-    const epRows = sorted.length ? sorted.map((e,i) => `<div class="ep-row" data-ep="${e.id}">
+    const epById = new Map(sorted.map(ep => [ep.id, ep]));
+    const epRows = sorted.length ? sorted.map(e => `<div class="ep-row" data-ep="${e.id}">
         <div class="ep-thumb">${e.coverPath ? `<img src="${esc(e.coverPath)}" alt="">` : `EP${e.episodeNo ?? '?'}`}</div>
         <div class="ep-body"><span class="ep-title">${esc(e.title || '(未命名)')}</span><span class="ep-status">${e.watchedAt ? '<span class="ep-watched">✓已看</span> · ' : ''}<span class="ep-clips">${e.clipCount||0} 条</span></span></div>
-        <button class="ep-more" data-ep="${e.id}" title="操作">⋯</button></div>`).join('') : '<div style="color:var(--text-faint);padding:16px">该媒体还没有集</div>';
+        <div class="ep-menu-wrap">
+          <button type="button" class="ep-more" aria-label="更多操作">⋯</button>
+          <div class="ep-menu">
+            <button type="button" class="ep-menu-item ep-cover-btn">封面</button>
+            <button type="button" class="ep-menu-item ep-tag-btn">打标签</button>
+            <button type="button" class="ep-menu-item ep-time-btn">时间线</button>
+            <button type="button" class="ep-menu-item ep-del-btn danger">删除</button>
+          </div>
+        </div></div>`).join('') : '<div style="color:var(--text-faint);padding:16px">该媒体还没有集</div>';
 
     const profile = [['观看状态', statusLabel(d.status), d.status === 'WATCHED' ? 'green' : ''], ['个人评分', d.rating != null ? '★ ' + d.rating : '未评分', 'green'], ['资料来源', mediaSourceLabel(d.source), ''], ['档案状态', d.confirmed ? '已确认' : '待确认', 'amber']]
         .map(([l,v,c]) => `<div class="profile-row"><span>${l}</span><b class="${c}">${v}</b></div>`).join('');
     const shelves = colls.map(c => `<div class="shelf-row ${inColl.has(c.id) ? 'active' : ''}" data-coll="${c.id}"><span class="shelf-dot"></span><span class="shelf-name">${esc(c.name)}</span><span class="shelf-count">${c.mediaCount ?? 0}</span></div>`).join('');
-    const tagCloud = (d.tags||[]).map(t => `<span class="tag">${esc(t.name)}</span>`).join('') || '<span style="color:var(--text-faint);font-size:12px">暂无标签</span>';
 
     box.innerHTML = `
       <div class="hero">
         <div class="hero-top">
           <div class="hero-cover">${cover}<span class="src-badge">${esc(mediaSourceLabel(d.source))}</span></div>
           <div class="hero-info">
-            <div class="hero-title-line"><h1 class="hero-title">${esc(d.title)}</h1>${w.nativeTitle ? `<span class="hero-native">${esc(w.nativeTitle)}</span>` : ''}<div class="hero-actions">${btn('detail-edit','编辑信息','')}${btn('detail-rename','改名/合并','')}${btn('detail-cover','设置封面','')}${btn('detail-sync-metadata','同步资料','')}${btn('detail-confirm','确认档案','')}${btn('detail-highlight','制作推荐视频','')}${btn('detail-materialize-batch','批量物化','')}${btn('detail-delete','删除','danger')}</div></div>
+            <div class="hero-title-line"><h1 class="hero-title">${esc(d.title)}</h1>${w.nativeTitle ? `<span class="hero-native">${esc(w.nativeTitle)}</span>` : ''}${w.externalId
+              ? `<span class="hero-link-badge linked" title="已关联 Bangumi 条目 #${esc(w.externalId)} · 点击更换关联">Bangumi <b>#${esc(w.externalId)}</b></span>`
+              : `<span class="hero-link-badge" title="尚未关联 Bangumi 条目 · 点击绑定">未关联 Bangumi</span>`}</div>
             ${desc ? `<div><div class="ext-desc">${esc(desc)}</div>${desc.length > 120 ? `<span class="desc-toggle">展开更多</span>` : ''}</div>` : ''}
             ${genres.length ? chipRow('题材', genres, 6, true) : ''}
             ${aliases.length ? chipRow('别名', aliases, 4, false) : ''}
             ${rels.length ? chipRow('关联作品', rels.map(r => r.title || r.relatedExternalId || ''), 3, false) : ''}
           </div>
         </div>
+        <!-- 操作区：本地档案操作（关联入口 = 标题右侧 Bangumi 徽标） -->
+        <div class="hero-ops">
+          <div class="hero-ops-main">
+            ${btn('detail-edit','编辑信息','')}${btn('detail-rename','改名/合并','')}${btn('detail-cover','设置封面','')}${btn('detail-confirm','确认档案','')}${btn('detail-highlight','制作推荐视频','')}${btn('detail-materialize-batch','批量剪出视频','primary')}${btn('detail-delete','删除','danger')}
+          </div>
+        </div>
       </div>
       <div class="layout">
         <div class="main-col">
-          <div class="section"><div class="section-head"><div><span class="kicker">EPISODE LIBRARY</span><h3>集列表</h3></div><span class="section-note">共 ${sorted.length} 集</span></div><div class="section-body" id="episode-list"><div class="ep-list">${epRows}</div></div></div>
+          <div class="section"><div class="section-head"><div><span class="kicker">EPISODE LIBRARY</span><h3>集列表</h3></div><span class="section-note">共 ${sorted.length} 集</span><span class="view-switch" data-view-key="media-episodes" title="切换视图：列表 / 卡片 2-4 列"><button type="button" data-v="list" title="列表视图"><svg class="vs-ic" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button><button type="button" data-v="2" title="卡片 · 每行 2 张"><svg class="vs-ic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="2.4" y="8.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="8.4" width="5.2" height="5.2" rx="1"/></g></svg><i>2</i></button><button type="button" data-v="3" title="卡片 · 每行 3 张"><svg class="vs-ic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="2.4" y="8.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="8.4" width="5.2" height="5.2" rx="1"/></g></svg><i>3</i></button><button type="button" data-v="4" title="卡片 · 每行 4 张"><svg class="vs-ic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="2.4" y="8.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="8.4" width="5.2" height="5.2" rx="1"/></g></svg><i>4</i></button></span></div><div class="section-body" id="episode-list"><div class="ep-list">${epRows}</div></div></div>
         </div>
         <div class="side-col">
           <div class="panel"><div class="panel-head"><span class="kicker">ARCHIVE PROFILE</span><h3>档案信息</h3></div><div class="panel-body">${profile}</div></div>
           <div class="panel"><div class="panel-head"><span class="kicker">LOCAL ARCHIVE</span><h3>素材概览</h3></div><div class="panel-body"><div class="asset-grid"><div class="asset-cell"><b>${d.clipCount||0}</b><span>片段</span></div><div class="asset-cell"><b>${d.episodeCount||0}</b><span>集</span></div><div class="asset-cell"><b>${d.tags?.length||0}</b><span>标签</span></div><div class="asset-cell"><b>${colls.length}</b><span>收藏</span></div></div></div></div>
-          <div class="panel"><div class="panel-head"><span class="kicker">PERSONAL INDEX</span><h3>标签池</h3></div><div class="panel-body"><div class="tag-cloud">${tagCloud}</div></div></div>
+          <div class="panel"><div class="panel-head"><span class="kicker">PERSONAL INDEX</span><h3>标签池</h3></div><div class="panel-body"><div class="tag-cloud" id="detail-tags-pool"></div></div></div>
           <div class="panel"><div class="panel-head"><span class="kicker">YOUR SHELVES</span><h3>收藏夹</h3></div><div class="panel-body">${shelves}</div></div>
         </div>
       </div>`;
 
-    // 交互绑定
-    box.querySelectorAll('.md-more').forEach(btn2 => {
-        if (btn2.classList.contains('desc-toggle')) return;
+    // 交互绑定（chip 行「更多/收起」+ 简介展开收起）
+    box.querySelectorAll('.more-btn').forEach(btn2 => {
         btn2.addEventListener('click', () => {
             const chips = btn2.parentElement;
-            const full = chips.querySelector('.md-full'), shown = chips.querySelector('.md-shown');
+            const full = chips.querySelector('.chips-full'), shown = chips.querySelector('.chips-shown');
             if (!full) return;
             const open = full.style.display !== 'none';
-            if (open) { full.style.display = 'none'; if (shown) shown.style.display = 'inline-flex'; btn2.textContent = '更多 (+' + btn2.dataset.overflow + ')'; }
-            else { full.style.display = 'inline-flex'; if (shown) shown.style.display = 'none'; btn2.textContent = '收起'; }
+            if (open) { full.style.display = 'none'; if (shown) shown.style.display = 'inline-flex'; btn2.textContent = '更多 (+' + btn2.dataset.overflow + ')'; btn2.classList.remove('less'); }
+            else { full.style.display = 'inline-flex'; if (shown) shown.style.display = 'none'; btn2.textContent = '收起'; btn2.classList.add('less'); }
         });
     });
     const descToggle = box.querySelector('.desc-toggle');
@@ -4818,12 +4902,31 @@ async function renderMediaDetail(d, eps) {
         const open = e.classList.toggle('expanded');
         descToggle.textContent = open ? '收起' : '展开更多';
     });
-    // 集行点击进详情
-    box.querySelectorAll('.ep-row').forEach(row => row.addEventListener('click', (e) => {
-        if (e.target.closest('.ep-more')) return;
-        const id = row.dataset.ep;
-        if (id) openEpisodeDetail(Number(id));
-    }));
+    // 集行：⋯ 菜单（封面/打标签/时间线/删除）+ 整行点击进集详情
+    box.querySelectorAll('.ep-row').forEach(row => {
+        const ep = epById.get(Number(row.dataset.ep));
+        const more = row.querySelector('.ep-more');
+        const menu = row.querySelector('.ep-menu');
+        if (more && menu) more.addEventListener('click', (e) => {
+            e.stopPropagation();
+            document.querySelectorAll('.ep-menu.open').forEach(m => { if (m !== menu) m.classList.remove('open'); });
+            menu.classList.toggle('open');
+        });
+        row.querySelector('.ep-cover-btn')?.addEventListener('click', (e) => { e.stopPropagation(); if (ep) openEpisodeCoverModal(ep); });
+        row.querySelector('.ep-tag-btn')?.addEventListener('click', (e) => { e.stopPropagation(); if (ep) openEpisodeTagModal(ep); });
+        row.querySelector('.ep-time-btn')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!ep) return;
+            fromMediaDetail = true;
+            openTimeline({ fp: ep.videoFp, title: (d.title || '') + (ep.episodeNo != null ? ` · 第${ep.episodeNo}集` : '') });
+        });
+        row.querySelector('.ep-del-btn')?.addEventListener('click', (e) => { e.stopPropagation(); if (ep) deleteEpisode(ep); });
+        row.addEventListener('click', (e) => {
+            if (e.target.closest('.ep-more') || e.target.closest('.ep-menu')) return;
+            const id = row.dataset.ep;
+            if (id) openEpisodeDetail(Number(id));
+        });
+    });
     box.querySelectorAll('.shelf-row').forEach(row => row.addEventListener('click', async () => {
         const cid = row.dataset.coll; const add = !row.classList.contains('active');
         await fetch(`/api/collections/${cid}/media${add ? '' : '/' + mediaId}`, { method: add ? 'POST' : 'DELETE', headers: {'Content-Type':'application/json'}, body: add ? JSON.stringify({mediaId}) : undefined });
@@ -4833,6 +4936,27 @@ async function renderMediaDetail(d, eps) {
     if (cfm) cfm.hidden = d.confirmed !== 0;
     const hl = box.querySelector('#detail-highlight');
     if (hl) hl.hidden = d.mediaFormat !== 'VIDEO';
+    // 右栏标签池：聚合热度分级彩色胶囊（异步填充）
+    renderTagPool(d, box.querySelector('#detail-tags-pool'));
+    initViewSwitches();
+}
+
+/** 右栏标签池：/api/tags/manage 聚合热度 → tag-pool-chip stat-1..5 分级配色（聚合失败兑底作品级）。 */
+async function renderTagPool(d, container) {
+    if (!container) return;
+    let stats = [];
+    try {
+        const resp = await fetch(`/api/tags/manage?mediaId=${d.id}&page=1&size=1000`);
+        if (resp.ok) {
+            const pr = await resp.json();
+            stats = (pr.items || []).map(s => ({ name: s.name, count: Number(s.refCount) || 0 }));
+        }
+    } catch (e) { /* 兜底：仅作品级 */ }
+    const pool = stats.length > 0 ? stats : (d.tags || []).map(t => ({ name: t.name, count: 1 }));
+    pool.sort((a, b) => b.count - a.count || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    container.innerHTML = pool.map(p =>
+        `<span class="tag-pool-chip stat-${tagStatTier(p.count)}" title="${esc(p.name)} · 引用 ${p.count} 次"><span class="tag-pool-name">${esc(p.name)}</span><span class="tag-pool-count">×${p.count}</span></span>`
+    ).join('') || '<span style="color:var(--text-faint);font-size:12px">暂无标签</span>';
 }
 
 function renderLocalDetailSummary(d, eps, isVideo) {
@@ -5688,36 +5812,20 @@ function renderEpisodeList(eps) {
         episodeListEl.innerHTML = '<div class="status">该媒体还没有集，去看片按 Alt+S 打标记会自动创建</div>';
         return;
     }
-    // 按季分组：season 非空按季排序；season 为空归「未识别」组（高亮提示编辑）
-    const groups = new Map();
-    const unknown = [];
-    for (const ep of eps) {
-        if (ep.season != null) {
-            if (!groups.has(ep.season)) groups.set(ep.season, []);
-            groups.get(ep.season).push(ep);
-        } else {
-            unknown.push(ep);
-        }
-    }
-    for (const season of [...groups.keys()].sort((a, b) => a - b)) {
-        const groupEl = document.createElement('div');
-        groupEl.className = 'episode-group';
-        const head = document.createElement('div');
-        head.className = 'episode-group-head';
-        head.textContent = `第 ${season} 季`;
-        groupEl.appendChild(head);
+    const known = eps.filter(ep => ep.episodeNo != null).sort((a, b) => (a.episodeNo || 0) - (b.episodeNo || 0));
+    const unknown = eps.filter(ep => ep.episodeNo == null);
+    if (known.length > 0) {
         const listEl = document.createElement('div');
         listEl.className = 'episode-group-list';
-        for (const ep of groups.get(season)) listEl.appendChild(buildEpisodeRow(ep, false));
-        groupEl.appendChild(listEl);
-        episodeListEl.appendChild(groupEl);
+        for (const ep of known) listEl.appendChild(buildEpisodeRow(ep, false));
+        episodeListEl.appendChild(listEl);
     }
     if (unknown.length > 0) {
         const groupEl = document.createElement('div');
         groupEl.className = 'episode-group unknown';
         const head = document.createElement('div');
         head.className = 'episode-group-head';
-        head.innerHTML = '未识别季/集 <span class="ep-unknown-tip">季/集号未识别，点击集进详情「编辑季/集」修正</span>';
+        head.innerHTML = '未识别集号 <span class="ep-unknown-tip">集号未识别，点击集进详情「编辑集号」修正</span>';
         groupEl.appendChild(head);
         const listEl = document.createElement('div');
         listEl.className = 'episode-group-list';
@@ -6124,6 +6232,7 @@ function openCreateMedia() {
     mediaStatusSelect.value = 'WANT';
     mediaRatingInput.value = '';
     mediaYearInput.value = '';
+    mediaSeasonInput.value = '1';
     mediaNoteInput.value = '';
     mediaModal.hidden = false;
     mediaTitleInput.focus();
@@ -6141,6 +6250,7 @@ function openEditMedia() {
     mediaStatusSelect.value = d.status || 'WANT';
     mediaRatingInput.value = d.rating != null ? d.rating : '';
     mediaYearInput.value = d.year || '';
+    mediaSeasonInput.value = d.season != null ? d.season : '1';
     mediaNoteInput.value = d.note || '';
     mediaModal.hidden = false;
     mediaTitleInput.focus();
@@ -6156,6 +6266,7 @@ async function saveMedia() {
         status: mediaStatusSelect.value,
         rating: mediaRatingInput.value === '' ? null : parseFloat(mediaRatingInput.value),
         year: mediaYearInput.value === '' ? null : Number(mediaYearInput.value),
+        season: mediaSeasonInput.value === '' ? 1 : Number(mediaSeasonInput.value),
         note: mediaNoteInput.value.trim()
     };
     if (editingMediaId == null) {
@@ -7196,26 +7307,269 @@ window.addEventListener('click', (e) => {
 });
 document.getElementById('back-to-media').addEventListener('click', goBack);
 
+// ---------- v0.24.1 详情页统一布局：视图切换（☰ 列表 / ▦2-4 卡片列数，默认列表，localStorage 记忆） ----------
+const VT_COLS_TARGETS = {
+    'episode-clips': '#episode-detail-clips',
+    'clip-siblings': '#clip-detail-siblings',
+    'media-episodes': '#episode-list .ep-list',
+    'materialize': '#materialize-clip-list',
+};
+function viewStored(key) {
+    const v = localStorage.getItem('vt-view-' + key);
+    return (v === '2' || v === '3' || v === '4') ? v : 'list';
+}
+function applyView(key, v) {
+    const sel = VT_COLS_TARGETS[key];
+    if (!sel) return;
+    const list = document.querySelector(sel);
+    if (!list) return;
+    list.classList.remove('view-list', 'view-2', 'view-3', 'view-4');
+    list.classList.add('view-' + v);
+    document.querySelectorAll(`.view-switch[data-view-key="${key}"] button`).forEach(b => b.classList.toggle('active', b.dataset.v === v));
+}
+/** 初始化/恢复页面上全部视图切换控件（含动态渲染后调用）。 */
+function initViewSwitches() {
+    Object.keys(VT_COLS_TARGETS).forEach(key => applyView(key, viewStored(key)));
+}
+document.addEventListener('click', (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('.view-switch button') : null;
+    if (!btn) return;
+    const sw = btn.closest('.view-switch');
+    if (!sw) return;
+    const v = btn.dataset.v || 'list';
+    localStorage.setItem('vt-view-' + sw.dataset.viewKey, v);
+    applyView(sw.dataset.viewKey, v);
+});
+// 页面加载即应用各列表的记忆/默认视图（☰ 列表）；媒体列表在 renderMediaDetail 后再次调用
+initViewSwitches();
+
+// 详情页「打开本地文件夹」：优先桌面壳 vtDesktop.showInFolder；Web/无壳兑底本机后端调资源管理器
+document.addEventListener('click', (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('[data-open-folder]') : null;
+    if (!btn) return;
+    const p = btn.dataset.openFolder || '';
+    if (!p) { showToast('无本地路径'); return; }
+    const done = r => { if (!r || !r.ok) showToast((r && r.message) || '打开文件夹失败'); };
+    if (window.vtDesktop && window.vtDesktop.showInFolder) {
+        window.vtDesktop.showInFolder(p).then(done);
+        return;
+    }
+    // Web / 无桌面壳兑底：本机后端调系统资源管理器定位
+    fetch('/api/shell/open-folder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p }) })
+        .then(r => r.json().catch(() => ({ ok: false, message: '后端接口不可用（HTTP ' + r.status + '，请重启后端）' })))
+        .then(done)
+        .catch(() => showToast('打开本地文件夹失败：后端未响应', 4000));
+});
+/** 渲染本地源面板行（渠道 + 路径 + 打开文件夹）。 */
+function sourceRowHtml(chan, filePath, extra) {
+    const name = filePath ? filePath.split(/[\\\/]/).pop() : '';
+    return `<div class="src-chan ${chan ? 'ok' : ''}">${chan ? '✓ ' + esc(chan) + ' · ' + esc(name) : esc(extra || '')}</div>`
+        + (filePath ? `<div class="src-path" title="${esc(filePath)}">${esc(filePath)}</div>` : '')
+        + (filePath ? `<button type="button" class="btn-mini folder-btn" data-open-folder="${esc(filePath)}">📂 打开文件夹</button>` : '')
+        + (extra && chan ? `<div class="src-extra">${esc(extra)}</div>` : '');
+}
+
+/** 集详情：去原视频/本地回顾可用态 + 左栏「本地源」面板（渠道求值）。 */
+async function syncEpisodeAvailability(ep) {
+    const jumpBtn = document.getElementById('ep-detail-jump');
+    if (jumpBtn) {
+        const url = ep.url && ep.url !== 'null' ? String(ep.url) : '';
+        const can = !!url || !!(ep.watchedAt || ep.animekoSource);
+        jumpBtn.disabled = !can;
+        jumpBtn.classList.toggle('live', can);
+        jumpBtn.title = can ? '去原视频（网页引用 / 唤起 Animeko）' : '无原视频来源';
+    }
+    const revBtn = document.getElementById('ep-detail-review');
+    const srcPanel = document.getElementById('episode-detail-source');
+    if (!revBtn && !srcPanel) return;
+    try {
+        const resp = await fetch(`/api/episodes/${ep.id}/material/channels`);
+        const ev = await resp.json().catch(() => ({}));
+        const present = ev.state === 'PRESENT';
+        if (revBtn) {
+            revBtn.disabled = !present;
+            revBtn.classList.toggle('live', present);
+            revBtn.title = present ? `本地回顾整集（${ev.channel || ''}）` : (ev.message || '无本地源');
+        }
+        if (srcPanel) {
+            srcPanel.innerHTML = present && ev.filePath
+                ? sourceRowHtml(ev.channel, ev.filePath)
+                : `<span class="source-muted">${esc(ev.message || '无本地源，可先在 Animeko 显式缓存该集')}</span>`;
+        }
+    } catch (err) {
+        if (revBtn) { revBtn.disabled = true; revBtn.classList.remove('live'); }
+        if (srcPanel) srcPanel.innerHTML = '<span class="source-muted">渠道求值失败</span>';
+    }
+}
+
+/** 片段详情：左栏「素材来源」面板（渠道/产物/源坐标 + 路径打开）。 */
+function renderClipSourcePanel(clip, ev) {
+    const el = document.getElementById('clip-detail-source');
+    if (!el) return;
+    const present = ev && ev.state === 'PRESENT';
+    const ready = clip.materialState === 'READY' && clip.videoAssetId != null;
+    const parts = [];
+    parts.push(`<div class="src-fact">物化状态</div><div class="src-fact-val ${ready ? 'ok' : ''}">${ready ? '✓ 已剪出（产物在本地）' : '整集引用 · 未剪出'}</div>`);
+    if (clip.videoAssetId != null) parts.push(`<div class="src-fact">资产</div><div class="src-fact-val mono">videoAsset #${esc(clip.videoAssetId)}</div>`);
+    if (present && ev.filePath) {
+        parts.push(`<div class="src-fact">本地渠道</div><div class="src-fact-val">${sourceRowHtml(ev.channel, ev.filePath)}</div>`);
+    } else {
+        parts.push(`<div class="src-fact">本地渠道</div><div class="src-fact-val source-muted">${esc((ev && ev.message) || '无本地文件源')}</div>`);
+    }
+    const range = clip.endSec != null ? `${fmtTime(clip.timestampSec)} – ${fmtTime(clip.endSec)}` : fmtTime(clip.timestampSec);
+    parts.push(`<div class="src-fact">源坐标</div><div class="src-fact-val mono">${esc(range)}${clip.sourceStartMs != null ? `（物化前起点 ${fmtTime(clip.sourceStartMs / 1000)}）` : ''}</div>`);
+    if (!ready) {
+        parts.push(`<button type="button" class="btn-mini folder-btn" data-prepare-material>⚙ 准备素材</button>`);
+    }
+    el.innerHTML = parts.join('');
+    const prep = el.querySelector('[data-prepare-material]');
+    if (prep) prep.addEventListener('click', () => handleClipPrepare(clip, el));
+}
+
 // v0.24 媒体详情按钮：事件委托（#media-detail 渲染后才存在）
 document.addEventListener('click', (e) => {
     const id = e.target && e.target.id;
+    // 标题右侧 Bangumi 状态徽标 = 关联条目入口
+    const badge = e.target && e.target.closest ? e.target.closest('.hero-link-badge') : null;
+    if (badge) { openMetadataLinkModal(); return; }
     if (id === 'detail-edit') openEditMedia();
     else if (id === 'detail-rename') openRenameModal();
     else if (id === 'detail-cover') openCoverModal();
     else if (id === 'detail-materialize-batch') openMaterializeModal();
     else if (id === 'detail-confirm') { if (currentMedia) fetch(`/api/media/${currentMedia.id}/confirm`, { method: 'POST' }).then(() => refreshMediaDetail()); }
     else if (id === 'detail-delete') deleteMedia();
-    else if (id === 'detail-sync-metadata') {
-        if (!currentMedia) return;
-        const button = e.target;
-        if (window.v022HandleMediaMetadataAction) { window.v022HandleMediaMetadataAction(currentMedia.id, button); return; }
-        button.disabled = true;
-        fetch(`/api/metadata-sync/media/${currentMedia.id}`, { method: 'POST' })
-            .then(async r => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.message || `HTTP ${r.status}`); showToast(`资料同步完成：新增 ${d.added || 0}，更新 ${d.updated || 0}`); await refreshMediaDetail(); })
-            .catch(err => showToast('资料同步失败：' + (err.message || '后端未响应')))
-            .finally(() => { button.disabled = false; });
+});
+
+// ---------- v0.24 关联条目（Bangumi 查询 → 点选 → 绑定/换绑，弹窗；旧集默认保留） ----------
+let metadataLinkState = { mediaId: 0, candidates: [], selected: null, currentWork: null };
+
+function openMetadataLinkModal() {
+    if (!currentMedia || !currentMedia.id) { showToast('请先打开媒体详情'); return; }
+    const modal = document.getElementById('metadata-link-modal');
+    if (!modal) return;
+    metadataLinkState = { mediaId: currentMedia.id, candidates: [], selected: null, currentWork: null };
+    const input = document.getElementById('mdl-search-input');
+    const statusEl = document.getElementById('mdl-status');
+    const listEl = document.getElementById('mdl-candidates');
+    const curEl = document.getElementById('mdl-current');
+    const confirmBtn = document.getElementById('mdl-confirm');
+    const selEl = document.getElementById('mdl-selected');
+    if (input) input.value = currentMedia.title || '';
+    if (listEl) listEl.innerHTML = '';
+    if (selEl) selEl.innerHTML = '';
+    if (confirmBtn) confirmBtn.disabled = true;
+    if (curEl) { curEl.hidden = true; curEl.classList.remove('has-link'); }
+    if (statusEl) statusEl.textContent = '正在读取当前关联…';
+    modal.hidden = false;
+    fetch(`/api/media/${currentMedia.id}/metadata`).then(async r => {
+        let work = null;
+        try { work = (await r.json()).work || null; } catch (e) { work = null; }
+        metadataLinkState.currentWork = work;
+        if (curEl) {
+            if (work) {
+                curEl.classList.add('has-link');
+                curEl.innerHTML = `当前关联：<b>${esc(work.canonicalTitle || work.nativeTitle || '')}</b> <span class="mdl-cur-id">#${esc(work.externalId || '')}</span> · 更换后旧集全部保留，重新拉取该条目资料`;
+            } else {
+                curEl.innerHTML = '尚未关联外部条目 · 搜索后点选一条完成绑定';
+            }
+            curEl.hidden = false;
+        }
+        if (statusEl) statusEl.textContent = '';
+        if (input) input.focus();
+    }).catch(() => { if (statusEl) statusEl.textContent = '当前关联读取失败，仍可搜索绑定'; });
+}
+
+function closeMetadataLinkModal() {
+    const modal = document.getElementById('metadata-link-modal');
+    if (modal) modal.hidden = true;
+}
+
+document.addEventListener('submit', (e) => {
+    if (!e.target || e.target.id !== 'mdl-search-form') return;
+    e.preventDefault();
+    const mediaId = metadataLinkState.mediaId;
+    if (!mediaId) return;
+    const input = document.getElementById('mdl-search-input');
+    const statusEl = document.getElementById('mdl-status');
+    const listEl = document.getElementById('mdl-candidates');
+    const keyword = (input && input.value || '').trim();
+    if (!keyword) { if (statusEl) statusEl.textContent = '请输入关键词'; return; }
+    metadataLinkState.selected = null;
+    const confirmBtn = document.getElementById('mdl-confirm');
+    const selEl = document.getElementById('mdl-selected');
+    if (confirmBtn) confirmBtn.disabled = true;
+    if (selEl) selEl.innerHTML = '';
+    if (statusEl) statusEl.textContent = '搜索中…';
+    if (listEl) listEl.innerHTML = '<div class="mdl-loading">正在搜索 Bangumi…</div>';
+    fetch(`/api/media/${mediaId}/metadata-search`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword }) })
+        .then(async r => { const data = await r.json().catch(() => ([])); if (!r.ok) throw new Error('HTTP ' + r.status); return data; })
+        .then(renderMetadataLinkCandidates)
+        .catch(err => { if (statusEl) statusEl.textContent = '搜索失败：' + (err.message || '后端未响应'); if (listEl) listEl.innerHTML = ''; });
+});
+
+function renderMetadataLinkCandidates(items) {
+    const listEl = document.getElementById('mdl-candidates');
+    const statusEl = document.getElementById('mdl-status');
+    metadataLinkState.candidates = items || [];
+    if (!listEl) return;
+    if (!metadataLinkState.candidates.length) {
+        listEl.innerHTML = '<div class="mdl-empty">没有匹配候选 · 换关键词再试</div>';
+        if (statusEl) statusEl.textContent = '';
+        return;
+    }
+    if (statusEl) statusEl.textContent = `${metadataLinkState.candidates.length} 条候选 · 点选后底部确认`;
+    listEl.innerHTML = metadataLinkState.candidates.map(c => {
+        const meta = [c.titleCn || c.title || c.nativeTitle, c.year, c.format, c.episodeCount != null ? `${c.episodeCount} 集` : ''].filter(Boolean).join(' · ');
+        const locked = c.targetMediaId && c.targetMediaId !== metadataLinkState.mediaId;
+        return `<label class="mdl-cand ${locked ? 'locked' : ''}">
+            <input type="radio" name="mdl-cand" value="${esc(c.externalId)}" ${locked ? 'disabled' : ''}>
+            <span class="mdl-cand-main">
+                <strong>${esc(c.titleCn || c.title || c.nativeTitle || '')}</strong>
+                <small>${esc(meta)}</small>
+                <em>${locked ? '已关联其他媒体，不可选' : esc(c.matchReason || '')}</em>
+            </span>
+            <span class="mdl-cand-id">#${esc(c.externalId)}</span>
+        </label>`;
+    }).join('');
+}
+
+document.addEventListener('change', (e) => {
+    if (!e.target || e.target.name !== 'mdl-cand') return;
+    metadataLinkState.selected = e.target.value;
+    const confirmBtn = document.getElementById('mdl-confirm');
+    const selEl = document.getElementById('mdl-selected');
+    if (confirmBtn) confirmBtn.disabled = false;
+    if (selEl) {
+        const c = metadataLinkState.candidates.find(x => String(x.externalId) === String(e.target.value));
+        selEl.innerHTML = c ? `已选：<b>${esc(c.titleCn || c.title || c.nativeTitle || '')}</b> <span class="mdl-cur-id">#${esc(c.externalId)}</span>` : '';
     }
 });
+
+document.getElementById('mdl-confirm').addEventListener('click', async () => {
+    const mediaId = metadataLinkState.mediaId;
+    const externalId = metadataLinkState.selected;
+    if (!mediaId || !externalId) return;
+    const btn = document.getElementById('mdl-confirm');
+    const statusEl = document.getElementById('mdl-status');
+    const cur = metadataLinkState.currentWork;
+    if (cur && String(cur.externalId) === String(externalId)) { if (statusEl) statusEl.textContent = '该条目已是当前关联，无需更换'; return; }
+    if (btn) btn.disabled = true;
+    if (statusEl) statusEl.textContent = cur ? '正在更换关联并拉取资料…' : '正在关联并拉取资料…';
+    try {
+        const resp = await fetch(`/api/media/${mediaId}/metadata-link`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ externalId, mode: cur ? 'REPLACE' : 'PRIMARY' }) });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+        showToast(`关联完成：新增 ${data.added || 0}，更新 ${data.updated || 0}`);
+        closeMetadataLinkModal();
+        refreshMediaDetail();
+    } catch (err) {
+        if (statusEl) statusEl.textContent = '关联失败：' + (err.message || '后端未响应');
+        if (btn) btn.disabled = false;
+    }
+});
+
+document.getElementById('mdl-close').addEventListener('click', closeMetadataLinkModal);
+document.getElementById('metadata-link-modal').addEventListener('click', (e) => { if (e.target && e.target.id === 'metadata-link-modal') closeMetadataLinkModal(); });
 
 // ---------- v0.24 批量物化（延迟物化） ----------
 let materializeClips = [];
@@ -7259,13 +7613,21 @@ function renderMaterializeList() {
         document.getElementById('materialize-run').disabled = true;
         return;
     }
-    listEl.innerHTML = materializeClips.map(c => `
-        <label class="episode-row" style="cursor:pointer;gap:10px">
+    listEl.innerHTML = materializeClips.map(c => {
+        const ready = c.materialState === 'READY';
+        const epNo = c.episodeNo != null ? `第${c.episodeNo}集` : '';
+        const range = fmtClipRange(c);
+        const meta = [epNo, c.tag || '', range].filter(Boolean).join(' · ');
+        const thumb = (c.coverPath || c.detailCoverPath)
+            ? `<span class="mz-thumb"><img src="${esc(c.coverPath || c.detailCoverPath)}" alt="" loading="lazy" onerror="this.remove()"></span>`
+            : `<span class="mz-thumb mz-empty">${esc((c.title || '片').slice(0, 1))}</span>`;
+        return `<label class="mz-row">
             <input type="checkbox" data-mz="${c.id}" ${materializeSel.has(c.id) ? 'checked' : ''}>
-            <span style="font-size:12px;color:var(--text-dim);min-width:52px">${c.episodeNo != null ? '第' + c.episodeNo + '集' : ''}</span>
-            <span class="ep-main" style="display:block"><b style="font-size:12.5px">${esc(c.title || '(未命名)')}</b>
-                <small style="color:var(--text-faint)">${esc(c.tag || '')} · ${fmtClipRange(c)} · ${esc(c.materialState || 'REFERENCE_ONLY')}</small></span>
-        </label>`).join('');
+            ${thumb}
+            <span class="mz-body"><b class="mz-title">${esc(c.title || '(未命名)')}</b><small class="mz-meta">${esc(meta)}</small></span>
+            <span class="mz-badge ${ready ? 'ready' : ''}">${ready ? '✓ 已剪出' : '未剪出'}</span>
+        </label>`;
+    }).join('');
     listEl.querySelectorAll('[data-mz]').forEach(cb => cb.addEventListener('change', () => {
         if (cb.checked) materializeSel.add(Number(cb.dataset.mz)); else materializeSel.delete(Number(cb.dataset.mz));
         updateMaterializeCount();
@@ -7545,7 +7907,6 @@ document.getElementById('back-from-clip').addEventListener('click', goBack);
 document.getElementById('clip-detail-jump').addEventListener('click', () => { if (currentClip) jump(currentClip); });
 document.getElementById('clip-detail-edit').addEventListener('click', () => { if (currentClip) openEditModal(currentClip); });
 document.getElementById('clip-detail-delete').addEventListener('click', () => { if (currentClip) confirmDelete(currentClip); });
-document.getElementById('clip-detail-similar').addEventListener('click', () => clipDetailSimilarEl.scrollIntoView({ behavior: 'smooth' }));
 
 // ---------- 集详情操作 ----------
 document.getElementById('back-from-episode').addEventListener('click', goBack);
@@ -7605,7 +7966,7 @@ applyUiConfig();
 document.getElementById('ep-detail-quick-play')?.addEventListener('click', () => {
     if (currentEpisode) window.v023QuickPlayEpisode?.(currentEpisode.id, currentEpisode.title || '本集');
 });
-document.getElementById('ep-detail-tag').addEventListener('click', () => { if (currentEpisode) openEpisodeTagModal(currentEpisode); });
+document.getElementById('ep-detail-no-edit').addEventListener('click', () => openEpisodeNoEditor());
 document.getElementById('ep-detail-cover').addEventListener('click', () => { if (currentEpisode) openEpisodeCoverModal(currentEpisode); });
 document.getElementById('ep-detail-timeline').addEventListener('click', () => {
     if (!currentEpisode) return;

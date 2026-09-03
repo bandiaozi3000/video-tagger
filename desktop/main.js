@@ -732,6 +732,16 @@ ipcMain.on('win:maximize', (e) => {
   if (win.isMaximized()) win.unmaximize(); else win.maximize();
 });
 ipcMain.on('win:close', (e) => { BrowserWindow.fromWebContents(e.sender)?.close(); });
+// 详情页「打开本地文件夹」：定位素材文件所在目录（仅允许存在的本地绝对路径）
+ipcMain.handle('vt:show-in-folder', (_e, p) => {
+  try {
+    if (typeof p !== 'string' || !p) return { ok: false, message: '路径为空' };
+    if (!require('path').isAbsolute(p)) return { ok: false, message: '非本地绝对路径' };
+    if (!require('fs').existsSync(p)) return { ok: false, message: '文件不存在：' + p };
+    shell.showItemInFolder(p);
+    return { ok: true };
+  } catch (err) { return { ok: false, message: String((err && err.message) || err) }; }
+});
 // 通知渲染进程最大化状态变化（切换最大化/还原图标）
 app.on('browser-window-created', (_e, win) => {
   win.on('maximize', () => win.webContents.send('win:maximized-changed', true));

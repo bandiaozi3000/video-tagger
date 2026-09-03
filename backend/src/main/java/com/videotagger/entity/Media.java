@@ -18,6 +18,8 @@ public class Media {
     private String title;
     /** 首播年份（AniList 同步或手动录入，可空=未知） */
     private Integer year;
+    /** 季序号（系列第几季，默认 1；Bangumi 同步时正则识别，可手动改） */
+    private Integer season;
     /** 别名（LLM 后台归组修正，可空） */
     private String aliases;
     /** 媒体备注（作品观感/待办等，供搜索），可空 */

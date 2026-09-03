@@ -131,7 +131,7 @@ public class AnimekoTagService {
                 view.updatedAtMillis(), view.subjectName(), view.episodeName(),
                 true, mapped.episode().getId(), mapped.media() == null ? null : mapped.media().getId(),
                 mapped.media() == null ? null : mapped.media().getTitle(),
-                label(mapped.episode()), mapped.episode().getTitle());
+                label(mapped.episode(), mapped.media()), mapped.episode().getTitle());
     }
 
     // ---------- 打标 ----------
@@ -259,8 +259,9 @@ public class AnimekoTagService {
     private record MappedLocal(Episode episode, Media media) {
     }
 
-    private String label(Episode ep) {
-        if (ep.getSeason() != null && ep.getEpisodeNo() != null) return "S" + ep.getSeason() + "-Ep" + ep.getEpisodeNo();
+    private String label(Episode ep, Media media) {
+        Integer season = media == null ? null : media.getSeason();
+        if (season != null && ep.getEpisodeNo() != null) return "S" + season + "-Ep" + ep.getEpisodeNo();
         if (ep.getEpisodeNo() != null) return "第" + ep.getEpisodeNo() + "集";
         return "本集";
     }

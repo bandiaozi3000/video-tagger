@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Tagger · 二次元打标库</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="app.css?v=20260903-v024-hero4">
+    <link rel="stylesheet" href="app.css?v=20260903-v024-hero32">
     <link rel="stylesheet" href="v022-metadata.css?v=20260829-v022-media-detail2">
     <link rel="stylesheet" href="v023-video-sources.css?v=20260830-v023-1">
     <link rel="stylesheet" href="v023-source-interactions.css?v=20260901-v023-5">
@@ -366,46 +366,87 @@
     <!-- 集详情视图 -->
     <section id="view-episode-detail" class="view" hidden>
         <button type="button" id="back-from-episode" class="back-btn">← 返回</button>
-        <div id="episode-detail-head" class="episode-detail-head"></div>
-        <div id="episode-detail-note" class="detail-note" hidden></div>
-        <div class="detail-actions">
-            <button type="button" id="ep-detail-quick-play" class="btn-primary">自动查找并播放</button>
-            <button type="button" id="ep-detail-tag" class="btn-mini">打标签</button>
-            <button type="button" id="ep-detail-cover" class="btn-mini">设封面</button>
-            <button type="button" id="ep-detail-timeline" class="btn-mini">时间线</button>
-            <button type="button" id="ep-detail-jump" class="btn-mini">去原视频</button>
-            <button type="button" id="ep-detail-review" class="btn-mini">本地回顾</button>
-            <button type="button" id="ep-detail-delete" class="btn-mini danger">删除该集</button>
+        <div class="hero detail-hero">
+            <div id="episode-detail-head" class="episode-detail-head"></div>
+            <div class="hero-ops">
+                <div class="hero-ops-main">
+                    <button type="button" id="ep-detail-quick-play" class="btn-primary">自动查找并播放</button>
+                    <button type="button" id="ep-detail-cover" class="btn-mini">设封面</button>
+                    <button type="button" id="ep-detail-timeline" class="btn-mini">时间线</button>
+                    <button type="button" id="ep-detail-no-edit" class="btn-mini">编辑季/集</button>
+                    <button type="button" id="ep-detail-delete" class="btn-mini danger">删除该集</button>
+                </div>
+                <div class="hero-ops-side">
+                    <button type="button" id="ep-detail-jump" class="btn-mini">去原视频</button>
+                    <button type="button" id="ep-detail-review" class="btn-mini">本地回顾</button>
+                </div>
+            </div>
         </div>
         <section id="ep-quick-play-panel" class="ep-quick-play-panel" hidden></section>
-        <h3 class="stats-title">集标签池</h3>
-        <div id="episode-detail-tags" class="detail-tags"></div>
-        <h3 class="stats-title">该集片段</h3>
-        <section id="episode-detail-clips" class="results"></section>
+        <div class="detail-cols">
+            <aside class="col-side">
+                <div class="panel">
+                    <div class="panel-head"><span class="kicker">ARCHIVE PROFILE</span><h3>档案信息</h3></div>
+                    <div class="panel-body" id="episode-detail-profile"></div>
+                </div>
+                <div class="panel">
+                    <div class="panel-head"><span class="kicker">LOCAL ARCHIVE</span><h3>本地源</h3></div>
+                    <div class="panel-body" id="episode-detail-source"><span class="source-muted">求值中…</span></div>
+                </div>
+                <div class="panel">
+                    <div class="panel-head"><span class="kicker">PERSONAL INDEX</span><h3>集标签池</h3></div>
+                    <div class="panel-body"><div id="episode-detail-tags" class="tag-cloud"></div></div>
+                </div>
+            </aside>
+            <div class="col-main">
+                <section class="section">
+                    <div class="section-head"><div><span class="kicker">CLIP LIBRARY</span><h3>该集片段</h3></div><span class="view-switch" data-view-key="episode-clips" title="切换视图：列表 / 卡片 2-4 列"><button type="button" data-v="list" title="列表视图"><svg class="vs-ic" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button><button type="button" data-v="2" title="卡片 · 每行 2 张"><svg class="vs-ic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="2.4" y="8.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="8.4" width="5.2" height="5.2" rx="1"/></g></svg><i>2</i></button><button type="button" data-v="3" title="卡片 · 每行 3 张"><svg class="vs-ic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="2.4" y="8.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="8.4" width="5.2" height="5.2" rx="1"/></g></svg><i>3</i></button><button type="button" data-v="4" title="卡片 · 每行 4 张"><svg class="vs-ic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="2.4" y="8.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="8.4" width="5.2" height="5.2" rx="1"/></g></svg><i>4</i></button></span></div>
+                    <div class="section-body"><div id="episode-detail-clips" class="clip-list"></div></div>
+                </section>
+            </div>
+        </div>
         <div id="episode-detail-status" class="status"></div>
     </section>
 
     <!-- 片段详情视图 -->
     <section id="view-clip-detail" class="view" hidden>
         <button type="button" id="back-from-clip" class="back-btn">← 返回</button>
-        <div id="clip-detail-head" class="clip-detail-head"></div>
-        <div class="detail-actions">
-            <button type="button" id="clip-detail-jump" class="btn-mini">去原视频</button>
-            <button type="button" id="clip-detail-similar" class="btn-mini">相似</button>
-            <button type="button" id="clip-detail-edit" class="btn-mini">编辑</button>
-            <button type="button" id="clip-export-video" class="btn-mini">导出视频</button>
-            <button type="button" id="clip-export-frame" class="btn-mini">导出单帧</button>
-            <button type="button" id="clip-export-sequence" class="btn-mini">连续截图</button>
-            <button type="button" id="clip-record-browser" class="btn-mini" hidden>浏览器录制回退</button>
-            <button type="button" id="clip-detail-delete" class="btn-mini danger">删除</button>
+        <div class="hero detail-hero">
+            <div id="clip-detail-head" class="clip-detail-head"></div>
+            <div class="hero-ops">
+                <div class="hero-ops-main">
+                    <button type="button" id="clip-detail-edit" class="btn-mini">编辑</button>
+                    <button type="button" id="clip-detail-delete" class="btn-mini danger">删除</button>
+                </div>
+                <div class="hero-ops-side">
+                    <button type="button" id="clip-detail-jump" class="btn-mini">去原视频</button>
+                    <button type="button" id="clip-detail-review" class="btn-mini">本地回顾</button>
+                </div>
+            </div>
         </div>
-        <div id="clip-export-status" class="status"></div>
-        <h3 class="stats-title">片段标签</h3>
-        <div id="clip-detail-tags" class="detail-tags"></div>
-        <h3 class="stats-title">同集片段</h3>
-        <section id="clip-detail-siblings" class="results"></section>
-        <h3 class="stats-title">相似片段</h3>
-        <section id="clip-detail-similar" class="results"></section>
+        <div class="detail-cols">
+            <aside class="col-side">
+                <div class="panel">
+                    <div class="panel-head"><span class="kicker">ARCHIVE PROFILE</span><h3>档案信息</h3></div>
+                    <div class="panel-body" id="clip-detail-profile"></div>
+                </div>
+                <div class="panel">
+                    <div class="panel-head"><span class="kicker">ASSET PROVENANCE</span><h3>素材来源</h3></div>
+                    <div class="panel-body" id="clip-detail-source"><span class="source-muted">求值中…</span></div>
+                </div>
+                <div class="panel">
+                    <div class="panel-head"><span class="kicker">PERSONAL INDEX</span><h3>片段标签</h3></div>
+                    <div class="panel-body"><div id="clip-detail-tags" class="tag-cloud"></div></div>
+                </div>
+            </aside>
+            <div class="col-main">
+                <section class="section">
+                    <div class="section-head"><div><span class="kicker">SAME EPISODE</span><h3>同集片段</h3></div><span class="view-switch" data-view-key="clip-siblings" title="切换视图：列表 / 卡片 2-4 列"><button type="button" data-v="list" title="列表视图"><svg class="vs-ic" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button><button type="button" data-v="2" title="卡片 · 每行 2 张"><svg class="vs-ic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="2.4" y="8.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="8.4" width="5.2" height="5.2" rx="1"/></g></svg><i>2</i></button><button type="button" data-v="3" title="卡片 · 每行 3 张"><svg class="vs-ic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="2.4" y="8.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="8.4" width="5.2" height="5.2" rx="1"/></g></svg><i>3</i></button><button type="button" data-v="4" title="卡片 · 每行 4 张"><svg class="vs-ic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="2.4" y="8.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="8.4" width="5.2" height="5.2" rx="1"/></g></svg><i>4</i></button></span></div>
+                    <div class="section-body"><div id="clip-detail-siblings" class="clip-list"></div></div>
+                </section>
+
+            </div>
+        </div>
         <div id="clip-detail-status" class="status"></div>
     </section>
 
@@ -814,23 +855,46 @@
     </div>
 </div>
 
+<!-- 关联条目：Bangumi 查询 → 点选 → 绑定/换绑（旧集默认保留） -->
+<div id="metadata-link-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide modal-link">
+        <div class="modal-head"><h3>关联 Bangumi 条目</h3><button type="button" class="btn-mini" id="mdl-close">✕</button></div>
+        <div id="mdl-current" class="mdl-current" hidden></div>
+        <form class="mdl-search" id="mdl-search-form">
+            <label>Bangumi 作品关键词
+                <span class="mdl-search-row"><input id="mdl-search-input" type="search" maxlength="120" autocomplete="off" placeholder="输入标题后搜索（最多 20 条）"><button type="submit" class="btn-primary">搜索</button></span>
+            </label>
+        </form>
+        <div id="mdl-status" class="mdl-status"></div>
+        <div id="mdl-candidates" class="mdl-candidates"></div>
+        <div class="modal-actions">
+            <span id="mdl-selected" class="mdl-selected"></span>
+            <button type="button" class="btn-primary" id="mdl-confirm" disabled>关联并同步</button>
+        </div>
+    </div>
+</div>
+
 <!-- 打标输入补全候选（edit-modal / 集打标 / 媒体详情加标签共用） -->
 <datalist id="tag-suggest-list"></datalist>
 
 <div id="materialize-modal" class="modal-overlay" hidden>
-    <div class="modal modal-wide">
-        <div class="modal-head"><h3>批量物化片段</h3><button type="button" class="btn-mini" id="materialize-close">✕</button></div>
-        <p class="batch-del-hint">勾选要剪出本地视频的片段（按各片段的起点–终点精确裁剪）。<b>文件不在场的片段</b>会汇总为「待预取清单」，用 Animeko 显式缓存/fork CLI 缓存整集后再回来勾选执行。</p>
-        <div class="modal-actions">
-            <button type="button" class="btn-mini" id="materialize-select-all">全选</button>
-            <button type="button" class="btn-mini" id="materialize-select-none">清空</button>
-            <span id="materialize-count" class="detail-section-note">已选 0</span>
+    <div class="modal modal-wide modal-materialize">
+        <div class="modal-head"><h3>批量剪出本地视频</h3><button type="button" class="btn-mini" id="materialize-close" title="关闭">✕</button></div>
+        <p class="batch-del-hint">勾选想剪成本地视频的片段（按各片段起点–终点精确裁剪成独立文件）。<b>文件不在场的片段</b>会列入「待预取清单」——先在 Animeko 显式缓存 / fork CLI 缓存整集，再回来勾选执行。</p>
+        <div class="mz-toolbar">
+            <span class="mz-tip">勾选片段，然后点右下「开始剪出」</span>
+            <span class="mz-actions">
+                <button type="button" class="btn-mini" id="materialize-select-all">全选</button>
+                <button type="button" class="btn-mini" id="materialize-select-none">清空</button>
+                <span class="view-switch" data-view-key="materialize" title="切换视图：列表 / 卡片"><button type="button" data-v="list" title="列表视图"><svg class="vs-ic" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button><button type="button" data-v="2" title="卡片 · 每行 2 张"><svg class="vs-ic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="2.4" y="8.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="8.4" width="5.2" height="5.2" rx="1"/></g></svg><i>2</i></button></span>
+            </span>
         </div>
-        <div id="materialize-clip-list" class="episode-list" style="max-height:34vh;overflow:auto"></div>
+        <div id="materialize-clip-list" class="mz-list" style="max-height:40vh;overflow:auto"></div>
         <div class="modal-actions">
-            <button type="button" class="btn-primary" id="materialize-run" disabled>开始物化</button>
+            <span id="materialize-status" class="mz-status"></span>
+            <span id="materialize-count" class="mz-tip">已选 0</span>
+            <button type="button" class="btn-primary" id="materialize-run" disabled>开始剪出</button>
         </div>
-        <div id="materialize-status" class="status"></div>
     </div>
 </div>
 
@@ -912,6 +976,7 @@
         </label>
         <label>评分（0~10）<input id="media-rating" type="number" min="0" max="10" step="0.5" autocomplete="off"></label>
         <label>年份<input id="media-year" type="number" min="1900" max="2100" autocomplete="off" placeholder="如 2004，参与年份过滤"></label>
+        <label>季<input id="media-season" type="number" min="1" max="99" autocomplete="off" placeholder="第几季，默认 1"></label>
         <label class="field-note">备注<textarea id="media-note" rows="3" placeholder="作品备注（观感/待办等），参与搜索"></textarea></label>
         <div class="modal-actions">
             <button id="media-modal-cancel" type="button">取消</button>
@@ -1500,8 +1565,7 @@
     </div>
 </div>
 <button type="button" id="back-nav" title="去底部" aria-label="去底部">↓</button>
-<script src="app.js?v=20260902-v024-m2b"></script>
-<script src="v022-media-metadata.js?v=20260829-v022-media-detail2"></script>
+<script src="app.js?v=20260903-v024-hero32"></script>
 <script src="v022-metadata-workspace.js?v=20260829-v022-sync-workspace2"></script>
 <script src="v023-video-sources.js?v=20260830-v023-1"></script>
 <script src="v023-player-workbench.js?v=20260901-v023-3"></script>

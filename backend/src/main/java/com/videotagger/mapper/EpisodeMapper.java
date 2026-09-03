@@ -12,7 +12,7 @@ import java.util.List;
 @Mapper
 public interface EpisodeMapper extends BaseMapper<Episode> {
 
-    @Select("SELECT * FROM episode WHERE media_entry_id = #{mediaEntryId} ORDER BY IFNULL(season, 0), IFNULL(episode_no, 0), id")
+    @Select("SELECT * FROM episode WHERE media_entry_id = #{mediaEntryId} ORDER BY IFNULL(episode_no, 0), id")
     List<Episode> listByMediaEntry(@Param("mediaEntryId") long mediaEntryId);
 
     @Select("SELECT * FROM episode WHERE media_entry_id = #{mediaEntryId} AND episode_no = #{episodeNo} LIMIT 1")
@@ -22,25 +22,25 @@ public interface EpisodeMapper extends BaseMapper<Episode> {
     Episode selectByFp(@Param("fp") String fp);
 
     @Select("SELECT * FROM episode WHERE media_id = #{mediaId} "
-            + "ORDER BY IFNULL(season, 0), IFNULL(episode_no, 0), id")
+            + "ORDER BY IFNULL(episode_no, 0), id")
     List<Episode> listByMedia(@Param("mediaId") long mediaId);
 
     @Select("SELECT COUNT(*) FROM episode WHERE media_id = #{mediaId}")
     long countByMedia(@Param("mediaId") long mediaId);
 
-    /** 某番剧的集列表，带片段数与最新标记时间，按季/集号排序。列顺序须与 EpisodeSummary 组件顺序一致（MyBatis 按位映射）。 */
-    @Select("SELECT e.id, e.media_id AS mediaId, e.season, e.episode_no AS episodeNo, "
+    /** 某番剧的集列表，带片段数与最新标记时间，按集号排序。列顺序须与 EpisodeSummary 组件顺序一致（MyBatis 按位映射）。 */
+    @Select("SELECT e.id, e.media_id AS mediaId, e.episode_no AS episodeNo, "
             + "e.title, e.url, e.video_fp AS videoFp, "
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
             + "e.cover_path AS coverPath, e.watched_at AS watchedAt "
             + "FROM episode e LEFT JOIN clips c ON c.episode_id = e.id "
             + "WHERE e.media_id = #{mediaId} GROUP BY e.id "
-            + "ORDER BY IFNULL(e.season, 0), IFNULL(e.episode_no, 0), e.id")
+            + "ORDER BY IFNULL(e.episode_no, 0), e.id")
     List<com.videotagger.service.EpisodeSummary> listSummariesByMedia(@Param("mediaId") long mediaId);
 
     /** 集关键词召回：集标题 / 集备注 / 集级标签命中。 */
     @Select("<script>"
-            + "SELECT DISTINCT e.id, e.media_id AS mediaId, e.season, e.episode_no AS episodeNo, "
+            + "SELECT DISTINCT e.id, e.media_id AS mediaId, e.episode_no AS episodeNo, "
             + "e.title, e.note, e.url, e.video_fp AS videoFp, e.created_at "
             + "FROM episode e "
             + "LEFT JOIN episode_tag et ON et.episode_id = e.id "
