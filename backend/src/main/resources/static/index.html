@@ -904,8 +904,8 @@
         <label>标题<input id="edit-title" autocomplete="off"></label>
         <label>标签<input id="edit-tag" autocomplete="off"></label>
         <label>备注<input id="edit-note" autocomplete="off"></label>
-        <label>时间戳（秒）<input id="edit-time" type="number" step="0.1" min="0"></label>
-        <label>结束时间（秒，可选）<input id="edit-end-time" type="number" step="0.1" min="0"></label>
+        <label>时间戳（分:秒）<input id="edit-time" type="text" autocomplete="off" placeholder="如 20:34（可留小数秒，或直接输入秒）"></label>
+        <label>结束时间（分:秒，可选）<input id="edit-end-time" type="text" autocomplete="off" placeholder="留空 = 无结束时间"></label>
         <div class="modal-actions">
             <button id="edit-cancel" type="button">取消</button>
             <button id="edit-save" type="button">保存</button>
@@ -1350,6 +1350,19 @@
         <div class="modal-actions">
             <button id="confirm-modal-cancel" type="button">取消</button>
             <button id="confirm-modal-ok" type="button" class="danger">确定</button>
+        </div>
+    </div>
+</div>
+
+<!-- 通用输入弹窗（替代原生 prompt：集号/标题/关键字/订阅地址等） -->
+<div id="prompt-modal" class="modal-overlay" hidden>
+    <div class="modal">
+        <h2 id="prompt-modal-title">输入</h2>
+        <div id="prompt-modal-msg" class="confirm-modal-msg"></div>
+        <input id="prompt-modal-input" type="text" autocomplete="off">
+        <div class="modal-actions">
+            <button id="prompt-modal-cancel" type="button">取消</button>
+            <button id="prompt-modal-ok" type="button" class="danger">确定</button>
         </div>
     </div>
 </div>

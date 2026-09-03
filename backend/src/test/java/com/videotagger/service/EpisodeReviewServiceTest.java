@@ -43,7 +43,7 @@ class EpisodeReviewServiceTest {
 
     private EpisodeReviewService service(String assetRoot, String dbPath) {
         return new EpisodeReviewService(episodeMapper, assetMapper, extEpMapper, extWorkMapper,
-                assetRoot, dbPath);
+                assetRoot, dbPath, null);
     }
 
     private Episode ep(long id) {

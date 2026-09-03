@@ -16,6 +16,9 @@ import com.videotagger.mapper.ExternalRelationMapper;
 import com.videotagger.mapper.ExternalWorkMapper;
 import com.videotagger.mapper.MediaEntryMapper;
 import com.videotagger.mapper.MediaMapper;
+import com.videotagger.mapper.VideoSourceEpisodeMapMapper;
+import com.videotagger.service.CoverService;
+import com.videotagger.service.EpisodeService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -29,6 +32,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyLong;
 
 class MetadataSyncServiceTest {
 
@@ -91,7 +95,7 @@ class MetadataSyncServiceTest {
     }
 
     @Test
-    void replaceRetainsOldEpisodesByDefault() {
+    void replaceRebuildDeletesOldSyncedEpisodes() {
         Fixture fixture = new Fixture();
         MediaEntry primary = entry(5L, 42L, 0);
         ExternalWork old = work(1L, "old", 42L, 5L);
@@ -100,22 +104,23 @@ class MetadataSyncServiceTest {
         when(fixture.provider.get("new")).thenReturn(record("new", "OVA"));
         when(fixture.workMapper.listByMedia(42L)).thenReturn(List.of(old));
         when(fixture.workMapper.selectByProviderAndExternalId("BANGUMI", "new")).thenReturn(null);
-        when(fixture.localEpisodeMapper.listByMediaEntry(5L)).thenReturn(List.of(oldEpisode));
+        when(fixture.externalEpisodeMapper.listByWork(1L)).thenReturn(List.of(externalEpisode(7L)));
+        when(fixture.localEpisodeMapper.selectBatchIds(List.of(7L))).thenReturn(List.of(oldEpisode));
         when(fixture.entryMapper.selectPrimary(42L)).thenReturn(primary);
-        when(fixture.externalEpisodeMapper.listByWork(1L)).thenReturn(List.of());
         doAnswer(invocation -> { ((ExternalWork) invocation.getArgument(0)).setId(2L); return 1; })
                 .when(fixture.workMapper).insert(any(ExternalWork.class));
 
         fixture.service.linkMedia(42L, new MediaMetadataLinkRequest("new", "REPLACE"));
 
-        verify(fixture.localEpisodeMapper, never()).deleteById((java.io.Serializable) any());
-        verify(fixture.entryMapper, never()).insert(any(MediaEntry.class));
-        assertEquals(null, old.getMediaId());
-        assertEquals(null, old.getMediaEntryId());
+        // 换绑＝推倒重建：旧条目本地集删除、桥接解绑、旧 work 从媒体脱离
+        verify(fixture.episodeService).delete(7L);
+        verify(fixture.externalEpisodeMapper).unbindByEpisodeIds(eq(List.of(7L)), anyLong());
+        verify(fixture.externalEpisodeMapper).deleteByWorkId(eq(1L));
+        verify(fixture.workMapper).detachFromMedia(eq(1L), anyLong());
     }
 
     @Test
-    void replaceNeverDeletesClipBackedEpisode() {
+    void replaceWithUserAssetsRequiresExplicitConfirm() {
         Fixture fixture = new Fixture();
         ExternalWork old = work(1L, "old", 42L, 5L);
         Episode oldEpisode = episode(7L, 42L, 5L);
@@ -123,15 +128,31 @@ class MetadataSyncServiceTest {
         when(fixture.provider.get("new")).thenReturn(record("new"));
         when(fixture.workMapper.listByMedia(42L)).thenReturn(List.of(old));
         when(fixture.workMapper.selectByProviderAndExternalId("BANGUMI", "new")).thenReturn(null);
-        when(fixture.localEpisodeMapper.listByMediaEntry(5L)).thenReturn(List.of(oldEpisode));
+        when(fixture.externalEpisodeMapper.listByWork(1L)).thenReturn(List.of(externalEpisode(7L)));
+        when(fixture.localEpisodeMapper.selectBatchIds(List.of(7L))).thenReturn(List.of(oldEpisode));
         when(fixture.clipMapper.listByEpisode(7L)).thenReturn(List.of(new Clip()));
         when(fixture.episodeTagMapper.selectTags(7L)).thenReturn(List.of());
+        when(fixture.videoSourceEpisodeMapMapper.listByEpisode(7L)).thenReturn(List.of());
+        doAnswer(invocation -> { ((ExternalWork) invocation.getArgument(0)).setId(2L); return 1; })
+                .when(fixture.workMapper).insert(any(ExternalWork.class));
 
+        // 旧集含用户数据（片段）且未二次确认 → 拒绝执行
         assertThrows(IllegalArgumentException.class, () -> fixture.service.linkMedia(42L,
-                new MediaMetadataLinkRequest("new", "REPLACE", List.of(7L), true)));
+                new MediaMetadataLinkRequest("new", "REPLACE", List.of(), false)));
+        verify(fixture.episodeService, never()).delete(anyLong());
+        verify(fixture.workMapper, never()).detachFromMedia(anyLong(), anyLong());
 
-        verify(fixture.localEpisodeMapper, never()).deleteById(7L);
-        assertEquals(42L, old.getMediaId());
+        // 携带 confirmProtected=true 后放行并删除
+        fixture.service.linkMedia(42L, new MediaMetadataLinkRequest("new", "REPLACE", List.of(), true));
+        verify(fixture.episodeService).delete(7L);
+    }
+
+    private static ExternalEpisode externalEpisode(long episodeId) {
+        ExternalEpisode external = new ExternalEpisode();
+        external.setId(100L);
+        external.setExternalWorkId(1L);
+        external.setEpisodeId(episodeId);
+        return external;
     }
 
     private static MetadataRecord record(String externalId) {
@@ -190,8 +211,12 @@ class MetadataSyncServiceTest {
         final EpisodeMapper localEpisodeMapper = mock(EpisodeMapper.class);
         final ClipMapper clipMapper = mock(ClipMapper.class);
         final EpisodeTagMapper episodeTagMapper = mock(EpisodeTagMapper.class);
+        final EpisodeService episodeService = mock(EpisodeService.class);
+        final CoverService coverService = mock(CoverService.class);
+        final VideoSourceEpisodeMapMapper videoSourceEpisodeMapMapper = mock(VideoSourceEpisodeMapMapper.class);
         final MetadataSyncService service = new MetadataSyncService(provider, mediaMapper, entryMapper, workMapper,
                 externalEpisodeMapper, relationMapper, localEpisodeMapper, clipMapper, episodeTagMapper,
+                episodeService, coverService, videoSourceEpisodeMapMapper,
                 new ObjectMapper());
 
         void stubImport(long mediaId, MetadataRecord record, int maxSortOrder) {

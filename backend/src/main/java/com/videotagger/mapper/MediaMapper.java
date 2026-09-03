@@ -7,6 +7,7 @@ import com.videotagger.entity.Media;
 import com.videotagger.service.MediaSummary;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -303,6 +304,10 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='q != null and q != \"\"'> AND title LIKE CONCAT('%', #{q}, '%')</if>"
             + "</script>")
     long countTrash(@Param("q") String q);
+
+    /** 换绑重建：清除旧条目封面路径（展示改走新条目远程封面）。 */
+    @Update("UPDATE media SET cover_path = NULL WHERE id = #{id}")
+    int clearCover(@Param("id") long id);
 
     /** 聚合行。 */
     record FormatCount(String format, long count) {

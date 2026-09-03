@@ -9,7 +9,7 @@ import jakarta.validation.constraints.Size;
 public record SaveClipRequest(
         @NotBlank @Size(max = 512) String title,
         @NotBlank @Size(max = 2048)
-        @Pattern(regexp = "^https?://.+", message = "url 必须是 http(s) 地址") String url,
+        @Pattern(regexp = "^(https?://|animeko://|video-asset:).+", message = "url 必须是 http(s) / animeko:// / video-asset: 引用地址") String url,
         @NotNull @DecimalMin("0.0") Double timestampSec,
         @DecimalMin(value = "0.0", inclusive = false) Double endSec,
         @NotBlank @Size(max = 100) String tag,

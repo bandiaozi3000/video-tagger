@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -42,19 +43,22 @@ public class MaterializationService {
     private final ExternalWorkMapper externalWorkMapper;
     private final AnimekoCacheLocator c2Locator;
     private final Path assetRoot;
+    private final VideoAssetService videoAssetService;
 
     public MaterializationService(ClipMapper clipMapper,
                                   VideoAssetMapper assetMapper,
                                   ExternalEpisodeMapper externalEpisodeMapper,
                                   ExternalWorkMapper externalWorkMapper,
                                   @Value("${videotagger.video-assets.root-dir:${VT_DATA_DIR:data}/video-assets}") String assetRoot,
-                                  @Value("${videotagger.animeko.db-path:}") String animekoDbPath) {
+                                  @Value("${videotagger.animeko.db-path:}") String animekoDbPath,
+                                  VideoAssetService videoAssetService) {
         this.clipMapper = clipMapper;
         this.assetMapper = assetMapper;
         this.externalEpisodeMapper = externalEpisodeMapper;
         this.externalWorkMapper = externalWorkMapper;
         this.assetRoot = Path.of(assetRoot).toAbsolutePath().normalize();
         this.c2Locator = new AnimekoCacheLocator(animekoDataRoot(AnimekoPaths.resolve(animekoDbPath)));
+        this.videoAssetService = videoAssetService;
     }
 
     private static Path animekoDataRoot(String resolvedDbPath) {
@@ -156,6 +160,63 @@ public class MaterializationService {
     /** 便捷：只求值不写库。 */
     public Evaluation evaluate(long clipId) {
         return evaluate(clipId, false);
+    }
+
+    /** 删除结果（state=删除后该片段预计的素材状态）。 */
+    public record DeleteSourceResult(String channel, String state, String message) {
+    }
+
+    /**
+     * 删除片段当前的本地素材文件：物化产物 → 解除 clip→产物引用并删产物；
+     * Animeko 整集缓存 → 删缓存文件；本地资产（源）→ 删资产行+文件。
+     * 被其它片段/映射/任务引用的本地资产拒绝删除。
+     */
+    @Transactional
+    public DeleteSourceResult deleteSource(long clipId) {
+        Clip clip = clipMapper.selectById(clipId);
+        if (clip == null) throw new NoSuchElementException("clip not found: " + clipId);
+        Evaluation ev = evaluate(clipId, false);
+        if (ev == null || !"PRESENT".equals(ev.state()) || ev.filePath() == null) {
+            throw new IllegalStateException("该片段当前没有可删除的本地素材文件");
+        }
+        // 1) 物化产物（成品）：解除本片段引用后删除产物资产与文件
+        if ("ALREADY_READY".equals(ev.strategy()) && ev.assetId() != null) {
+            if (Long.valueOf(ev.assetId()).equals(clip.getVideoAssetId())) {
+                clip.setVideoAssetId(null);
+                clip.setMaterialState("PENDING");
+                clipMapper.updateById(clip);
+            }
+            videoAssetService.deleteLocal(ev.assetId());
+            return new DeleteSourceResult("C1", "PENDING", "已删除物化产物；需要时可重新物化");
+        }
+        // 2) Animeko 整集缓存
+        if (c2Locator.isManagedFile(ev.filePath())) {
+            if (!c2Locator.deleteManagedFile(ev.filePath())) {
+                throw new IllegalStateException("删除失败：Animeko 缓存文件不存在或无法删除");
+            }
+            return new DeleteSourceResult("C2", "PENDING", "已删除 Animeko 缓存整集文件；再次物化需重新缓存该集");
+        }
+        // 3) 本地资产源（TRIM_LOCAL_ASSET / 线索命中）：本片段若仍引用该资产先解除，再删资产行+文件
+        if (ev.assetId() != null) {
+            if (Long.valueOf(ev.assetId()).equals(clip.getVideoAssetId())) {
+                clip.setVideoAssetId(null);
+                clip.setMaterialState("REFERENCE_ONLY");
+                clipMapper.updateById(clip);
+            }
+            videoAssetService.deleteLocal(ev.assetId());
+            return new DeleteSourceResult("C1", "PENDING", "已删除本地资产文件（含记录）");
+        }
+        // 4) 其它受管本地文件（assetRoot 内）
+        try {
+            Path f = Path.of(ev.filePath()).toAbsolutePath().normalize();
+            if (f.startsWith(assetRoot)) {
+                Files.deleteIfExists(f);
+                return new DeleteSourceResult(ev.channel(), "PENDING", "已删除本地文件");
+            }
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("删除文件失败: " + e.getMessage());
+        }
+        throw new IllegalStateException("本地文件不在受管目录，拒绝删除: " + ev.filePath());
     }
 
     /** 回写求值所得的渠道线索（幂等 upsert）。 */

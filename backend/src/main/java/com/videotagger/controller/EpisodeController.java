@@ -78,6 +78,13 @@ public class EpisodeController {
                 "message", src.message() == null ? "" : src.message());
     }
 
+    /** v0.24 删除集当前的本地源文件（C1 本地资产 / C2 Animeko 整集缓存）；释放磁盘，之后可重新缓存/下载。 */
+    @PostMapping("/{id}/material/source-delete")
+    public Map<String, Object> deleteSource(@PathVariable Long id) {
+        EpisodeReviewService.SourceDeleteResult r = reviewService.deleteSource(id);
+        return Map.of("ok", true, "channel", r.channel(), "state", r.state(), "message", r.message());
+    }
+
     @GetMapping("/{id}/clips")
     public List<Clip> clips(@PathVariable Long id) {
         return episodeService.clips(id);

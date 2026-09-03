@@ -41,6 +41,12 @@ public class ClipMaterializationController {
         return channelService.evaluate(clipId, true);
     }
 
+    /** 删除片段当前的本地素材文件（物化产物 / Animeko 缓存 / 本地资产源）。 */
+    @PostMapping("/source-delete")
+    public MaterializationService.DeleteSourceResult deleteSource(@PathVariable long clipId) {
+        return channelService.deleteSource(clipId);
+    }
+
     @PostMapping("/materialize-from-file")
     public ClipMaterializationService.Result materializeFromFile(@PathVariable long clipId,
                                                                  @RequestParam String path) throws Exception {

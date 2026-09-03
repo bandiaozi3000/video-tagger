@@ -430,6 +430,29 @@
 - `clips` 表新增 `video_fp`（URL 指纹，同一视频聚合）与 `video_duration`（可选）；历史数据启动时自动回填。
 - 后端测试 46 → 60 个用例。
 
+## [0.24.2] - 2026-09-04
+
+### Bangumi 同步 / 换绑
+- **换绑 = 推倒重建旧主条目链路**：更换主条目时删除旧条目同步的本地集（连同片段/标签/封面/片源映射/本地资产文件）；旧集含用户数据（片段/手工标签/备注/本地视频/片源绑定/观看记录）时必须二次确认（`confirmProtected`），确认后连同片段一并删除；成功后按新主条目校准媒体标题/年份/别名并清除旧封面。
+- **同步落库集标题兜底**：Bangumi 部分集 name/name_cn 均为空 → 本地集标题落「第 N 集/未命名集」，避免 `episode.title NOT NULL` 违约导致整个换绑事务回滚。
+- **已关联再次同步可更新**：关联弹窗选中当前已关联条目时提供「重新拉取资料」（metadata-refresh），刷新只更资料不动集。
+- **修 MP null 更新坑**：`updateById` 默认跳过 null → 换绑解绑/解除桥接改原生 SQL（`ExternalWorkMapper.detachFromMedia`、`ExternalEpisodeMapper.unbindByEpisodeIds/deleteByWorkId` 等）；同类字段（lastError/完成时间/保留期/错误信息/片源映射解绑）补 `FieldStrategy.IGNORED`。
+
+### 删除链路本地资源清理
+- **删集/彻底删媒体级联删本地资产**（`video_asset` 行 + video-assets 文件）与片源映射、外部集桥接；删媒体（purge）清理 external_work/external_episode/external_relation 缓存；合并媒体清被合并方外部缓存（不再留孤儿行）。
+- **本地源单独删除**：集/片段详情「本地源」行新增 🗑 删除（Animeko 缓存整集 / 本地资产 / 物化产物，删除本地文件并清关联；被换源校准/进行中任务引用的资产仍拒绝）。
+- **删本地资产自动解绑引用片段**：不再因「被片段引用」拒绝，引用片段保留并回退（REFERENCE_ONLY/PENDING）。
+
+### UI
+- **全站原生弹窗统一**：错误 `alert`→`showToast`；确认 `confirm`→`showConfirm`/`confirmAsync`；输入 `prompt`→新增通用输入弹窗 `#prompt-modal`（`promptInput`，取消语义等价）；长文本说明用 `showVsmDialog`。覆盖 app.js / v022 / v023 全部 29 处。
+- **片段编辑时间改分:秒**：编辑弹窗与「标记片段」时间输入支持 `[时:]分:秒[.十分位]` 显示/输入（纯秒数兼容）。
+
+### 修复
+- 片段编辑 400：Animeko 打标 clip 的 `animeko://` 引用 URL 被 `@Pattern(^https?://)` 拦截 → URL 白名单放宽 `https(s):// | animeko:// | video-asset:`。
+
+### 测试
+- 换绑语义单测改写（删旧集 / 用户资产需二次确认）；相关 service 单测随构造注入更新；全量相关测试绿。
+
 ## [0.24.1] - 2026-09-03
 
 ### 新增

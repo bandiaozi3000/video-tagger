@@ -15,6 +15,9 @@ import com.videotagger.mapper.ExternalRelationMapper;
 import com.videotagger.mapper.ExternalWorkMapper;
 import com.videotagger.mapper.MediaEntryMapper;
 import com.videotagger.mapper.MediaMapper;
+import com.videotagger.mapper.VideoSourceEpisodeMapMapper;
+import com.videotagger.service.CoverService;
+import com.videotagger.service.EpisodeService;
 import com.videotagger.service.ExternalMetadataDetail;
 import com.videotagger.util.TitleParser;
 import org.springframework.stereotype.Service;
@@ -28,6 +31,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -43,13 +47,18 @@ public class MetadataSyncService {
     private final EpisodeMapper episodeMapper;
     private final ClipMapper clipMapper;
     private final EpisodeTagMapper episodeTagMapper;
+    private final EpisodeService episodeService;
+    private final CoverService coverService;
+    private final VideoSourceEpisodeMapMapper videoSourceEpisodeMapMapper;
     private final ObjectMapper objectMapper;
 
     public MetadataSyncService(MetadataProvider provider, MediaMapper mediaMapper,
                                MediaEntryMapper mediaEntryMapper, ExternalWorkMapper externalWorkMapper,
                                ExternalEpisodeMapper externalEpisodeMapper, ExternalRelationMapper externalRelationMapper,
                                EpisodeMapper episodeMapper, ClipMapper clipMapper,
-                               EpisodeTagMapper episodeTagMapper, ObjectMapper objectMapper) {
+                               EpisodeTagMapper episodeTagMapper, EpisodeService episodeService,
+                               CoverService coverService, VideoSourceEpisodeMapMapper videoSourceEpisodeMapMapper,
+                               ObjectMapper objectMapper) {
         this.provider = provider;
         this.mediaMapper = mediaMapper;
         this.mediaEntryMapper = mediaEntryMapper;
@@ -59,6 +68,9 @@ public class MetadataSyncService {
         this.episodeMapper = episodeMapper;
         this.clipMapper = clipMapper;
         this.episodeTagMapper = episodeTagMapper;
+        this.episodeService = episodeService;
+        this.coverService = coverService;
+        this.videoSourceEpisodeMapMapper = videoSourceEpisodeMapMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -181,6 +193,9 @@ public class MetadataSyncService {
             throw new IllegalArgumentException("不支持的关联模式: " + mode);
         }
         ImportCount count = importRecord(record, new MetadataSyncRequest.Decision(externalId, "LINK", mediaId));
+        if ("REPLACE".equals(mode)) {
+            recalibrateMedia(mediaId, record);
+        }
         return new MetadataSyncResult(1, count.added(), count.updated(), 0, List.of());
     }
 
@@ -193,8 +208,7 @@ public class MetadataSyncService {
         if (externalId.equals(current.getExternalId())) throw new IllegalArgumentException("新候选与当前主条目相同");
         MetadataRecord record = provider.get(externalId);
         ensureCanAttach(mediaId, record);
-        List<MediaMetadataReplacePreview.EpisodeProtection> episodes = current.getMediaEntryId() == null
-                ? List.of() : episodeMapper.listByMediaEntry(current.getMediaEntryId()).stream()
+        List<MediaMetadataReplacePreview.EpisodeProtection> episodes = primaryLinkedEpisodes(current).stream()
                 .map(this::episodeProtection).toList();
         return new MediaMetadataReplacePreview(current, candidateOf(record), episodes);
     }
@@ -238,42 +252,76 @@ public class MetadataSyncService {
         }
     }
 
+    /**
+     * 换绑（REPLACE）＝推倒重建旧主条目链路：
+     * 删除旧主条目同步产生的本地集及其片段/标签/封面/片源映射等全部关联数据；
+     * 任何旧集含用户数据（片段/手工标签/备注/本地视频/片源映射/观看记录/封面）时，
+     * 必须先带 confirmProtected=true 二次确认，否则拒绝执行，避免误删心血。
+     */
     private void replacePrimary(long mediaId, MediaMetadataLinkRequest request, MetadataRecord record) {
         List<ExternalWork> works = externalWorkMapper.listByMedia(mediaId);
         if (works.isEmpty()) throw new IllegalArgumentException("该媒体尚未关联主条目");
         ExternalWork old = works.get(0);
         if (record.externalId().equals(old.getExternalId())) throw new IllegalArgumentException("新候选与当前主条目相同");
-        Set<Long> requested = new HashSet<>(request.deleteEpisodeIds() == null ? List.of() : request.deleteEpisodeIds());
-        Map<Long, Episode> oldEpisodes = old.getMediaEntryId() == null ? Map.of()
-                : episodeMapper.listByMediaEntry(old.getMediaEntryId()).stream()
-                .collect(java.util.stream.Collectors.toMap(Episode::getId, episode -> episode));
-        for (Long episodeId : requested) {
-            Episode episode = oldEpisodes.get(episodeId);
-            if (episode == null) throw new IllegalArgumentException("待删除集不属于当前主条目: " + episodeId);
-            MediaMetadataReplacePreview.EpisodeProtection protection = episodeProtection(episode);
-            if (protection.clipCount() > 0) throw new IllegalArgumentException("含 Clip 的旧集不能删除，请保留该集");
-            if (protection.protectedItem() && !Boolean.TRUE.equals(request.confirmProtected())) {
-                throw new IllegalArgumentException("删除受保护旧集需要额外确认");
-            }
-        }
         long now = System.currentTimeMillis();
-        List<ExternalEpisode> externalEpisodes = externalEpisodeMapper.listByWork(old.getId());
-        for (Long episodeId : requested) {
-            for (ExternalEpisode external : externalEpisodes) {
-                if (episodeId.equals(external.getEpisodeId())) {
-                    external.setEpisodeId(null);
-                    external.setSyncState("MISSING");
-                    external.setUpdatedAt(now);
-                    externalEpisodeMapper.updateById(external);
-                }
-            }
-            episodeTagMapper.deleteByEpisode(episodeId);
-            episodeMapper.deleteById(episodeId);
+
+        List<Episode> doomed = primaryLinkedEpisodes(old);
+        long assetEpisodes = doomed.stream().filter(this::episodeHasUserAssets).count();
+        if (assetEpisodes > 0 && !Boolean.TRUE.equals(request.confirmProtected())) {
+            throw new IllegalArgumentException("换绑将删除旧条目同步的 " + doomed.size() + " 个集，其中 " + assetEpisodes
+                    + " 个含片段/标签/本地视频/片源绑定/观看记录等用户数据，永久删除需二次确认（confirmProtected=true）");
         }
-        old.setMediaId(null);
-        old.setMediaEntryId(null);
-        old.setUpdatedAt(now);
-        externalWorkMapper.updateById(old);
+        // 1) 解除所有 work（含仍保留的附加条目）对这些本地集的桥接，避免删集后悬空引用
+        if (!doomed.isEmpty()) {
+            List<Long> ids = doomed.stream().map(Episode::getId).toList();
+            externalEpisodeMapper.unbindByEpisodeIds(ids, now);
+        }
+        // 2) 删除旧主条目的外部集索引与关联作品（同步产物）
+        externalEpisodeMapper.deleteByWorkId(old.getId());
+        externalRelationMapper.deleteByWork(old.getId());
+        // 3) 逐个删除本地集：走完整级联（片源映射/片段封面/物化产物/高光标记/向量/标签，由 EpisodeService.delete 统一处理）
+        for (Episode episode : doomed) {
+            episodeService.delete(episode.getId());
+        }
+        // 4) 解绑旧主条目 work（updateById 默认跳过 null 字段，必须原生 SQL 显式置 NULL）
+        externalWorkMapper.detachFromMedia(old.getId(), now);
+    }
+
+    /** 换绑/预览共用的旧主条目本地集清单：以 external_episode 桥接反查，无桥接时回退其 entry 下全部集。 */
+    private List<Episode> primaryLinkedEpisodes(ExternalWork work) {
+        List<Long> ids = externalEpisodeMapper.listByWork(work.getId()).stream()
+                .map(ExternalEpisode::getEpisodeId).filter(Objects::nonNull).distinct().toList();
+        if (!ids.isEmpty()) {
+            List<Episode> selected = episodeMapper.selectBatchIds(ids);
+            return selected == null ? List.of() : selected;
+        }
+        return work.getMediaEntryId() == null ? List.of()
+                : episodeMapper.listByMediaEntry(work.getMediaEntryId());
+    }
+
+    /** 该集是否存在用户数据（含 watched_at / 片源映射），存在则换绑删除需二次确认。 */
+    private boolean episodeHasUserAssets(Episode episode) {
+        return episodeProtection(episode).protectedItem();
+    }
+
+    /** 换绑成功后按新主条目校准本地档案字段，并清掉旧条目封面（展示改走新条目远程封面）。 */
+    private void recalibrateMedia(long mediaId, MetadataRecord record) {
+        Media media = mediaMapper.selectById(mediaId);
+        if (media == null) return;
+        String title = hasText(record.canonicalTitle()) ? record.canonicalTitle().trim()
+                : (record.nativeTitle() == null ? null : record.nativeTitle().trim());
+        if (hasText(title)) media.setTitle(title);
+        if (record.year() != null) media.setYear(record.year());
+        Integer season = resolveSeason(record);
+        if (season != null) media.setSeason(season);
+        if (record.aliases() != null && !record.aliases().isEmpty()) {
+            media.setAliases(String.join("\n", record.aliases()));
+        }
+        mediaMapper.updateById(media);
+        if (hasText(media.getCoverPath())) {
+            coverService.deleteCover(media.getCoverPath());
+            mediaMapper.clearCover(mediaId);
+        }
     }
 
     private MediaMetadataReplacePreview.EpisodeProtection episodeProtection(Episode episode) {
@@ -283,13 +331,22 @@ public class MetadataSyncService {
         boolean userTitle = Integer.valueOf(1).equals(episode.getTitleOverride());
         boolean note = hasText(episode.getNote());
         boolean cover = hasText(episode.getCoverPath());
-        boolean protectedItem = clipCount > 0 || localVideo || userTitle || note || tagCount > 0 || cover;
+        boolean protectedItem = clipCount > 0 || localVideo || userTitle || note || tagCount > 0 || cover
+                || episode.getWatchedAt() != null
+                || !videoSourceEpisodeMapMapper.listByEpisode(episode.getId()).isEmpty();
         return new MediaMetadataReplacePreview.EpisodeProtection(episode.getId(), episode.getEpisodeNo(),
                 episode.getTitle(), clipCount, localVideo, userTitle, note, tagCount, cover, protectedItem);
     }
 
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    /** episode.title 列 NOT NULL 无默认值：Bangumi 某些集 name/name_cn 均为空，建本地集前必须兜底非空标题。 */
+    private static String episodeLocalTitle(MetadataEpisodeRecord remote) {
+        String title = hasText(remote.titleCn()) ? remote.titleCn() : remote.title();
+        if (title != null) return title;
+        return remote.episodeNo() == null ? "未命名集" : "第 " + remote.episodeNo() + " 集";
     }
 
     private List<MetadataRecord> query(ProviderQuery query) {
@@ -411,7 +468,7 @@ public class MetadataSyncService {
                 local.setMediaId(entry.getMediaId());
                 local.setMediaEntryId(entry.getId());
                 local.setEpisodeNo(remote.episodeNo());
-                local.setTitle(remote.titleCn() == null ? remote.title() : remote.titleCn());
+                local.setTitle(episodeLocalTitle(remote));
                 local.setTitleOverride(0);
                 local.setCreatedAt(now);
                 episodeMapper.insert(local);

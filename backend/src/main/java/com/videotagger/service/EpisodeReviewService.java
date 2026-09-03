@@ -36,11 +36,13 @@ public class EpisodeReviewService {
     private final ExternalWorkMapper externalWorkMapper;
     private final Path assetRoot;
     private final AnimekoCacheLocator animekoLocator;
+    private final VideoAssetService videoAssetService;
 
     public EpisodeReviewService(EpisodeMapper episodeMapper, VideoAssetMapper assetMapper,
                                 ExternalEpisodeMapper externalEpisodeMapper, ExternalWorkMapper externalWorkMapper,
                                 @Value("${videotagger.video-assets.root-dir:${VT_DATA_DIR:data}/video-assets}") String assetRoot,
-                                @Value("${videotagger.animeko.db-path:}") String animekoDbPath) {
+                                @Value("${videotagger.animeko.db-path:}") String animekoDbPath,
+                                VideoAssetService videoAssetService) {
         this.episodeMapper = episodeMapper;
         this.assetMapper = assetMapper;
         this.externalEpisodeMapper = externalEpisodeMapper;
@@ -50,9 +52,39 @@ public class EpisodeReviewService {
         this.animekoLocator = resolvedDb == null || resolvedDb.isBlank()
                 ? new AnimekoCacheLocator(null)
                 : new AnimekoCacheLocator(Path.of(new File(resolvedDb).getParentFile().toURI()).toAbsolutePath().normalize());
+        this.videoAssetService = videoAssetService;
     }
 
     public record ReviewSource(String channel, String state, String filePath, String message) {
+    }
+
+    /** 删除结果（state=删除后该集预计的求值状态）。 */
+    public record SourceDeleteResult(String channel, String state, String message) {
+    }
+
+    /** 删除集当前的本地源文件：C1 本地资产 → 删资产行+文件（被片段/映射/任务引用时拒绝）；C2 → 删 Animeko 缓存整集文件。 */
+    public SourceDeleteResult deleteSource(long episodeId) {
+        Episode ep = episodeMapper.selectById(episodeId);
+        if (ep == null) throw new NoSuchElementException("episode not found: " + episodeId);
+        ReviewSource src = resolve(episodeId);
+        if (!"PRESENT".equals(src.state()) || src.filePath() == null) {
+            throw new IllegalStateException("该集当前没有可删除的本地源（无本地资产、无 Animeko 整集缓存）");
+        }
+        if ("C1".equals(src.channel())) {
+            for (VideoAsset asset : assetMapper.listByEpisode(episodeId)) {
+                if (asset.getStoragePath() == null || asset.getStoragePath().isBlank()) continue;
+                Path p = assetRoot.resolve(asset.getStoragePath().replace('\\', '/')).normalize();
+                if (p.toAbsolutePath().normalize().toString().equals(src.filePath())) {
+                    videoAssetService.deleteLocal(asset.getId());
+                    return new SourceDeleteResult("C1", "UNAVAILABLE", "已删除本地资产（记录与文件）；如仍需观看该集请重新下载或缓存");
+                }
+            }
+            throw new IllegalStateException("本地源未登记为资产记录，拒绝删除文件: " + src.filePath());
+        }
+        if (animekoLocator.deleteManagedFile(src.filePath())) {
+            return new SourceDeleteResult("C2", "PENDING", "已删除 Animeko 缓存整集文件；Animeko 内再次播放该集会重新缓存");
+        }
+        throw new IllegalStateException("删除失败：文件不在 Animeko 受管目录或已被占用");
     }
 
     /** 定位集的可播放本地文件；无可用源返回 state=UNAVAILABLE（不抛错）。 */

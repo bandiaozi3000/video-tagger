@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -44,6 +45,30 @@ public class AnimekoCacheLocator {
 
     public boolean configured() {
         return dataRoot != null;
+    }
+
+    /** 该绝对路径是否位于 Animeko data 根（受管，允许安全删除）。 */
+    public boolean isManagedFile(String absolutePath) {
+        if (dataRoot == null || absolutePath == null || absolutePath.isBlank()) return false;
+        try {
+            return Path.of(absolutePath).toAbsolutePath().normalize().startsWith(dataRoot);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /** 删除 Animeko data 根内的缓存/整集文件（越界拒绝，文件不存在视为成功）。 */
+    public boolean deleteManagedFile(String absolutePath) {
+        if (!isManagedFile(absolutePath)) {
+            log.warn("拒绝删除非 Animeko 受管文件: {}", absolutePath);
+            return false;
+        }
+        try {
+            return Files.deleteIfExists(Path.of(absolutePath));
+        } catch (IOException e) {
+            log.warn("删除 Animeko 缓存文件失败 {}: {}", absolutePath, e.getMessage());
+            return false;
+        }
     }
 
     public String describeRoot() {

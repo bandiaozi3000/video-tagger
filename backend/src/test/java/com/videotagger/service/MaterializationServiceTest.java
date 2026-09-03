@@ -50,7 +50,7 @@ class MaterializationServiceTest {
         externalEpisodeMapper = mock(ExternalEpisodeMapper.class);
         externalWorkMapper = mock(ExternalWorkMapper.class);
         service = new MaterializationService(clipMapper, assetMapper, externalEpisodeMapper,
-                externalWorkMapper, assetRoot.toString(), animekoRoot.resolve("ani.db").toString());
+                externalWorkMapper, assetRoot.toString(), animekoRoot.resolve("ani.db").toString(), null);
     }
 
     @AfterEach
@@ -200,7 +200,7 @@ class MaterializationServiceTest {
     @DisplayName("C2 未配置 Animeko → UNAVAILABLE（不抛错）")
     void c2Unconfigured() {
         MaterializationService svc = new MaterializationService(clipMapper, assetMapper,
-                externalEpisodeMapper, externalWorkMapper, assetRoot.toString(), "Z:/no/animeko.db");
+                externalEpisodeMapper, externalWorkMapper, assetRoot.toString(), "Z:/no/animeko.db", null);
         Clip c = clip(5);
         c.setEpisodeId(79L);
         when(clipMapper.selectById(5L)).thenReturn(c);

@@ -7,7 +7,9 @@ import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.ClipTagMapper;
 import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.EpisodeTagMapper;
+import com.videotagger.mapper.ExternalEpisodeMapper;
 import com.videotagger.mapper.TagMapper;
+import com.videotagger.mapper.VideoSourceEpisodeMapMapper;
 import com.videotagger.util.VideoFingerprint;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -30,13 +32,16 @@ public class EpisodeService {
     private final TagSyncService tagSyncService;
     private final ClipExportService clipExportService;
     private final HighlightProjectService highlightProjectService;
+    private final VideoSourceEpisodeMapMapper videoSourceEpisodeMapMapper;
+    private final VideoAssetService videoAssetService;
+    private final ExternalEpisodeMapper externalEpisodeMapper;
 
     public EpisodeService(EpisodeMapper episodeMapper, EpisodeTagMapper episodeTagMapper,
                           TagMapper tagMapper, EmbeddingTaskService embeddingTaskService,
                           CoverService coverService, ClipMapper clipMapper, ClipTagMapper clipTagMapper,
                           TagSyncService tagSyncService) {
         this(episodeMapper, episodeTagMapper, tagMapper, embeddingTaskService, coverService, clipMapper,
-                clipTagMapper, tagSyncService, null, null);
+                clipTagMapper, tagSyncService, null, null, null, null, null);
     }
 
     @Autowired
@@ -44,7 +49,10 @@ public class EpisodeService {
                           TagMapper tagMapper, EmbeddingTaskService embeddingTaskService,
                           CoverService coverService, ClipMapper clipMapper, ClipTagMapper clipTagMapper,
                           TagSyncService tagSyncService, ClipExportService clipExportService,
-                          HighlightProjectService highlightProjectService) {
+                          HighlightProjectService highlightProjectService,
+                          VideoSourceEpisodeMapMapper videoSourceEpisodeMapMapper,
+                          VideoAssetService videoAssetService,
+                          ExternalEpisodeMapper externalEpisodeMapper) {
         this.episodeMapper = episodeMapper;
         this.episodeTagMapper = episodeTagMapper;
         this.tagMapper = tagMapper;
@@ -55,6 +63,9 @@ public class EpisodeService {
         this.tagSyncService = tagSyncService;
         this.clipExportService = clipExportService;
         this.highlightProjectService = highlightProjectService;
+        this.videoSourceEpisodeMapMapper = videoSourceEpisodeMapMapper;
+        this.videoAssetService = videoAssetService;
+        this.externalEpisodeMapper = externalEpisodeMapper;
     }
 
     /** 更新集信息：备注/集号。字段传 null 表示不改；note 传空串表示清空；变更后入队重嵌。 */
@@ -168,6 +179,9 @@ public class EpisodeService {
         }
         clipMapper.deleteByEpisode(id);
         episodeTagMapper.deleteByEpisode(id);
+        videoSourceEpisodeMapMapper.deleteByEpisode(id);
+        externalEpisodeMapper.unbindByEpisodeIds(List.of(id), System.currentTimeMillis());
+        videoAssetService.deleteLocalForEpisode(id);
         coverService.deleteCover(ep.getCoverPath());
         embeddingTaskService.deleteFor(EntityType.EPISODE, id);
         episodeMapper.deleteById(id);

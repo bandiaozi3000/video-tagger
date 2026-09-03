@@ -338,6 +338,7 @@ const batchDelModal = document.getElementById('batch-del-modal');
 let batchDelIds = [];              // 当前待确认删除的媒体 id 列表
 const confirmModal = document.getElementById('confirm-modal');
 let confirmModalAction = null;     // 确认后要执行的回调
+let confirmModalOnCancel = null;   // 取消/关闭时的回调（confirmAsync 等用）
 let tagMode = 'global';            // 标签页视图：global 通用池 / media 按媒体
 let tagMediaId = null;             // 标签页媒体维度当前媒体 id
 let tagListCache = [];             // 当前已加载词条（合并目标候选、删除后刷新用）
@@ -352,7 +353,7 @@ let tagPoolByName = new Map();     // 全量词库 name→id（新增实时去�
 let tagAddTimer = null;            // 新增输入防抖
 
 /** 通用确认弹窗：替代原生 confirm()，风格与页面一致。 */
-function showConfirm({ title = '确认', msg = '', okText = '确定', danger = true, onOk }) {
+function showConfirm({ title = '确认', msg = '', okText = '确定', danger = true, onOk, onCancel }) {
     document.getElementById('confirm-modal-title').textContent = title;
     const msgEl = document.getElementById('confirm-modal-msg');
     msgEl.textContent = msg;
@@ -361,14 +362,78 @@ function showConfirm({ title = '确认', msg = '', okText = '确定', danger = t
     ok.textContent = okText;
     ok.classList.toggle('danger', danger);
     confirmModalAction = onOk;
+    confirmModalOnCancel = onCancel;
     confirmModal.hidden = false;
+}
+
+/** Promise 版确认：确定 → true；取消/关闭 → false。适合 async 流程里 await 使用。 */
+function confirmAsync(opts) {
+    return new Promise(resolve => {
+        showConfirm({ ...opts, onOk: () => resolve(true), onCancel: () => resolve(false) });
+    });
 }
 
 /** 关闭通用确认弹窗（取消/确认共用）。 */
 function closeConfirmModal() {
     confirmModal.hidden = true;
     confirmModalAction = null;
+    const cancel = confirmModalOnCancel;
+    confirmModalOnCancel = null;
+    if (cancel) cancel();
+    // 换绑确认弹层取消/关闭后，恢复关联弹窗确认按钮，允许重新选择或重试
+    const mdlBtn = document.getElementById('mdl-confirm');
+    if (mdlBtn) mdlBtn.disabled = false;
 }
+
+// ---------- 通用输入弹窗（替代原生 prompt：集号/标题/关键字/订阅地址等） ----------
+const promptModal = document.getElementById('prompt-modal');
+let promptModalOk = null;          // 确定回调：onOk(value)
+let promptModalCancel = null;      // 取消回调
+
+/** 打开通用输入弹窗。onOk(value) 仅确定时触发；onCancel() 取消/关闭时触发。 */
+function showPrompt({ title = '输入', msg = '', placeholder = '', value = '', okText = '确定', danger = true, onOk, onCancel }) {
+    document.getElementById('prompt-modal-title').textContent = title;
+    const msgEl = document.getElementById('prompt-modal-msg');
+    msgEl.textContent = msg;
+    msgEl.title = msg;
+    const input = document.getElementById('prompt-modal-input');
+    input.placeholder = placeholder;
+    input.value = value == null ? '' : String(value);
+    const ok = document.getElementById('prompt-modal-ok');
+    ok.textContent = okText;
+    ok.classList.toggle('danger', !!danger);
+    promptModalOk = onOk;
+    promptModalCancel = onCancel;
+    promptModal.hidden = false;
+    input.focus();
+    input.select();
+}
+
+function closePromptModal() {
+    promptModal.hidden = true;
+    promptModalOk = null;
+    promptModalCancel = null;
+}
+
+/** Promise 版输入弹窗：确定 → resolve(输入值)；取消/关闭 → resolve(null)（等价原生 prompt 取消语义）。 */
+function promptInput(opts) {
+    return new Promise(resolve => {
+        showPrompt({ ...opts, onOk: value => resolve(value), onCancel: () => resolve(null) });
+    });
+}
+
+document.getElementById('prompt-modal-cancel').addEventListener('click', () => { const c = promptModalCancel; closePromptModal(); if (c) c(); });
+document.getElementById('prompt-modal-ok').addEventListener('click', () => {
+    const fn = promptModalOk;
+    const input = document.getElementById('prompt-modal-input');
+    const value = input ? input.value : '';
+    closePromptModal();
+    if (fn) fn(value);
+});
+document.getElementById('prompt-modal-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('prompt-modal-ok').click(); }
+});
+document.getElementById('prompt-modal').addEventListener('click', (e) => { if (e.target && e.target.id === 'prompt-modal') { const c = promptModalCancel; closePromptModal(); if (c) c(); } });
 let mediaFilter = { q: '', status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', sort: '', order: 'desc' };
 let displayView = 'card';   // 全局视图偏好：card 卡片 / list 列表（媒体页/收藏夹/推荐页共用，单按钮切换）
 let collSelectedId = null;           // 收藏夹 tab：当前选中的收藏夹 id
@@ -1906,25 +1971,54 @@ function openEditModal(r) {
     editTitle.value = r.title;
     editTag.value = r.tag;
     editNote.value = r.note || '';
-    editTime.value = r.timestampSec;
-    editEndTime.value = r.endSec != null ? r.endSec : '';
+    editTime.value = toClockText(r.timestampSec);
+    editEndTime.value = r.endSec != null ? toClockText(r.endSec) : '';
     editModal.hidden = false;
     editTitle.focus();
 }
 
+/** 秒 → 分:秒[.十分位]（超 1 小时自动带小时前缀）。 */
+function toClockText(sec) {
+    if (sec == null || !Number.isFinite(sec)) return '';
+    const tenth = Math.round(sec * 10);          // 保留 0.1s 精度
+    const h = Math.floor(tenth / 36000);
+    const m = Math.floor((tenth % 36000) / 600);
+    const s = Math.floor((tenth % 600) / 10);
+    const d = tenth % 10;
+    const core = (h > 0 ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(s).padStart(2, '0');
+    return core + (d !== 0 ? '.' + d : '');
+}
+
+/** 解析分:秒文本 → 秒；支持 [时:]分:秒[.十分位]；纯数字按秒兼容；空/null → null；非法 → NaN。 */
+function parseClockText(text) {
+    if (text == null) return null;
+    const s = String(text).trim();
+    if (s === '') return null;
+    if (/^\d+(\.\d+)?$/.test(s)) return Number(s);            // 纯秒兼容
+    const m = s.match(/^(?:(\d+):)?(\d{1,2}):(\d{1,2})(?:\.(\d))?$/);
+    if (!m) return NaN;
+    const h = m[1] ? Number(m[1]) : 0;
+    const mm = Number(m[2]);
+    const ss = Number(m[3]);
+    if (mm > 59 || ss > 59) return NaN;
+    return h * 3600 + mm * 60 + ss + (m[4] ? Number(m[4]) / 10 : 0);
+}
+
 async function saveEdit() {
     if (!editingClip) return;
+    const timestampSec = parseClockText(editTime.value);
+    const endSec = editEndTime.value.trim() === '' ? null : parseClockText(editEndTime.value);
     const payload = {
         title: editTitle.value.trim() || editingClip.title,
         url: editingClip.url,
-        timestampSec: parseFloat(editTime.value),
-        endSec: editEndTime.value === '' ? null : parseFloat(editEndTime.value),
+        timestampSec,
+        endSec,
         tag: editTag.value.trim(),
         note: editNote.value.trim()
     };
-    if (!Number.isFinite(payload.timestampSec) || payload.timestampSec < 0 ||
-        (payload.endSec != null && (!Number.isFinite(payload.endSec) || payload.endSec <= payload.timestampSec)) || !payload.tag) {
-        statusEl.textContent = '保存失败：时间戳或标签不合法';
+    if (!Number.isFinite(timestampSec) || timestampSec < 0 ||
+        (endSec != null && (!Number.isFinite(endSec) || endSec <= timestampSec)) || !payload.tag) {
+        statusEl.textContent = '保存失败：时间戳（分:秒）或标签不合法';
         return;
     }
     try {
@@ -2176,7 +2270,7 @@ async function saveCollectionFromModal() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name })
             });
-            if (!resp.ok) { alert('改名失败'); return; }
+            if (!resp.ok) { showToast('改名失败', 3000); return; }
             collectionModal.hidden = true;
             await loadCollections();
             await fillFilterCollections();
@@ -2186,7 +2280,7 @@ async function saveCollectionFromModal() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name })
             });
-            if (!resp.ok) { alert('创建失败'); return; }
+            if (!resp.ok) { showToast('创建失败', 3000); return; }
             const c = await resp.json();
             collectionModal.hidden = true;
             if (currentViewName === 'collections') {
@@ -2200,7 +2294,7 @@ async function saveCollectionFromModal() {
                 loadMedia();
             }
         }
-    } catch (err) { alert(collectionModalMode === 'rename' ? '改名失败：后端未响应' : '创建失败：后端未响应'); }
+    } catch (err) { showToast(collectionModalMode === 'rename' ? '改名失败：后端未响应' : '创建失败：后端未响应', 3000); }
 }
 
 async function renderDetailCollections(d) {
@@ -2601,11 +2695,11 @@ async function removeFromCollection(mediaId) {
     const coll = collectionsCache.find(c => c.id === collSelectedId);
     try {
         const resp = await fetch(`/api/collections/${collSelectedId}/media/${mediaId}`, { method: 'DELETE' });
-        if (!resp.ok) { alert('移出失败'); return; }
+        if (!resp.ok) { showToast('移出失败', 3000); return; }
         await loadCollMedia(collSelectedId);   // 刷新内容
         await loadCollections();               // 刷新左侧列表媒体数
         collStatusEl.textContent = coll ? `已移出收藏夹「${coll.name}」` : '';
-    } catch (e) { alert('移出失败：后端未响应'); }
+    } catch (e) { showToast('移出失败：后端未响应', 3000); }
 }
 
 /** 删除收藏夹：确认弹窗 → DELETE → 刷新列表/筛选/选中回退。媒体本身保留，仅解除关联。 */
@@ -2617,12 +2711,12 @@ function deleteCollection(id, name) {
         onOk: async () => {
             try {
                 const resp = await fetch(`/api/collections/${id}`, { method: 'DELETE' });
-                if (!resp.ok) { alert('删除失败'); return; }
+                if (!resp.ok) { showToast('删除失败', 3000); return; }
                 if (collSelectedId === id) collSelectedId = null;
                 await loadCollections();
                 await fillFilterCollections();
                 if (currentViewName !== 'collections') loadMedia();
-            } catch (e) { alert('删除失败：后端未响应'); }
+            } catch (e) { showToast('删除失败：后端未响应', 3000); }
         }
     });
 }
@@ -7360,13 +7454,52 @@ document.addEventListener('click', (e) => {
         .then(done)
         .catch(() => showToast('打开本地文件夹失败：后端未响应', 4000));
 });
-/** 渲染本地源面板行（渠道 + 路径 + 打开文件夹）。 */
-function sourceRowHtml(chan, filePath, extra) {
+/** 渲染本地源面板行（渠道 + 路径 + 打开文件夹 + 删除本地源）。remove={kind:'episode'|'clip', id}。 */
+function sourceRowHtml(chan, filePath, extra, remove) {
     const name = filePath ? filePath.split(/[\\\/]/).pop() : '';
+    const delBtn = remove && filePath
+        ? `<button type="button" class="btn-mini folder-btn" data-remove-source data-remove-kind="${remove.kind}" data-remove-id="${remove.id}" data-remove-channel="${esc(chan || '')}" title="删除此本地文件（释放磁盘）">🗑 删除</button>`
+        : '';
     return `<div class="src-chan ${chan ? 'ok' : ''}">${chan ? '✓ ' + esc(chan) + ' · ' + esc(name) : esc(extra || '')}</div>`
         + (filePath ? `<div class="src-path" title="${esc(filePath)}">${esc(filePath)}</div>` : '')
-        + (filePath ? `<button type="button" class="btn-mini folder-btn" data-open-folder="${esc(filePath)}">📂 打开文件夹</button>` : '')
+        + (filePath ? `<button type="button" class="btn-mini folder-btn" data-open-folder="${esc(filePath)}">📂 打开文件夹</button>${delBtn}` : '')
         + (extra && chan ? `<div class="src-extra">${esc(extra)}</div>` : '');
+}
+
+/** 删除本地源按钮：项目统一确认弹窗（showConfirm），确认后调后端删文件清关联并刷新面板。 */
+document.addEventListener('click', (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('[data-remove-source]') : null;
+    if (!btn) return;
+    const kind = btn.dataset.removeKind;
+    const id = Number(btn.dataset.removeId || 0);
+    const chan = btn.dataset.removeChannel || '';
+    if (!kind || !id) return;
+    const isAnimeko = chan === 'C2';
+    const title = isAnimeko ? '删除 Animeko 缓存整集' : '删除本地素材文件';
+    const msg = isAnimeko
+        ? '将删除 Animeko 缓存整集文件并释放磁盘。Animeko 内再次播放该集会重新缓存。'
+        : '将删除当前本地素材文件；若为物化产物，片段会回到未剪状态。';
+    showConfirm({ title, msg, okText: '删除', danger: true, onOk: () => deleteLocalSource(kind, id) });
+});
+
+/** 执行本地源删除：删文件清关联 → 刷新所在面板。 */
+async function deleteLocalSource(kind, id) {
+    try {
+        const endpoint = kind === 'episode'
+            ? `/api/episodes/${id}/material/source-delete`
+            : `/api/clips/${id}/material/source-delete`;
+        const resp = await fetch(endpoint, { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+        showToast((data && data.message) || '已删除本地源');
+        if (kind === 'episode') {
+            if (typeof currentEpisode !== 'undefined' && currentEpisode && currentEpisode.id === id) syncEpisodeAvailability(currentEpisode);
+        } else {
+            renderClipDetail(id);
+        }
+    } catch (err) {
+        showToast('删除本地源失败：' + (err.message || '后端未响应'), 4000);
+    }
 }
 
 /** 集详情：去原视频/本地回顾可用态 + 左栏「本地源」面板（渠道求值）。 */
@@ -7393,7 +7526,7 @@ async function syncEpisodeAvailability(ep) {
         }
         if (srcPanel) {
             srcPanel.innerHTML = present && ev.filePath
-                ? sourceRowHtml(ev.channel, ev.filePath)
+                ? sourceRowHtml(ev.channel, ev.filePath, null, { kind: 'episode', id: ep.id })
                 : `<span class="source-muted">${esc(ev.message || '无本地源，可先在 Animeko 显式缓存该集')}</span>`;
         }
     } catch (err) {
@@ -7412,7 +7545,7 @@ function renderClipSourcePanel(clip, ev) {
     parts.push(`<div class="src-fact">物化状态</div><div class="src-fact-val ${ready ? 'ok' : ''}">${ready ? '✓ 已剪出（产物在本地）' : '整集引用 · 未剪出'}</div>`);
     if (clip.videoAssetId != null) parts.push(`<div class="src-fact">资产</div><div class="src-fact-val mono">videoAsset #${esc(clip.videoAssetId)}</div>`);
     if (present && ev.filePath) {
-        parts.push(`<div class="src-fact">本地渠道</div><div class="src-fact-val">${sourceRowHtml(ev.channel, ev.filePath)}</div>`);
+        parts.push(`<div class="src-fact">本地渠道</div><div class="src-fact-val">${sourceRowHtml(ev.channel, ev.filePath, null, { kind: 'clip', id: clip.id })}</div>`);
     } else {
         parts.push(`<div class="src-fact">本地渠道</div><div class="src-fact-val source-muted">${esc((ev && ev.message) || '无本地文件源')}</div>`);
     }
@@ -7457,7 +7590,7 @@ function openMetadataLinkModal() {
     if (input) input.value = currentMedia.title || '';
     if (listEl) listEl.innerHTML = '';
     if (selEl) selEl.innerHTML = '';
-    if (confirmBtn) confirmBtn.disabled = true;
+    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = '关联并同步'; }
     if (curEl) { curEl.hidden = true; curEl.classList.remove('has-link'); }
     if (statusEl) statusEl.textContent = '正在读取当前关联…';
     modal.hidden = false;
@@ -7468,13 +7601,14 @@ function openMetadataLinkModal() {
         if (curEl) {
             if (work) {
                 curEl.classList.add('has-link');
-                curEl.innerHTML = `当前关联：<b>${esc(work.canonicalTitle || work.nativeTitle || '')}</b> <span class="mdl-cur-id">#${esc(work.externalId || '')}</span> · 更换后旧集全部保留，重新拉取该条目资料`;
+                curEl.innerHTML = `当前关联：<b>${esc(work.canonicalTitle || work.nativeTitle || '')}</b> <span class="mdl-cur-id">#${esc(work.externalId || '')}</span> · 换绑会重建旧条目同步的集与片段，含用户数据的集会二次确认`;
             } else {
                 curEl.innerHTML = '尚未关联外部条目 · 搜索后点选一条完成绑定';
             }
             curEl.hidden = false;
         }
         if (statusEl) statusEl.textContent = '';
+        syncMdlConfirm();
         if (input) input.focus();
     }).catch(() => { if (statusEl) statusEl.textContent = '当前关联读取失败，仍可搜索绑定'; });
 }
@@ -7482,6 +7616,18 @@ function openMetadataLinkModal() {
 function closeMetadataLinkModal() {
     const modal = document.getElementById('metadata-link-modal');
     if (modal) modal.hidden = true;
+}
+
+/** 根据「当前关联 + 已选候选」同步确认按钮：选中当前条目 = 重新拉取资料，其余 = 关联/换绑。 */
+function syncMdlConfirm() {
+    const confirmBtn = document.getElementById('mdl-confirm');
+    const statusEl = document.getElementById('mdl-status');
+    if (!confirmBtn) return;
+    const cur = metadataLinkState.currentWork;
+    const selected = metadataLinkState.selected;
+    const same = !!(cur && selected && String(cur.externalId) === String(selected));
+    confirmBtn.textContent = same ? '重新拉取资料' : '关联并同步';
+    if (same && statusEl) statusEl.textContent = '该条目已是当前关联；点「重新拉取资料」会用 Bangumi 最新资料刷新本地缓存（不会重复建集）。';
 }
 
 document.addEventListener('submit', (e) => {
@@ -7543,6 +7689,7 @@ document.addEventListener('change', (e) => {
         const c = metadataLinkState.candidates.find(x => String(x.externalId) === String(e.target.value));
         selEl.innerHTML = c ? `已选：<b>${esc(c.titleCn || c.title || c.nativeTitle || '')}</b> <span class="mdl-cur-id">#${esc(c.externalId)}</span>` : '';
     }
+    syncMdlConfirm();
 });
 
 document.getElementById('mdl-confirm').addEventListener('click', async () => {
@@ -7552,21 +7699,88 @@ document.getElementById('mdl-confirm').addEventListener('click', async () => {
     const btn = document.getElementById('mdl-confirm');
     const statusEl = document.getElementById('mdl-status');
     const cur = metadataLinkState.currentWork;
-    if (cur && String(cur.externalId) === String(externalId)) { if (statusEl) statusEl.textContent = '该条目已是当前关联，无需更换'; return; }
+    if (cur && String(cur.externalId) === String(externalId)) {
+        // 选中当前已关联条目：不做换绑，改为重新拉取该条目资料（幂等，不重复建集）
+        if (btn) btn.disabled = true;
+        if (statusEl) statusEl.textContent = '该条目已是当前关联，正在重新拉取资料…';
+        try {
+            const resp = await fetch(`/api/media/${mediaId}/metadata-refresh`, { method: 'POST' });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+            showToast(`资料更新完成：新增 ${data.added || 0}，更新 ${data.updated || 0}`);
+            if (statusEl) statusEl.textContent = '资料已重新拉取并更新，可关闭弹窗查看详情。';
+            refreshMediaDetail();
+        } catch (err) {
+            if (statusEl) statusEl.textContent = '资料更新失败：' + (err.message || '后端未响应');
+            showToast('资料更新失败：' + (err.message || '后端未响应'));
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+        return;
+    }
     if (btn) btn.disabled = true;
-    if (statusEl) statusEl.textContent = cur ? '正在更换关联并拉取资料…' : '正在关联并拉取资料…';
+    if (!cur) {
+        // 首次关联（本媒体无外部主条目）：直接拉取并绑定
+        if (statusEl) statusEl.textContent = '正在关联并拉取资料…';
+        try {
+            const resp = await fetch(`/api/media/${mediaId}/metadata-link`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ externalId, mode: 'PRIMARY' }) });
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+            showToast(`关联完成：新增 ${data.added || 0}，更新 ${data.updated || 0}`);
+            closeMetadataLinkModal();
+            refreshMediaDetail();
+        } catch (err) {
+            if (statusEl) statusEl.textContent = '关联失败：' + (err.message || '后端未响应');
+            if (btn) btn.disabled = false;
+        }
+        return;
+    }
+    // 换绑：先预览将删除的旧集与资产，再按有无用户数据分档确认
+    if (statusEl) statusEl.textContent = '正在读取换绑影响预览…';
     try {
-        const resp = await fetch(`/api/media/${mediaId}/metadata-link`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ externalId, mode: cur ? 'REPLACE' : 'PRIMARY' }) });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
-        showToast(`关联完成：新增 ${data.added || 0}，更新 ${data.updated || 0}`);
-        closeMetadataLinkModal();
-        refreshMediaDetail();
+        const previewResp = await fetch(`/api/media/${mediaId}/metadata-link-preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ externalId, mode: 'REPLACE' }) });
+        const preview = await previewResp.json().catch(() => ({}));
+        if (!previewResp.ok) throw new Error(preview.message || `HTTP ${previewResp.status}`);
+        const eps = Array.isArray(preview.episodes) ? preview.episodes : [];
+        const assets = eps.filter(e => e && e.protectedItem);
+        const clipTotal = eps.reduce((s, e) => s + (e && e.clipCount ? e.clipCount : 0), 0);
+        const targetTitle = mdlCandidateTitle(externalId);
+        if (!eps.length) {
+            showConfirm({ title: '更换主关联', msg: `将改绑到「${targetTitle}」并同步资料（旧条目没有本地集，无需清理）。确定？`, okText: '确认换绑', onOk: () => executeRebind(mediaId, externalId, false) });
+        } else if (!assets.length) {
+            showConfirm({ title: '更换主关联', msg: `将删除旧条目同步的 ${eps.length} 个本地集（无用户数据），改绑到「${targetTitle}」并同步新条目资料。确定？`, okText: '确认换绑', onOk: () => executeRebind(mediaId, externalId, false) });
+        } else {
+            showConfirm({ title: '⚠ 换绑将删除用户数据', msg: `将删除旧条目同步的 ${eps.length} 个本地集，其中 ${assets.length} 个含${clipTotal ? ` ${clipTotal} 个片段、` : ''}标签/备注/本地视频/观看记录等用户数据（永久删除，不可恢复），随后改绑到「${targetTitle}」并同步新条目。确定继续？`, okText: '确认删除并换绑', onOk: () => executeRebind(mediaId, externalId, true) });
+        }
     } catch (err) {
-        if (statusEl) statusEl.textContent = '关联失败：' + (err.message || '后端未响应');
+        if (statusEl) statusEl.textContent = '换绑预览失败：' + (err.message || '后端未响应');
         if (btn) btn.disabled = false;
     }
 });
+
+/** 换绑执行（预览确认后回调）：confirmProtected=true 表示已确认删除含用户数据的旧集。 */
+async function executeRebind(mediaId, externalId, confirmProtected) {
+    const btn = document.getElementById('mdl-confirm');
+    const statusEl = document.getElementById('mdl-status');
+    if (btn) btn.disabled = true;
+    if (statusEl) statusEl.textContent = '正在更换主关联并同步新条目…';
+    try {
+        const resp = await fetch(`/api/media/${mediaId}/metadata-link`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ externalId, mode: 'REPLACE', confirmProtected }) });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+        showToast(`换绑完成：新增 ${data.added || 0}，更新 ${data.updated || 0}`);
+        closeMetadataLinkModal();
+        refreshMediaDetail();
+    } catch (err) {
+        if (statusEl) statusEl.textContent = '换绑失败：' + (err.message || '后端未响应');
+        if (btn) btn.disabled = false;
+    }
+}
+
+function mdlCandidateTitle(externalId) {
+    const c = metadataLinkState.candidates.find(x => String(x.externalId) === String(externalId));
+    return c ? (c.titleCn || c.title || c.nativeTitle || externalId) : externalId;
+}
 
 document.getElementById('mdl-close').addEventListener('click', closeMetadataLinkModal);
 document.getElementById('metadata-link-modal').addEventListener('click', (e) => { if (e.target && e.target.id === 'metadata-link-modal') closeMetadataLinkModal(); });

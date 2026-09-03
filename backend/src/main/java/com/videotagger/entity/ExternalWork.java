@@ -1,6 +1,8 @@
 package com.videotagger.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -34,6 +36,8 @@ public class ExternalWork {
     private String syncState;
     private Long lastFetchedAt;
     private Long lastSuccessAt;
+    /** 最近一次同步错误信息（null=成功）。updateStrategy=IGNORED：同步成功后必须能把 last_error 清回 NULL（updateById 默认忽略 null 字段）。 */
+    @TableField(updateStrategy = FieldStrategy.IGNORED)
     private String lastError;
     private Long createdAt;
     private Long updatedAt;

@@ -115,7 +115,7 @@
     }
 
     async function mutate(url, options) {
-        try { state.management = await api(url, options); renderManager(); } catch (error) { alert(error.message); }
+        try { state.management = await api(url, options); renderManager(); } catch (error) { showToast(error.message, 4000); }
     }
 
     async function updateSource(id, body) {
@@ -123,14 +123,14 @@
     }
 
     async function testSource(id) {
-        const keyword = prompt('测试关键字', '败犬女主太多了！');
+        const keyword = await promptInput({ title: '测试关键字', value: '败犬女主太多了！' });
         if (keyword == null) return;
         try {
             state.test = { steps: [{ name: '准备测试', status: 'RUNNING', message: '正在执行分步验证' }] };
             renderManager();
             state.test = await api(`/api/video-source-management/sources/${id}/test?keyword=${encodeURIComponent(keyword)}`, { method: 'POST' });
             renderManager();
-        } catch (error) { alert(error.message); }
+        } catch (error) { showToast(error.message, 4000); }
     }
 
     async function addSubscription(url, name) {
@@ -141,11 +141,11 @@
             state.management = await api('/api/video-source-management/subscriptions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ displayName: name, url, refreshIntervalMinutes: 60 }) });
             state.tab = 'sources';
             renderManager();
-        } catch (error) { alert(`订阅添加失败：${error.message}`); }
+        } catch (error) { showToast(`订阅添加失败：${error.message}`, 4000); }
     }
 
-    function addCustomSubscription() {
-        const url = prompt('Animeko 数据源订阅地址（HTTPS）');
+    async function addCustomSubscription() {
+        const url = await promptInput({ title: '添加订阅', msg: 'Animeko 数据源订阅地址（HTTPS）' });
         if (!url) return;
         addSubscription(url, '自定义数据源订阅');
     }
@@ -162,7 +162,8 @@
     }
 
     function showTemplates() {
-        alert('当前模板能力：\nRSS：可导入、测试和资源发现\nWeb Selector：可导入和兼容性检查\nJellyfin：可选，仍通过部署配置启用；未配置时不会出现或参与播放');
+        const templates = ['RSS：可导入、测试和资源发现', 'Web Selector：可导入和兼容性检查', 'Jellyfin：可选，仍通过部署配置启用；未配置时不会出现或参与播放'];
+        showVsmDialog('当前模板能力', templates.join('\n'), [{ value: 'ok', label: '知道了', primary: true }]);
     }
 
     window.v023QuickPlayEpisode = async function (episodeId, title) {
@@ -221,7 +222,7 @@
                 const asset = await api(`/api/video-source-quick-play/${session.sessionId}/materialize`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidateId: button.currentTarget.dataset.eqpMaterialize }) });
                 button.currentTarget.textContent = `已固定 · Asset ${asset.id}`;
                 button.currentTarget.disabled = true;
-            } catch (error) { alert(`固定失败：${error.message}`); }
+            } catch (error) { showToast(`固定失败：${error.message}`, 4000); }
         });
         panel.querySelectorAll('[data-candidate]').forEach(button => button.addEventListener('click', async () => {
             state.quick = await api(`/api/video-source-quick-play/${session.sessionId}/select`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidateId: button.dataset.candidate }) });

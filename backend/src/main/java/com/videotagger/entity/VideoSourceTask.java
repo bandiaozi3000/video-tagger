@@ -1,6 +1,8 @@
 package com.videotagger.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -9,5 +11,9 @@ import lombok.Data;
 @TableName("video_source_task")
 public class VideoSourceTask {
     @TableId(type = IdType.AUTO) private Long id;
-    private String taskId; private String taskType; private String provider; private String status; private Long packageId; private Long videoAssetId; private Long clipId; private Integer total; private Integer processed; private Integer succeeded; private Integer failed; private Long bytesTotal; private Long bytesProcessed; private String planJson; private String message; private Long createdAt; private Long startedAt; private Long completedAt; private Long updatedAt;
+    private String taskId; private String taskType; private String provider; private String status; private Long packageId; private Long videoAssetId; private Long clipId; private Integer total; private Integer processed; private Integer succeeded; private Integer failed; private Long bytesTotal; private Long bytesProcessed; private String planJson; private String message; private Long createdAt; private Long startedAt;
+    /** 完成时间戳（null=未完成）。updateStrategy=IGNORED：retry/resume 把完成时间清回 NULL 需生效。 */
+    @TableField(updateStrategy = FieldStrategy.IGNORED)
+    private Long completedAt;
+    private Long updatedAt;
 }

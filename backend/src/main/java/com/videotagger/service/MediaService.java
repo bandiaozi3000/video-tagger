@@ -5,6 +5,7 @@ import com.videotagger.entity.MediaFormat;
 import com.videotagger.entity.MediaSubcategory;
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.Episode;
+import com.videotagger.entity.ExternalWork;
 import com.videotagger.entity.Tag;
 import com.videotagger.mapper.MediaCollectionMapper;
 import com.videotagger.mapper.MediaFormatMapper;
@@ -15,6 +16,9 @@ import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.ClipTagMapper;
 import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.EpisodeTagMapper;
+import com.videotagger.mapper.ExternalEpisodeMapper;
+import com.videotagger.mapper.ExternalRelationMapper;
+import com.videotagger.mapper.ExternalWorkMapper;
 import com.videotagger.mapper.TagMapper;
 import com.videotagger.util.MediaTitleNormalizer;
 import com.videotagger.util.TitleParser;
@@ -46,6 +50,10 @@ public class MediaService {
     private final TitleMappingService titleMappingService;
     private final ClipExportService clipExportService;
     private final HighlightProjectService highlightProjectService;
+    private final VideoAssetService videoAssetService;
+    private final ExternalWorkMapper externalWorkMapper;
+    private final ExternalEpisodeMapper externalEpisodeMapper;
+    private final ExternalRelationMapper externalRelationMapper;
 
     public MediaService(MediaMapper mediaMapper, EpisodeMapper episodeMapper,
                         MediaTagMapper mediaTagMapper, EpisodeTagMapper episodeTagMapper,
@@ -56,7 +64,7 @@ public class MediaService {
                         TitleMappingService titleMappingService) {
         this(mediaMapper, episodeMapper, mediaTagMapper, episodeTagMapper, clipTagMapper, clipMapper,
                 tagMapper, mediaCollectionMapper, mediaFormatMapper, mediaSubcategoryMapper,
-                embeddingTaskService, coverService, titleMappingService, null, null);
+                embeddingTaskService, coverService, titleMappingService, null, null, null, null, null, null);
     }
 
     @Autowired
@@ -67,7 +75,11 @@ public class MediaService {
                         MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
                         EmbeddingTaskService embeddingTaskService, CoverService coverService,
                         TitleMappingService titleMappingService, ClipExportService clipExportService,
-                        HighlightProjectService highlightProjectService) {
+                        HighlightProjectService highlightProjectService,
+                        VideoAssetService videoAssetService,
+                        ExternalWorkMapper externalWorkMapper,
+                        ExternalEpisodeMapper externalEpisodeMapper,
+                        ExternalRelationMapper externalRelationMapper) {
         this.mediaMapper = mediaMapper;
         this.episodeMapper = episodeMapper;
         this.mediaTagMapper = mediaTagMapper;
@@ -83,6 +95,10 @@ public class MediaService {
         this.titleMappingService = titleMappingService;
         this.clipExportService = clipExportService;
         this.highlightProjectService = highlightProjectService;
+        this.videoAssetService = videoAssetService;
+        this.externalWorkMapper = externalWorkMapper;
+        this.externalEpisodeMapper = externalEpisodeMapper;
+        this.externalRelationMapper = externalRelationMapper;
     }
 
     /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/来源/媒体标签/q 标题模糊筛选；ids 精确圈选（仅显示已勾选用）；offset 分页。 */
@@ -216,6 +232,7 @@ public class MediaService {
         if (fromName != null && !fromName.isBlank()) {
             titleMappingService.save(TitleParser.parse(fromName).mediaTitle(), intoId);
         }
+        purgeExternal(fromId);
         mediaMapper.deleteById(from.getId());
         // 合并后目标番剧的文本变化，重嵌入
         embeddingTaskService.enqueue(EntityType.MEDIA, intoId);
@@ -267,13 +284,24 @@ public class MediaService {
             clipMapper.deleteByEpisode(ep.getId());
             episodeTagMapper.deleteByEpisode(ep.getId());
             embeddingTaskService.deleteFor(EntityType.EPISODE, ep.getId());
+            videoAssetService.deleteLocalForEpisode(ep.getId());
             episodeMapper.deleteById(ep.getId());
         }
+        purgeExternal(id);
         coverService.deleteCover(a.getCoverPath());
         mediaTagMapper.deleteByMedia(id);
         mediaCollectionMapper.deleteByMedia(id);
         embeddingTaskService.deleteFor(EntityType.MEDIA, a.getId());
         mediaMapper.deleteById(a.getId());
+    }
+
+    /** 清理媒体关联的外部元数据缓存（external_work 及其集索引/关联作品；媒体合并或彻底删除时调用）。 */
+    private void purgeExternal(long mediaId) {
+        for (ExternalWork work : externalWorkMapper.listByMedia(mediaId)) {
+            externalEpisodeMapper.deleteByWorkId(work.getId());
+            externalRelationMapper.deleteByWork(work.getId());
+            externalWorkMapper.deleteById(work.getId());
+        }
     }
 
     /** 批量彻底删除（级联清理同上）。单个失败中断回滚。 */
