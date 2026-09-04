@@ -14,6 +14,7 @@
 - [2026-08-10](#2026-08-10)
 - [2026-08-17](#2026-08-17)
 - [2026-08-26](#2026-08-26)
+- [2026-09-04](#2026-09-04)
 
 ---
 
@@ -101,3 +102,22 @@
 - **适用场景**：任何需要「数据库 schema 随代码版本演进」的项目。本项目中 **Web/MySQL 侧用 Flyway**；**SQLite 桌面版禁用 Flyway**，改用自研 MigrationTool + `PRAGMA user_version` + `migration-sqlite/vNN.sql` 按序执行（双库两套机制，见 `technology.md` 双库方言段与项目记忆）。
 - **例子**：2026-08-26 MySQL 数据恢复后，恢复库账本停在 V22，而代码里有 V20/V23 未应用 → 默认 `outOfOrder=false` 启动报 `Detected resolved migration not applied to database: 20` 拒绝启动 → 以 `SPRING_FLYWAY_OUT_OF_ORDER=true` 启动补跑 **V20（clips 加 end_sec 列）+ V23（v0.22 六张新表）**，核对 `flyway_schema_history` 全部 `success=1`、新表/新列就位。
 - **涉及技术**：Flyway / MySQL DDL / `flyway_schema_history` / checksum 校验 / baseline / outOfOrder / MigrationTool（SQLite 自研）。
+
+---
+
+## 2026-09-04
+
+### RSS（站点发布清单 / 番剧资源数据源）
+
+- **日期**：2026-09-04
+- **定义**：RSS = **R**eally **S**imple **S**yndication（简易信息聚合），一种基于 XML 的**“更新清单”格式**。站点把“最近发布了什么”整理成一个固定 URL 的 XML 流，订阅方定时拉取解析即可，**不用爬网页**。
+- **核心概念**：
+  - **拉取式订阅流**：一段 URL 就是一个 feed，里面是一条条 `<item>` 条目，典型字段 `title`（标题）/ `link`（详情页）/ `guid`（唯一 ID）/ `enclosure`（附件 URL，番剧站里常指向 `.torrent` 文件）。
+  - **可当搜索接口用**：番剧站提供带参数的 RSS（如 `RSS/Search?searchstr={关键字}`、`rss.xml?keyword={关键字}`），工具传关键字拉回 = 一次搜索，无需登录 / 验证码 / 爬页面。
+  - **信息密度在标题字符串**：压制组、BDRip/Web 来源、分辨率、编码、集数、字幕情况全在 `title` 文本里，**没有结构化字段**，后续“挑版本 / 排序”要靠标题解析（正则）。
+- **特点**：
+  - **优点**：轻量、标准、免登录、实时性好；配合“按番剧固定 RSS”可**自动追番**（定期轮询拿新集）。
+  - **局限**：条目只**宣告“存在一个种子”**（元数据），不含可播放的媒体本体，要真下载还得接对应引擎（BT 需 BT 下载引擎）；信息无 schema，解析 / 排序鲁棒性要靠自己；站点抽风 / 屏蔽则源整体不可用。
+- **适用场景**：番剧发布跟踪、RSS 自动追番（配 qBittorrent / aria2 等下载器）、本项目“视频源发现”（把某站当候选源搜版本）。
+- **例子**：本项目两个 RSS 视频源 provider——**Mikan（蜜柑计划）** `MikanVideoSourceProvider`（`https://mikanani.me/RSS/Search?searchstr={keyword}`）与 **AnimeGarden（动漫花园 dmhy）** `AnimeGardenVideoSourceProvider`（`https://share.dmhy.org/topics/rss/rss.xml?keyword={keyword}`），均继承 `AbstractRssVideoSourceProvider`：拉 XML → 解析条目 → 把 `enclosureUrl` 记为 `torrentUrl` 元数据落库。典型条目标题如 `[VCB-Studio] 孤独摇滚 [BDRip 1080p HEVC FLAC] EP05`。因为 RSS 源“只有元数据”，其 `resolve/probe` 抛 `PLAYBACK_UNSUPPORTED`（无法直接播放）、`planDownload` 抛 `TORRENT_ENGINE_REQUIRED`（“Torrent download engine is not installed”——下载闭环等接 BT 引擎）。这也意味着**加一个新番剧站 ≈ 新增一个 provider 子类 + 配 URL 模板**，难点不在接站而在标题解析与排序。对比：Animeko / Jellyfin 等“网页选择器 / 直连”源能直接定位播放地址，RSS 源只能告诉你“有哪些版本可选”。
+- **涉及技术**：XML / RSS 条目约定 / `enclosure` / 磁力链（`magnet:`）/ HTTP 轮询 / 标题解析（正则）。

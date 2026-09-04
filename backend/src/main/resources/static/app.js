@@ -152,6 +152,7 @@ const mediaRatingInput = document.getElementById('media-rating');
 const mediaYearInput = document.getElementById('media-year');
 const mediaSeasonInput = document.getElementById('media-season');
 const mediaNoteInput = document.getElementById('media-note');
+const mediaAllowHardsub = document.getElementById('media-allow-hardsub');
 const mediaSyncModal = document.getElementById('media-sync-modal');
 const syncYearGridEl = document.getElementById('sync-year-grid');
 const mediaSyncStatusEl = document.getElementById('media-sync-status');
@@ -1640,6 +1641,7 @@ function appendClipCard(container, r, opts) {
             <div class="card-title"></div>
             <div class="cc-meta">
                 <span class="badge-time">${clipTimeLabel(r)}</span>
+                <span class="clip-light" data-clip="${r.id}"></span>
                 <span class="card-tag"></span>
             </div>
             ${resultBadges(r)}
@@ -1673,6 +1675,7 @@ function appendClipCard(container, r, opts) {
         openClipDetail(r); // 点卡片主体进片段详情页
     });
     container.appendChild(card);
+    enqueueClipLight(card);
 }
 
 /** 打开片段卡 ⋯ 菜单（浮层定位，自适应视口不裁剪；已在 body 后再次点击关闭）。 */
@@ -4904,6 +4907,11 @@ async function renderMediaDetail(d, eps) {
     const w = meta.work || {};
     const genres = parseMetadataList(w.genresJson);
     const aliases = parseMetadataList(w.aliasesJson);
+    // v0.25：供 BT 下载搜索带别名（Bangumi 原文/别名）
+    const mediaBtAliasList = [];
+    if (w.originalTitle) mediaBtAliasList.push(w.originalTitle);
+    aliases.forEach(a => mediaBtAliasList.push(a));
+    mediaBtAliasCache = { id: d.id, aliases: mediaBtAliasList };
     const rels = Array.isArray(meta.relations) ? meta.relations : [];
     const inColl = new Set(d.collectionIds || []);
     const sorted = [...eps].sort((a,b) => (a.episodeNo||0)-(b.episodeNo||0));
@@ -4931,13 +4939,14 @@ async function renderMediaDetail(d, eps) {
     const epById = new Map(sorted.map(ep => [ep.id, ep]));
     const epRows = sorted.length ? sorted.map(e => `<div class="ep-row" data-ep="${e.id}">
         <div class="ep-thumb">${e.coverPath ? `<img src="${esc(e.coverPath)}" alt="">` : `EP${e.episodeNo ?? '?'}`}</div>
-        <div class="ep-body"><span class="ep-title">${esc(e.title || '(未命名)')}</span><span class="ep-status">${e.watchedAt ? '<span class="ep-watched">✓已看</span> · ' : ''}<span class="ep-clips">${e.clipCount||0} 条</span></span></div>
+        <div class="ep-body"><span class="ep-title">${esc(e.title || '(未命名)')}</span><span class="ep-status">${e.watchedAt ? '<span class="ep-watched">✓已看</span> · ' : ''}<span class="ep-clips">${e.clipCount||0} 条</span></span><span class="ep-light" data-ep="${e.id}" title="本地源检查中"></span></div>
         <div class="ep-menu-wrap">
           <button type="button" class="ep-more" aria-label="更多操作">⋯</button>
           <div class="ep-menu">
             <button type="button" class="ep-menu-item ep-cover-btn">封面</button>
             <button type="button" class="ep-menu-item ep-tag-btn">打标签</button>
             <button type="button" class="ep-menu-item ep-time-btn">时间线</button>
+            <button type="button" class="ep-menu-item ep-bt-btn">BT 下载</button>
             <button type="button" class="ep-menu-item ep-del-btn danger">删除</button>
           </div>
         </div></div>`).join('') : '<div style="color:var(--text-faint);padding:16px">该媒体还没有集</div>';
@@ -4972,7 +4981,7 @@ async function renderMediaDetail(d, eps) {
           <div class="section"><div class="section-head"><div><span class="kicker">EPISODE LIBRARY</span><h3>集列表</h3></div><span class="section-note">共 ${sorted.length} 集</span><span class="view-switch" data-view-key="media-episodes" title="切换视图：列表 / 卡片 2-4 列"><button type="button" data-v="list" title="列表视图"><svg class="vs-ic" viewBox="0 0 16 16"><path d="M2 4h12M2 8h12M2 12h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button><button type="button" data-v="2" title="卡片 · 每行 2 张"><svg class="vs-ic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="2.4" y="8.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="8.4" width="5.2" height="5.2" rx="1"/></g></svg><i>2</i></button><button type="button" data-v="3" title="卡片 · 每行 3 张"><svg class="vs-ic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="2.4" y="8.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="8.4" width="5.2" height="5.2" rx="1"/></g></svg><i>3</i></button><button type="button" data-v="4" title="卡片 · 每行 4 张"><svg class="vs-ic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="2.4" width="5.2" height="5.2" rx="1"/><rect x="2.4" y="8.4" width="5.2" height="5.2" rx="1"/><rect x="8.4" y="8.4" width="5.2" height="5.2" rx="1"/></g></svg><i>4</i></button></span></div><div class="section-body" id="episode-list"><div class="ep-list">${epRows}</div></div></div>
         </div>
         <div class="side-col">
-          <div class="panel"><div class="panel-head"><span class="kicker">ARCHIVE PROFILE</span><h3>档案信息</h3></div><div class="panel-body">${profile}</div></div>
+          <div class="panel"><div class="panel-head"><span class="kicker">ARCHIVE PROFILE</span><h3>档案信息</h3></div><div class="panel-body">${profile}<div id="media-detail-note" class="detail-note" hidden></div></div></div>
           <div class="panel"><div class="panel-head"><span class="kicker">LOCAL ARCHIVE</span><h3>素材概览</h3></div><div class="panel-body"><div class="asset-grid"><div class="asset-cell"><b>${d.clipCount||0}</b><span>片段</span></div><div class="asset-cell"><b>${d.episodeCount||0}</b><span>集</span></div><div class="asset-cell"><b>${d.tags?.length||0}</b><span>标签</span></div><div class="asset-cell"><b>${colls.length}</b><span>收藏</span></div></div></div></div>
           <div class="panel"><div class="panel-head"><span class="kicker">PERSONAL INDEX</span><h3>标签池</h3></div><div class="panel-body"><div class="tag-cloud" id="detail-tags-pool"></div></div></div>
           <div class="panel"><div class="panel-head"><span class="kicker">YOUR SHELVES</span><h3>收藏夹</h3></div><div class="panel-body">${shelves}</div></div>
@@ -5014,6 +5023,7 @@ async function renderMediaDetail(d, eps) {
             fromMediaDetail = true;
             openTimeline({ fp: ep.videoFp, title: (d.title || '') + (ep.episodeNo != null ? ` · 第${ep.episodeNo}集` : '') });
         });
+        row.querySelector('.ep-bt-btn')?.addEventListener('click', (e) => { e.stopPropagation(); if (ep && d && d.id) openEpisodeBtDownloadModal(d, ep); });
         row.querySelector('.ep-del-btn')?.addEventListener('click', (e) => { e.stopPropagation(); if (ep) deleteEpisode(ep); });
         row.addEventListener('click', (e) => {
             if (e.target.closest('.ep-more') || e.target.closest('.ep-menu')) return;
@@ -5030,27 +5040,159 @@ async function renderMediaDetail(d, eps) {
     if (cfm) cfm.hidden = d.confirmed !== 0;
     const hl = box.querySelector('#detail-highlight');
     if (hl) hl.hidden = d.mediaFormat !== 'VIDEO';
-    // 右栏标签池：聚合热度分级彩色胶囊（异步填充）
+    // 档案信息卡「个人备注」：内联编辑 + 文字过长折叠/展开
+    renderMediaDetailNote(d);
+    refreshAllEpLamps();
+    // 右栏标签池：可编辑聚合视图（媒体级直挂标签可删 × + 底部「＋ 添加标签」，风格对齐集标签池卡）
     renderTagPool(d, box.querySelector('#detail-tags-pool'));
     initViewSwitches();
 }
 
-/** 右栏标签池：/api/tags/manage 聚合热度 → tag-pool-chip stat-1..5 分级配色（聚合失败兑底作品级）。 */
+/** 媒体档案信息卡「个人备注」：展示 / 点击内联编辑（保存走 PUT /api/media/{id}，全字段回填仅改 note）。
+ *  复用集备注交互形态；文案过长折叠 2 行并给「展开更多/收起」（同媒体简介折叠，真实溢出判定）。 */
+function renderMediaDetailNote(d) {
+    const el = document.getElementById('media-detail-note');
+    if (!el) return;
+    el.hidden = false;
+    el.classList.remove('editing');
+    const note = (d.note || '').trim();
+    el.classList.toggle('empty', !note);
+    el.innerHTML = '';
+    const openEditor = () => {
+        el.classList.add('editing');
+        el.innerHTML = '';
+        const ta = document.createElement('textarea');
+        ta.className = 'note-edit-input';
+        ta.rows = 3;
+        ta.placeholder = '个人备注（观感/待办等），参与搜索；留空保存即清空';
+        ta.value = note;
+        const actions = document.createElement('div');
+        actions.className = 'note-edit-actions';
+        const save = document.createElement('button');
+        save.type = 'button'; save.className = 'btn-mini'; save.textContent = '保存';
+        const cancel = document.createElement('button');
+        cancel.type = 'button'; cancel.className = 'btn-mini'; cancel.textContent = '取消';
+        actions.appendChild(save);
+        actions.appendChild(cancel);
+        el.appendChild(ta);
+        el.appendChild(actions);
+        ta.focus();
+        cancel.addEventListener('click', () => refreshMediaDetail());
+        save.addEventListener('click', async () => {
+            // PUT /api/media/{id} 为全量 MediaRequest（title 必填）：用当前档案字段回填，仅替换 note
+            const payload = {
+                title: d.title,
+                mediaFormat: d.mediaFormat || null,
+                subcategoryId: d.subcategoryId != null ? d.subcategoryId : null,
+                status: d.status || null,
+                rating: d.rating != null ? Number(d.rating) : null,
+                year: d.year != null ? Number(d.year) : null,
+                season: d.season != null ? Number(d.season) : null,
+                note: ta.value.trim()
+            };
+            const resp = await fetch(`/api/media/${d.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (resp.ok) { refreshMediaDetail(); }
+            else { el.innerHTML = '<span class="note-err">保存失败</span>'; }
+        });
+    };
+    const body = document.createElement('div');
+    body.className = 'note-editable';
+    body.tabIndex = 0;
+    body.title = '点击编辑备注';
+    body.setAttribute('role', 'button');
+    const label = document.createElement('span');
+    label.className = 'note-kicker';
+    label.textContent = note ? '个人备注' : '个人备注（空）';
+    const txt = document.createElement('span');
+    txt.className = 'note-text';
+    txt.textContent = note || '＋ 点击添加备注';
+    body.append(label, txt);
+    const toggle = document.createElement('span');
+    toggle.className = 'note-toggle';
+    toggle.textContent = '展开更多';
+    body.appendChild(toggle);
+    el.appendChild(body);
+    body.addEventListener('click', openEditor);
+    body.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEditor(); } });
+    // 真实溢出判定：正文被 -webkit-line-clamp:2 夹断时才显示展开/收起
+    const overflowing = note && txt.scrollHeight > txt.clientHeight + 1;
+    if (overflowing) {
+        toggle.classList.add('on');
+        toggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const open = txt.classList.toggle('expanded');
+            toggle.textContent = open ? '收起' : '展开更多';
+        });
+    }
+}
+
+/** 媒体右栏标签池：聚合热度 → stat-1..5 分级配色；可编辑（对齐集标签池卡）——
+ *  媒体级直挂标签可点 × 移除（集/片段引用保留），聚合失败兜底作品级；底部「＋ 添加标签」回车新增。 */
 async function renderTagPool(d, container) {
     if (!container) return;
+    container.innerHTML = '';
     let stats = [];
     try {
         const resp = await fetch(`/api/tags/manage?mediaId=${d.id}&page=1&size=1000`);
         if (resp.ok) {
             const pr = await resp.json();
-            stats = (pr.items || []).map(s => ({ name: s.name, count: Number(s.refCount) || 0 }));
+            stats = (pr.items || []).map(s => ({
+                id: s.id, name: s.name, count: Number(s.refCount) || 0
+            }));
         }
     } catch (e) { /* 兜底：仅作品级 */ }
-    const pool = stats.length > 0 ? stats : (d.tags || []).map(t => ({ name: t.name, count: 1 }));
+    // 媒体直挂标签 id 集合 → 标记可删除（删媒体级关联，集/片段引用不动）
+    const removableIds = new Set((d.tags || []).map(t => t.id));
+    const pool = stats.length > 0 ? stats : (d.tags || []).map(t => ({ id: t.id, name: t.name, count: 1 }));
     pool.sort((a, b) => b.count - a.count || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-    container.innerHTML = pool.map(p =>
-        `<span class="tag-pool-chip stat-${tagStatTier(p.count)}" title="${esc(p.name)} · 引用 ${p.count} 次"><span class="tag-pool-name">${esc(p.name)}</span><span class="tag-pool-count">×${p.count}</span></span>`
-    ).join('') || '<span style="color:var(--text-faint);font-size:12px">暂无标签</span>';
+    for (const p of pool) {
+        const chip = document.createElement('span');
+        chip.className = `tag-pool-chip stat-${tagStatTier(p.count)}`;
+        chip.title = `${p.name} · 引用 ${p.count} 次`;
+        const name = document.createElement('span');
+        name.className = 'tag-pool-name';
+        name.textContent = p.name;
+        chip.appendChild(name);
+        const cnt = document.createElement('span');
+        cnt.className = 'tag-pool-count';
+        cnt.textContent = `×${p.count}`;
+        chip.appendChild(cnt);
+        if (removableIds.has(p.id)) {
+            const rm = document.createElement('span');
+            rm.className = 'chip-remove';
+            rm.textContent = '×';
+            rm.title = '从作品级移除（集/片段引用保留）';
+            rm.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await fetch(`/api/media/${d.id}/tags/${p.id}`, { method: 'DELETE' });
+                refreshMediaDetail();
+            });
+            chip.appendChild(rm);
+        }
+        container.appendChild(chip);
+    }
+    const wrap = document.createElement('span');
+    wrap.className = 'tag-add-wrap';
+    const input = document.createElement('input');
+    input.className = 'tag-add-input';
+    input.placeholder = '+ 添加标签';
+    input.addEventListener('keydown', async (e) => {
+        if (e.key === 'Enter' && input.value.trim()) {
+            await fetch(`/api/media/${d.id}/tags`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tag: input.value.trim() })
+            });
+            refreshMediaDetail();
+        }
+    });
+    wrap.appendChild(input);
+    container.appendChild(wrap);
+    attachTagSuggest(input, () => (currentMedia && currentMedia.id) || null);
 }
 
 function renderLocalDetailSummary(d, eps, isVideo) {
@@ -5184,6 +5326,474 @@ function tagStatTier(n) {
 function refreshMediaDetail() {
     if (currentMedia && currentMedia.id) loadMediaDetail(currentMedia.id);
 }
+
+/* ---- v0.25 BT 种子下载弹窗（媒体详情/集列表行「BT 下载」） ---- */
+let torrentBtState = null;   // { media, ep, engineOk, list, selected:Map }
+let mediaBtAliasCache = null; // { id, aliases:[...] }
+function btTierInfo(tier) {
+    if (tier === 'RAW') return ['无字幕', 'raw'];
+    if (tier === 'SOFT') return ['软字幕', 'soft'];
+    if (tier === 'HARD') return ['硬烧', 'hard'];
+    return ['未知', 'unknown'];
+}
+function btAliasesFor(media) {
+    const out = [];
+    const push = (v) => { const s = String(v || '').trim(); if (s && !out.includes(s)) out.push(s); };
+    if (media) push(media.title);
+    if (mediaBtAliasCache && media && mediaBtAliasCache.id === media.id) {
+        (mediaBtAliasCache.aliases || []).forEach(push);
+    }
+    if (media) {
+        String(media.aliases || '').split(/[,，、;；\n]/).forEach(push);
+    }
+    return out.slice(0, 6);
+}
+function btCandidateKey(c) {
+    return c.providerId + '::' + (c.group || '') + '::' + (c.batch ? 'B' : String(c.episodeNumber != null ? c.episodeNumber : '')) + '::' + c.title;
+}
+function openEpisodeBtDownloadModal(media, ep) {
+    const modal = document.getElementById('torrent-download-modal');
+    if (!modal || !media || !ep) return;
+    torrentBtState = { media, ep, engineOk: false, list: [], selected: new Map(), packChoice: new Map(), sortMode: 'tier' };
+    const picker = document.getElementById('bt-pack-picker');
+    if (picker) picker.hidden = true;
+    const targetEl = document.getElementById('torrent-download-target');
+    const engineEl = document.getElementById('torrent-engine-state');
+    const listEl = document.getElementById('torrent-candidate-list');
+    const searchEl = document.getElementById('bt-search-input');
+    if (targetEl) targetEl.textContent = `：${esc(media.title)}${ep.episodeNo != null ? ' · 第' + ep.episodeNo + '集' : ''}`;
+    if (searchEl) searchEl.value = media.title;
+    engineEl.textContent = '引擎检测中…';
+    engineEl.className = 'bt-engine';
+    listEl.innerHTML = '<div style="color:var(--text-faint);padding:14px">搜索候选…</div>';
+    modal.hidden = false;
+    refreshBtSelectedBar();
+    btLoadEngineState().then(() => btRunSearch());
+}
+async function btLoadEngineState() {
+    const engineEl = document.getElementById('torrent-engine-state');
+    try {
+        const r = await fetch('/api/torrents/engine-status');
+        if (r.ok) {
+            const st = await r.json();
+            if (torrentBtState) torrentBtState.engineOk = !!st.enabled && !!st.online;
+            engineEl.textContent = !st.enabled
+                ? '引擎 ⚠ 未启用：启动后端时设 QBITTORRENT_ENABLED=true'
+                : (st.online ? `引擎 ● 在线${st.version ? ' · ' + st.version : ''}` : '引擎 ○ 离线：请先启动 qBittorrent');
+            engineEl.classList.add(st.enabled ? (st.online ? 'ok' : 'warn') : 'warn');
+        }
+    } catch (err) {
+        engineEl.textContent = '引擎状态不可用';
+        engineEl.classList.add('warn');
+    }
+}
+async function btRunSearch() {
+    const st = torrentBtState;
+    if (!st) return;
+    const listEl = document.getElementById('torrent-candidate-list');
+    const searchEl = document.getElementById('bt-search-input');
+    const keyword = (searchEl && searchEl.value.trim()) || st.media.title;
+    listEl.innerHTML = '<div style="color:var(--text-faint);padding:14px">搜索候选…</div>';
+    try {
+        const resp = await fetch('/api/torrents/candidates', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: keyword, aliases: btAliasesFor(st.media).filter(x => x !== keyword) })
+        });
+        st.list = resp.ok ? await resp.json() : [];
+    } catch (err) {
+        st.list = [];
+    }
+    st.selected.clear();
+    renderBtCandidates();
+    refreshBtSelectedBar();
+}
+function renderBtCandidates() {
+    const st = torrentBtState;
+    const listEl = document.getElementById('torrent-candidate-list');
+    if (!st) return;
+    const list = st.list;
+    // 各家命中数显示到来源 chips（过滤是前端隐藏，不重新请求）
+    const pname = { nyaa: 'Nyaa', mikan: '蜜柑', dmhy: '动漫花园' };
+    document.querySelectorAll('#bt-source-chips label').forEach(lab => {
+        const cb = lab.querySelector('input[type=checkbox]');
+        if (!cb) return;
+        const cnt = (list || []).filter(x => x.providerId === cb.dataset.p).length;
+        const textNode = lab.childNodes[lab.childNodes.length - 1];
+        if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+            textNode.textContent = ` ${pname[cb.dataset.p] || cb.dataset.p}${cnt ? ' · ' + cnt : ''}`;
+        }
+    });
+    const target = st.ep.episodeNo;
+    if (!list.length) { listEl.innerHTML = '<span class="status">没有找到候选（站点不可达或标题未命中）</span>'; return; }
+    // 来源过滤 chips
+    const showProvider = new Set();
+    document.querySelectorAll('#bt-source-chips input[type=checkbox]').forEach(cb => { if (cb.checked) showProvider.add(cb.dataset.p); });
+    let shown = list.filter(c => showProvider.has(c.providerId));
+    if (st.sortMode === 'seeds') {
+        shown = shown.slice().sort((a, b) => (b.seeders || 0) - (a.seeders || 0)); // 稳定排序，未知(0)靠后
+    } else if (st.sortMode === 'measured') {
+        shown = shown.slice().sort((a, b) => ((st.measured && st.measured.get(btCandidateKey(b))) || -1) - ((st.measured && st.measured.get(btCandidateKey(a))) || -1));
+    }
+    const rows = [];
+    for (const c of shown) {
+        if (!showProvider.has(c.providerId)) continue;
+        const isBatch = !!c.batch;
+        if (isBatch && target == null) continue;
+        if (!isBatch) {
+            const nums = (c.episodes && c.episodes.length) ? c.episodes : (c.episodeNumber != null ? [c.episodeNumber] : []);
+            if (target != null && nums.length && !nums.includes(target)) continue;
+        }
+        const key = btCandidateKey(c);
+        const [label, cls] = btTierInfo(c.tier);
+        const row = document.createElement('div');
+        row.className = 'bt-cand';
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.className = 'bt-pick';
+        chk.disabled = !c.locator;
+        chk.checked = st.selected.has(key);
+        chk.addEventListener('change', () => {
+            if (chk.checked) st.selected.set(key, c); else st.selected.delete(key);
+            refreshBtSelectedBar();
+        });
+        const tier = document.createElement('span');
+        tier.className = `bt-tier ${cls}`;
+        tier.textContent = label;
+        const body = document.createElement('span');
+        body.className = 'bt-cand-body';
+        let link = c.pageUrl ? `<a class="bt-link" href="${esc(c.pageUrl)}" target="_blank" rel="noopener">源站 ↗</a>` : '';
+        const mb = (st.measured && st.measured.get(key)) || 0;
+        body.innerHTML = `<b>${esc(c.title)}</b><small>${esc(c.providerName || c.providerId)} · ${esc(c.group || '?')}${c.resolution ? ' · ' + esc(c.resolution) : ''}${c.codec ? ' · ' + esc(c.codec) : ''}${c.seeders ? ' · 做种 ' + c.seeders : ''}${mb ? ' · 实测 ' + mb.toFixed(1) + ' MB/s' : ''}${isBatch ? ' · 合集包' : ''} ${link}</small>`;
+        const dl = document.createElement('button');
+        dl.type = 'button'; dl.className = 'btn-mini bt-dl';
+        const packEp = torrentBtState.packChoice.get(key);
+        const shownEp = isBatch ? (packEp != null ? packEp : target) : target;
+        dl.disabled = !st.engineOk || !c.locator;
+        dl.textContent = isBatch ? `只下第${shownEp}集` : '下载';
+        dl.title = !c.locator ? '该候选无可下载地址（RSS 未带种子/磁力）' : (isBatch ? `合集包：只下载第 ${shownEp} 集的文件（其余不取）` : '下载并登记为该集本地源');
+        dl.addEventListener('click', () => btQueueOne(c));
+        row.appendChild(chk);
+        row.appendChild(tier);
+        row.appendChild(body);
+        if (isBatch) {
+            const sel = document.createElement('button');
+            sel.type = 'button'; sel.className = 'btn-mini bt-sel';
+            sel.textContent = packEp != null ? `选集(第${packEp}集)` : '选集';
+            sel.disabled = !st.engineOk || !c.locator;
+            sel.addEventListener('click', () => btOpenPackPicker(c));
+            row.appendChild(sel);
+        }
+        row.appendChild(dl);
+        rows.push(row);
+    }
+    listEl.innerHTML = '';
+    if (!rows.length) {
+        listEl.innerHTML = `<span class="status">第 ${target != null ? target : '?'} 集暂无候选（可换搜索词，或该集只有合集包且引擎离线）</span>`;
+        return;
+    }
+    rows.forEach(r => listEl.appendChild(r));
+}
+async function btQueueOne(c) {
+    const st = torrentBtState;
+    const listEl = document.getElementById('torrent-candidate-list');
+    const isBatch = !!c.batch;
+    const key = btCandidateKey(c);
+    const packEp = st.packChoice.get(key);
+    const target = (isBatch && packEp != null) ? packEp : st.ep.episodeNo;
+    try {
+        const assetResp = await fetch(`/api/episodes/${st.ep.id}/video-assets`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ assetType: 'DOWNLOADED', displayName: c.title, stableLocator: c.locator })
+        });
+        if (!assetResp.ok) throw new Error('创建资产失败 HTTP ' + assetResp.status);
+        const asset = await assetResp.json();
+        const plan = { assetId: asset.id, mediaId: st.media.id, entryId: (st.ep.mediaEntryId || 0), episodeId: st.ep.id, locator: c.locator, maxBytes: 6 * 1024 * 1024 * 1024 };
+        if (isBatch && target != null) plan.targetEpisode = target;
+        const q = await fetch('/api/video-source-tasks/downloads', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(plan)
+        });
+        if (!q.ok) throw new Error('入队失败 HTTP ' + q.status);
+        const qj = await q.json();
+        showToast(isBatch ? `已入队：合集只取第 ${target} 集（后台下载）` : `已入队 BT 下载「${c.title}」（后台下载）`);
+        watchTorrentTask(qj.taskId, st.ep.id);
+        st.selected.delete(btCandidateKey(c));
+        refreshBtSelectedBar();
+        renderBtCandidates();
+    } catch (err) {
+        showToast(err.message || '下载入队失败', 3500);
+    }
+}
+function refreshBtSelectedBar() {
+    const st = torrentBtState;
+    const bar = document.getElementById('bt-selected-count');
+    const go = document.getElementById('bt-download-selected');
+    if (!bar || !st) return;
+    bar.textContent = `已选 ${st.selected.size}`;
+    if (go) {
+        go.disabled = st.selected.size === 0;
+        go.textContent = st.selected.size ? `下载所选 (${st.selected.size})` : '下载所选';
+    }
+}
+async function btQueueSelected() {
+    const st = torrentBtState;
+    if (!st || !st.selected.size) return;
+    const go = document.getElementById('bt-download-selected');
+    go.disabled = true;
+    const items = [...st.selected.values()];
+    for (const c of items) {
+        await btQueueOne(c);
+    }
+    go.disabled = st.selected.size === 0;
+    go.textContent = st.selected.size ? `下载所选 (${st.selected.size})` : '下载所选';
+}
+function btOpenPackPicker(c) {
+    const st = torrentBtState;
+    if (!st || !st.engineOk || !c.locator) return;
+    const picker = document.getElementById('bt-pack-picker');
+    if (!picker) return;
+    picker.hidden = false;
+    picker.innerHTML = '<div style="color:var(--text-faint);padding:10px">读取包内容…（需连引擎列文件清单）</div>';
+    fetch('/api/torrents/pack-episodes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locator: c.locator })
+    }).then(resp => resp.json()).then(v => {
+        const eps = (v && v.episodes) || [];
+        if (!eps.length) {
+            picker.innerHTML = '<div class="bt-pack-note">未能识别包内集号（文件名命名特殊或引擎离线）——可关闭后用其它合集/关键词</div>';
+            return;
+        }
+        const key = btCandidateKey(c);
+        const cur = st.packChoice.has(key) ? st.packChoice.get(key) : st.ep.episodeNo;
+        const chosen = eps.includes(cur) ? cur : eps[0];
+        st.packChoice.set(key, chosen);
+        const radios = eps.map(e => `<label class="bt-pack-ep"><input type="radio" name="pk${st.ep.id}" value="${e}" ${e === chosen ? 'checked' : ''}>第 ${e} 集</label>`).join('');
+        picker.innerHTML = `<div class="bt-pack-head">合集包内容 · 单选一集（默认第 ${chosen} 集）</div><div class="bt-pack-eps">${radios}</div><div class="bt-pack-actions"><button type="button" class="btn-mini bt-pack-ok">确定选集</button></div>`;
+        picker.querySelectorAll('.bt-pack-ep input').forEach(inp => inp.addEventListener('change', () => st.packChoice.set(key, parseInt(inp.value, 10))));
+        picker.querySelector('.bt-pack-ok').addEventListener('click', () => { picker.hidden = true; renderBtCandidates(); refreshBtSelectedBar(); });
+    }).catch(err => {
+        picker.innerHTML = '<div class="bt-pack-note">读取失败：' + (err.message || '网络错误') + '</div>';
+    });
+}
+
+
+const btTierRank = { RAW: 0, SOFT: 1, UNKNOWN: 2, HARD: 3 };
+function btVisibleForTarget() {
+    const st = torrentBtState;
+    if (!st) return [];
+    const target = st.ep.episodeNo;
+    const show = new Set();
+    document.querySelectorAll('#bt-source-chips input[type=checkbox]').forEach(cb => { if (cb.checked) show.add(cb.dataset.p); });
+    return (st.list || []).filter(c => {
+        if (!show.has(c.providerId)) return false;
+        if (c.batch) return target != null;
+        const nums = (c.episodes && c.episodes.length) ? c.episodes : (c.episodeNumber != null ? [c.episodeNumber] : []);
+        if (target != null && nums.length && !nums.includes(target)) return false;
+        return true;
+    });
+}
+async function btMeasureNow(maxN) {
+    const st = torrentBtState;
+    const btn = document.getElementById('bt-measure');
+    if (!st || !st.engineOk) { showToast('引擎离线，无法测速', 3500); return; }
+    const pool = btVisibleForTarget();
+    if (!pool.length) { showToast('没有可测候选', 3500); return; }
+    const items = pool.slice(0, maxN || 6);
+    if (!st.measured) st.measured = new Map();
+    if (btn) { btn.disabled = true; btn.textContent = '测速中…'; }
+    try {
+        const resp = await fetch('/api/torrents/measure', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locators: items.map(x => x.locator) })
+        });
+        const res = resp.ok ? await resp.json() : [];
+        res.forEach((m, i) => {
+            const c = items[i];
+            if (c && c.locator) st.measured.set(btCandidateKey(c), m.mbps);
+        });
+        renderBtCandidates();
+        showToast('测速完成：行上已标实测速度，可切「实测排」', 3500);
+    } catch (err) {
+        showToast('测速失败：' + (err.message || ''), 3500);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '实测速度(前6)'; }
+    }
+}
+async function btSmartRecommend() {
+    const st = torrentBtState;
+    const btn = document.getElementById('bt-smart');
+    if (!st) return;
+    const pool = btVisibleForTarget();
+    if (!pool.length) { showToast('没有候选可供推荐', 3500); return; }
+    let bestTier = 99;
+    pool.forEach(c => { const r = btTierRank[c.tier] != null ? btTierRank[c.tier] : 99; if (r < bestTier) bestTier = r; });
+    const bestPool = pool.filter(c => (btTierRank[c.tier] != null ? btTierRank[c.tier] : 99) === bestTier);
+    if (btn) { btn.disabled = true; btn.textContent = '智能判定中…'; }
+    let chosen = null;
+    let measuredMbps = null;
+    try {
+        const probeList = st.engineOk ? bestPool.slice(0, 5) : [];
+        if (probeList.length) {
+            if (!st.measured) st.measured = new Map();
+            const resp = await fetch('/api/torrents/measure', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ locators: probeList.map(x => x.locator) })
+            });
+            const res = resp.ok ? await resp.json() : [];
+            res.forEach((m, i) => {
+                const c = probeList[i];
+                if (c && c.locator) st.measured.set(btCandidateKey(c), m.mbps);
+            });
+            let best = 0;
+            for (const c of probeList) {
+                const mb = st.measured.get(btCandidateKey(c)) || 0;
+                if (mb > best) { best = mb; chosen = c; measuredMbps = mb; }
+            }
+            if (measuredMbps != null && measuredMbps <= 0) chosen = null;
+        }
+        if (!chosen) {
+            const seeded = bestPool.filter(c => (c.seeders || 0) > 0);
+            chosen = (seeded.length ? seeded : bestPool).slice().sort((a, b) => (b.seeders || 0) - (a.seeders || 0))[0];
+        }
+        if (!chosen) { showToast('未能找到推荐候选', 3500); return; }
+        renderBtCandidates();
+        const [tierLabel] = btTierInfo(chosen.tier);
+        const speedNote = measuredMbps != null ? ` · 实测 ${measuredMbps.toFixed(1)} MB/s` : (chosen.seeders ? ` · 做种 ${chosen.seeders}` : '');
+        showConfirm({
+            title: '智能推荐下载',
+            msg: `第 ${st.ep.episodeNo} 集推荐：${chosen.title}\n来源 ${chosen.providerName || chosen.providerId} · ${tierLabel} · ${chosen.group || '?'}${chosen.resolution ? ' · ' + chosen.resolution : ''}${chosen.batch ? ' · 合集只取该集' : ''}${speedNote}`,
+            okText: '下载',
+            onOk: () => btQueueOne(chosen)
+        });
+    } catch (err) {
+        showToast('智能推荐失败：' + (err.message || ''), 3500);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '智能推荐下载'; }
+    }
+}
+(function bindBtActionBar() {
+    const m = document.getElementById('bt-measure');
+    if (m) m.addEventListener('click', () => btMeasureNow(6));
+    const s = document.getElementById('bt-smart');
+    if (s) s.addEventListener('click', () => btSmartRecommend());
+})();
+
+/** 后台任务异步跟踪：入队即返回；完成后 toast + 刷新媒体详情资产，失败 toast 原因。 */
+const torrentTaskWatchers = new Map();
+function watchTorrentTask(taskId, epId) {
+    if (!taskId || torrentTaskWatchers.has(taskId)) return;
+    torrentTaskWatchers.set(taskId, true);
+    if (epId != null) markLampRun(epId);
+    const poll = async () => {
+        let done = false;
+        try {
+            const resp = await fetch(`/api/video-source-tasks/${encodeURIComponent(taskId)}`);
+            if (resp.ok) {
+                const task = await resp.json();
+                if (task.status === 'COMPLETED') {
+                    done = true;
+                    showToast('BT 下载完成，已登记为该集本地源');
+                    refreshAllEpLamps();
+                    refreshAllClipLamps();
+                    if (currentMedia && currentMedia.id && activeView() === 'media-detail') refreshMediaDetail();
+                } else if (task.status === 'FAILED') {
+                    done = true;
+                    showToast(`BT 下载失败：${task.message || ''}`, 5000);
+                    refreshAllEpLamps();
+                }
+            }
+        } catch (err) { /* 网络抖动：下一轮再试 */ }
+        if (done) {
+            torrentTaskWatchers.delete(taskId);
+        } else {
+            setTimeout(poll, 5000);
+        }
+    };
+    setTimeout(poll, 4000);
+}
+
+/* ---- v0.25 集行/片段卡“灯”（绿=就绪 / 黄=进行中 / 红=无或失败） ---- */
+let btProductCache = { at: 0, ids: null };
+async function fetchClipProductIds(force) {
+    const now = Date.now();
+    if (!force && btProductCache.ids && now - btProductCache.at < 60000) return btProductCache.ids;
+    try {
+        const r = await fetch('/api/assets/clip-products');
+        btProductCache.ids = r.ok ? await r.json() : (btProductCache.ids || []);
+    } catch (e) {
+        btProductCache.ids = btProductCache.ids || [];
+    }
+    btProductCache.at = now;
+    return btProductCache.ids;
+}
+function enqueueClipLight(card) {
+    const el = card && card.querySelector('.clip-light');
+    if (!el) return;
+    const id = Number(el.dataset.clip);
+    el.title = '检查产物…';
+    fetchClipProductIds().then(set => {
+        const ok = set.includes(id);
+        el.classList.toggle('on', ok);
+        el.classList.toggle('off', !ok);
+        el.title = ok ? '已剪出产物' : '未剪出产物';
+    }).catch(() => { el.classList.add('off'); el.title = '产物未知'; });
+}
+async function refreshAllClipLamps() {
+    const ids = await fetchClipProductIds(true);
+    document.querySelectorAll('.clip-light').forEach(el => {
+        const id = Number(el.dataset.clip);
+        const ok = ids.includes(id);
+        el.classList.toggle('on', ok);
+        el.classList.toggle('off', !ok);
+        el.title = ok ? '已剪出产物' : '未剪出产物';
+    });
+}
+async function refreshAllEpLamps() {
+    const els = [...document.querySelectorAll('.ep-light')];
+    const ids = [...new Set(els.map(el => Number(el.dataset.ep)).filter(Boolean))];
+    if (!ids.length) return;
+    els.forEach(el => el.title = '本地源检查中…');
+    try {
+        const r = await fetch('/api/assets/lights?episodeIds=' + ids.join(','));
+        const data = r.ok ? await r.json() : {};
+        const eps = (data && data.episodes) || {};
+        els.forEach(el => {
+            const m = eps[el.dataset.ep];
+            if (!m) { el.classList.remove('on', 'run', 'off'); el.title = '未知'; return; }
+            el.classList.remove('on', 'run', 'off');
+            if (m.state === 'available') { el.classList.add('on'); el.title = '本地源就绪（可回顾/剪辑）'; }
+            else if (m.state === 'failed') { el.classList.add('off'); el.title = '下载失败：' + (m.failReason || ''); }
+            else { el.classList.add('off'); el.title = '无本地源（可 BT 下载）'; }
+        });
+    } catch (e) { /* 忽略：保持“检查中” */ }
+}
+function markLampRun(epId) {
+    if (!epId) return;
+    document.querySelectorAll('.ep-light').forEach(el => {
+        if (Number(el.dataset.ep) === epId) { el.classList.remove('on', 'off'); el.classList.add('run'); el.title = '下载进行中…'; }
+    });
+}
+
+(function initBtModalEvents() {
+    const closeBtn = document.getElementById('torrent-download-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => { const m = document.getElementById('torrent-download-modal'); if (m) m.hidden = true; });
+    const go = document.getElementById('bt-search-go');
+    const input = document.getElementById('bt-search-input');
+    if (go) go.addEventListener('click', () => btRunSearch());
+    if (input) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); btRunSearch(); } });
+    const chips = document.getElementById('bt-source-chips');
+    if (chips) chips.addEventListener('change', () => renderBtCandidates());
+    const sel = document.getElementById('bt-download-selected');
+    if (sel) sel.addEventListener('click', () => btQueueSelected());
+    const sortRow = document.querySelector('.bt-sort-row');
+    if (sortRow) sortRow.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-sort]');
+        if (!btn || !torrentBtState) return;
+        torrentBtState.sortMode = btn.dataset.sort;
+        sortRow.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+        renderBtCandidates();
+    });
+})();
 
 // ---------- v0.20 高光制作工作台 ----------
 
@@ -5950,6 +6560,7 @@ function buildEpisodeRow(ep, unknown) {
                 <button type="button" class="ep-menu-item ep-cover-btn">封面</button>
                 <button type="button" class="ep-menu-item ep-tag-btn">打标签</button>
                 <button type="button" class="ep-menu-item ep-time-btn">时间线</button>
+                <button type="button" class="ep-menu-item ep-bt-btn">BT 下载</button>
                 <button type="button" class="ep-menu-item ep-del-btn danger">删除</button>
             </div>
         </div>`;
@@ -5992,6 +6603,7 @@ function buildEpisodeRow(ep, unknown) {
         fromMediaDetail = true;
         openTimeline({ fp: ep.videoFp, title: (currentMedia.title || '') + (unknown ? ' · 未识别' : ` · 第${ep.episodeNo}集`) });
     });
+    row.querySelector('.ep-bt-btn')?.addEventListener('click', (e) => { e.stopPropagation(); if (currentMedia && currentMedia.id) openEpisodeBtDownloadModal(currentMedia, ep); });
     row.querySelector('.ep-del-btn').addEventListener('click', (e) => {
         e.stopPropagation(); deleteEpisode(ep);
     });
@@ -6328,6 +6940,7 @@ function openCreateMedia() {
     mediaYearInput.value = '';
     mediaSeasonInput.value = '1';
     mediaNoteInput.value = '';
+    if (mediaAllowHardsub) mediaAllowHardsub.checked = false;
     mediaModal.hidden = false;
     mediaTitleInput.focus();
 }
@@ -6346,6 +6959,7 @@ function openEditMedia() {
     mediaYearInput.value = d.year || '';
     mediaSeasonInput.value = d.season != null ? d.season : '1';
     mediaNoteInput.value = d.note || '';
+    if (mediaAllowHardsub) mediaAllowHardsub.checked = !!d.allowHardsub;
     mediaModal.hidden = false;
     mediaTitleInput.focus();
 }
@@ -6361,7 +6975,8 @@ async function saveMedia() {
         rating: mediaRatingInput.value === '' ? null : parseFloat(mediaRatingInput.value),
         year: mediaYearInput.value === '' ? null : Number(mediaYearInput.value),
         season: mediaSeasonInput.value === '' ? 1 : Number(mediaSeasonInput.value),
-        note: mediaNoteInput.value.trim()
+        note: mediaNoteInput.value.trim(),
+        allowHardsub: mediaAllowHardsub ? mediaAllowHardsub.checked : false
     };
     if (editingMediaId == null) {
         const resp = await fetch('/api/media', {
@@ -7855,6 +8470,42 @@ function updateMaterializeCount() {
     document.getElementById('materialize-run').disabled = n === 0;
 }
 
+/** v0.25：缺源集自动最优下载 → 完成后统一剪出勾选片段。 */
+async function materializeRunAuto(ids, statusEl, runBtn) {
+    statusEl.className = 'status';
+    statusEl.textContent = '执行中：缺源集自动下载 + ffmpeg 剪出，可能需要几分钟…（可看 集行黄灯/qB）';
+    try {
+        const resp = await fetch('/api/materialize-auto/run', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clipIds: ids })
+        });
+        const r = await resp.json();
+        if (!resp.ok) throw new Error((r && r.message) || `HTTP ${resp.status}`);
+        const dl = r.downloads || [];
+        const dlOk = dl.filter(x => x.ok);
+        const dlFail = dl.filter(x => !x.ok);
+        const mz = r.materialize || { results: [], prefetchNeeded: [], okCount: 0 };
+        const ok = (mz.results || []).filter(x => x.ok);
+        const fail = (mz.results || []).filter(x => !x.ok && !x.prefetch);
+        let html = '';
+        if (dlOk.length) html += `<span style="color:var(--green)">⬇ 已自动下载 ${dlOk.length} 个缺源集</span><br>`;
+        if (dlFail.length) html += dlFail.map(x => `<span style="color:#ff5d6d">✗ 下载失败 第${x.episodeNo}集：${esc(x.reason || '')}</span><br>`).join('');
+        if (ok.length) html += `<span style="color:var(--green)">✓ ${ok.length} 条片段已剪出产物</span><br>`;
+        if (fail.length) html += `<span style="color:#ff5d6d">✗ ${fail.length} 条剪出失败：${esc(fail[0] ? (fail[0].message || '') : '')}</span><br>`;
+        if ((mz.prefetchNeeded || []).length) html += `<span style="color:#fbbf24">⚠ ${mz.prefetchNeeded.length} 集仍缺素材（请先 BT 下载）</span><br>`;
+        statusEl.innerHTML = html || '完成';
+        statusEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        refreshAllEpLamps();
+        refreshAllClipLamps();
+        renderMaterializeList();
+    } catch (e) {
+        statusEl.className = 'status';
+        statusEl.textContent = '执行失败：' + e.message;
+    } finally {
+        if (runBtn) runBtn.disabled = materializeSel.size === 0;
+    }
+}
+
 document.getElementById('materialize-close').addEventListener('click', () => { document.getElementById('materialize-modal').hidden = true; });
 document.getElementById('materialize-select-all').addEventListener('click', () => { materializeClips.forEach(c => materializeSel.add(c.id)); renderMaterializeList(); });
 document.getElementById('materialize-select-none').addEventListener('click', () => { materializeSel.clear(); renderMaterializeList(); });
@@ -7862,6 +8513,31 @@ document.getElementById('materialize-run').addEventListener('click', async () =>
     const runBtn = document.getElementById('materialize-run');
     const statusEl = document.getElementById('materialize-status');
     const ids = [...materializeSel];
+    // v0.25：缺源集自动最优下载（先预览确认，无缺源则直接走原物化）
+    try {
+        const pv = await fetch('/api/materialize-auto/preview', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clipIds: ids })
+        });
+        if (pv.ok) {
+            const needs = (await pv.json()).needs || [];
+            if (needs.length) {
+                const lines = needs.slice(0, 8).map(n =>
+                    `• 第${n.episodeNo}集「${n.recommendTitle || '无候选'}」${n.providerName ? `（${n.providerName} · ${n.tier || ''}${n.seeders ? ' · 做种' + n.seeders : ''}${n.batch ? ' · 合集取该集' : ''}）` : `（${n.reason || '无可用候选'}）`}`).join('\n');
+                const more = needs.length > 8 ? `\n…还有 ${needs.length - 8} 集` : '';
+                statusEl.className = 'status';
+                showConfirm({
+                    title: `缺本地源 ${needs.length} 集，将自动最优下载后剪出`,
+                    msg: lines + more + '\n\n下载完成会自动剪出勾选的片段。',
+                    okText: '自动下载并剪出',
+                    cancelText: '取消',
+                    onOk: () => materializeRunAuto(ids, statusEl, runBtn),
+                    onCancel: () => { runBtn.disabled = false; statusEl.className = 'status'; statusEl.textContent = '已取消（可先 BT 下载缺源集再试）'; }
+                });
+                return;
+            }
+        }
+    } catch (e) { /* 预览接口异常则退回原流程 */ }
     runBtn.disabled = true;
     statusEl.className = 'status';
     statusEl.textContent = `正在物化 ${ids.length} 条…（文件在场的会 ffmpeg 裁剪，可能较慢）`;

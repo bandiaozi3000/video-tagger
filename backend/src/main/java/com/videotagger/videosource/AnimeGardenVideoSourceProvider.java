@@ -1,5 +1,6 @@
 package com.videotagger.videosource;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -7,6 +8,7 @@ import org.springframework.stereotype.Component;
 @Component
 @ConditionalOnProperty(prefix = "videotagger.video-sources.dmhy", name = "enabled", havingValue = "true")
 public class AnimeGardenVideoSourceProvider extends AbstractRssVideoSourceProvider {
+    @Autowired
     public AnimeGardenVideoSourceProvider(
             @Value("${videotagger.video-sources.dmhy.base-url:https://share.dmhy.org}") String baseUrl,
             @Value("${videotagger.video-sources.dmhy.search-url-template:https://share.dmhy.org/topics/rss/rss.xml?keyword={keyword}}") String searchUrlTemplate,

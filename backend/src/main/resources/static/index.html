@@ -978,9 +978,38 @@
         <label>年份<input id="media-year" type="number" min="1900" max="2100" autocomplete="off" placeholder="如 2004，参与年份过滤"></label>
         <label>季<input id="media-season" type="number" min="1" max="99" autocomplete="off" placeholder="第几季，默认 1"></label>
         <label class="field-note">备注<textarea id="media-note" rows="3" placeholder="作品备注（观感/待办等），参与搜索"></textarea></label>
+        <label class="bt-allow-hardsub" title="无 RAW/软字幕源时允许下载硬烧字幕版兜底（每番降级开关）"><input type="checkbox" id="media-allow-hardsub"> 允许硬烧字幕兜底（BT 下载）</label>
         <div class="modal-actions">
             <button id="media-modal-cancel" type="button">取消</button>
             <button id="media-modal-save" type="button">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- v0.25 BT 种子下载：候选优选弹窗（媒体详情集行菜单「BT 下载」触发） -->
+<div id="torrent-download-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide">
+        <h2>BT 种子下载 <span id="torrent-download-target" class="bt-target"></span></h2>
+        <div class="bt-toolbar">
+            <input id="bt-search-input" class="bt-search" type="text" placeholder="搜索标题（可改，回车搜索）…" autocomplete="off">
+            <button type="button" id="bt-search-go" class="btn-mini">搜索</button>
+        </div>
+        <div id="bt-source-chips" class="bt-source-chips">
+            <label><input type="checkbox" data-p="nyaa" checked> Nyaa</label>
+            <label><input type="checkbox" data-p="mikan" checked> 蜜柑</label>
+            <label><input type="checkbox" data-p="dmhy" checked> 动漫花园</label>
+        </div>
+        <div class="bt-sort-row">排序：<button type="button" class="btn-mini on" data-sort="tier">档位优先</button><button type="button" class="btn-mini" data-sort="seeds">做种优先</button><button type="button" class="btn-mini" data-sort="measured">实测排</button></div>
+        <div class="bt-action-row"><button type="button" id="bt-measure" class="btn-mini">实测速度(前6)</button><button type="button" id="bt-smart" class="btn-primary">智能推荐下载</button></div>
+        <div id="torrent-engine-state" class="bt-engine">引擎检测中…</div>
+        <div id="bt-pack-picker" class="bt-pack-picker" hidden></div>
+        <div id="torrent-candidate-list" class="bt-cand-list"></div>
+        <div class="bt-selection-bar">
+            <span id="bt-selected-count">已选 0</span>
+            <button type="button" id="bt-download-selected" class="btn-mini" disabled>下载所选</button>
+        </div>
+        <div class="modal-actions">
+            <button type="button" id="torrent-download-close">关闭</button>
         </div>
     </div>
 </div>

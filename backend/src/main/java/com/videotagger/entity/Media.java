@@ -34,6 +34,8 @@ public class Media {
     private String status;
     /** 手动评分（十分制，可空） */
     private BigDecimal rating;
+    /** v0.25：种子源下载的每番降级开关——1=允许硬烧字幕版兜底（默认 0=宁缺毋滥） */
+    private Boolean allowHardsub;
     /** 本地封面路径（/covers/** 静态映射），可空 */
     private String coverPath;
     /** 自动识别为低置信时置 0，需手工确认（B 做全的待确认标记） */

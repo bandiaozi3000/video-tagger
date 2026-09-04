@@ -112,6 +112,8 @@ abstract class AbstractRssVideoSourceProvider implements VideoSourceProvider {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         if (entry.enclosureUrl() != null) snapshot.put("torrentUrl", entry.enclosureUrl());
         if (entry.guid() != null) snapshot.put("guid", entry.guid());
+        if (entry.infoHash() != null) snapshot.put("infoHash", entry.infoHash());
+        if (entry.seeders() > 0) snapshot.put("seeders", entry.seeders());
         return new VideoSourceItem(id(), packageId, itemId,
                 VideoSourceText.hash(entry.identity()), VideoSourceStatus.ItemKind.EPISODE,
                 episode, null, entry.title(), null, List.of(), List.of(), null,
@@ -139,8 +141,14 @@ abstract class AbstractRssVideoSourceProvider implements VideoSourceProvider {
                 Element enclosure = firstElement(item, "enclosure");
                 String enclosureUrl = enclosure == null
                         ? null : safeUrl(enclosure.getAttribute("url"), true);
+                String infoHash = text(item, "nyaa:infoHash");
+                int seeders = 0;
+                try {
+                    seeders = Integer.parseInt(String.valueOf(text(item, "nyaa:seeders")).trim());
+                } catch (Exception ignored) {
+                }
                 if (title != null && link != null) {
-                    entries.add(new RssEntry(title, link, emptyToNull(guid), enclosureUrl));
+                    entries.add(new RssEntry(title, link, emptyToNull(guid), enclosureUrl, infoHash, seeders));
                 }
             }
             return entries;
@@ -179,7 +187,7 @@ abstract class AbstractRssVideoSourceProvider implements VideoSourceProvider {
         return value.trim();
     }
 
-    private record RssEntry(String title, String link, String guid, String enclosureUrl) {
+    private record RssEntry(String title, String link, String guid, String enclosureUrl, String infoHash, int seeders) {
         String identity() {
             return guid == null ? link : guid;
         }

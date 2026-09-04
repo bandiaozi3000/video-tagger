@@ -384,6 +384,9 @@ public class MediaService {
         a.setStatus(STATUSES.contains(req.status()) ? req.status() : "WANT");
         a.setRating(req.rating());
         a.setNote(req.note() == null ? "" : req.note().trim());
+        if (req.allowHardsub() != null) {
+            a.setAllowHardsub(req.allowHardsub()); // v0.25：null=不覆盖（兼容旧客户端）
+        }
     }
 
     /** 子分类：优先按节点 id 引用（须属于所选格式）；旧客户端只传名字时按名字在格式树中回退解析。 */

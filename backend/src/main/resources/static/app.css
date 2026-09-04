@@ -3211,6 +3211,22 @@ body.desktop-mode .site-footer { display: none; }
 #clip-detail-note .note-edit-input:focus { border-color: var(--pink); box-shadow: 0 0 0 3px rgba(255, 77, 141, .15); }
 #clip-detail-note .note-edit-actions { display: flex; gap: 8px; margin-top: 8px; }
 #clip-detail-note .note-err { color: var(--red); font-size: 12.5px; }
+/* 媒体详情档案信息卡内「个人备注」：点击内联编辑（同集/片段备注交互）+ 过长 2 行折叠「展开更多/收起」 */
+#media-detail-note { margin: 12px 0 0; }
+#media-detail-note .note-editable { display: flex; flex-direction: column; gap: 6px; cursor: pointer; position: relative; padding-right: 20px; border-radius: 8px; }
+#media-detail-note .note-kicker { color: var(--violet); font-size: 10.5px; letter-spacing: 1.4px; text-transform: uppercase; font-weight: 700; }
+#media-detail-note .note-text { color: var(--text); font-size: 13px; white-space: pre-wrap; word-break: break-word; line-height: 1.7; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+#media-detail-note .note-text.expanded { -webkit-line-clamp: none; display: block; }
+#media-detail-note .note-toggle { display: none; align-self: flex-start; font-size: 12px; color: var(--cyan); cursor: pointer; user-select: none; }
+#media-detail-note .note-toggle.on { display: inline-block; }
+#media-detail-note .note-toggle:hover { text-decoration: underline; }
+#media-detail-note .note-editable::after { content: '✎'; position: absolute; right: 2px; top: 0; opacity: 0; color: var(--cyan); font-size: 12px; transition: opacity .15s; }
+#media-detail-note .note-editable:hover::after { opacity: .9; }
+#media-detail-note.empty .note-editable .note-text { color: var(--text-faint); font-size: 12.5px; -webkit-line-clamp: none; display: block; }
+#media-detail-note .note-edit-input { width: 100%; box-sizing: border-box; margin-top: 2px; padding: 9px 11px; background: rgba(8, 8, 16, .6); border: 1px solid var(--border-strong); border-radius: 10px; color: var(--text); font-size: 13.5px; font-family: inherit; line-height: 1.6; resize: vertical; outline: none; transition: border-color .15s, box-shadow .15s; }
+#media-detail-note .note-edit-input:focus { border-color: var(--pink); box-shadow: 0 0 0 3px rgba(255, 77, 141, .15); }
+#media-detail-note .note-edit-actions { display: flex; gap: 8px; margin-top: 8px; }
+#media-detail-note .note-err { color: var(--red); font-size: 12.5px; }
 #clip-detail-profile .profile-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 #clip-detail-profile .profile-row:last-child { border-bottom: none; }
 #clip-detail-profile .profile-row span { color: var(--text-dim); }
@@ -3252,3 +3268,62 @@ body.desktop-mode .site-footer { display: none; }
 /* ⋯ 菜单贴内容宽（与集行菜单同款收缩；去除 min-width 拉伸） */
 .cmenu { width: fit-content; min-width: 0; max-width: none; }
 .cmenu-item { width: auto; }
+
+/* ---- v0.25 BT 种子下载弹窗 ---- */
+.bt-allow-hardsub { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); margin: 10px 0 0; cursor: pointer; user-select: none; }
+.bt-target { color: var(--cyan); font-weight: 600; }
+.bt-engine { font-size: 12px; color: var(--text-dim); margin: 2px 0 10px; }
+.bt-engine.ok { color: var(--green); }
+.bt-engine.warn { color: var(--amber); }
+.bt-cand-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; }
+.bt-cand { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: rgba(8, 8, 16, .55); border: 1px solid var(--border); border-radius: 10px; }
+.bt-cand-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.bt-cand-body b { color: var(--text); font-size: 13px; line-height: 1.4; word-break: break-all; }
+.bt-cand-body small { color: var(--text-faint); font-size: 11.5px; }
+.bt-tier { flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; padding: 3px 8px; border-radius: 20px; text-transform: uppercase; }
+.bt-tier.raw { color: var(--green); background: rgba(80, 227, 132, .12); border: 1px solid rgba(80, 227, 132, .35); }
+.bt-tier.soft { color: var(--cyan); background: rgba(0, 205, 255, .1); border: 1px solid rgba(0, 205, 255, .3); }
+.bt-tier.hard { color: var(--amber); background: rgba(255, 200, 87, .1); border: 1px solid rgba(255, 200, 87, .32); }
+.bt-tier.unknown { color: var(--text-faint); background: rgba(255, 255, 255, .06); border: 1px solid var(--border-strong); }
+.bt-dl { flex: none; }
+
+/* v0.25 弹窗升级：搜索/来源过滤/多选批量 */
+.bt-toolbar { display: flex; gap: 8px; margin-bottom: 8px; }
+.bt-search { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 8px; background: rgba(8,8,16,.6); border: 1px solid var(--border-strong); color: var(--text); font-family: inherit; font-size: 13px; outline: none; }
+.bt-search:focus { border-color: var(--pink); }
+.bt-source-chips { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 8px; font-size: 12.5px; color: var(--text-dim); }
+.bt-source-chips label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; user-select: none; }
+.bt-source-chips input { accent-color: var(--cyan); }
+.bt-selection-bar { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+#bt-selected-count { font-size: 12.5px; color: var(--text-dim); }
+.bt-pick { flex: none; accent-color: var(--cyan); }
+.bt-link { color: var(--cyan); text-decoration: none; font-weight: 600; }
+.bt-link:hover { text-decoration: underline; }
+
+/* v0.25 合集包选集器 */
+.bt-pack-picker { background: rgba(8,8,16,.6); border: 1px dashed var(--border-strong); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+.bt-pack-head { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
+.bt-pack-eps { display: flex; flex-wrap: wrap; gap: 8px; max-height: 18vh; overflow-y: auto; }
+.bt-pack-ep { display: inline-flex; gap: 5px; align-items: center; font-size: 12.5px; color: var(--text); cursor: pointer; padding: 3px 9px; border: 1px solid var(--border); border-radius: 16px; background: rgba(255,255,255,.03); user-select: none; }
+.bt-pack-ep:has(input:checked) { border-color: var(--cyan); color: var(--cyan); }
+.bt-pack-ep input { accent-color: var(--cyan); }
+.bt-pack-actions { margin-top: 8px; display: flex; justify-content: flex-end; }
+.bt-pack-note { font-size: 12.5px; color: var(--amber); padding: 6px 0; }
+.bt-sel { margin-left: 4px; }
+
+/* v0.25 排序切换 */
+.bt-sort-row { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 12px; color: var(--text-faint); }
+.bt-sort-row button { font-size: 11.5px; padding: 2px 9px; }
+.bt-sort-row button.on { border-color: var(--cyan); color: var(--cyan); }
+
+/* v0.25 动作行：实测/智能推荐 */
+.bt-action-row { display: flex; gap: 8px; align-items: center; margin: 0 0 8px; flex-wrap: wrap; }
+.bt-action-row .btn-primary { margin-left: auto; }
+
+/* v0.25 集行 / 片段卡状态灯 */
+.ep-light, .clip-light { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; margin-left: 8px; background: var(--text-faint); cursor: help; vertical-align: middle; }
+.clip-light { margin-left: 6px; }
+.ep-light.on, .clip-light.on { background: var(--green); box-shadow: 0 0 5px var(--green); }
+.ep-light.off, .clip-light.off { background: var(--red); box-shadow: 0 0 5px rgba(255,77,91,.4); }
+.ep-light.run { background: var(--amber); animation: btBlink 1s ease-in-out infinite; }
+@keyframes btBlink { 50% { opacity: .25; } }

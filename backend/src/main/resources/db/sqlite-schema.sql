@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS media (
     rating          REAL,
     cover_path      TEXT,
     confirmed       INTEGER NOT NULL DEFAULT 0,
+    allow_hardsub   INTEGER NOT NULL DEFAULT 0,
     created_at      INTEGER,
     deleted_at      INTEGER
 );

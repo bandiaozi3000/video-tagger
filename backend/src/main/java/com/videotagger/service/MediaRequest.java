@@ -18,6 +18,7 @@ public record MediaRequest(
         @Size(max = 32) String subcategory,
         @Size(max = 16) String status,
         @DecimalMin("0.0") @DecimalMax("10.0") BigDecimal rating,
-        @Size(max = 2000) String note
+        @Size(max = 2000) String note,
+        Boolean allowHardsub
 ) {
 }

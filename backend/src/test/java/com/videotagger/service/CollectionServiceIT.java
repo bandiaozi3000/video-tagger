@@ -29,7 +29,7 @@ class CollectionServiceIT extends AbstractMySqlIT {
         assertNotNull(c.getId());
         assertEquals("补番清单", c.getName());
 
-        Media a = mediaService.create(new MediaRequest("测试番", null, null, "VIDEO", null, "番剧", "WANT", null, null));
+        Media a = mediaService.create(new MediaRequest("测试番", null, null, "VIDEO", null, "番剧", "WANT", null, null, null));
 
         collectionService.addMedia(c.getId(), a.getId());
         assertEquals(1, collectionService.media(c.getId(), 100, 0, null, null, null, null, null, null, null, null, null).size());
@@ -44,9 +44,9 @@ class CollectionServiceIT extends AbstractMySqlIT {
     @Test
     void mediaSortsByYear() {
         Collection c = collectionService.create("按年份排");
-        Media old = mediaService.create(new MediaRequest("老番甲", 2015, null, "VIDEO", null, "番剧", "WANT", null, null));
-        Media recent = mediaService.create(new MediaRequest("新番乙", 2022, null, "VIDEO", null, "番剧", "WANT", null, null));
-        Media unknown = mediaService.create(new MediaRequest("无年份丙", null, null, "VIDEO", null, "番剧", "WANT", null, null));
+        Media old = mediaService.create(new MediaRequest("老番甲", 2015, null, "VIDEO", null, "番剧", "WANT", null, null, null));
+        Media recent = mediaService.create(new MediaRequest("新番乙", 2022, null, "VIDEO", null, "番剧", "WANT", null, null, null));
+        Media unknown = mediaService.create(new MediaRequest("无年份丙", null, null, "VIDEO", null, "番剧", "WANT", null, null, null));
         collectionService.addMedia(c.getId(), old.getId());
         collectionService.addMedia(c.getId(), recent.getId());
         collectionService.addMedia(c.getId(), unknown.getId());
