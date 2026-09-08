@@ -65,8 +65,13 @@ public class HighlightExportService {
     public HighlightExportView create(long projectId, ExportRequest request) {
         HighlightProject project = requireProject(projectId);
         String mode = normalizeMode(request == null ? null : request.mode());
-        String resolution = normalizeResolution(request == null ? null : request.resolution());
-        List<HighlightProjectItem> selected = selectableItems(projectId, mode);
+        boolean preview = request != null && Boolean.TRUE.equals(request.preview());
+        boolean allowPartial = preview || (request != null && Boolean.TRUE.equals(request.allowPartial()));
+        String resolution = preview ? "720P" : normalizeResolution(request == null ? null : request.resolution());
+        List<HighlightProjectItem> all = selectableItems(projectId, mode);
+        List<HighlightProjectItem> selected = allowPartial
+                ? all.stream().filter(item -> "READY".equals(item.getSourceState())).toList() : all;
+        List<Long> excluded = all.stream().filter(item -> !selected.contains(item)).map(HighlightProjectItem::getId).toList();
         validateReady(selected);
         validateDuration(selected);
         long now = System.currentTimeMillis();
@@ -74,7 +79,7 @@ public class HighlightExportService {
         export.setProjectId(projectId);
         export.setMode(mode);
         styleCompiler.compile(project.getConfigJson());
-        export.setSnapshotJson(snapshot(project, selected, mode, resolution, request));
+        export.setSnapshotJson(snapshot(project, selected, mode, resolution, request, preview, !excluded.isEmpty(), excluded));
         export.setStatus("PENDING");
         export.setCreatedAt(now);
         exportMapper.insert(export);
@@ -410,7 +415,7 @@ public class HighlightExportService {
     }
 
     private String snapshot(HighlightProject project, List<HighlightProjectItem> items, String mode, String resolution,
-                            ExportRequest request) {
+                            ExportRequest request, boolean preview, boolean partial, List<Long> excludedItemIds) {
         try {
             Map<String, Object> snapshot = new LinkedHashMap<>();
             snapshot.put("projectId", project.getId());
@@ -421,6 +426,9 @@ public class HighlightExportService {
             snapshot.put("resolution", resolution);
             snapshot.put("bgmPath", request == null ? null : request.bgmPath());
             snapshot.put("bgmVolume", request == null ? null : request.bgmVolume());
+            snapshot.put("preview", preview);
+            snapshot.put("partial", partial);
+            snapshot.put("excludedItemIds", excludedItemIds == null ? List.of() : excludedItemIds);
             snapshot.put("items", items);
             return objectMapper.writeValueAsString(snapshot);
         } catch (IOException e) {
@@ -434,11 +442,14 @@ public class HighlightExportService {
             String resolution = normalizeResolution(root.path("resolution").asText(null));
             String bgmPath = root.path("bgmPath").isTextual() ? root.path("bgmPath").asText() : null;
             int bgmVolume = root.path("bgmVolume").isInt() ? Math.max(0, Math.min(100, root.path("bgmVolume").asInt())) : 24;
+            boolean preview = root.path("preview").asBoolean(false);
+            boolean partial = root.path("partial").asBoolean(false);
+            List<Long> excludedItemIds = readExcludedItemIds(root);
             List<HighlightProjectItem> items = objectMapper.readerForListOf(HighlightProjectItem.class)
                     .readValue(root.path("items"));
             if (items.isEmpty()) throw new IllegalArgumentException("导出快照没有片段");
             return new ExportSnapshot(resolution, bgmPath, bgmVolume, root.path("projectConfig").asText("{}"),
-                    root.path("mediaId").asLong(), items);
+                    root.path("mediaId").asLong(), items, preview, partial, excludedItemIds);
         } catch (IOException e) {
             throw new IllegalStateException("读取导出快照失败", e);
         }
@@ -473,9 +484,26 @@ public class HighlightExportService {
     }
 
     private HighlightExportView view(HighlightExport export) {
+        SnapshotMeta meta = snapshotMeta(export.getSnapshotJson());
         return new HighlightExportView(export.getId(), export.getProjectId(), export.getMode(), export.getStatus(),
                 export.getMessage(), export.getStage(), export.getSceneMessage(), export.getOutputPath() == null ? null : "/api/highlight-projects/exports/" + export.getId() + "/file",
-                export.getCreatedAt(), export.getFinishedAt());
+                export.getCreatedAt(), export.getFinishedAt(), meta.preview(), meta.partial(), meta.excludedItemIds());
+    }
+
+    private List<Long> readExcludedItemIds(com.fasterxml.jackson.databind.JsonNode root) throws IOException {
+        if (!root.has("excludedItemIds") || root.path("excludedItemIds").isNull()) return List.of();
+        List<Long> ids = objectMapper.readerForListOf(Long.class).readValue(root.path("excludedItemIds"));
+        return ids == null ? List.of() : ids;
+    }
+
+    private SnapshotMeta snapshotMeta(String json) {
+        try {
+            var root = objectMapper.readTree(json == null ? "{}" : json);
+            List<Long> excluded = readExcludedItemIds(root);
+            return new SnapshotMeta(root.path("preview").asBoolean(false), root.path("partial").asBoolean(false), excluded);
+        } catch (IOException e) {
+            return new SnapshotMeta(false, false, List.of());
+        }
     }
 
     private static String normalizeMode(String mode) {
@@ -509,10 +537,15 @@ public class HighlightExportService {
     }
 
     private record ExportSnapshot(String resolution, String bgmPath, int bgmVolume, String styleJson,
-                                  long mediaId, List<HighlightProjectItem> items) { }
+                                  long mediaId, List<HighlightProjectItem> items, boolean preview,
+                                  boolean partial, List<Long> excludedItemIds) { }
 
-    public record ExportRequest(String mode, String resolution, String bgmPath, Integer bgmVolume) { }
+    private record SnapshotMeta(boolean preview, boolean partial, List<Long> excludedItemIds) { }
+
+    public record ExportRequest(String mode, String resolution, String bgmPath, Integer bgmVolume,
+                                Boolean preview, Boolean allowPartial) { }
 
     public record HighlightExportView(long id, long projectId, String mode, String status, String message,
-                                      String stage, String sceneMessage, String outputUrl, long createdAt, Long finishedAt) { }
+                                      String stage, String sceneMessage, String outputUrl, long createdAt, Long finishedAt,
+                                      boolean preview, boolean partial, List<Long> excludedItemIds) { }
 }

@@ -113,7 +113,6 @@ const trashListEl = document.getElementById('trash-list');
 const formatTabsEl = document.getElementById('format-tabs');
 const mediaFormatManageBtn = document.getElementById('media-format-manage');
 const detailConfirmBtn = document.getElementById('detail-confirm');
-const detailHighlightBtn = document.getElementById('detail-highlight');
 const highlightBackBtn = document.getElementById('highlight-back');
 const highlightTitleEl = document.getElementById('highlight-title');
 const highlightProjectMetaEl = document.getElementById('highlight-project-meta');
@@ -128,6 +127,7 @@ const highlightResolutionEl = document.getElementById('highlight-resolution');
 const highlightStylePresetEl = document.getElementById('highlight-style-preset');
 const highlightTransitionEl = document.getElementById('highlight-transition');
 const highlightCardsEnabledEl = document.getElementById('highlight-cards-enabled');
+const highlightChaptersEnabledEl = document.getElementById('highlight-chapters-enabled');
 const highlightBgmPickBtn = document.getElementById('highlight-bgm-pick');
 const highlightBgmFileEl = document.getElementById('highlight-bgm-file');
 const highlightBgmNameEl = document.getElementById('highlight-bgm-name');
@@ -138,7 +138,12 @@ const highlightEstimateEl = document.getElementById('highlight-estimate');
 const highlightStatusEl = document.getElementById('highlight-status');
 const highlightExportsEl = document.getElementById('highlight-exports');
 const highlightSaveBtn = document.getElementById('highlight-save');
+const highlightPreviewBtn = document.getElementById('highlight-preview');
 const highlightExportBtn = document.getElementById('highlight-export');
+const highlightPreviewPanelEl = document.getElementById('highlight-preview-panel');
+const highlightPreviewVideoEl = document.getElementById('highlight-preview-video');
+const highlightPreviewStatusEl = document.getElementById('highlight-preview-status');
+const highlightMissingEl = document.getElementById('highlight-missing');
 const mediaModal = document.getElementById('media-modal');
 const mediaModalTitle = document.getElementById('media-modal-title');
 const mediaTitleInput = document.getElementById('media-title');
@@ -482,6 +487,7 @@ let highlightClips = [];
 let highlightSaveTimer = null;
 let highlightDraggedItemId = null;
 let highlightBgmStoredPath = null;
+let highlightPreviewExportId = null;
 let clipExportTaskId = null;
 let clipRecordState = null;
 let viewHistory = [];      // 详情页返回栈：记录上一活动视图名
@@ -5039,7 +5045,10 @@ async function renderMediaDetail(d, eps) {
     const cfm = box.querySelector('#detail-confirm');
     if (cfm) cfm.hidden = d.confirmed !== 0;
     const hl = box.querySelector('#detail-highlight');
-    if (hl) hl.hidden = d.mediaFormat !== 'VIDEO';
+    if (hl) {
+        hl.hidden = d.mediaFormat !== 'VIDEO';
+        hl.addEventListener('click', openHighlightWorkbench);
+    }
     // 档案信息卡「个人备注」：内联编辑 + 文字过长折叠/展开
     renderMediaDetailNote(d);
     refreshAllEpLamps();
@@ -5843,6 +5852,7 @@ function restoreHighlightConfig() {
     highlightStylePresetEl.value = ['cinematic', 'energetic', 'minimal'].includes(config.stylePreset) ? config.stylePreset : 'cinematic';
     highlightTransitionEl.value = ['none', 'crossfade', 'fade-black'].includes(config.transition) ? config.transition : 'none';
     highlightCardsEnabledEl.checked = config.cardsEnabled !== false;
+    highlightChaptersEnabledEl.checked = config.chaptersEnabled !== false;
 }
 
 function highlightConfigJson() {
@@ -5854,7 +5864,8 @@ function highlightConfigJson() {
         resolution: highlightResolutionEl.value,
         stylePreset: highlightStylePresetEl.value,
         transition: highlightTransitionEl.value,
-        cardsEnabled: highlightCardsEnabledEl.checked
+        cardsEnabled: highlightCardsEnabledEl.checked,
+        chaptersEnabled: highlightChaptersEnabledEl.checked
     });
 }
 
@@ -5871,7 +5882,15 @@ function renderHighlightWorkbench() {
     renderHighlightLibrary(selected);
     renderHighlightTimeline(items);
     renderHighlightEstimate(items);
+    renderHighlightMissing(items);
     renderHighlightExports(currentHighlight.exports || []);
+    const latestPreview = (currentHighlight.exports || []).find(e => e.preview && e.status === 'DONE' && e.outputUrl);
+    if (latestPreview) {
+        highlightPreviewPanelEl.hidden = false;
+        highlightPreviewExportId = latestPreview.id;
+        highlightPreviewVideoEl.src = latestPreview.outputUrl + '?v=' + encodeURIComponent(latestPreview.finishedAt || latestPreview.id);
+        highlightPreviewStatusEl.textContent = latestPreview.partial ? '当前可用版预览' : '完整预览';
+    }
 }
 
 function renderHighlightLibrary(selected) {
@@ -6003,6 +6022,19 @@ async function prepareHighlightItem(itemId) {
     pollHighlightProject();
 }
 
+async function prepareHighlightItems() {
+    const pending = (currentHighlight.items || []).filter(item => item.sourceState !== 'READY' && item.sourceType === 'LOCAL_LIBRARY');
+    if (!pending.length) return;
+    highlightStatusEl.textContent = `正在准备 ${pending.length} 段本地素材…`;
+    await Promise.all(pending.map(item => fetch(`/api/highlight-projects/${currentHighlight.id}/items/${item.id}/prepare`, { method: 'POST' }).catch(() => null)));
+    for (let i = 0; i < 90; i++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await loadHighlightProject(currentHighlight.id);
+        if (!(currentHighlight.items || []).some(item => item.sourceState === 'PREPARING')) break;
+    }
+    highlightStatusEl.textContent = '';
+}
+
 async function prepareHighlightDirectUrl(itemId, url) {
     const trimmed = url.trim();
     if (!trimmed) { showToast('请输入公开视频直链'); return; }
@@ -6035,26 +6067,26 @@ async function saveHighlightProject() {
     await highlightRequest(`/api/highlight-projects/${currentHighlight.id}`, { method: 'PUT', body: { name: highlightNameEl.value, configJson: highlightConfigJson() } });
 }
 
-async function exportHighlightProject() {
+async function exportHighlightProject(allowPartial = false) {
     const items = currentHighlight.items || [];
     const safe = highlightModeEl.value === 'SAFE';
     const usable = safe ? items.filter(i => i.spoilerState === 'SAFE') : items;
     if (!usable.length) { showToast(safe ? '无剧透版至少需要一段标记为“安全”的片段' : '请先加入片段'); return; }
     const unready = usable.find(i => i.sourceState !== 'READY');
-    if (unready) { showToast('存在未就绪素材，请先准备、上传或移除'); return; }
-    const total = highlightDuration(usable);
-    const start = () => highlightExportRequest();
+    if (unready && !allowPartial) { renderHighlightMissing(items); highlightMissingEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    const total = highlightDuration(usable.filter(i => !allowPartial || i.sourceState === 'READY'));
+    const start = () => highlightExportRequest(allowPartial);
     if (total > 20 * 60) {
         showConfirm({ title: '长成片确认', msg: `预计成片 ${fmtTime(total)}，导出可能占用较多磁盘和时间，仍要继续吗？`, okText: '继续导出', danger: false, onOk: start });
     } else start();
 }
 
-async function highlightExportRequest() {
+async function highlightExportRequest(allowPartial = false) {
     try {
         highlightStatusEl.textContent = '正在创建混剪导出任务…';
         const resp = await fetch(`/api/highlight-projects/${currentHighlight.id}/exports`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mode: highlightModeEl.value, resolution: highlightResolutionEl.value, bgmPath: highlightBgmStoredPath, bgmVolume: Number(highlightBgmVolumeEl.value) })
+            body: JSON.stringify({ mode: highlightModeEl.value, resolution: highlightResolutionEl.value, bgmPath: highlightBgmStoredPath, bgmVolume: Number(highlightBgmVolumeEl.value), allowPartial })
         });
         if (!resp.ok) throw new Error(await apiMessage(resp, '创建混剪任务失败'));
         showToast('高光混剪已开始导出');
@@ -6062,6 +6094,48 @@ async function highlightExportRequest() {
         pollHighlightProject();
     } catch (err) { showToast(err.message || '创建混剪任务失败'); }
     finally { highlightStatusEl.textContent = ''; }
+}
+
+async function generateHighlightPreview() {
+    const items = currentHighlight?.items || [];
+    if (!items.length) { showToast('请先加入片段'); return; }
+    highlightPreviewBtn.disabled = true;
+    highlightPreviewPanelEl.hidden = false;
+    highlightPreviewStatusEl.textContent = '准备素材中…';
+    try {
+        await saveHighlightProject();
+        await prepareHighlightItems();
+        const resp = await fetch(`/api/highlight-projects/${currentHighlight.id}/preview`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: highlightModeEl.value, bgmPath: highlightBgmStoredPath, bgmVolume: Number(highlightBgmVolumeEl.value) })
+        });
+        if (!resp.ok) throw new Error(await apiMessage(resp, '创建预览失败'));
+        const preview = await resp.json();
+        highlightPreviewExportId = preview.id;
+        highlightPreviewStatusEl.textContent = preview.partial ? '正在生成可用素材版预览…' : '正在生成预览…';
+        await loadHighlightProject(currentHighlight.id);
+        await watchHighlightPreview(preview.id);
+    } catch (err) { showToast(err.message || '生成预览失败'); highlightPreviewStatusEl.textContent = ''; }
+    finally { highlightPreviewBtn.disabled = false; }
+}
+
+async function watchHighlightPreview(exportId) {
+    for (let i = 0; i < 180; i++) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        const resp = await fetch(`/api/highlight-projects/exports/${exportId}`);
+        if (!resp.ok) continue;
+        const data = await resp.json();
+        highlightPreviewStatusEl.textContent = data.status === 'RUNNING' || data.status === 'PENDING' ? (data.stage || '正在生成预览…') : '';
+        if (data.status === 'DONE') {
+            highlightPreviewPanelEl.hidden = false;
+            highlightPreviewVideoEl.src = data.outputUrl + '?v=' + encodeURIComponent(data.finishedAt || data.id);
+            highlightPreviewStatusEl.textContent = data.partial ? '当前可用版预览' : '完整预览';
+            await loadHighlightProject(currentHighlight.id);
+            return;
+        }
+        if (data.status === 'ERROR' || data.status === 'CANCELLED') throw new Error(data.message || '预览生成失败');
+    }
+    throw new Error('预览生成超时，请查看导出记录');
 }
 
 let highlightPollTimer = null;
@@ -6080,7 +6154,26 @@ function renderHighlightEstimate(items) {
     const full = highlightDuration(items);
     const safe = highlightDuration(items.filter(i => i.spoilerState === 'SAFE'));
     const ready = items.filter(i => i.sourceState === 'READY').length;
-    highlightEstimateEl.innerHTML = `<b>制作概览</b><span>全量 ${fmtTime(full)} · 无剧透 ${fmtTime(safe)}</span><span>素材就绪 ${ready}/${items.length}</span><span>超过 20 分钟导出前会再次确认；服务端安全上限为 120 分钟。</span>`;
+    const groups = new Set(items.map(i => (highlightClips.find(c => c.id === i.clipId) || {}).episodeId).filter(v => v != null));
+    const chapterHint = items.length >= 4 && groups.size >= 2 ? ' · 将按集显示章节' : '';
+    highlightEstimateEl.innerHTML = `<b>制作概览</b><span>全量 ${fmtTime(full)} · 无剧透 ${fmtTime(safe)}</span><span>素材就绪 ${ready}/${items.length}${chapterHint}</span><span>默认输出 MP4 / 1080P · 超过 20 分钟只提醒，不自动删片。</span>`;
+}
+
+function renderHighlightMissing(items) {
+    const missing = items.filter(i => i.sourceState !== 'READY');
+    if (!missing.length) { highlightMissingEl.hidden = true; highlightMissingEl.innerHTML = ''; return; }
+    const rows = missing.map(item => {
+        const clip = highlightClips.find(c => c.id === item.clipId) || {};
+        const title = clip.title || `片段 #${item.clipId || item.id}`;
+        return `<li>${esc(title)} · ${esc(item.sourceMessage || ({ PREPARING: '正在准备', PENDING: '尚未准备', FAILED: '准备失败', UNAVAILABLE: '暂无可用素材' }[item.sourceState] || '素材不可用'))}</li>`;
+    }).join('');
+    highlightMissingEl.hidden = false;
+    highlightMissingEl.innerHTML = `<strong>有 ${missing.length} 段未准备，预览将只使用已就绪素材</strong><ul class="highlight-missing-list">${rows}</ul><div class="highlight-missing-actions"><button type="button" class="btn-mini" data-highlight-partial>导出当前可用版</button><button type="button" class="btn-mini" data-highlight-complete>补齐素材后再导出</button></div>`;
+    highlightMissingEl.querySelector('[data-highlight-partial]').addEventListener('click', async () => {
+        const ok = await confirmAsync({ title: '导出当前可用版', msg: `仍有 ${missing.length} 段未准备，本次视频会明确排除这些片段。确定导出当前可用版吗？`, okText: '导出可用版' });
+        if (ok) exportHighlightProject(true);
+    });
+    highlightMissingEl.querySelector('[data-highlight-complete]').addEventListener('click', () => highlightTimelineEl.scrollIntoView({ behavior: 'smooth', block: 'center' }));
 }
 
 function renderHighlightExports(exports) {
@@ -6093,7 +6186,8 @@ function renderHighlightExports(exports) {
         status.className = `state-${(item.status || '').toLowerCase()}`;
         status.textContent = item.status || 'UNKNOWN';
         const meta = document.createElement('span');
-        meta.textContent = `${item.mode === 'SAFE' ? '无剧透版' : '全量版'} · ${fmtDateTime(item.createdAt)}`;
+        const kind = item.preview ? '预览' : (item.partial ? '部分版' : '正式版');
+        meta.textContent = `${kind} · ${item.mode === 'SAFE' ? '无剧透版' : '全量版'} · ${fmtDateTime(item.createdAt)}`;
         row.append(status, meta);
         if (item.outputUrl) {
             const open = document.createElement('a');
@@ -8763,10 +8857,10 @@ document.getElementById('episode-cover-cancel').addEventListener('click', () => 
 document.getElementById('episode-cover-save').addEventListener('click', saveEpisodeCoverUpload);
 
 // ---------- 高光制作工作台事件 ----------
-detailHighlightBtn?.addEventListener('click', openHighlightWorkbench);
 highlightBackBtn?.addEventListener('click', goBack);
 highlightSaveBtn?.addEventListener('click', saveHighlightProject);
-highlightExportBtn?.addEventListener('click', exportHighlightProject);
+highlightPreviewBtn?.addEventListener('click', generateHighlightPreview);
+highlightExportBtn?.addEventListener('click', () => exportHighlightProject(false));
 highlightNameEl?.addEventListener('change', saveHighlightProject);
 highlightBgmVolumeEl?.addEventListener('change', () => { if (currentHighlight) saveHighlightProject(); });
 highlightModeEl?.addEventListener('change', () => { if (currentHighlight) saveHighlightProject(); });
@@ -8774,6 +8868,7 @@ highlightResolutionEl?.addEventListener('change', () => { if (currentHighlight) 
 highlightStylePresetEl?.addEventListener('change', () => { if (currentHighlight) saveHighlightProject(); });
 highlightTransitionEl?.addEventListener('change', () => { if (currentHighlight) saveHighlightProject(); });
 highlightCardsEnabledEl?.addEventListener('change', () => { if (currentHighlight) saveHighlightProject(); });
+highlightChaptersEnabledEl?.addEventListener('change', () => { if (currentHighlight) saveHighlightProject(); });
 highlightBgmPickBtn?.addEventListener('click', () => highlightBgmFileEl.click());
 highlightBgmFileEl?.addEventListener('change', async () => {
     const file = highlightBgmFileEl.files?.[0];

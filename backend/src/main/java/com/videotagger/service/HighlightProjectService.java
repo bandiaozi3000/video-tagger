@@ -4,7 +4,9 @@ import com.videotagger.entity.Clip;
 import com.videotagger.entity.HighlightProject;
 import com.videotagger.entity.HighlightProjectItem;
 import com.videotagger.entity.Media;
+import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.ClipMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.videotagger.mapper.HighlightProjectItemMapper;
 import com.videotagger.mapper.HighlightProjectMapper;
 import com.videotagger.mapper.HighlightExportMapper;
@@ -31,17 +33,21 @@ public class HighlightProjectService {
     private final HighlightExportService exportService;
     private final MediaMapper mediaMapper;
     private final ClipMapper clipMapper;
+    private final EpisodeMapper episodeMapper;
     private final HighlightProperties properties;
+    private final ObjectMapper objectMapper;
 
     public HighlightProjectService(HighlightProjectMapper projectMapper, HighlightProjectItemMapper itemMapper,
                                    HighlightExportService exportService, MediaMapper mediaMapper,
-                                   ClipMapper clipMapper, HighlightProperties properties) {
+                                   ClipMapper clipMapper, EpisodeMapper episodeMapper, HighlightProperties properties, ObjectMapper objectMapper) {
         this.projectMapper = projectMapper;
         this.itemMapper = itemMapper;
         this.exportService = exportService;
         this.mediaMapper = mediaMapper;
         this.clipMapper = clipMapper;
+        this.episodeMapper = episodeMapper;
         this.properties = properties;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional
@@ -118,6 +124,7 @@ public class HighlightProjectService {
         item.setCreatedAt(now);
         item.setUpdatedAt(now);
         itemMapper.insert(item);
+        if (!manualOrder(project)) autoOrder(project);
         touch(project);
         return view(project);
     }
@@ -173,8 +180,66 @@ public class HighlightProjectService {
             item.setUpdatedAt(now);
             itemMapper.updateById(item);
         }
+        markManualOrder(project);
         touch(project);
         return view(project);
+    }
+
+    private boolean manualOrder(HighlightProject project) {
+        try {
+            return objectMapper.readTree(project.getConfigJson() == null ? "{}" : project.getConfigJson())
+                    .path("manualOrder").asBoolean(false);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void markManualOrder(HighlightProject project) {
+        try {
+            var config = (com.fasterxml.jackson.databind.node.ObjectNode) objectMapper
+                    .readTree(project.getConfigJson() == null ? "{}" : project.getConfigJson()).deepCopy();
+            config.put("manualOrder", true);
+            project.setConfigJson(objectMapper.writeValueAsString(config));
+        } catch (Exception e) {
+            project.setConfigJson("{\"manualOrder\":true}");
+        }
+    }
+
+    private void autoOrder(HighlightProject project) {
+        var clips = clipMapper.listByMedia(project.getMediaId()).stream()
+                .collect(java.util.stream.Collectors.toMap(Clip::getId, c -> c, (a, b) -> a));
+        var episodes = new java.util.HashMap<Long, com.videotagger.entity.Episode>();
+        for (Clip clip : clips.values()) {
+            if (clip.getEpisodeId() != null && !episodes.containsKey(clip.getEpisodeId())) {
+                episodes.put(clip.getEpisodeId(), episodeMapper.selectById(clip.getEpisodeId()));
+            }
+        }
+        var items = itemMapper.listByProjectId(project.getId()).stream()
+                .sorted(java.util.Comparator
+                        .comparing((HighlightProjectItem item) -> episodeNo(episodes.get(episodeId(clips.get(item.getClipId())))))
+                        .thenComparing(item -> clipTime(clips.get(item.getClipId())))
+                        .thenComparing(HighlightProjectItem::getId))
+                .toList();
+        for (int i = 0; i < items.size(); i++) {
+            HighlightProjectItem item = items.get(i);
+            if (!java.util.Objects.equals(item.getSortOrder(), i)) {
+                item.setSortOrder(i);
+                item.setUpdatedAt(System.currentTimeMillis());
+                itemMapper.updateById(item);
+            }
+        }
+    }
+
+    private static Long episodeId(Clip clip) {
+        return clip == null ? null : clip.getEpisodeId();
+    }
+
+    private static int episodeNo(com.videotagger.entity.Episode episode) {
+        return episode == null || episode.getEpisodeNo() == null ? Integer.MAX_VALUE : episode.getEpisodeNo();
+    }
+
+    private static double clipTime(Clip clip) {
+        return clip == null || clip.getTimestampSec() == null ? Double.MAX_VALUE : clip.getTimestampSec();
     }
 
     public HighlightProjectItem requireItem(long projectId, long itemId) {

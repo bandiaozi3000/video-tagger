@@ -11,7 +11,7 @@
     </parent>
     <groupId>com.videotagger</groupId>
     <artifactId>video-tagger-backend</artifactId>
-    <version>0.18.2</version>
+    <version>0.26.0</version>
     <properties>
         <java.version>17</java.version>
     </properties>

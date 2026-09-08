@@ -326,7 +326,8 @@
             </div>
             <div class="highlight-head-actions">
                 <button type="button" id="highlight-save" class="btn-mini">保存草稿</button>
-                <button type="button" id="highlight-export" class="btn-primary">导出混剪</button>
+                <button type="button" id="highlight-preview" class="btn-primary">生成预览</button>
+                <button type="button" id="highlight-export" class="btn-mini">导出 MP4</button>
             </div>
         </div>
         <div class="highlight-layout">
@@ -343,19 +344,27 @@
                     <div><span class="highlight-panel-kicker">EDIT TIMELINE</span><h3>时间线</h3></div>
                     <span id="highlight-timeline-count" class="highlight-count"></span>
                 </div>
-                <div id="highlight-empty" class="highlight-empty">从左侧选择片段，开始搭建这部作品的推荐混剪。</div>
+                <div id="highlight-empty" class="highlight-empty">从左侧选择片段，开始搭建这部作品的推荐视频。</div>
                 <div id="highlight-timeline" class="highlight-timeline"></div>
+                <section id="highlight-preview-panel" class="highlight-preview-panel" hidden>
+                    <div class="highlight-preview-head"><strong>推荐视频预览</strong><span id="highlight-preview-status"></span></div>
+                    <video id="highlight-preview-video" controls playsinline preload="metadata"></video>
+                </section>
+                <div id="highlight-missing" class="highlight-missing" hidden></div>
             </main>
             <aside class="highlight-panel highlight-control-panel">
                 <div class="highlight-panel-head"><div><span class="highlight-panel-kicker">PROJECT CONTROL</span><h3>导出设置</h3></div></div>
                 <label class="highlight-field">项目名称<input id="highlight-name" maxlength="120" autocomplete="off"></label>
-                <label class="highlight-field">导出模式<select id="highlight-mode"><option value="FULL">全量版（含剧透）</option><option value="SAFE">无剧透版（仅安全段）</option></select></label>
-                <label class="highlight-field">清晰度<select id="highlight-resolution"><option value="720P">720P</option><option value="1080P" selected>1080P</option><option value="4K">4K</option></select></label>
-                <label class="highlight-field">风格预设<select id="highlight-style-preset"><option value="cinematic">电影感</option><option value="energetic">高能快剪</option><option value="minimal">极简</option></select></label>
-                <label class="highlight-field">转场<select id="highlight-transition"><option value="none">无</option><option value="crossfade">交叉淡化</option><option value="fade-black">黑场淡化</option></select></label>
-                <label class="highlight-field">片头/片尾 <input id="highlight-cards-enabled" type="checkbox" checked></label>
+                <label class="highlight-field">推荐版本<select id="highlight-mode"><option value="FULL">全量版</option><option value="SAFE">无剧透版</option></select></label>
                 <label class="highlight-field">背景音乐（可选）<span class="highlight-bgm-picker"><button id="highlight-bgm-pick" type="button" class="btn-mini">选择 BGM</button><span id="highlight-bgm-name" class="highlight-bgm-name">未添加</span></span><input id="highlight-bgm-file" type="file" accept="audio/*" hidden></label>
-                <label class="highlight-field">BGM 音量 <span id="highlight-bgm-volume-value">24%</span><input id="highlight-bgm-volume" type="range" min="0" max="100" value="24"></label>
+                <details class="highlight-advanced"><summary>高级设置</summary>
+                    <label class="highlight-field">清晰度<select id="highlight-resolution"><option value="720P">720P</option><option value="1080P" selected>1080P</option><option value="4K">4K</option></select></label>
+                    <label class="highlight-field">风格预设<select id="highlight-style-preset"><option value="cinematic">默认推荐</option><option value="energetic">高能快剪</option><option value="minimal">极简</option></select></label>
+                    <label class="highlight-field">转场<select id="highlight-transition"><option value="none">无</option><option value="crossfade">交叉淡化</option><option value="fade-black">黑场淡化</option></select></label>
+                    <label class="highlight-field">片头/片尾 <input id="highlight-cards-enabled" type="checkbox" checked></label>
+                    <label class="highlight-field">自动章节 <input id="highlight-chapters-enabled" type="checkbox" checked></label>
+                    <label class="highlight-field">BGM 音量 <span id="highlight-bgm-volume-value">24%</span><input id="highlight-bgm-volume" type="range" min="0" max="100" value="24"></label>
+                </details>
                 <div id="highlight-estimate" class="highlight-estimate"></div>
                 <div id="highlight-status" class="status"></div>
                 <div class="highlight-exports-wrap"><h4>导出记录</h4><div id="highlight-exports" class="highlight-exports"></div></div>
@@ -1607,7 +1616,7 @@
     </div>
 </div>
 <button type="button" id="back-nav" title="去底部" aria-label="去底部">↓</button>
-<script src="app.js?v=20260903-v024-hero32"></script>
+<script src="app.js?v=20260908-v026-recommend"></script>
 <script src="v022-metadata-workspace.js?v=20260829-v022-sync-workspace2"></script>
 <script src="v023-video-sources.js?v=20260830-v023-1"></script>
 <script src="v023-player-workbench.js?v=20260901-v023-3"></script>

@@ -79,9 +79,21 @@ public class MaterializationService {
      * @param refreshHints true 时把求值得到的渠道线索回写 clip（幂等，便于后续展示秒级可查）
      */
     public Evaluation evaluate(long clipId, boolean refreshHints) {
+        return evaluateInternal(clipId, refreshHints, true);
+    }
+
+    /**
+     * 只求值片段的原始本地素材源，跳过已物化产物。
+     * 高光制作可能调整片段区间，不能把旧的 GENERATED_CLIP 当成新的整集源输入。
+     */
+    public Evaluation evaluateSource(long clipId, boolean refreshHints) {
+        return evaluateInternal(clipId, refreshHints, false);
+    }
+
+    private Evaluation evaluateInternal(long clipId, boolean refreshHints, boolean includeReadyProduct) {
         Clip clip = require(clipId);
         // 0) 已物化（READY + 产物资产在场）→ 不再重新裁剪，产物即最终素材
-        if ("READY".equals(clip.getMaterialState()) && clip.getVideoAssetId() != null) {
+        if (includeReadyProduct && "READY".equals(clip.getMaterialState()) && clip.getVideoAssetId() != null) {
             VideoAsset done = assetMapper.selectById(clip.getVideoAssetId());
             String doneFile = done == null ? null : fileOf(done);
             if (doneFile != null) {
@@ -92,7 +104,9 @@ public class MaterializationService {
         // 1) channel_hints 里已登记的 present 线索优先（历史已定位成功的源不再重新探）
         List<ChannelHint> hints = ChannelHint.Codec.decode(clip.getChannelHints());
         ChannelHint known = ChannelHint.Codec.firstActionable(hints);
-        if (known != null && known.isPresent() && known.filePath() != null
+        boolean knownReadyProduct = !includeReadyProduct && known != null && known.assetId() != null
+                && isGeneratedClip(assetMapper.selectById(known.assetId()));
+        if (!knownReadyProduct && known != null && known.isPresent() && known.filePath() != null
                 && Files.isRegularFile(Path.of(known.filePath()))) {
             String strategy = known.assetId() != null ? "TRIM_LOCAL_ASSET" : "TRIM_EXTERNAL_FILE";
             return new Evaluation(clipId, known.channel(), "PRESENT", strategy,
@@ -247,6 +261,10 @@ public class MaterializationService {
     private boolean isLocalKind(VideoAsset a) {
         String t = a.getAssetType();
         return "LOCAL_ORIGINAL".equals(t) || "DOWNLOADED".equals(t) || "UPLOADED".equals(t);
+    }
+
+    private boolean isGeneratedClip(VideoAsset asset) {
+        return asset != null && "GENERATED_CLIP".equals(asset.getAssetType());
     }
 
     private String fileOf(VideoAsset a) {

@@ -96,6 +96,31 @@ class MaterializationServiceTest {
     }
 
     @Test
+    @DisplayName("源求值跳过已物化产物，区间调整后仍能找到同集本地源")
+    void sourceEvaluationSkipsReadyProduct() throws Exception {
+        Path product = Files.createFile(assetRoot.resolve("product.mp4"));
+        Path source = Files.createFile(assetRoot.resolve("source.mp4"));
+        Clip c = clip(10);
+        c.setMaterialState("READY");
+        c.setVideoAssetId(90L);
+        c.setEpisodeId(66L);
+        c.setChannelHints(ChannelHint.Codec.encode(java.util.List.of(new ChannelHint(
+                "C1", "PRESENT", "local-file", null, null, null, 90L, null, product.toString(), 1L))));
+        when(clipMapper.selectById(10L)).thenReturn(c);
+        when(assetMapper.selectById(90L)).thenReturn(
+                asset(90L, "GENERATED_CLIP", "AVAILABLE", "product.mp4", null, 66L));
+        when(assetMapper.selectAvailable(66L)).thenReturn(
+                asset(91L, "DOWNLOADED", "AVAILABLE", "source.mp4", null, 66L));
+
+        MaterializationService.Evaluation ev = service.evaluateSource(10L, false);
+        assertEquals("C1", ev.channel());
+        assertEquals("PRESENT", ev.state());
+        assertEquals("TRIM_LOCAL_ASSET", ev.strategy());
+        assertEquals(source.toString(), ev.filePath());
+        assertTrue(Files.isRegularFile(product));
+    }
+
+    @Test
     @DisplayName("C1：clip 已绑本地资产且文件在场 → PRESENT/TRIM_LOCAL_ASSET")
     void c1BoundLocalAssetPresent() throws Exception {
         Path file = Files.createFile(assetRoot.resolve("ep1.mp4"));

@@ -35,8 +35,7 @@ public class HighlightSourceService {
 
     private final HighlightProjectService projectService;
     private final ClipMapper clipMapper;
-    private final ClipExportProperties clipProperties;
-    private final LocalVideoResolver videoResolver;
+    private final MaterializationService materializationService;
     private final HighlightProperties properties;
     private final HighlightPaths paths;
 
@@ -45,12 +44,10 @@ public class HighlightSourceService {
     private HighlightSourceService self;
 
     public HighlightSourceService(HighlightProjectService projectService, ClipMapper clipMapper,
-                                  ClipExportProperties clipProperties, LocalVideoResolver videoResolver,
-                                  HighlightProperties properties) {
+                                  MaterializationService materializationService, HighlightProperties properties) {
         this.projectService = projectService;
         this.clipMapper = clipMapper;
-        this.clipProperties = clipProperties;
-        this.videoResolver = videoResolver;
+        this.materializationService = materializationService;
         this.properties = properties;
         this.paths = new HighlightPaths(properties);
     }
@@ -96,12 +93,20 @@ public class HighlightSourceService {
             paths.ensureParent(output);
             Path temp = output.resolveSibling(output.getFileName() + ".part.mp4");
             Files.deleteIfExists(temp);
-            Path existing = Path.of(clipProperties.getVideoOutputDir()).toAbsolutePath().normalize().resolve(clip.getId() + ".mp4");
-            if (Files.isRegularFile(existing) && sameRange(item, clip)) {
-                Files.copy(existing, temp, StandardCopyOption.REPLACE_EXISTING);
+
+            // 推荐制作沿用片段素材化的渠道求值：已物化且区间未变时复用产物，否则只取原始本地源裁剪。
+            MaterializationService.Evaluation evaluation = materializationService.evaluate(clip.getId(), false);
+            if ("ALREADY_READY".equals(evaluation.strategy()) && sameRange(item, clip)
+                    && evaluation.filePath() != null) {
+                Files.copy(Path.of(evaluation.filePath()), temp, StandardCopyOption.REPLACE_EXISTING);
             } else {
-                Path input = videoResolver.resolve(clip.getVideoFp());
-                runFfmpeg(List.of(properties.getFfmpegPath(), "-y", "-ss", format(item.getInSec()), "-i", input.toString(),
+                MaterializationService.Evaluation source = "ALREADY_READY".equals(evaluation.strategy())
+                        ? materializationService.evaluateSource(clip.getId(), false) : evaluation;
+                if (!"PRESENT".equals(source.state()) || source.filePath() == null) {
+                    throw new IllegalStateException(source.message() == null || source.message().isBlank()
+                            ? "找不到可用的本地素材源，请先准备片段素材" : source.message());
+                }
+                runFfmpeg(List.of(properties.getFfmpegPath(), "-y", "-ss", format(item.getInSec()), "-i", source.filePath(),
                         "-t", format(item.getOutSec() - item.getInSec()), "-c:v", "libx264", "-preset", "fast", "-crf", "20",
                         "-c:a", "aac", "-movflags", "+faststart", temp.toString()));
             }

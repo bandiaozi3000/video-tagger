@@ -1096,6 +1096,18 @@ input[type="checkbox"] { accent-color: var(--pink); width: 15px; height: 15px; c
 .highlight-bgm-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font-size: 11px; }
 .highlight-field input[type="range"] { padding: 0; accent-color: var(--pink); }
 .highlight-estimate { display: grid; gap: 6px; margin: 16px 0; padding: 11px; border: 1px solid rgba(167,139,250,.2); border-radius: 10px; background: rgba(167,139,250,.06); color: var(--text-dim); font-size: 11px; line-height: 1.45; }
+.highlight-advanced { margin: 14px 0; border-top: 1px solid rgba(255,255,255,.08); border-bottom: 1px solid rgba(255,255,255,.08); }
+.highlight-advanced summary { padding: 10px 0; color: var(--text-dim); cursor: pointer; font-size: 12px; font-weight: 800; }
+.highlight-advanced[open] summary { color: var(--pink); }
+.highlight-advanced .highlight-field:first-of-type { margin-top: 8px; }
+.highlight-preview-panel { margin-top: 16px; padding: 12px; border: 1px solid rgba(255,77,141,.24); border-radius: 12px; background: rgba(255,77,141,.045); }
+.highlight-preview-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: var(--text-dim); font-size: 12px; }
+#highlight-preview-status { color: var(--amber); font-size: 11px; }
+#highlight-preview-video { display: block; width: 100%; max-height: 420px; border-radius: 8px; background: #05050a; }
+.highlight-missing { margin-top: 12px; padding: 11px; border: 1px solid rgba(251,191,36,.35); border-radius: 10px; background: rgba(251,191,36,.07); color: var(--text-dim); font-size: 11px; line-height: 1.5; }
+.highlight-missing strong { color: var(--amber); }
+.highlight-missing-list { margin: 7px 0 10px; padding-left: 18px; }
+.highlight-missing-actions { display: flex; gap: 7px; flex-wrap: wrap; }
 .highlight-estimate b { color: var(--violet); font-size: 12px; }
 .highlight-exports-wrap { margin-top: 18px; border-top: 1px solid rgba(255,255,255,.08); padding-top: 12px; }
 .highlight-exports-wrap h4 { margin: 0 0 8px; color: var(--text-dim); font-size: 12px; }

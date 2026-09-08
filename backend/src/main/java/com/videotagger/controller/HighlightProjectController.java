@@ -130,6 +130,14 @@ public class HighlightProjectController {
         return exportService.create(id, request);
     }
 
+    @PostMapping("/{id}/preview")
+    public HighlightExportView preview(@PathVariable long id, @RequestBody(required = false) HighlightExportService.ExportRequest request) {
+        HighlightExportService.ExportRequest source = request == null
+                ? new HighlightExportService.ExportRequest("FULL", "720P", null, null, true, true)
+                : new HighlightExportService.ExportRequest(request.mode(), "720P", request.bgmPath(), request.bgmVolume(), true, true);
+        return exportService.create(id, source);
+    }
+
     @GetMapping("/{id}/exports")
     public List<HighlightExportView> exports(@PathVariable long id) {
         return projectService.exports(id);

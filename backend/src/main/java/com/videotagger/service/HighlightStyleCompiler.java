@@ -27,15 +27,22 @@ public class HighlightStyleCompiler {
 
     private final ObjectMapper objectMapper;
     private final HighlightStylePackRegistry packRegistry;
+    private final com.videotagger.mapper.ClipMapper clipMapper;
 
     public HighlightStyleCompiler(ObjectMapper objectMapper) {
-        this(objectMapper, new HighlightStylePackRegistry(objectMapper, new HighlightProperties()));
+        this(objectMapper, new HighlightStylePackRegistry(objectMapper, new HighlightProperties()), null);
+    }
+
+    public HighlightStyleCompiler(ObjectMapper objectMapper, HighlightStylePackRegistry packRegistry) {
+        this(objectMapper, packRegistry, null);
     }
 
     @Autowired
-    public HighlightStyleCompiler(ObjectMapper objectMapper, HighlightStylePackRegistry packRegistry) {
+    public HighlightStyleCompiler(ObjectMapper objectMapper, HighlightStylePackRegistry packRegistry,
+                                  com.videotagger.mapper.ClipMapper clipMapper) {
         this.objectMapper = objectMapper;
         this.packRegistry = packRegistry;
+        this.clipMapper = clipMapper;
     }
 
     public List<String> presets() {
@@ -99,8 +106,19 @@ public class HighlightStyleCompiler {
         if (style.openingDurationMs() > 0) {
             content.add(new Scene("opening-card", style.openingRenderer(), null, style.openingDurationMs()));
         }
+        java.util.Map<Long, Long> clipEpisodes = clipEpisodes(mediaId);
+        boolean chapters = chaptersEnabled(configJson) && items.size() >= 4
+                && items.stream().map(item -> item.getClipId() == null ? null : clipEpisodes.get(item.getClipId()))
+                .filter(java.util.Objects::nonNull).distinct().count() >= 2;
+        Long previousEpisode = null;
         for (HighlightProjectItem item : items) {
-            if (item.getCaption() != null && !item.getCaption().isBlank() && style.captionDurationMs() > 0) {
+            Long episode = item.getClipId() == null ? null : clipEpisodes.get(item.getClipId());
+            if (chapters && episode != null && !java.util.Objects.equals(previousEpisode, episode)) {
+                content.add(new Scene("chapter-card", "media-summary", item.getId(), 2200));
+                previousEpisode = episode;
+            }
+            if ((item.getClipId() != null || (item.getCaption() != null && !item.getCaption().isBlank()))
+                    && style.captionDurationMs() > 0) {
                 content.add(new Scene("caption-card", style.captionRenderer(), item.getId(), style.captionDurationMs()));
             }
             content.add(new Scene("clip", style.canvasRenderer(), item.getId(),
@@ -117,6 +135,26 @@ public class HighlightStyleCompiler {
             }
         }
         return new ScenePlan(style, scenes);
+    }
+
+    private boolean chaptersEnabled(String configJson) {
+        try {
+            return objectMapper.readTree(configJson == null ? "{}" : configJson).path("chaptersEnabled").asBoolean(true);
+        } catch (IOException e) {
+            return true;
+        }
+    }
+
+    private java.util.Map<Long, Long> clipEpisodes(long mediaId) {
+        if (clipMapper == null) return java.util.Map.of();
+        try {
+            return clipMapper.listByMedia(mediaId).stream()
+                    .filter(clip -> clip.getId() != null)
+                    .collect(java.util.stream.Collectors.toMap(com.videotagger.entity.Clip::getId,
+                            com.videotagger.entity.Clip::getEpisodeId, (a, b) -> a));
+        } catch (RuntimeException e) {
+            return java.util.Map.of();
+        }
     }
 
     private JsonNode merge(JsonNode base, JsonNode overrides) {
