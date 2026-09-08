@@ -2,7 +2,7 @@
 
 - **日期**：2026-09-08
 - **版本**：v0.26.0
-- **状态**：单媒体 HTML 视觉原型已完成，业务模板接入待实施
+- **状态**：已提交原型与底层基础，下一会话从 G2 正式业务模板接入继续
 - **主设计**：`docs/superpowers/specs/2026-09-08-video-tagger-v026-media-recommend-video-design.md`
 - **视觉原型**：`docs/design/2026-09-08-v026-single-media-recommend-template.html`
 
@@ -26,11 +26,13 @@
 - [x] 生成并浏览器验证单媒体 HTML 视觉原型；
 - [ ] 将原型数据占位符映射为业务 `ScenePlan`。
 
+> **下次会话起点**：从 G2 开始，将 `docs/design/2026-09-08-v026-single-media-recommend-template.html` 收敛为 `backend/src/main/resources/templates/recommend-single.html`，接入 `RecommendService` 的单媒体数据和真实 Clip 资源；不要重新设计高光工作台，也不要先引入 Remotion/Skia。
+
 门禁：用户流程、模板结构、渲染分层和复用边界清楚。
 
 ### G2 单媒体推荐模板业务接入
 
-- [ ] 新增 `recommend-single.html` 正式模板；
+- [ ] 新增 `recommend-single.html` 正式模板（下次会话第一项）；
 - [ ] 支持单媒体档案片头：封面、标题、年份/季度、简介、标签、Clip/集统计；
 - [ ] 支持推荐导语、片段播放、片段标题淡出和推荐回顾墙；
 - [ ] 支持自动章节策略：自动/始终/关闭；
