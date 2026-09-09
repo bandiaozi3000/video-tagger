@@ -10,6 +10,7 @@ import com.videotagger.service.HighlightProjectService.HighlightProjectView;
 import com.videotagger.service.HighlightProjectService.ItemUpdateRequest;
 import com.videotagger.service.HighlightProjectService.ProjectUpdateRequest;
 import com.videotagger.service.HighlightSourceService;
+import com.videotagger.service.RecommendSingleService;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -37,12 +38,14 @@ public class HighlightProjectController {
     private final HighlightProjectService projectService;
     private final HighlightSourceService sourceService;
     private final HighlightExportService exportService;
+    private final RecommendSingleService singleRecommendService;
 
     public HighlightProjectController(HighlightProjectService projectService, HighlightSourceService sourceService,
-                                      HighlightExportService exportService) {
+                                      HighlightExportService exportService, RecommendSingleService singleRecommendService) {
         this.projectService = projectService;
         this.sourceService = sourceService;
         this.exportService = exportService;
+        this.singleRecommendService = singleRecommendService;
     }
 
     @GetMapping("/{id}")
@@ -123,6 +126,12 @@ public class HighlightProjectController {
     @PostMapping(value = "/{id}/bgm", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, String> uploadBgm(@PathVariable long id, @RequestPart("file") MultipartFile file) {
         return Map.of("path", sourceService.uploadBgm(id, file));
+    }
+
+    @GetMapping(value = "/{id}/single-preview", produces = MediaType.TEXT_HTML_VALUE)
+    public ResponseEntity<String> singlePreview(@PathVariable long id) {
+        String html = singleRecommendService.buildHtml(id);
+        return ResponseEntity.ok().contentType(MediaType.valueOf("text/html;charset=UTF-8")).body(html);
     }
 
     @PostMapping("/{id}/exports")

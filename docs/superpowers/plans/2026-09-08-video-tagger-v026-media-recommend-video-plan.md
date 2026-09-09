@@ -2,7 +2,7 @@
 
 - **日期**：2026-09-08
 - **版本**：v0.26.0
-- **状态**：已提交原型与底层基础，下一会话从 G2 正式业务模板接入继续
+- **状态**：G2 单媒体模板预览已接入；下一步完善 G3 素材/预览统一与 G4 缺源操作闭环
 - **主设计**：`docs/superpowers/specs/2026-09-08-video-tagger-v026-media-recommend-video-design.md`
 - **视觉原型**：`docs/design/2026-09-08-v026-single-media-recommend-template.html`
 
@@ -24,28 +24,28 @@
 - [x] 建立本唯一实施计划；
 - [x] 明确单媒体推荐与 v0.20/v0.21 的边界；
 - [x] 生成并浏览器验证单媒体 HTML 视觉原型；
-- [ ] 将原型数据占位符映射为业务 `ScenePlan`。
+- [x] 将原型数据占位符映射为正式单媒体模板的数据模型。
 
-> **下次会话起点**：从 G2 开始，将 `docs/design/2026-09-08-v026-single-media-recommend-template.html` 收敛为 `backend/src/main/resources/templates/recommend-single.html`，接入 `RecommendService` 的单媒体数据和真实 Clip 资源；不要重新设计高光工作台，也不要先引入 Remotion/Skia。
+> **当前起点**：继续 G3/G4：让模板预览与视频预览共用完整 ScenePlan 快照，补齐缺源片段的重新准备、上传、移除和“当前可用版”操作；不要重新设计高光工作台，也不要先引入 Remotion/Skia。
 
 门禁：用户流程、模板结构、渲染分层和复用边界清楚。
 
 ### G2 单媒体推荐模板业务接入
 
-- [ ] 新增 `recommend-single.html` 正式模板（下次会话第一项）；
-- [ ] 支持单媒体档案片头：封面、标题、年份/季度、简介、标签、Clip/集统计；
-- [ ] 支持推荐导语、片段播放、片段标题淡出和推荐回顾墙；
-- [ ] 支持自动章节策略：自动/始终/关闭；
-- [ ] 支持单媒体 Clip 的顺序、入出点和剧透状态；
-- [ ] 复用浏览器字体体系，避免 FFmpeg `drawtext` 作为主要文字渲染；
-- [ ] 媒体封面按本地封面 → 代表性 Clip 帧 → 外部缓存 → 背景回退。
+- [x] 新增 `recommend-single.html` 正式模板；
+- [x] 支持单媒体档案片头：封面、标题、年份/季度、简介、标签、Clip/集统计；
+- [x] 支持推荐导语、片段播放、片段标题提示和推荐回顾墙；
+- [x] 支持自动章节开关（跨集且片段数达到阈值时显示；“始终显示”策略仍待后续补齐）；
+- [x] 使用制作稿已保存的 Clip 顺序、入出点和剧透状态；
+- [x] 复用浏览器字体体系，避免 FFmpeg `drawtext` 作为主要文字渲染；
+- [x] 媒体封面按本地封面 → 代表性 Clip 帧 → 外部缓存 → 背景回退。
 
 门禁：空简介、空标签、无封面、无集号都能形成完整但不空洞的模板。
 
 ### G3 素材与预览链路统一
 
 - [x] 高光准备复用片段素材化的本地源判断；
-- [ ] 推荐单媒体模板复用 `MaterializationService`/`HighlightSourceService` 的结果；
+- [x] 推荐单媒体模板复用 `HighlightSourceService` 已准备的受控片段预览结果；
 - [ ] 生成预览只在用户点击后启动；
 - [ ] 预览使用同一 `ScenePlan`，低成本输出可播放结果；
 - [ ] 预览完成后支持重新生成和正式导出；
@@ -87,7 +87,8 @@
 - [ ] ScenePlan/模板数据注入测试；
 - [ ] 缺源和部分导出状态测试；
 - [ ] 真实 FFmpeg 矩阵：有声/无声、横屏/竖屏、FULL/SAFE、章节/片尾；
-- [ ] Web 工作台黄金路径；
+- [x] 空媒体模板预览的隔离 Web 验收；
+- [ ] 真实 Clip 的 Web 工作台黄金路径；
 - [ ] Electron/打包环境黄金路径；
 - [ ] Docker Testcontainers 全量测试；
 - [ ] 更新 CHANGELOG、README、story、worklog；
@@ -132,8 +133,8 @@ FFmpeg → 素材裁剪、标准化、音频处理和最终校验
 ## 6. 当前状态与风险
 
 - v0.26 代码阶段已有高光素材、导出快照、部分预览接口和默认设置基础；
-- 单媒体 HTML 视觉原型已生成，浏览器打开无错误，截图为 `docs/design/2026-09-08-v026-single-media-recommend-template-preview.png`；
-- 正式业务模板尚未接入 `RecommendService`；
-- 当前旧 8080 实例需要重启后才能验收最新后端代码；
+- 正式 `recommend-single.html` 已由 `RecommendSingleService` 以媒体档案和制作稿数据驱动，并通过 `/api/highlight-projects/{id}/single-preview` 提供只读预览；
+- 就绪片段仅使用现有受控预览端点，缺源项保留在页面清单并展示原因，不暴露存储路径；
+- 当前旧 8080 IDEA 实例需要重启后才能验收真实用户 Clip；
 - 全量 Maven 测试曾被 Docker Desktop 拉取 Testcontainers Ryuk 镜像的 I/O 错误阻塞；
 - 因此当前状态是“原型验证 + 业务底层已具备”，不是 v0.26 发布完成。

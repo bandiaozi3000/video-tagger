@@ -138,6 +138,7 @@ const highlightEstimateEl = document.getElementById('highlight-estimate');
 const highlightStatusEl = document.getElementById('highlight-status');
 const highlightExportsEl = document.getElementById('highlight-exports');
 const highlightSaveBtn = document.getElementById('highlight-save');
+const highlightSinglePreviewBtn = document.getElementById('highlight-single-preview');
 const highlightPreviewBtn = document.getElementById('highlight-preview');
 const highlightExportBtn = document.getElementById('highlight-export');
 const highlightPreviewPanelEl = document.getElementById('highlight-preview-panel');
@@ -6067,6 +6068,12 @@ async function saveHighlightProject() {
     await highlightRequest(`/api/highlight-projects/${currentHighlight.id}`, { method: 'PUT', body: { name: highlightNameEl.value, configJson: highlightConfigJson() } });
 }
 
+function openSingleRecommendPreview() {
+    if (!currentHighlight?.id) return;
+    const win = window.open(`/api/highlight-projects/${currentHighlight.id}/single-preview`, '_blank');
+    if (!win) showToast('浏览器阻止了模板预览窗口');
+}
+
 async function exportHighlightProject(allowPartial = false) {
     const items = currentHighlight.items || [];
     const safe = highlightModeEl.value === 'SAFE';
@@ -8858,6 +8865,7 @@ document.getElementById('episode-cover-save').addEventListener('click', saveEpis
 
 // ---------- 高光制作工作台事件 ----------
 highlightBackBtn?.addEventListener('click', goBack);
+highlightSinglePreviewBtn?.addEventListener('click', openSingleRecommendPreview);
 highlightSaveBtn?.addEventListener('click', saveHighlightProject);
 highlightPreviewBtn?.addEventListener('click', generateHighlightPreview);
 highlightExportBtn?.addEventListener('click', () => exportHighlightProject(false));

@@ -281,6 +281,12 @@ public class HighlightProjectService {
         return clipMapper.listByMedia(project.getMediaId());
     }
 
+    /** Internal template/export readers need the full item state, including controlled source paths. */
+    public List<HighlightProjectItem> items(long projectId) {
+        requireProject(projectId);
+        return itemMapper.listByProjectId(projectId);
+    }
+
     public List<HighlightExportView> exports(long projectId) {
         requireProject(projectId);
         return exportService.list(projectId);
