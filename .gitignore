@@ -34,6 +34,12 @@ skills-lock.json
 backend/scripts/node_modules/
 # render.js 冒烟测试产物（smoke.html 是测试模板需保留）
 backend/scripts/smoke.mp4
+backend/remotion/node_modules/
+backend/remotion/poc/real-input.json
+backend/remotion/poc/input.json
+backend/remotion/poc/media/
+backend/remotion/poc/output/
+backend/remotion/poc/.cache/
 
 
 # Windows 桌面打包缓存与本地产物

@@ -1,0 +1,32 @@
+{
+  "name": "video-tagger-remotion-poc",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Video Tagger multi-media recommendation Remotion proof of concept",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "studio": "remotion studio src/index.ts",
+    "render:poc": "tsx scripts/render-poc.ts",
+    "player:poc": "tsx scripts/serve-player.ts"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.524",
+    "@remotion/cli": "4.0.524",
+    "@remotion/player": "4.0.524",
+    "@remotion/renderer": "4.0.524",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.524"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "tsx": "4.19.2",
+    "vite": "6.0.7",
+    "typescript": "5.7.2",
+    "vitest": "2.1.8"
+  }
+}

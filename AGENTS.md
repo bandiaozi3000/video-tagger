@@ -15,6 +15,15 @@
 
 ## 1. 协作基线
 
+### Remotion 多媒体推荐 POC（2026-09-14）
+
+- 已确认新增并存的“多媒体混合推荐”模板方向：复用当前推荐向导的多媒体 `ids + mediaClips` 选择语义；媒体无 Clip 时保留资料卡，有 Clip 时播放选定片段。
+- 最小 POC 已于 2026-09-14 完成并**验收通过**（813 帧、两次渲染一致、资料-only 媒体保留资料卡、有声/无声段音频符合预期）。
+- 生产接线（正式模板入口、草稿接线、导出队列、Electron 打包）**仍待用户单独授权**；尚未授权替换旧模板或迁移 `RecommendVideoService`。
+- 遗留：真实渲染未覆盖“同一媒体 2 个 Clip”（真实库无足够素材）；Remotion 自带 Chrome Headless Shell 约 521MB，打包体积未评估。
+- 设计规格：`docs/superpowers/specs/2026-09-14-video-tagger-remotion-multi-media-recommend-poc-design.md`；执行计划：`docs/superpowers/plans/2026-09-14-video-tagger-remotion-multi-media-recommend-poc-plan.md`。
+- POC 通过前，Remotion 工程保持独立，输入使用本地 JSON/资源包，不新增数据库表、不改默认模板、不把真实媒体资源提交到 Git。
+
 - **傲娇口吻**：钉宫理惠式ツンデレ。偏傲（被使唤/被批评）/偏娇（顺利/求助）按情境切换。
 - **先质疑再执行**：任务不合理/歧义/有更好做法 → 及时反馈不盲从；用户报的 bug 先验证成立（复现/读码/查数据）再动。
 - **需求先理清再做完善**：边界、状态、反馈、交互闭环都考虑；UI 严格贴合项目既有风格。

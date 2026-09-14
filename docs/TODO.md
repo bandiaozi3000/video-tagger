@@ -48,3 +48,29 @@
 - [ ] **在线更新**：✅ **客户端 + 发布脚本已交付**（2026-08-16，commit `1fae834`）——`desktop/update.js`（清单拉取/下载+SHA 校验/pending 标记/应用替换/回滚）+ `main.js` 集成（boot 应用更新+失败回滚、窗口后检查）+ `desktop/publish.bat`（生成 latest.json）。**剩余**：① 配置托管并填 `desktop/package.json` 的 `updateUrl`（现空=功能关，详见记忆 desktop-online-update）；② 上传 jar+latest.json 到托管；③ 配好后重打包分发（让现有用户装上更新功能）。更新只替换 backend.jar，jre/node/ffmpeg 不动；升级改表结构须配套先发 vNN.sql（见上方 schema 迁移项）。
 
 **背景文档**：2026-08-16 工作日志（docs/worklog/2026-08-16.md）。
+
+## Remotion 多媒体混合推荐 POC（2026-09-14 记录）
+
+**结论**：POC 已验收通过，Remotion 路线可行。**生产接线需用户单独授权后才能开工。**
+
+**已交付**：`backend/remotion/`（场景计划纯函数 + 4 项单测、四类场景 Composition、Player 页面、Node renderer）；未提交的真实样本与成片在 `backend/remotion/poc/output/`（已 gitignore）。证据见 `docs/worklog/2026-09-14.md` 与 `docs/superpowers/specs/2026-09-14-video-tagger-remotion-multi-media-recommend-poc-design.md` §11。
+
+### 待用户决定
+
+- [ ] **是否进入生产接线**（1A 入口：推荐向导新增模板选项；2C 复用 `ids + mediaClips` 选择；导出/草稿/异步任务接线）。未授权前不动旧模板与 `RecommendVideoService`。
+- [ ] **版本归属**：Remotion 生产接线属大改动，届时需拍板是否升版本（当前 POC 未升版、未进 CHANGELOG 功能节）。
+
+### 待补齐验证（POC 遗留）
+
+- [ ] **真实渲染补“同一媒体 2 个 Clip”分支**：8080 真实库中同一媒体只有 1 段可复用短素材，本次未伪造 Clip，该分支仅由单测覆盖。需指定一部具备 2+1 段可复用素材的媒体后补一次真实渲染。
+- [ ] **Chrome Headless Shell 体积评估**：Remotion 首次渲染自动下载到 `backend/remotion/node_modules/.remotion`，实测**约 521MB**。需评估桌面打包与在线更新策略（更新只换 backend.jar，不含 node/浏览器资源）。
+- [ ] **未验证能力**：BGM、1080P/4K、Electron 打包黄金路径、`calculateMetadata` 与 Player 输入不一致时的行为。
+- [ ] **性能对比**：POC 冷 168.5s / 热 106.9s（27 秒成片、concurrency=1），尚未与现有 FFmpeg 链路做同条件对比，不能先下“更快”结论。
+- [ ] **低优先**：两次渲染均出现 `webpack.cache.PackFileCacheStrategy: Caching failed for pack` 告警，暂判无害，未深挖。
+
+## 媒体彻底删除/合并遗留 media_entry 孤儿行（2026-09-14 读码确认，待修复）
+
+- [ ] **修复 + 双库迁移清理**：`MediaService` 全文无 `media_entry` 引用，`MediaEntryMapper` 也没有按媒体删除的方法 → `purge(mediaId)` 与 `merge(fromId, intoId)` 都不会删除该媒体的 `media_entry` 行，且 `merge` 后旧 `media_entry`（`media_id = fromId`）同样遗留。
+- **严重度**：🟨 轻微（`ensureEntry` 按 `media_id` 查，孤儿行不影响功能；但会随删除持续累积，并留下指向已删媒体的 `external_work.media_entry_id` 历史痕迹）。
+- **待验证**：上述结论来自读码，**尚未查库确认**实际孤儿数量；修复前建议先跑一次只读统计确认影响面。
+- **背景**：本次回收站释放 Bangumi 关联的清理链路（`docs/worklog/2026-09-14.md`）。
