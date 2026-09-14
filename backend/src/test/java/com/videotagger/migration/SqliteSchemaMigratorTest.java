@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * SqliteSchemaMigrator 单测（内存 SQLite，不启 Spring 上下文）。
- * test classpath 提供 v02-v14；最新版本 = 14。
+ * test classpath 提供 v02-v15；最新版本 = 15。
  */
 class SqliteSchemaMigratorTest {
 
@@ -42,15 +42,15 @@ class SqliteSchemaMigratorTest {
     @Test
     @DisplayName("最新版本 = max(基线1, migration-sqlite 目录里最大 vNN)")
     void latestVersionTracksScripts() throws Exception {
-        // test classpath 提供 v02-v14 → 最新 = 14
-        assertEquals(14, migrator.latestVersion());
+        // test classpath 提供 v02-v15 → 最新 = 15
+        assertEquals(15, migrator.latestVersion());
     }
 
     @Test
     @DisplayName("全新库（user_version=0）直接初始化为最新版本")
     void freshDatabaseInitializesToLatest() throws Exception {
         migrator.run(null);
-        assertEquals(14, readUserVersion());
+        assertEquals(15, readUserVersion());
     }
 
     @Test
@@ -63,7 +63,7 @@ class SqliteSchemaMigratorTest {
         }
         migrator.run(null);
         Set<String> cols = tableColumns("media");
-        assertEquals(14, readUserVersion());
+        assertEquals(15, readUserVersion());
         assertTrue(!cols.contains("original_title"));
         assertTrue(!cols.contains("cover_url"));
         assertTrue(!cols.contains("source"));
@@ -89,7 +89,7 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 0");
         }
         migrator.run(null);
-        assertEquals(14, readUserVersion());
+        assertEquals(15, readUserVersion());
         try (Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery("SELECT task_id FROM metadata_sync_task WHERE task_id = 'keep-me'")) {
             assertTrue(rs.next(), "新版无版本号数据库中的任务数据应保留");
@@ -107,7 +107,7 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 1");
         }
         migrator.run(null);
-        assertEquals(14, readUserVersion());
+        assertEquals(15, readUserVersion());
         // v02-v10 迁移应保留原有列，并创建资料库、片源、资产和数据源订阅结构
         Set<String> cols = tableColumns("media");
         assertTrue(cols.contains("title"), "原有列应保留");
@@ -143,7 +143,7 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 2");
         }
         migrator.run(null);
-        assertEquals(14, readUserVersion());
+        assertEquals(15, readUserVersion());
         assertTrue(tableExists("highlight_project"));
     }
 
@@ -157,7 +157,7 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 3");
         }
         migrator.run(null);
-        assertEquals(14, readUserVersion());
+        assertEquals(15, readUserVersion());
         assertTrue(tableColumns("highlight_export").contains("stage"));
         assertTrue(tableColumns("highlight_export").contains("scene_message"));
     }
@@ -174,7 +174,7 @@ class SqliteSchemaMigratorTest {
         }
         migrator.run(null);
         Set<String> cols = tableColumns("media");
-        assertEquals(14, readUserVersion());
+        assertEquals(15, readUserVersion());
         assertTrue(!cols.contains("original_title"), "原标题列应被物理删除");
         assertTrue(!cols.contains("cover_url"), "外部封面列应被物理删除");
         assertTrue(!cols.contains("source"), "来源列应被物理删除");
@@ -196,7 +196,7 @@ class SqliteSchemaMigratorTest {
             st.execute("PRAGMA user_version = 7");
         }
         migrator.run(null);
-        assertEquals(14, readUserVersion());
+        assertEquals(15, readUserVersion());
         assertTrue(tableExists("video_source_package"));
         try (Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery("SELECT start_ms, end_ms, material_state FROM clips WHERE id = 1")) {
@@ -204,6 +204,34 @@ class SqliteSchemaMigratorTest {
             assertEquals(12345L, rs.getLong("start_ms"));
             assertEquals(18900L, rs.getLong("end_ms"));
             assertEquals("REFERENCE_ONLY", rs.getString("material_state"));
+        }
+    }
+
+    @Test
+    @DisplayName("v14 回收站脏关联升级到 v15 后会释放 Bangumi 缓存")
+    void v14TrashMetadataIsReleased() throws Exception {
+        try (Statement st = conn.createStatement()) {
+            st.execute("CREATE TABLE media (id INTEGER PRIMARY KEY, deleted_at INTEGER)");
+            st.execute("CREATE TABLE external_work (id INTEGER PRIMARY KEY, media_id INTEGER)");
+            st.execute("CREATE TABLE external_episode (id INTEGER PRIMARY KEY, external_work_id INTEGER)");
+            st.execute("CREATE TABLE external_relation (id INTEGER PRIMARY KEY, external_work_id INTEGER)");
+            st.execute("INSERT INTO media VALUES (1, NULL), (2, 1)");
+            st.execute("INSERT INTO external_work VALUES (10, 1), (20, 2)");
+            st.execute("INSERT INTO external_episode VALUES (100, 10), (200, 20)");
+            st.execute("INSERT INTO external_relation VALUES (101, 10), (201, 20)");
+            st.execute("PRAGMA user_version = 14");
+        }
+
+        migrator.run(null);
+
+        assertEquals(15, readUserVersion());
+        assertEquals(1, rowCount("external_work"));
+        assertEquals(1, rowCount("external_episode"));
+        assertEquals(1, rowCount("external_relation"));
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("SELECT id FROM external_work")) {
+            assertTrue(rs.next());
+            assertEquals(10, rs.getInt("id"));
         }
     }
 
@@ -216,6 +244,13 @@ class SqliteSchemaMigratorTest {
                         "jdbc:mysql://localhost:3306/video_tagger");
         mysqlMigrator.run(null); // 不抛异常 = 跳过成功
         assertEquals(0, readUserVersion(), "mysql 场景不动 sqlite 版本");
+    }
+
+    private int rowCount(String table) throws SQLException {
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM " + table)) {
+            return rs.next() ? rs.getInt(1) : 0;
+        }
     }
 
     private int readUserVersion() throws SQLException {

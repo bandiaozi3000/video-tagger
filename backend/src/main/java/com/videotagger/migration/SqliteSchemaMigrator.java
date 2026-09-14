@@ -231,8 +231,9 @@ public class SqliteSchemaMigrator implements ApplicationRunner {
                 try (Statement st = conn.createStatement()) {
                     st.execute(sql);
                 } catch (SQLException e) {
-                    if (!isDuplicateColumn(e) && !isMissingDroppedColumn(e, sql)) throw e;
-                    log.info("[schema] 跳过已存在或不存在的列: {}", sql);
+                    if (!isDuplicateColumn(e) && !isMissingDroppedColumn(e, sql)
+                            && !isMissingV15CleanupInput(e, version)) throw e;
+                    log.info("[schema] 跳过不适用的迁移语句: {}", sql);
                 }
             }
         } catch (IOException e) {
@@ -250,5 +251,12 @@ public class SqliteSchemaMigrator implements ApplicationRunner {
         return sql.startsWith("ALTER TABLE media DROP COLUMN")
                 && message != null
                 && message.toLowerCase(java.util.Locale.ROOT).contains("no such column");
+    }
+
+    /** v15 只清理回收站媒体的外部缓存；极早期残缺库没有相关表/列时无数据可清。 */
+    private static boolean isMissingV15CleanupInput(SQLException e, int version) {
+        if (version != 15 || e.getMessage() == null) return false;
+        String message = e.getMessage().toLowerCase(java.util.Locale.ROOT);
+        return message.contains("no such table") || message.contains("no such column");
     }
 }

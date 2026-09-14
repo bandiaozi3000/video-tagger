@@ -3,12 +3,18 @@ package com.videotagger.service;
 import com.videotagger.AbstractMySqlIT;
 import com.videotagger.entity.Media;
 import com.videotagger.entity.Episode;
+import com.videotagger.entity.ExternalEpisode;
+import com.videotagger.entity.ExternalRelation;
+import com.videotagger.entity.ExternalWork;
 import com.videotagger.entity.Tag;
 import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.MediaTagMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.ClipTagMapper;
 import com.videotagger.mapper.EpisodeMapper;
+import com.videotagger.mapper.ExternalEpisodeMapper;
+import com.videotagger.mapper.ExternalRelationMapper;
+import com.videotagger.mapper.ExternalWorkMapper;
 import com.videotagger.util.VideoFingerprint;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +43,49 @@ class MediaServiceIT extends AbstractMySqlIT {
     ClipTagMapper clipTagMapper;
     @Autowired
     ClipMapper clipMapper;
+    @Autowired
+    ExternalWorkMapper externalWorkMapper;
+    @Autowired
+    ExternalEpisodeMapper externalEpisodeMapper;
+    @Autowired
+    ExternalRelationMapper externalRelationMapper;
+
+    @Test
+    void trashReleasesBangumiBindingAndBridgeCache() {
+        Media media = mediaService.create(new MediaRequest("回收站关联测试", null, null, "VIDEO", null, "番剧", "WANT", null, null, null));
+        long now = System.currentTimeMillis();
+        ExternalWork work = new ExternalWork();
+        work.setProvider("BANGUMI");
+        work.setExternalId("999991");
+        work.setMediaId(media.getId());
+        work.setSyncState("FRESH");
+        work.setCreatedAt(now);
+        work.setUpdatedAt(now);
+        externalWorkMapper.insert(work);
+
+        ExternalEpisode bridge = new ExternalEpisode();
+        bridge.setExternalWorkId(work.getId());
+        bridge.setProviderEpisodeId("999992");
+        bridge.setSyncState("ACTIVE");
+        bridge.setCreatedAt(now);
+        bridge.setUpdatedAt(now);
+        externalEpisodeMapper.insert(bridge);
+
+        ExternalRelation relation = new ExternalRelation();
+        relation.setExternalWorkId(work.getId());
+        relation.setProvider("BANGUMI");
+        relation.setRelatedExternalId("999993");
+        relation.setRelationType("SEQUEL");
+        relation.setCreatedAt(now);
+        externalRelationMapper.insert(relation);
+
+        mediaService.trash(media.getId());
+
+        assertNotNull(mediaMapper.selectById(media.getId()).getDeletedAt());
+        assertNull(externalWorkMapper.selectByProviderAndExternalId("BANGUMI", "999991"));
+        assertTrue(externalEpisodeMapper.listByWork(work.getId()).isEmpty());
+        assertTrue(externalRelationMapper.listByWork(work.getId()).isEmpty());
+    }
 
     @Test
     void saveClipAutoCreatesMediaAndEpisode() {

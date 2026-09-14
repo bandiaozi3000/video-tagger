@@ -3000,7 +3000,7 @@ async function confirmBatchDelete() {
     } else { // 来自单卡片删除：仅移除已删 id
         ids.forEach(id => mediaSelected.delete(id));
     }
-    showToast(`已将 ${ids.length} 个媒体移入回收站，可随时撤回`);
+    showToast(`已将 ${ids.length} 个媒体移入回收站，Bangumi 关联已释放；恢复后需重新关联`);
     loadMedia();
 }
 
@@ -7225,7 +7225,7 @@ function deleteMedia() {
     if (!currentMedia) return;
     showConfirm({
         title: `删除媒体「${currentMedia.title}」`,
-        msg: `删除媒体「${currentMedia.title}」？其下所有集与片段标签将一并删除！`,
+        msg: `将媒体「${currentMedia.title}」移入回收站？本地集、片段和标签会保留，但 Bangumi 关联将释放；恢复后需重新关联。`,
         okText: '删除',
         onOk: async () => {
             await fetch(`/api/media/${currentMedia.id}`, { method: 'DELETE' });
@@ -8382,7 +8382,7 @@ function renderMetadataLinkCandidates(items) {
     if (statusEl) statusEl.textContent = `${metadataLinkState.candidates.length} 条候选 · 点选后底部确认`;
     listEl.innerHTML = metadataLinkState.candidates.map(c => {
         const meta = [c.titleCn || c.title || c.nativeTitle, c.year, c.format, c.episodeCount != null ? `${c.episodeCount} 集` : ''].filter(Boolean).join(' · ');
-        const locked = c.targetMediaId && c.targetMediaId !== metadataLinkState.mediaId;
+        const locked = c.matchType === 'EXTERNAL_ID' && c.targetMediaId && c.targetMediaId !== metadataLinkState.mediaId;
         return `<label class="mdl-cand ${locked ? 'locked' : ''}">
             <input type="radio" name="mdl-cand" value="${esc(c.externalId)}" ${locked ? 'disabled' : ''}>
             <span class="mdl-cand-main">

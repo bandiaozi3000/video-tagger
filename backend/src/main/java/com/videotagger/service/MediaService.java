@@ -241,12 +241,13 @@ public class MediaService {
         }
     }
 
-    /** 移入回收站（软删除）：只置 deleted_at，集/片段/标签/封面/向量保留（撤回原样恢复）。 */
+    /** 移入回收站：保留本地媒体数据，但释放 Bangumi 关联及其桥接缓存；恢复后需重新关联。 */
     @Transactional
     public void trash(Long id) {
         Media a = requireMedia(id);
         a.setDeletedAt(System.currentTimeMillis());
         mediaMapper.updateById(a);
+        purgeExternal(id);
     }
 
     /** 批量移入回收站。 */
@@ -257,7 +258,7 @@ public class MediaService {
         }
     }
 
-    /** 撤回（恢复）：deleted_at 置空，媒体连同保留的集/片段/标签原样恢复。 */
+    /** 撤回（恢复）：deleted_at 置空，保留的媒体/集/片段/标签原样恢复；Bangumi 关联须手动重建。 */
     @Transactional
     public void restore(Long id) {
         Media a = requireMedia(id);
