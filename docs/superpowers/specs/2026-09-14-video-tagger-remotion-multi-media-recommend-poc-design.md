@@ -1,7 +1,7 @@
 # Remotion 多媒体混合推荐模板最小 POC 设计规格
 
 - **日期**：2026-09-14
-- **关联版本**：v0.26 后续探索
+- **关联版本**：v0.27（POC 验证与生产接线均计入 v0.27）
 - **状态**：POC 已实现并验收通过（2026-09-14）；生产接线仍待用户单独授权
 - **关联执行计划**：`docs/superpowers/plans/2026-09-14-video-tagger-remotion-multi-media-recommend-poc-plan.md`
 - **前置设计**：`docs/superpowers/specs/2026-09-08-video-tagger-v026-media-recommend-video-design.md`

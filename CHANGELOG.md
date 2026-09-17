@@ -3,6 +3,23 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格。
 每版演进的**叙事脉络**（为什么做 → 做了什么 → 延续）见 [docs/story.md](docs/story.md)，这里只列功能事实。
 
+## [0.27.0] - 2026-09-18
+
+### 新增
+- **推荐视频（章节式）改用 Remotion 渲染**：章节式及其历史回退样式从「HTML 模板 + Puppeteer 实时抓帧」换成 Remotion 逐帧渲染——场景计划是纯函数，帧数可复现，同一输入两次导出完全一致。视觉不重做：旧模板 CSS 由脚本机械提取，DOM 结构同构，模板参数逐个对齐。
+- **Remotion 多媒体推荐 POC**：先用 813 帧真实样本验证路线（两次渲染场景与帧数一致、无 Clip 的媒体不产生空视频场景、有声/无声段行为正确），再落地到生产链路。
+- **成片带素材原声**：素材准备不再剥离音轨；有 BGM 时原声与 BGM 混合（无音轨或混合失败自动回退「BGM 铺满」）。
+- **推荐预览改为 Remotion Player**：章节式预览与成片同源，支持播放/进度/全屏；构建产物不存在时自动回退旧 HTML 预览。
+- **模板参数通道**：29 个模板参数中 26 个接入 Remotion，另附参数生效的自动化验证脚本。
+
+### 修复
+- **章节式模板缺 `</style>` 闭合标签**：`recommend-chapter.html` 与 `recommend-overview.html` 的样式块未闭合，导致整页空白；由于章节式是默认样式，此前用默认样式导出会得到空白视频。
+
+### 变更
+- `clip`（片段放映式）样式仍走原 HTML/Puppeteer 链路，本次未替换。
+- 章节式下「分组维度 / 分组排序 / 每屏部数 / 分组屏时长」不再生效（「一屏多部」的分组网格屏未移植）。
+- 新增配置 `videotagger.render.remotion-dir`、`videotagger.render.ffprobe-path`；预览页需先在 `backend/remotion` 执行 `npm run build:player`。
+
 ## [0.26.0] - 2026-09-08
 
 ### 新增
