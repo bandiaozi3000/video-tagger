@@ -5,7 +5,6 @@ import com.videotagger.service.RecommendService;
 import com.videotagger.service.RecommendClipSourceService;
 import com.videotagger.service.RecommendVideoService;
 import com.videotagger.service.VideoExportTaskService;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -17,27 +16,26 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
-/** 推荐番剧导出：勾选媒体 → 自包含渐变环流 HTML / 渲染导出 MP4 视频。 */
+/**
+ * 推荐番剧导出：勾选媒体 → 预览（Remotion Player）/ 渲染导出 MP4 视频。
+ *
+ * 注意：HTML 分享包（`/html`）已随旧模板链路退役（设计规格 §11/§14-2）。
+ */
 @RestController
 @RequestMapping("/api/recommend")
 public class RecommendController {
-
-    private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmm");
 
     private final RecommendService recommendService;
     private final RecommendVideoService recommendVideoService;
@@ -52,7 +50,7 @@ public class RecommendController {
         this.clipSourceService = clipSourceService;
     }
 
-    /** 推荐导出请求体：勾选媒体 id + 标题文案（主题）+ 视频格式/清晰度（视频导出用，HTML 忽略格式）+ BGM（名称/base64，可空）。 */
+    /** 推荐导出请求体：勾选媒体 id + 标题文案（主题）+ 视频格式/清晰度 + BGM（名称/base64，可空）。 */
     public record RecommendExportRequest(List<Long> ids, String title, String format, String resolution,
                                          String bgmName, String bgmBase64, String groupBy, String groupStyle,
                                          String subtitle, String coverSize,
@@ -78,54 +76,43 @@ public class RecommendController {
         return clipSourceService.prepare(mediaClips, work);
     }
 
-
+    /**
+     * 预览：返回 Remotion Player 页（注入 RenderInput JSON 与素材基址）。
+     *
+     * 与导出**同源**：同一 Composition、同一份视觉令牌；差别只有素材基址与画幅帧率占位。
+     * 片段与 BGM 素材落在 `data/recommend-previews/{token}/`（不删，供浏览器按帧/按轨取用）。
+     */
     @PostMapping(value = "/preview", produces = MediaType.TEXT_HTML_VALUE)
     public ResponseEntity<String> preview(@RequestBody RecommendExportRequest body) throws IOException {
-        RecommendService.Durations dur = recommendService.normalizeDurations(body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec());
-        // chapter 系样式 → Remotion Player 预览（与导出成片同源：同一 Composition + 同一份 CSS）；未构建则回退旧 HTML
-        if (recommendService.isRemotionStyle(body.groupStyle()) && recommendVideoService.hasPlayerBundle()) {
-            return remotionPreview(body, dur);
-        }
-        if (body.mediaClips() == null || body.mediaClips().isEmpty()) {
-            String html = recommendService.buildHtml(body.ids(), body.title(), body.bgmTracks(), body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.intro(), dur, body.endingTitle(), body.endingText(), body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(), body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(), body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(), "url", body.detailShow());
-            return ResponseEntity.ok().contentType(MediaType.valueOf("text/html;charset=UTF-8")).body(html);
-        }
-        String token = UUID.randomUUID().toString();
-        Path work = Path.of("data", "recommend-previews", token).toAbsolutePath();
-        Files.createDirectories(work);
-        RecommendClipSourceService.PreparedClips prepared = clipSourceService.prepare(body.mediaClips(), work);
-        if (prepared.hasMissing()) { deleteTree(work); throw new IllegalArgumentException("片段素材不可用: " + prepared.missing()); }
-        String html = recommendService.buildHtml(body.ids(), body.title(), body.bgmTracks(), body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.intro(), dur, body.endingTitle(), body.endingText(), body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(), body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(), body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(), "url", body.detailShow(), prepared.byMedia());
-        Files.writeString(work.resolve("index.html"), html, StandardCharsets.UTF_8);
-        return ResponseEntity.ok().contentType(MediaType.valueOf("text/html;charset=UTF-8")).body(html.replace("media/clip-", "/recommend-previews/" + token + "/media/clip-"));
-    }
-    /**
-     * Remotion Player 预览页：注入 RenderInput JSON 与素材基址，返回 dist-player/player.html。
-     * 片段素材落在 data/recommend-previews/{token}/（不删，供浏览器按帧取用；与旧预览同一套路由）。
-     */
-    private ResponseEntity<String> remotionPreview(RecommendExportRequest body, RecommendService.Durations dur) throws IOException {
         Path page = recommendVideoService.playerPagePath();
-        if (page == null || !Files.isRegularFile(page)) return legacyPreview(body, dur);
+        if (page == null) {
+            throw new IllegalStateException("Remotion Player 预览页未构建：请先执行 `cd backend/remotion && npm run build:player`");
+        }
+        RecommendService.Durations dur = recommendService.normalizeDurations(
+                body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec());
         String token = UUID.randomUUID().toString();
         Path work = Path.of("data", "recommend-previews", token).toAbsolutePath();
         Files.createDirectories(work);
-        Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips = Map.of();
         try {
+            Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips = Map.of();
             if (body.mediaClips() != null && !body.mediaClips().isEmpty()) {
                 RecommendClipSourceService.PreparedClips prepared = clipSourceService.prepare(body.mediaClips(), work);
                 if (prepared.hasMissing()) {
-                    deleteTree(work);
-                    throw new IllegalArgumentException("片段素材不可用: " + prepared.missing());
+                    throw new IllegalArgumentException("片段素材不可用: " + prepared.missing().stream()
+                            .map(m -> "#" + m.clipId() + "(" + m.reason() + ")").toList());
                 }
                 preparedClips = prepared.byMedia();
             }
+            List<String> bgmRels = materializeBgm(body.bgmTracks(), body.bgmName(), body.bgmBase64(), work);
+            List<RecommendService.BgmTrack> tracks = namedBgm(body.bgmTracks(), body.bgmName(), body.bgmBase64());
             int[] wh = RecommendVideoService.pixelsOf(body.resolution());
-            String inputJson = recommendService.buildRenderInput(body.ids(), body.title(), body.bgmTracks(),
+            String inputJson = recommendService.buildRenderInput(body.ids(), body.title(), tracks,
                     body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.intro(),
                     dur, body.endingTitle(), body.endingText(), body.bgColor(), body.bgImages(), body.bgRotationSec(),
                     body.bgOpacity(), body.bgBlur(), body.bgBrightness(), body.prologueTitle(), body.groupSort(),
                     body.openingSpeed(), body.endingScrollSpeed(), body.bgmScale(), body.bgmX(), body.bgmY(),
                     body.brandTitle(), body.perScreen(), body.detailShow(), preparedClips, "url", 30, wh[0], wh[1],
+                    bgmRels,
                     rel -> recommendVideoService.probeDurationSeconds(work.resolve(rel).toAbsolutePath().toString()));
             String inject = "<script>window.__VT_INPUT__=" + inputJson
                     + ";window.__VT_ASSET_BASE__=\"/recommend-previews/" + token + "\";</script>";
@@ -137,103 +124,23 @@ public class RecommendController {
         }
     }
 
-    /** 旧 HTML 预览（clip 样式，或 Remotion Player 页未构建时的回退）。 */
-    private ResponseEntity<String> legacyPreview(RecommendExportRequest body, RecommendService.Durations dur) throws IOException {
-        if (body.mediaClips() == null || body.mediaClips().isEmpty()) {
-            String html = recommendService.buildHtml(body.ids(), body.title(), body.bgmTracks(), body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.intro(), dur, body.endingTitle(), body.endingText(), body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(), body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(), body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(), "url", body.detailShow());
-            return ResponseEntity.ok().contentType(MediaType.valueOf("text/html;charset=UTF-8")).body(html);
-        }
-        String token = UUID.randomUUID().toString();
-        Path work = Path.of("data", "recommend-previews", token).toAbsolutePath();
-        Files.createDirectories(work);
-        RecommendClipSourceService.PreparedClips prepared = clipSourceService.prepare(body.mediaClips(), work);
-        if (prepared.hasMissing()) { deleteTree(work); throw new IllegalArgumentException("片段素材不可用: " + prepared.missing()); }
-        String html = recommendService.buildHtml(body.ids(), body.title(), body.bgmTracks(), body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.intro(), dur, body.endingTitle(), body.endingText(), body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(), body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(), body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(), "url", body.detailShow(), prepared.byMedia());
-        Files.writeString(work.resolve("index.html"), html, StandardCharsets.UTF_8);
-        return ResponseEntity.ok().contentType(MediaType.valueOf("text/html;charset=UTF-8")).body(html.replace("media/clip-", "/recommend-previews/" + token + "/media/clip-"));
-    }
-
-    @PostMapping(value = "/html")
-    public ResponseEntity<byte[]> html(@RequestBody RecommendExportRequest body) throws IOException {
-        RecommendService.Durations dur = recommendService.normalizeDurations(
-                body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec());
-        if (body.mediaClips() == null || body.mediaClips().isEmpty()) {
-            byte[] html = recommendService.buildHtml(body.ids(), body.title(), body.bgmTracks(),
-                    body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(),
-                    body.openingIds(), body.intro(), dur, body.endingTitle(), body.endingText(),
-                    body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(),
-                    body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(),
-                    body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(),
-                    body.coverMode(), body.detailShow()).getBytes(StandardCharsets.UTF_8);
-            return ResponseEntity.ok().contentType(MediaType.valueOf("text/html;charset=UTF-8"))
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"video-tagger-recommend.html\"").body(html);
-        }
-        Path work = Files.createTempDirectory("vt-recommend-html-");
-        try {
-            RecommendClipSourceService.PreparedClips prepared = clipSourceService.prepare(body.mediaClips(), work);
-            if (prepared.hasMissing()) throw new IllegalArgumentException("片段素材不可用: " + prepared.missing());
-            String html = recommendService.buildHtml(body.ids(), body.title(), body.bgmTracks(),
-                    body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(),
-                    body.openingIds(), body.intro(), dur, body.endingTitle(), body.endingText(),
-                    body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(),
-                    body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(),
-                    body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(), "embed", body.detailShow(), prepared.byMedia());
-            Files.writeString(work.resolve("recommend.html"), html, StandardCharsets.UTF_8);
-            return zipResponse(work, "recommend.html");
-        } finally {
-            deleteTree(work);
-        }
-    }
-
-    private ResponseEntity<byte[]> zipResponse(String name, byte[] bytes) throws IOException {
-        try (ByteArrayOutputStream out = new ByteArrayOutputStream(); ZipOutputStream zip = new ZipOutputStream(out)) {
-            zip.putNextEntry(new ZipEntry(name)); zip.write(bytes); zip.closeEntry();
-            return ResponseEntity.ok().contentType(MediaType.APPLICATION_OCTET_STREAM)
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"video-tagger-recommend.zip\"").body(out.toByteArray());
-        }
-    }
-
-    private ResponseEntity<byte[]> zipResponse(Path dir, String htmlName) throws IOException {
-        try (ByteArrayOutputStream out = new ByteArrayOutputStream(); ZipOutputStream zip = new ZipOutputStream(out)) {
-            Files.walk(dir).filter(Files::isRegularFile).forEach(path -> {
-                try {
-                    String entry = dir.relativize(path).toString().replace('\\', '/');
-                    zip.putNextEntry(new ZipEntry(entry)); zip.write(Files.readAllBytes(path)); zip.closeEntry();
-                } catch (IOException e) { throw new IllegalStateException(e); }
-            });
-            return ResponseEntity.ok().contentType(MediaType.APPLICATION_OCTET_STREAM)
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"video-tagger-recommend.zip\"").body(out.toByteArray());
-        }
-    }
-
-    private static void deleteTree(Path root) {
-        if (root == null) return;
-        try (var paths = Files.walk(root)) { paths.sorted(java.util.Comparator.reverseOrder()).forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) { } }); }
-        catch (IOException ignored) { }
-    }
-
-    /** 渲染推荐 HTML 为视频（MP4/WebM，清晰度 720P/1080P/4K，附件下载）。BGM 可选（循环混入音轨）。 */
     /** 导出视频：异步创建后台任务（RUNNING）立即返回 taskId；进度/产物由任务列表管理。 */
     @PostMapping(value = "/video")
     public ResponseEntity<Map<String, Object>> video(@RequestBody RecommendExportRequest body) throws IOException {
-        String fmt = body.format() == null || body.format().isBlank() ? "MP4" : body.format().trim().toUpperCase();
+        String fmt = body.format() == null || body.format().isBlank() ? "MP4" : body.format().trim().toUpperCase(Locale.ROOT);
+        List<RecommendService.BgmTrack> bgmTracks = namedBgm(body.bgmTracks(), body.bgmName(), body.bgmBase64());
         List<String> bgmPaths = new ArrayList<>();
         if (body.bgmTracks() != null) {
             for (RecommendService.BgmTrack t : body.bgmTracks()) {
                 if (t == null || t.base64() == null || t.base64().isBlank()) continue;
                 Path f = Files.createTempFile("vt-bgm-", bgmExt(t.name()));
-                Files.write(f, java.util.Base64.getDecoder().decode(t.base64()));
+                Files.write(f, Base64.getDecoder().decode(t.base64()));
                 bgmPaths.add(f.toString());
             }
         } else if (body.bgmBase64() != null && !body.bgmBase64().isBlank()) {
             Path f = Files.createTempFile("vt-bgm-", bgmExt(body.bgmName()));
-            Files.write(f, java.util.Base64.getDecoder().decode(body.bgmBase64()));
+            Files.write(f, Base64.getDecoder().decode(body.bgmBase64()));
             bgmPaths.add(f.toString());
-        }
-        List<RecommendService.BgmTrack> bgmTracks = body.bgmTracks();
-        if ((bgmTracks == null || bgmTracks.isEmpty())
-                && body.bgmBase64() != null && !body.bgmBase64().isBlank()) {
-            bgmTracks = List.of(new RecommendService.BgmTrack(body.bgmName(), body.bgmBase64()));
         }
         RecommendService.Durations dur = recommendService.normalizeDurations(
                 body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec());
@@ -290,10 +197,50 @@ public class RecommendController {
         return ResponseEntity.ok().build();
     }
 
+    /** BGM 曲目视图：新格式取 `bgmTracks`，旧单曲字段（bgmName/bgmBase64）补一条。 */
+    private static List<RecommendService.BgmTrack> namedBgm(List<RecommendService.BgmTrack> tracks,
+                                                             String legacyName, String legacyBase64) {
+        if (tracks != null && !tracks.isEmpty()) return tracks;
+        if (legacyBase64 == null || legacyBase64.isBlank()) return List.of();
+        return List.of(new RecommendService.BgmTrack(legacyName, legacyBase64));
+    }
+
+    /**
+     * 把请求里的 BGM（base64）落成工作目录下的素材文件，返回与曲目**等长**的相对路径列表
+     * （无音频的曲目占位 null，保证与曲目下标一一对应——Remotion 侧按下标取用）。
+     */
+    private static List<String> materializeBgm(List<RecommendService.BgmTrack> tracks, String legacyName,
+                                               String legacyBase64, Path work) throws IOException {
+        List<RecommendService.BgmTrack> list = namedBgm(tracks, legacyName, legacyBase64);
+        List<String> rels = new ArrayList<>();
+        int index = 0;
+        for (RecommendService.BgmTrack track : list) {
+            if (track == null || track.base64() == null || track.base64().isBlank()) {
+                rels.add(null);
+                index++;
+                continue;
+            }
+            String rel = "bgm-" + index + bgmExt(track.name());
+            Files.write(work.resolve(rel), Base64.getDecoder().decode(track.base64()));
+            rels.add(rel);
+            index++;
+        }
+        return rels;
+    }
+
+    private static void deleteTree(Path root) {
+        if (root == null) return;
+        try (var paths = Files.walk(root)) {
+            paths.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                try { Files.deleteIfExists(p); } catch (IOException ignored) { }
+            });
+        } catch (IOException ignored) { }
+    }
+
     /** BGM 临时文件扩展名（按文件名推断，未知 → .mp3）。 */
     private static String bgmExt(String name) {
         if (name != null) {
-            String lower = name.toLowerCase();
+            String lower = name.toLowerCase(Locale.ROOT);
             if (lower.endsWith(".m4a")) return ".m4a";
             if (lower.endsWith(".wav")) return ".wav";
             if (lower.endsWith(".ogg")) return ".ogg";

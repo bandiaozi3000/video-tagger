@@ -12,9 +12,7 @@ import com.videotagger.mapper.MediaSubcategoryMapper;
 import com.videotagger.mapper.TagMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
-import org.springframework.web.util.HtmlUtils;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -37,9 +35,6 @@ public class RecommendService {
     private static final Logger log = LoggerFactory.getLogger(RecommendService.class);
     private static final int MAX_TAG_COUNT = 6;
     private static final int SUB_CATEGORY_DEPTH = 10;
-    private static final String DEFAULT_TITLE = "我的番剧推荐";
-    private static final Map<String, String> STATUS_LABEL = Map.of(
-            "WANT", "想看", "WATCHING", "在看", "DONE", "看完", "PAUSED", "搁置", "DROPPED", "弃番");
 
     /** 一首背景音乐：名称 + base64（无 data: 前缀）。 */
     public record BgmTrack(String name, String base64) {
@@ -56,13 +51,12 @@ public class RecommendService {
     private final CoverService coverService;
     private final CollectionMapper collectionMapper;
     private final ObjectMapper objectMapper;
-    private final ResourceLoader resourceLoader;
 
     public RecommendService(MediaService mediaService, TagMapper tagMapper,
                             MediaSubcategoryMapper mediaSubcategoryMapper,
                             MediaFormatMapper mediaFormatMapper, CoverService coverService,
                             CollectionMapper collectionMapper,
-                            ObjectMapper objectMapper, ResourceLoader resourceLoader) {
+                            ObjectMapper objectMapper) {
         this.mediaService = mediaService;
         this.tagMapper = tagMapper;
         this.mediaSubcategoryMapper = mediaSubcategoryMapper;
@@ -70,188 +64,11 @@ public class RecommendService {
         this.coverService = coverService;
         this.collectionMapper = collectionMapper;
         this.objectMapper = objectMapper;
-        this.resourceLoader = resourceLoader;
-    }
-
-    /** 生成自包含推荐 HTML（标题用默认「我的番剧推荐」）。ids 空 → IllegalArgumentException。 */
-    public String buildHtml(List<Long> ids) {
-        return buildHtml(ids, null);
-    }
-
-    /** 生成自包含推荐 HTML（无 BGM）。 */
-    public String buildHtml(List<Long> ids, String title) {
-        return buildHtml(ids, title, null, null);
-    }
-
-    /** 生成自包含推荐 HTML（无分组）。 */
-    public String buildHtml(List<Long> ids, String title, String bgmName, String bgmBase64) {
-        return buildHtml(ids, title, bgmName, bgmBase64, null, null);
-    }
-
-    /** 生成自包含推荐 HTML（兼容旧单曲 BGM）。 */
-    public String buildHtml(List<Long> ids, String title, String bgmName, String bgmBase64,
-                            String groupBy, String groupStyle) {
-        List<BgmTrack> tracks = (bgmBase64 == null || bgmBase64.isBlank())
-                ? null
-                : List.of(new BgmTrack(bgmName, bgmBase64));
-        return buildHtml(ids, title, tracks, null, "md", groupBy, groupStyle);
-    }
-
-    /**
-     * 生成自包含推荐 HTML（完整参数）。
-     *
-     * @param ids         媒体 id 列表（保持顺序），空 → IllegalArgumentException
-     * @param title       推荐页标题文案（主题），空/null → 默认「我的番剧推荐」
-     * @param bgmTracks   背景音乐列表（顺序连续播放），null/空 → 无 BGM
-     * @param brandTitle  左上角角标文案（可空；空 → 默认「我的番剧推荐」）
-     * @param subtitle    副标题（可空；空 → 模板隐藏副题）
-     * @param coverSize   开场封面大小：sm/md/lg（空 → md）
-     * @param groupBy     分组维度：none/year/subcategory/collection（空 → 不分组）
-     * @param groupStyle  分组呈现样式：stream/chapter/overview（空 → stream）
-     */
-    public String buildHtml(List<Long> ids, String title, List<BgmTrack> bgmTracks, String subtitle,
-                            String coverSize, String groupBy, String groupStyle) {
-        return buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, null);
-    }
-
-    public String buildHtml(List<Long> ids, String title, List<BgmTrack> bgmTracks, String subtitle,
-                            String coverSize, String groupBy, String groupStyle, List<Long> openingIds) {
-        return buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, null);
-    }
-
-    public String buildHtml(List<Long> ids, String title, List<BgmTrack> bgmTracks, String subtitle,
-                            String coverSize, String groupBy, String groupStyle, List<Long> openingIds,
-                            String intro) {
-        return buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro,
-                new Durations(10, 5, 5, 10, 5), null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
-                100, 1, 8, null, 1, "embed", null);
-    }
-
-    public String buildHtml(List<Long> ids, String title, List<BgmTrack> bgmTracks, String subtitle,
-                            String coverSize, String groupBy, String groupStyle, List<Long> openingIds,
-                            String intro, Durations durations, String endingTitle, String endingText,
-                            String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
-                            String prologueTitle,
-                            String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
-                            Integer bgmScale,
-                            Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen, String coverMode,
-                            Map<String, Boolean> detailShow) {
-        return buildHtml(ids, title, bgmTracks, subtitle, coverSize, groupBy, groupStyle, openingIds, intro,
-                durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness,
-                prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle,
-                perScreen, coverMode, detailShow, null);
-    }
-
-    /** 生成推荐 HTML；clipsByMedia 非空时给对应媒体注入已准备的真实视频片段。 */
-    public String buildHtml(List<Long> ids, String title, List<BgmTrack> bgmTracks, String subtitle,
-                            String coverSize, String groupBy, String groupStyle, List<Long> openingIds,
-                            String intro, Durations durations, String endingTitle, String endingText,
-                            String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
-                            String prologueTitle,
-                            String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
-                            Integer bgmScale,
-                            Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen, String coverMode,
-                            Map<String, Boolean> detailShow,
-                            Map<Long, List<RecommendClipSourceService.PreparedClip>> clipsByMedia) {
-        if (ids == null || ids.isEmpty()) {
-            throw new IllegalArgumentException("ids 不能为空");
-        }
-        String resolved = (title == null || title.isBlank()) ? DEFAULT_TITLE : title.trim();
-        String template = readTemplate(groupStyle);
-        String coverModeResolved = (coverMode == null || coverMode.isBlank()) ? "embed" : coverMode.trim();
-        String slidesJson = buildSlidesJson(ids, groupBy, openingIds, groupSort, coverModeResolved, clipsByMedia);
-        String bgmTracksJson = buildBgmTracksJson(bgmTracks);
-        String sub = (subtitle == null || subtitle.isBlank()) ? "" : esc(subtitle.trim());
-        String size = normalizeCoverSize(coverSize);
-        String introText = (intro == null || intro.isBlank()) ? "" : jsText(intro.trim());
-        String endTitle = (endingTitle == null || endingTitle.isBlank()) ? "" : esc(endingTitle.trim());
-        String endText = (endingText == null || endingText.isBlank()) ? "" : esc(endingText.trim());
-        String bgC = (bgColor == null || bgColor.isBlank()) ? "" : esc(bgColor.trim());
-        String bgImgsJson = buildBgImagesJson(bgImages);
-        int bgRot = clamp(bgRotationSec, 1, 60, 8);
-        int bgOp = clamp(bgOpacity, 0, 100, 100);
-        int bgBright = clamp(bgBrightness, 0, 100, 50);
-        int bgBl = clamp(bgBlur, 0, 100, 0);
-        int bmScale = clamp(bgmScale, 50, 200, 100);   // 音乐条整体缩放 %：50~200，默认 100
-        int bmX = clamp(bgmX, 0, 100, 1);
-        int bmY = clamp(bgmY, 0, 100, 8);
-        String proT = (prologueTitle == null || prologueTitle.isBlank()) ? "" : esc(prologueTitle.trim());
-        String sort = (groupSort == null || groupSort.isBlank()) ? "date-desc" : groupSort.trim();
-        String brandT = (brandTitle == null || brandTitle.isBlank()) ? DEFAULT_TITLE : esc(brandTitle.trim());
-        int perScreenN = perScreen == null ? 1 : Math.max(1, Math.min(10, perScreen));   // 每屏同时展示 N 部（1-10）
-        Durations dur = normalizeDurations(durations);
-        String detailShowJson = buildDetailShowJson(detailShow);   // 详情显示内容开关（状态/备注/标签），缺省字段默认开
-        return template
-                .replace("__TITLE__", esc(resolved))
-                .replace("__BRAND_TITLE__", brandT)
-                .replace("__PER_SCREEN__", String.valueOf(perScreenN))
-                .replace("__DETAIL_SHOW__", detailShowJson)
-                .replace("__SLIDES_JSON__", slidesJson)
-                .replace("__SUBTITLE__", sub)
-                .replace("__COVER_SIZE__", size)
-                .replace("__INTRO__", introText)
-                .replace("__ENDING_TITLE__", endTitle)
-                .replace("__ENDING_TEXT__", endText)
-                .replace("__BG_COLOR__", bgC)
-                .replace("__BG_IMAGES__", bgImgsJson)
-                .replace("__BG_ROTATION_SEC__", String.valueOf(bgRot))
-                .replace("__BG_OPACITY__", String.valueOf(bgOp))
-                .replace("__BG_BLUR__", String.valueOf(bgBl))
-                .replace("__BG_BRIGHTNESS__", String.valueOf(bgBright))
-                .replace("__BGM_SCALE__", String.valueOf(bmScale))
-                .replace("__BGM_X__", String.valueOf(bmX))
-                .replace("__BGM_Y__", String.valueOf(bmY))
-                .replace("__PROLOGUE_TITLE__", proT)
-                .replace("__GROUP_SORT__", esc(sort))
-                .replace("__OPENING_SPEED__", String.valueOf(clampSpeed(openingSpeed)))
-                .replace("__ENDING_SPEED__", String.valueOf(clampSpeed(endingScrollSpeed)))
-                .replace("__OPENING_SEC__", String.valueOf(dur.opening()))
-                .replace("__INTRO_SEC__", String.valueOf(dur.intro()))
-                .replace("__DETAIL_SEC__", String.valueOf(dur.detail()))
-                .replace("__GROUP_SEC__", String.valueOf(dur.group()))
-                .replace("__ENDING_SEC__", String.valueOf(dur.ending()))
-                .replace("__BGM_TRACKS__", bgmTracksJson)
-                .replace("__BGM_TRACK_DURS__", "[]")
-                .replace("__BGM_SRC__", "")
-                .replace("__BGM_NAME__", "");
     }
 
     /** 速度滑块归一化：0-100，空/越界 → 50（当前速度）。 */
     private static int clampSpeed(Integer v) {
         return v == null ? 50 : Math.max(0, Math.min(100, v));
-    }
-
-    /** 详情显示内容开关 → 注入模板 __DETAIL_SHOW__：{status,note,tag}，缺省/非法字段 → true（默认全开）。 */
-    private String buildDetailShowJson(Map<String, Boolean> detailShow) {
-        Map<String, Boolean> flags = new LinkedHashMap<>();
-        flags.put("status", true);
-        flags.put("note", true);
-        flags.put("tag", true);
-        if (detailShow != null) {
-            for (String key : List.of("status", "note", "tag")) {
-                Boolean v = detailShow.get(key);
-                if (v != null) {
-                    flags.put(key, v);
-                }
-            }
-        }
-        try {
-            return objectMapper.writeValueAsString(flags);
-        } catch (Exception e) {
-            return "{\"status\":true,\"note\":true,\"tag\":true}";
-        }
-    }
-
-    /** 背景图多选：base64 数组 → JSON（模板 __BG_IMAGES__ 轮换用）。 */
-    private String buildBgImagesJson(List<String> bgImages) {
-        if (bgImages == null || bgImages.isEmpty()) {
-            return "[]";
-        }
-        try {
-            return objectMapper.writeValueAsString(bgImages);
-        } catch (IOException e) {
-            return "[]";
-        }
     }
 
     /** 显示时长归一化：空/越界 → 默认（开局 10 / 序言 5 / 章节 5 / 详情 10 / 结尾 5）。 */
@@ -273,31 +90,6 @@ public class RecommendService {
         return Math.max(min, Math.min(max, v));
     }
 
-    /** 背景音乐列表 → 模板注入 JSON：[{name, src(dataURI)}]。空 → [].。
-     * base64 为空的曲目只输出 name（无 src）：录制 HTML 由 ffmpeg 最终混音，页面不加载真实音频，
-     * 避免大型 Data URI 阻塞主线程导致逐曲漂移；预览 HTML 仍注入完整 src 真实播放。 */
-    private String buildBgmTracksJson(List<BgmTrack> bgmTracks) {
-        List<Map<String, Object>> arr = new ArrayList<>();
-        if (bgmTracks != null) {
-            for (BgmTrack t : bgmTracks) {
-                if (t == null || t.name() == null || t.name().isBlank()) {
-                    continue;
-                }
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("name", esc(t.name()));
-                if (t.base64() != null && !t.base64().isBlank()) {
-                    m.put("src", "data:" + bgmMime(t.name()) + ";base64," + t.base64());
-                }
-                arr.add(m);
-            }
-        }
-        try {
-            return objectMapper.writeValueAsString(arr);
-        } catch (IOException e) {
-            return "[]";
-        }
-    }
-
     /** 封面大小归一化：0-100 数值（滑块），空/非法 → 50（= 中档，模板按此算缩放系数）。 */
     private static String normalizeCoverSize(String coverSize) {
         if (coverSize == null || coverSize.isBlank()) {
@@ -311,30 +103,20 @@ public class RecommendService {
         }
     }
 
-    /** 按 BGM 文件名推断音频 mime（未知 → audio/mpeg）。 */
-    private static String bgmMime(String name) {
-        if (name != null) {
-            String lower = name.toLowerCase();
-            if (lower.endsWith(".m4a")) return "audio/mp4";
-            if (lower.endsWith(".wav")) return "audio/wav";
-            if (lower.endsWith(".ogg")) return "audio/ogg";
-        }
-        return "audio/mpeg";
-    }
-
-    /** 当前样式是否走 Remotion 渲染（chapter 及其历史别名 stream/overview 回退目标）。 */
-    public boolean isRemotionStyle(String groupStyle) {
-        return "chapter".equals(normalizeStyle(groupStyle));
+    /** 模板形态：`clip` → 片段优先；其余（含 chapter/stream/overview/空）→ 章节叙事。 */
+    public static String styleOf(String groupStyle) {
+        return "clip".equals(normalizeStyle(groupStyle)) ? "clip" : "chapter";
     }
 
     /**
      * 组装 Remotion 渲染输入（生产链路：Java → Node renderer）。
      *
-     * 与 {@link #buildHtml} 的区别：输出的是给 Remotion 的 JSON（不注入 HTML），
+     * 与已退役的 {@code buildHtml} 的区别：输出的是给 Remotion 的 JSON（不注入 HTML），
      * 封面用 embed 模式的 data URI（不把外部 URL 交给 Remotion），
-     * 片段用已准备的本地相对路径（相对工作目录，即 Node 侧的 --asset-root）。
+     * 片段/BGM 用已准备的本地相对路径（相对工作目录，即 Node 侧的 --asset-root）。
      *
-     * @param probeSeconds 素材时长探测（入参为工作目录相对的素材路径，返回秒）；仅用于开放时长片段
+     * @param bgmAssetPaths BGM 素材相对路径（与 bgmTracks 一一对应；用于 Remotion 内建混音）
+     * @param probeSeconds  素材时长探测（入参为工作目录相对的素材路径，返回秒）
      */
     public String buildRenderInput(List<Long> ids, String title, List<BgmTrack> bgmTracks, String subtitle,
                                   String coverSize, String groupBy, String groupStyle, List<Long> openingIds,
@@ -346,6 +128,7 @@ public class RecommendService {
                                   Map<String, Boolean> detailShow,
                                   Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips,
                                   String coverMode, int fps, int width, int height,
+                                  List<String> bgmAssetPaths,
                                   java.util.function.ToDoubleFunction<String> probeSeconds) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
@@ -353,6 +136,7 @@ public class RecommendService {
         Durations dur = normalizeDurations(durations);
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("template", "MULTI_MEDIA_RECOMMEND");
+        root.put("style", styleOf(groupStyle));
         root.put("title", title == null ? "" : title.trim());
         root.put("subtitle", subtitle == null ? "" : subtitle.trim());
         root.put("intro", intro == null ? "" : intro.trim());
@@ -387,6 +171,9 @@ public class RecommendService {
                 if (!tag.isEmpty() && tag.get(0) != null) tagNames.add(String.valueOf(tag.get(0)));
             }
             view.put("tags", tagNames);
+            // 分组名（Remotion 侧据此排章节页与组序）
+            String groupName = groupOf(d, groupBy);
+            if (groupName != null) view.put("group", groupName);
 
             List<Map<String, Object>> clipViews = new ArrayList<>();
             if (clips != null) {
@@ -433,10 +220,18 @@ public class RecommendService {
         p.put("bgBrightness", clamp(bgBrightness, 0, 100, 50));
         List<Map<String, Object>> bgmViews = new ArrayList<>();
         if (bgmTracks != null) {
-            for (BgmTrack t : bgmTracks) {
+            for (int i = 0; i < bgmTracks.size(); i++) {
+                BgmTrack t = bgmTracks.get(i);
                 if (t == null || t.name() == null || t.name().isBlank()) continue;
                 Map<String, Object> tv = new LinkedHashMap<>();
                 tv.put("name", t.name());
+                String rel = bgmAssetPaths != null && i < bgmAssetPaths.size() ? bgmAssetPaths.get(i) : null;
+                if (rel != null && !rel.isBlank()) {
+                    tv.put("assetPath", rel);
+                    // 曲长用于 BGM 条时间轴与 ducking 时段；探不到 → 0，Remotion 侧按均分兜底
+                    double seconds = probeSeconds.applyAsDouble(rel);
+                    tv.put("durationSec", seconds > 0 ? Math.round(seconds * 1000) / 1000.0 : 0);
+                }
                 bgmViews.add(tv);
             }
         }
@@ -456,7 +251,7 @@ public class RecommendService {
         p.put("fps", fps);
         p.put("width", width);
         p.put("height", height);
-        // 决策 B：以下四项 Remotion 侧不消费（分组网格屏不做），仍透传保持与前端请求 1:1
+        // 分组/每屏：Remotion 侧已消费（章节页 + 一屏 N 部网格），不再是「透传但不生效」
         p.put("groupBy", groupBy == null ? "" : groupBy);
         p.put("groupSort", groupSort == null || groupSort.isBlank() ? "date-desc" : groupSort);
         p.put("perScreen", perScreen == null ? 1 : Math.max(1, Math.min(10, perScreen)));
@@ -483,71 +278,6 @@ public class RecommendService {
             log.warn("片段时长探测失败 {}: {}", clip.path(), e.getMessage());
         }
         throw new IllegalStateException("片段时长不可用（开放时长且探测失败）: " + clip.path());
-    }
-
-    private String buildSlidesJson(List<Long> ids, String groupBy, List<Long> openingIds, String groupSort,
-                                   String coverMode, Map<Long, List<RecommendClipSourceService.PreparedClip>> clipsByMedia) {
-        List<Map<String, Object>> slides = new ArrayList<>();
-        for (Long id : ids) {
-            MediaDetail d;
-            try {
-                d = mediaService.get(id);
-            } catch (RuntimeException e) {
-                log.warn("推荐跳过不存在的媒体 {}: {}", id, e.getMessage());
-                continue; // 残留勾选 → 跳过不报错
-            }
-            slides.add(slideOf(d, groupBy, openingIds, coverMode, clipsByMedia == null ? null : clipsByMedia.get(d.id())));
-        }
-        if (groupBy != null && !groupBy.isBlank() && !"none".equals(groupBy)) {
-            slides = groupOrdered(slides, groupBy, groupSort);
-        }
-        try {
-            return objectMapper.writeValueAsString(slides);
-        } catch (IOException e) {
-            throw new IllegalStateException("序列化推荐数据失败", e);
-        }
-    }
-
-    /** 真实分组数（与 buildSlidesJson 同一套 groupOf/分组口径）——视频导出时长按此精确计算章节转场。 */
-    public int computeGroupCount(List<Long> ids, String groupBy) {
-        if (groupBy == null || groupBy.isBlank() || "none".equals(groupBy)) {
-            return 0;
-        }
-        java.util.Set<String> groups = new java.util.LinkedHashSet<>();
-        for (Long id : ids) {
-            MediaDetail d;
-            try {
-                d = mediaService.get(id);
-            } catch (RuntimeException e) {
-                continue; // 与 buildSlidesJson 一致：缺失媒体跳过
-            }
-            String g = groupOf(d, groupBy);
-            groups.add(g == null ? "未分组" : g);
-        }
-        return groups.size();
-    }
-
-    private Map<String, Object> slideOf(MediaDetail d, String groupBy, List<Long> openingIds, String coverMode,
-                                        List<RecommendClipSourceService.PreparedClip> clips) {
-        Map<String, Object> slide = new LinkedHashMap<>();
-        slide.put("cover", resolveCoverDataUrl(d, coverMode));
-        slide.put("cat", buildCategory(d));
-        slide.put("title", esc(d.title()));
-        slide.put("note", esc(d.note() == null || d.note().isBlank() ? "（暂无备注）" : d.note().trim()));
-        slide.put("flag", STATUS_LABEL.getOrDefault(d.status(), d.status() == null ? "" : d.status()));
-        slide.put("tags", buildTags(d.id()));
-        if (clips != null && !clips.isEmpty()) {
-            slide.put("clips", buildClipViews(clips));
-        }
-        String group = groupOf(d, groupBy);
-        if (group != null) {
-            slide.put("group", group);
-        }
-        /* 开场代表秀：命中 openingIds → open 标记（模板开场只显影这些；空 openingIds → 不标记 = 开场全显） */
-        if (openingIds != null && openingIds.contains(d.id())) {
-            slide.put("open", true);
-        }
-        return slide;
     }
 
     /** 分组维度取值：year → 「年份 年」；subcategory → 子分类路径；collection → 首个收藏夹名；none/未知 → null。 */
@@ -578,67 +308,6 @@ public class RecommendService {
         };
     }
 
-    /** 按组排序：year 组按年份升降序（groupSort=date-asc 升序 / date-desc 或默认降序 / none 保持出现顺序；未知年份排最后）；
-     *  其余维度按首次出现顺序；组内保持原序。 */
-    private List<Map<String, Object>> groupOrdered(List<Map<String, Object>> slides, String groupBy, String groupSort) {
-        Map<String, List<Map<String, Object>>> groups = new LinkedHashMap<>();
-        for (Map<String, Object> s : slides) {
-            String g = (String) s.get("group");
-            groups.computeIfAbsent(g == null ? "未分组" : g, k -> new ArrayList<>()).add(s);
-        }
-        List<String> keys = new ArrayList<>(groups.keySet());
-        if ("year".equals(groupBy) && !"none".equals(groupSort)) {
-            final boolean desc = !"date-asc".equals(groupSort);
-            keys.sort((a, b) -> {
-                int an = yearOf(a), bn = yearOf(b);
-                if (an == Integer.MIN_VALUE && bn == Integer.MIN_VALUE) return a.compareTo(b);
-                if (an == Integer.MIN_VALUE) return 1;
-                if (bn == Integer.MIN_VALUE) return -1;
-                return desc ? Integer.compare(bn, an) : Integer.compare(an, bn);
-            });
-        }
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (String k : keys) out.addAll(groups.get(k));
-        return out;
-    }
-
-    private List<Map<String, Object>> buildClipViews(List<RecommendClipSourceService.PreparedClip> clips) {
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (RecommendClipSourceService.PreparedClip clip : clips) {
-            Map<String, Object> view = new LinkedHashMap<>();
-            view.put("id", clip.id());
-            view.put("title", esc(clip.title() == null || clip.title().isBlank() ? "未命名片段" : clip.title()));
-            view.put("note", esc(clip.note() == null ? "" : clip.note()));
-            view.put("path", esc(clip.path()));
-            view.put("startSec", clip.startSec());
-            view.put("endSec", clip.endSec());
-            view.put("badge", badgeView(clip.badge()));
-            result.add(view);
-        }
-        return result;
-    }
-
-    private Map<String, Object> badgeView(RecommendMediaClips.Badge badge) {
-        Map<String, Object> view = new LinkedHashMap<>();
-        if (badge == null) return view;
-        view.put("mediaTitle", Boolean.TRUE.equals(badge.mediaTitle()));
-        view.put("clipTitle", Boolean.TRUE.equals(badge.clipTitle()));
-        view.put("index", Boolean.TRUE.equals(badge.index()));
-        view.put("note", Boolean.TRUE.equals(badge.note()));
-        view.put("custom", badge.custom() == null ? "" : jsText(badge.custom()));
-        return view;
-    }
-
-
-    private static int yearOf(String group) {
-        String y = group.replace(" 年", "").trim();
-        try {
-            return Integer.parseInt(y);
-        } catch (NumberFormatException e) {
-            return Integer.MIN_VALUE;
-        }
-    }
-
     /** 封面地址：url 模式 → 相对 /covers/ 路径（预览同源直连、零内嵌）；embed 模式 → base64 data URI（离线自包含）。 */
     private String resolveCoverDataUrl(MediaDetail d, String coverMode) {
         if ("url".equals(coverMode)) {
@@ -650,16 +319,6 @@ public class RecommendService {
             return data;
         }
         return coverService.base64ForCoverPath(d.fallbackCoverPath());
-    }
-
-    /** 分类行：格式名（如「番剧」）+ 子分类路径（父 / 子）。 */
-    private String buildCategory(MediaDetail d) {
-        String fmt = formatName(d.mediaFormat());
-        String sub = subcategoryPath(d.subcategoryId(), d.subcategory());
-        if (sub == null || sub.isBlank()) {
-            return esc(fmt);
-        }
-        return esc(fmt.isBlank() ? sub : fmt + " · " + sub);
     }
 
     /** 子分类路径：按 subcategoryId 递归父节点拼「父 / 子」，深度上限防环；失败回退名字快照。 */
@@ -695,28 +354,11 @@ public class RecommendService {
             if (u.refCount() <= 0) {
                 continue;
             }
-            tags.add(List.of(esc(u.name()), u.refCount()));
+            tags.add(List.of(u.name() == null ? "" : u.name(), u.refCount()));
         }
         return tags;
     }
 
-    private String formatName(String code) {
-        if (code == null || code.isBlank()) {
-            return "";
-        }
-        MediaFormat mf = mediaFormatMapper.selectOne(
-                new QueryWrapper<MediaFormat>().eq("code", code).last("LIMIT 1"));
-        return mf != null ? mf.getName() : code;
-    }
-
-    private String readTemplate(String groupStyle) {
-        String style = normalizeStyle(groupStyle);
-        try (var in = resourceLoader.getResource("classpath:templates/recommend-" + style + ".html").getInputStream()) {
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new IllegalStateException("读取推荐模板失败: recommend-" + style + ".html", e);
-        }
-    }
 
     /** 推荐模板归一化：chapter/clip 为正式模板；历史 stream/overview 回退到 chapter。 */
     private static String normalizeStyle(String groupStyle) {
@@ -731,14 +373,4 @@ public class RecommendService {
         };
     }
 
-    /** HTML 转义：标题/分类/备注/标签名含 <>&" 会破坏模板结构，进 JSON 前先转义。 */
-    private static String esc(String s) {
-        return s == null ? "" : HtmlUtils.htmlEscape(s);
-    }
-
-    /** 注入模板 JS 字符串字面量（const X = "..."）前转义：HTML 转义之外，还需把 \ 与换行转义成 JS 合法转义序列——
-     *  否则多行文本（如简介带段落换行）会把裸换行塞进字符串，模板脚本 SyntaxError、预览空白。 */
-    private static String jsText(String s) {
-        return esc(s).replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n");
-    }
 }

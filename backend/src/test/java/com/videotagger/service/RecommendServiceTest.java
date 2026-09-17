@@ -1,7 +1,7 @@
 package com.videotagger.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.videotagger.entity.Collection;
 import com.videotagger.entity.MediaFormat;
 import com.videotagger.entity.MediaSubcategory;
 import com.videotagger.mapper.CollectionMapper;
@@ -10,24 +10,25 @@ import com.videotagger.mapper.MediaSubcategoryMapper;
 import com.videotagger.mapper.TagMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.io.DefaultResourceLoader;
-import org.springframework.core.io.ResourceLoader;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * RecommendService（Remotion 输入契约）单测。
+ *
+ * 只覆盖 `buildRenderInput`：分组标签、模板形态、BGM 曲长/素材路径、片段素材路径与时长、
+ * 缺失媒体跳过与全缺失报错。旧的 HTML 注入相关断言已随模板链路退役删除。
+ */
 class RecommendServiceTest {
 
     MediaService mediaService;
@@ -36,7 +37,6 @@ class RecommendServiceTest {
     MediaFormatMapper formatMapper;
     CoverService coverService;
     CollectionMapper collectionMapper;
-    ResourceLoader resourceLoader;
     RecommendService service;
 
     @BeforeEach
@@ -47,350 +47,137 @@ class RecommendServiceTest {
         formatMapper = mock(MediaFormatMapper.class);
         coverService = mock(CoverService.class);
         collectionMapper = mock(CollectionMapper.class);
-        resourceLoader = new DefaultResourceLoader();
         service = new RecommendService(mediaService, tagMapper, subMapper, formatMapper,
-                coverService, collectionMapper, new ObjectMapper(), resourceLoader);
+                coverService, collectionMapper, new ObjectMapper());
+        when(tagMapper.countByMedia(anyLong())).thenReturn(List.of());
+        when(coverService.base64ForCoverPath(org.mockito.ArgumentMatchers.any())).thenReturn("AAA");
     }
 
-    private MediaDetail media(long id, String title, String note, String status) {
-        return media(id, title, note, status, 2004);
-    }
-
-    private MediaDetail media(long id, String title, String note, String status, Integer year) {
-        return new MediaDetail(id, title, year, "原名" + id, "别名", "ANIME", "异世界", 5L, note, status,
+    private MediaDetail media(long id, String title, Integer year) {
+        return new MediaDetail(id, title, year, "原名" + id, "别名", "ANIME", "异世界", 5L, "简介" + id, "WANT",
                 BigDecimal.ONE, "/covers/" + id + ".jpg", 1, "MANUAL", 1L, 3L, 1L,
                 List.of(), List.of(), "/covers/clip/" + id + "-fallback.jpg");
     }
 
-    @Test
-    void computeGroupCountUsesRealGrouping() {
-        // 按年份：2022/2024/2023 + 未知年份 → 4 组（含「未知年份」兜底组，与 buildHtml 同口径）
-        when(mediaService.get(1L)).thenReturn(media(1L, "A", "n", "WANT", 2022));
-        when(mediaService.get(2L)).thenReturn(media(2L, "B", "n", "WANT", 2024));
-        when(mediaService.get(3L)).thenReturn(media(3L, "C", "n", "WANT", 2023));
-        when(mediaService.get(4L)).thenReturn(media(4L, "D", "n", "WANT", null));
-        assertEquals(4, service.computeGroupCount(List.of(1L, 2L, 3L, 4L), "year"));
-        // 同年合并为同一组
-        when(mediaService.get(5L)).thenReturn(media(5L, "E", "n", "WANT", 2022));
-        assertEquals(4, service.computeGroupCount(List.of(1L, 2L, 3L, 4L, 5L), "year"));
-        // 不分组 → 0 组
-        assertEquals(0, service.computeGroupCount(List.of(1L, 2L), "none"));
-        assertEquals(0, service.computeGroupCount(List.of(1L, 2L), null));
-        // 缺失媒体跳过（与 buildSlidesJson 一致），只剩 2022 一组
-        when(mediaService.get(9L)).thenThrow(new RuntimeException("not found"));
-        assertEquals(1, service.computeGroupCount(List.of(9L, 5L), "year"));
+    /** 只填必要参数的调用：其余走 Java 默认值（与前端空提交等价）。 */
+    private String renderInput(List<Long> ids, String groupBy, String style,
+                               List<RecommendService.BgmTrack> bgmTracks, List<String> bgmPaths,
+                               Map<Long, List<RecommendClipSourceService.PreparedClip>> clips) {
+        return service.buildRenderInput(ids, "标题", bgmTracks, "副标题", "50", groupBy, style,
+                List.of(), "序言", service.normalizeDurations(null, null, null, null, null),
+                "结尾标题", "结尾文案", "", List.of(), 8, 100, 0, 50,
+                "序言标题", "date-desc", 50, 50, 100, 1, 8, "品牌", 1, null,
+                clips == null ? Map.of() : clips, "embed", 30, 1280, 720, bgmPaths,
+                rel -> rel.startsWith("bgm-") ? 42.5 : 3.5);
+    }
+
+    private JsonNode parse(String json) throws Exception {
+        return new ObjectMapper().readTree(json);
     }
 
     @Test
-    void buildHtmlContainsDataAndBase64Cover() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "星屑与黄昏", "神作", "WATCHING"));
-        when(mediaService.get(2L)).thenReturn(media(2L, "迷宫都市", "", "DONE"));
-        when(coverService.base64ForCoverPath("/covers/1.jpg"))
-                .thenReturn("data:image/jpeg;base64,QUJD");
-        when(coverService.base64ForCoverPath("/covers/2.jpg"))
-                .thenReturn("data:image/jpeg;base64,REVG");
-        MediaFormat fmt = new MediaFormat();
-        fmt.setId(1L);
-        fmt.setCode("ANIME");
-        fmt.setName("番剧");
-        when(formatMapper.selectOne(any())).thenReturn(fmt);
+    void 输出模板标识与形态() throws Exception {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", 2024));
+        assertEquals("chapter", parse(renderInput(List.of(1L), null, null, null, null, null)).get("style").asText());
+        assertEquals("chapter", parse(renderInput(List.of(1L), null, "stream", null, null, null)).get("style").asText());
+        assertEquals("clip", parse(renderInput(List.of(1L), null, "clip", null, null, null)).get("style").asText());
+        assertEquals("MULTI_MEDIA_RECOMMEND", parse(renderInput(List.of(1L), null, null, null, null, null)).get("template").asText());
+    }
+
+    @Test
+    void 分组维度写入媒体分组名() throws Exception {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", 2024));
+        when(mediaService.get(2L)).thenReturn(media(2L, "B", null));
+        JsonNode grouped = parse(renderInput(List.of(1L, 2L), "year", null, null, null, null));
+        assertEquals("2024 年", grouped.get("media").get(0).get("group").asText());
+        assertEquals("未知年份", grouped.get("media").get(1).get("group").asText());
+        // 不分组时不应有 group 字段（Remotion 侧据此判断是否产生章节页）
+        JsonNode plain = parse(renderInput(List.of(1L), null, null, null, null, null));
+        assertFalse(plain.get("media").get(0).has("group"));
+    }
+
+    @Test
+    void 子分类分组名走父级路径() throws Exception {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", 2024));
         MediaSubcategory sub = new MediaSubcategory();
-        sub.setId(5L);
+        sub.setId(3L);
         sub.setName("异世界");
         sub.setParentId(0L);
-        when(subMapper.selectById(5L)).thenReturn(sub);
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of(
-                new TagUsage(1L, "热血", 1L, 0, 0, 0, 14),
-                new TagUsage(2L, "战斗", 1L, 0, 0, 0, 3)));
-
-        String html = service.buildHtml(List.of(1L, 2L));
-
-        assertTrue(html.contains("星屑与黄昏"));
-        assertTrue(html.contains("神作"));
-        assertTrue(html.contains("data:image/jpeg;base64,QUJD"));
-        // · 被 HtmlUtils.htmlEscape 转成 &middot;（安全且可还原显示）
-        assertTrue(html.contains("番剧 &middot; 异世界"));
-        // 标签热度以 JSON 数组形式注入模板（chips 由模板 JS 运行时渲染）
-        assertTrue(html.contains("\"tags\":[[\"热血\",14],[\"战斗\",3]]"));
-        assertTrue(html.contains("在看"));
-        // 空备注 → 占位
-        assertTrue(html.contains("（暂无备注）"));
-        // 模板占位符已被替换
-        assertFalse(html.contains("__SLIDES_JSON__"));
+        when(subMapper.selectById(3L)).thenReturn(sub);
+        JsonNode node = parse(renderInput(List.of(1L), "subcategory", null, null, null, null));
+        assertEquals("异世界", node.get("media").get(0).get("group").asText());
     }
 
     @Test
-    void buildHtmlEscapesHtmlSpecialChars() {
-        when(mediaService.get(1L)).thenReturn(
-                media(1L, "<script>alert(1)</script>", "含 & 与 \"引号\"", "WANT"));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(coverService.base64ForCoverPath(eq("/covers/clip/1-fallback.jpg"))).thenReturn(null);
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
-
-        String html = service.buildHtml(List.of(1L));
-
-        // 原始尖括号不得原样出现在 HTML 中（防注入/破坏结构）
-        assertFalse(html.contains("<script>alert(1)</script>"));
-        assertTrue(html.contains("&lt;script&gt;"));
+    void 分组与每屏参数进入参数区() throws Exception {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", 2024));
+        JsonNode params = parse(renderInput(List.of(1L), "year", null, null, null, null)).get("params");
+        assertEquals("year", params.get("groupBy").asText());
+        assertEquals("date-desc", params.get("groupSort").asText());
+        assertEquals(1, params.get("perScreen").asInt());
     }
 
     @Test
-    void buildHtmlSkipsMissingMediaKeepsOrder() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "A", "n", "WANT"));
-        when(mediaService.get(2L)).thenThrow(new RuntimeException("not found"));
-        when(mediaService.get(3L)).thenReturn(media(3L, "B", "n", "WANT"));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(anyLong())).thenReturn(List.of());
-
-        String html = service.buildHtml(List.of(1L, 2L, 3L));
-
-        int a = html.indexOf("\"title\":\"A\"");
-        int b = html.indexOf("\"title\":\"B\"");
-        assertTrue(a >= 0 && b >= 0 && a < b, "按 ids 顺序排列");
+    void BGM曲目带曲长与素材路径() throws Exception {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", 2024));
+        JsonNode tracks = parse(renderInput(List.of(1L), null, null,
+                List.of(new RecommendService.BgmTrack("夜色航线", "QUJD")), List.of("bgm-1.mp3"), null))
+                .get("params").get("bgmTracks");
+        assertEquals(1, tracks.size());
+        assertEquals("夜色航线", tracks.get(0).get("name").asText());
+        assertEquals("bgm-1.mp3", tracks.get(0).get("assetPath").asText());
+        assertEquals(42.5, tracks.get(0).get("durationSec").asDouble());
     }
 
     @Test
-    void buildHtmlGroupsByYearDescending() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "旧作", "n", "WANT", 2022));
-        when(mediaService.get(2L)).thenReturn(media(2L, "新作", "n", "WANT", 2024));
-        when(mediaService.get(3L)).thenReturn(media(3L, "中作", "n", "WANT", 2023));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(anyLong())).thenReturn(List.of());
-
-        String html = service.buildHtml(List.of(1L, 2L, 3L), null, null, null, "year", "stream");
-
-        // 每项带 group「年份 年」
-        assertTrue(html.contains("\"group\":\"2024 年\""));
-        assertTrue(html.contains("\"group\":\"2023 年\""));
-        assertTrue(html.contains("\"group\":\"2022 年\""));
-        // 年份降序：2024 → 2023 → 2022
-        int i24 = html.indexOf("\"group\":\"2024 年\"");
-        int i23 = html.indexOf("\"group\":\"2023 年\"");
-        int i22 = html.indexOf("\"group\":\"2022 年\"");
-        assertTrue(i24 >= 0 && i23 > i24 && i22 > i23, "按年份降序分组排列");
+    void BGM无素材时只输出曲名() throws Exception {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", 2024));
+        JsonNode tracks = parse(renderInput(List.of(1L), null, null,
+                List.of(new RecommendService.BgmTrack("仅显示", null)), null, null))
+                .get("params").get("bgmTracks");
+        assertEquals("仅显示", tracks.get(0).get("name").asText());
+        assertFalse(tracks.get(0).has("assetPath"));
+        assertFalse(tracks.get(0).has("durationSec"));
     }
 
     @Test
-    void buildHtmlGroupsByYearFallsBackUnknown() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "无年份", "n", "WANT", null));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
-
-        String html = service.buildHtml(List.of(1L), null, null, null, "year", "stream");
-
-        assertTrue(html.contains("\"group\":\"未知年份\""));
+    void 片段素材路径与时长进入媒体视图() throws Exception {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", 2024));
+        Map<Long, List<RecommendClipSourceService.PreparedClip>> clips = Map.of(1L, List.of(
+                new RecommendClipSourceService.PreparedClip(11L, "爆发瞬间", "备注", 10.0, 14.0, "media/clip-11.mp4", null)));
+        JsonNode media = parse(renderInput(List.of(1L), null, null, null, null, clips)).get("media").get(0);
+        assertEquals("CLIPS_SELECTED", media.get("mode").asText());
+        assertEquals(4000, media.get("clips").get(0).get("durationMs").asLong());
+        assertEquals("media/clip-11.mp4", media.get("clips").get(0).get("assetPath").asText());
+        assertTrue(media.get("clips").get(0).get("hasAudio").asBoolean());
     }
 
     @Test
-    void buildHtmlGroupsBySubcategoryFallsBackToUnclassified() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "有分类", "n", "WANT"));
-        MediaDetail noSub = new MediaDetail(2L, "无分类", 2004, "原名2", "别名", "ANIME", null, null, "n", "WANT",
-                BigDecimal.ONE, "/covers/2.jpg", 1, "MANUAL", 1L, 3L, 1L, List.of(), List.of(), "/covers/clip/2-fallback.jpg");
-        when(mediaService.get(2L)).thenReturn(noSub);
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(anyLong())).thenReturn(List.of());
-        MediaSubcategory sub = new MediaSubcategory();
-        sub.setId(5L); sub.setName("异世界"); sub.setParentId(0L);
-        when(subMapper.selectById(5L)).thenReturn(sub);
-
-        String html = service.buildHtml(List.of(1L, 2L), null, null, null, "subcategory", "stream");
-
-        assertTrue(html.contains("\"group\":\"异世界\""));
-        assertTrue(html.contains("\"group\":\"未分类\""));
+    void 开放时长片段走探测() throws Exception {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", 2024));
+        Map<Long, List<RecommendClipSourceService.PreparedClip>> clips = Map.of(1L, List.of(
+                new RecommendClipSourceService.PreparedClip(11L, "开放", null, null, null, "media/clip-11.mp4", null)));
+        JsonNode media = parse(renderInput(List.of(1L), null, null, null, null, clips)).get("media").get(0);
+        assertEquals(3500, media.get("clips").get(0).get("durationMs").asLong());
     }
 
     @Test
-    void buildHtmlGroupsByCollectionUsesFirstAndFallsBack() {
-        when(mediaService.get(1L)).thenReturn(new MediaDetail(1L, "收藏中", 2004, "原名1", "别名", "ANIME", "异世界", 5L,
-                "n", "WANT", BigDecimal.ONE, "/covers/1.jpg", 1, "MANUAL", 1L, 3L, 1L, List.of(), List.of(7L), "/covers/clip/1-fallback.jpg"));
-        when(mediaService.get(2L)).thenReturn(media(2L, "未收藏", "n", "WANT"));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(anyLong())).thenReturn(List.of());
-        Collection c = new Collection();
-        c.setId(7L); c.setName("年度神作");
-        when(collectionMapper.selectById(7L)).thenReturn(c);
-
-        String html = service.buildHtml(List.of(1L, 2L), null, null, null, "collection", "stream");
-
-        assertTrue(html.contains("\"group\":\"年度神作\""));
-        assertTrue(html.contains("\"group\":\"未收藏\""));
+    void 缺失媒体跳过全缺失报错() throws Exception {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", 2024));
+        when(mediaService.get(9L)).thenThrow(new IllegalArgumentException("不存在"));
+        JsonNode node = parse(renderInput(List.of(1L, 9L), null, null, null, null, null));
+        assertEquals(1, node.get("media").size());
+        assertThrows(IllegalArgumentException.class, () -> renderInput(List.of(9L), null, null, null, null, null));
+        assertThrows(IllegalArgumentException.class, () -> renderInput(List.of(), null, null, null, null, null));
     }
 
     @Test
-    void buildHtmlNoGroupFieldWhenNone() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "A", "n", "WANT"));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
-
-        String html = service.buildHtml(List.of(1L), null, null, null, "none", null);
-        assertFalse(html.contains("\"group\""));
-    }
-
-    @Test
-    void buildHtmlSelectsStyleTemplate() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "A", "n", "WANT"));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
-
-        String chapter = service.buildHtml(List.of(1L), null, null, null, null, "chapter");
-        assertTrue(chapter.contains(".chapter"), "chapter 模板含章节页样式");
-        String clip = service.buildHtml(List.of(1L), null, null, null, null, "clip");
-        assertTrue(clip.contains("BEFORE THE REEL"), "clip 模板含观前速览");
-        assertTrue(clip.contains("REAL CLIP / PLAYING"), "clip 模板含片段放映区");
-        String legacy = service.buildHtml(List.of(1L), null, null, null, null, "stream");
-        assertTrue(legacy.contains(".chapter"), "历史 stream 样式回退章节式");
-        String unknown = service.buildHtml(List.of(1L), null, null, null, null, "bogus");
-        assertTrue(unknown.contains(".chapter"), "未知样式回退章节式");
-    }
-
-    @Test
-    void buildHtmlInjectsBgmTracksSubtitleAndOpen() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "A", "n", "WANT"));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
-
-        String html = service.buildHtml(List.of(1L), "标题",
-                List.of(new RecommendService.BgmTrack("a.mp3", "QUJD"),
-                        new RecommendService.BgmTrack("b.mp3", "REVG")),
-                "副题", "lg", "year", "stream", List.of(1L));
-
-        // 多曲 BGM 注入模板（视频导出时 BGM 条能显示曲名）
-        assertTrue(html.contains("a.mp3"));
-        assertTrue(html.contains("audio/mpeg;base64,QUJD"));
-        assertTrue(html.contains("b.mp3"));
-        assertTrue(html.contains("REVG"));
-        // 副题注入
-        assertTrue(html.contains("副题"));
-        // group + open 标记（开场子集）
-        assertTrue(html.contains("\"group\":\"2004 年\""));
-        assertTrue(html.contains("\"open\":true"));
-        // 封面大小（0-100 滑块；"lg" 非法 → 回退 50 中档）
-        assertTrue(html.contains("COVER_COEF = 0.65 + Number('50') / 100"));
-    }
-
-    @Test
-    void buildHtmlInjectsBrandTitle() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "A", "n", "WANT"));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
-
-        // 默认（brandTitle 空）→ 占位符回退「我的番剧推荐」
-        String html = service.buildHtml(List.of(1L), null);
-        assertTrue(html.contains("<span class=\"logo\">✦</span><span>我的番剧推荐</span>"));
-
-        // 自定义角标注入（完整签名，groupStyle=chapter）
-        String custom = service.buildHtml(List.of(1L), "标题", null, null, null, null, "chapter",
-                null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
-                100, 1, 8, "我的补番推荐", 1, null, null);
-        assertTrue(custom.contains("<span class=\"logo\">✦</span><span>我的补番推荐</span>"));
-
-        // 结尾落定后先停 1s 再轮播（chapter 模板 startEnding 同口径）
-        assertTrue(custom.contains("setTimeout(() => {"));
-    }
-
-    @Test
-    void buildHtmlInjectsPerScreen() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "A", "n", "WANT"));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
-
-        // 每屏 N 部注入（chapter 模板才有 __PER_SCREEN__ 占位符）：默认空 → 1；自定义 4 → 4；越界 99 → clamp 10
-        String def = service.buildHtml(List.of(1L), "标题", null, null, null, null, "chapter",
-                null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
-                100, 1, 8, null, null, null, null);
-        assertTrue(def.contains("_fnum(\"1\", 1)"));
-        String custom = service.buildHtml(List.of(1L), "标题", null, null, null, null, "chapter",
-                null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
-                100, 1, 8, null, 4, null, null);
-        assertTrue(custom.contains("_fnum(\"4\", 1)"));
-        String clamped = service.buildHtml(List.of(1L), "标题", null, null, null, null, "chapter",
-                null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50,
-                100, 1, 8, null, 99, null, null);
-        assertTrue(clamped.contains("_fnum(\"10\", 1)"));
-    }
-
-    @Test
-    void buildHtmlEmptyIdsThrows() {
-        assertThrows(IllegalArgumentException.class, () -> service.buildHtml(List.of()));
-        assertThrows(IllegalArgumentException.class, () -> service.buildHtml(null));
-    }
-
-    @Test
-    void buildHtmlUsesDefaultTitleWhenBlank() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "A", "n", "WANT"));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
-
-        String html = service.buildHtml(List.of(1L), null);
-        assertTrue(html.contains("<title>我的番剧推荐</title>"));
-        assertTrue(html.contains("<h1>我的番剧推荐</h1>"));
-        assertFalse(html.contains("__TITLE__"));
-
-        String htmlBlank = service.buildHtml(List.of(1L), "  ");
-        assertTrue(htmlBlank.contains("<title>我的番剧推荐</title>"));
-    }
-
-    @Test
-    void buildHtmlInjectsCustomTitle() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "A", "n", "WANT"));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
-
-        String html = service.buildHtml(List.of(1L), "2026 春季补番清单");
-        assertTrue(html.contains("<title>2026 春季补番清单</title>"));
-        assertTrue(html.contains("<h1>2026 春季补番清单</h1>"));
-    }
-
-    @Test
-    void buildHtmlEscapesTitle() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "A", "n", "WANT"));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
-
-        String html = service.buildHtml(List.of(1L), "<b>春季</b>&\"番剧\"");
-        assertFalse(html.contains("<b>春季</b>"));
-        assertTrue(html.contains("&lt;b&gt;春季&lt;/b&gt;"));
-    }
-
-    @Test
-    void buildHtmlFallsBackToFallbackCover() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "X", "n", "WANT"));
-        when(coverService.base64ForCoverPath("/covers/1.jpg")).thenReturn(null);
-        when(coverService.base64ForCoverPath("/covers/clip/1-fallback.jpg"))
-                .thenReturn("data:image/png;base64,QUJD");
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
-
-        String html = service.buildHtml(List.of(1L));
-
-        assertTrue(html.contains("data:image/png;base64,QUJD"));
-        verify(coverService).base64ForCoverPath("/covers/1.jpg");
-        verify(coverService).base64ForCoverPath("/covers/clip/1-fallback.jpg");
-    }
-
-    @Test
-    void buildHtmlNoCoverRendersPlaceholderPath() {
-        when(mediaService.get(1L)).thenReturn(media(1L, "X", "n", "WANT"));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
-
-        String html = service.buildHtml(List.of(1L));
-
-        // 无封面：cover 序列化为 null（模板 img src 空串 onerror 隐藏），仍可正常生成
-        assertTrue(html.contains("\"cover\":null"));
-    }
-
-    @Test
-    void buildHtmlUsesSubcategorySnapshotWhenIdAbsent() {
-        when(mediaService.get(1L)).thenReturn(
-                new MediaDetail(1L, "Y", null, null, "别名", "ANIME", "治愈", null, "n", "WANT",
-                        BigDecimal.ONE, "/covers/1.jpg", 1, "MANUAL", 1L, 0L, 0L,
-                        List.of(), List.of(), null));
-        when(coverService.base64ForCoverPath(any())).thenReturn(null);
-        when(tagMapper.countByMedia(1L)).thenReturn(List.of());
-
-        String html = service.buildHtml(List.of(1L));
-
-        assertTrue(html.contains("治愈"));
-        verify(subMapper, never()).selectById(anyLong());
+    void 显示时长归一化到默认区间() {
+        RecommendService.Durations d = service.normalizeDurations(999, 0, null, 1, 99);
+        assertEquals(20, d.opening());
+        assertEquals(1, d.intro());
+        assertEquals(5, d.group());
+        assertEquals(3, d.detail());
+        assertEquals(10, d.ending());
     }
 }

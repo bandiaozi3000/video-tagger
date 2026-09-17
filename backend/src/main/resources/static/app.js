@@ -4565,42 +4565,14 @@ async function generateRecommendPreview() {
         }
         const html = await resp.text();
         const frame = document.getElementById('recommend-preview-frame');
+        // 预览页 = Remotion Player 页（与导出同源）：交互全由 Player 自带控制条提供
         frame.srcdoc = html;
-        /* 预览就绪后启用配置模式（BGM 条拖拽 + 右侧导航）+ 同步自动播放开关 */
-        frame.onload = () => {
-            try {
-                frame.contentWindow.postMessage({ type: 'bgm-config', enable: true }, '*');
-                frame.contentWindow.postMessage({ type: 'bgm-autoplay', on: document.getElementById('preview-autoplay').checked }, '*');
-            } catch (e) { /* 忽略 */ }
-        };
         document.getElementById('preview-title-note').textContent = `「${title}」· ${ids.length} 部`;
         document.getElementById('recommend-preview-modal').hidden = false;
         statusEl.textContent = '';
     } catch (err) {
         statusEl.textContent = '';
         showToast(err.message || '生成预览失败');
-    }
-}
-
-/** 下载 HTML（普通 a.download，文件带时间戳）。 */
-async function downloadRecommendHtml() {
-    const ids = [...recommendSelected];
-    if (ids.length === 0) { showToast('请先勾选要推荐的媒体'); return; }
-    const title = recommendTitle();
-    try {
-        const resp = await fetch('/api/recommend/html', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids, title, brandTitle: recommendBrandTitle(), subtitle: recommendSubtitle(), coverSize: recommendCoverSize(), intro: recommendIntro(), prologueTitle: recommendPrologueTitle(), groupBy: recommendGroupBy(), groupStyle: recommendGroupStyle(), perScreen: recommendPerScreen(), groupSort: recommendGroupSort(), openingSpeed: recommendOpeningSpeed(), endingScrollSpeed: recommendEndingSpeed(), openingIds: currentOpeningIds(), mediaClips: recommendClipConfigObject(), ...recommendEnding(), ...recommendBg(), ...recommendBgmStyle(), ...recommendDetailShow(), ...recommendDurations(), ...recommendBgmBody() }),
-        });
-        if (!resp.ok) throw new Error(`生成失败 (${resp.status})`);
-        const blob = await resp.blob();
-        const stamp = stampNow();
-        const isZip = (resp.headers.get('content-type') || '').includes('zip');
-        downloadBlob(blob, `video-tagger-recommend-${stamp}.${isZip ? 'zip' : 'html'}`);
-        showToast(`已生成，共 ${ids.length} 部${isZip ? '（含片段资源）' : ''}`);
-    } catch (err) {
-        showToast(err.message || '下载失败');
     }
 }
 
@@ -8047,15 +8019,9 @@ document.getElementById('mf-cancel').addEventListener('click', () => { document.
 document.getElementById('mf-confirm').addEventListener('click', confirmMediaFavPick);
 document.getElementById('recommend-gen-preview').addEventListener('click', generateRecommendPreview);
 document.getElementById('preview-render-btn').addEventListener('click', generateRecommendPreview);   // 配置调整后手动「确认渲染」
-document.getElementById('recommend-export-html').addEventListener('click', downloadRecommendHtml);
 document.getElementById('recommend-export-video').addEventListener('click', openVideoExport);
 // 预览弹窗
 document.getElementById('preview-close').addEventListener('click', () => { document.getElementById('recommend-preview-modal').hidden = true; });
-/* 自动播放开关（预览界面，默认开）：切换即同步到 iframe 导览 */
-document.getElementById('preview-autoplay').addEventListener('change', () => {
-    const frame = document.getElementById('recommend-preview-frame');
-    try { frame.contentWindow.postMessage({ type: 'bgm-autoplay', on: document.getElementById('preview-autoplay').checked }, '*'); } catch (err) { /* 忽略 */ }
-});
 document.getElementById('preview-export-video').addEventListener('click', () => {
     document.getElementById('recommend-preview-modal').hidden = true;
     openVideoExport();

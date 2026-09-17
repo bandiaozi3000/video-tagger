@@ -24,8 +24,7 @@ class RecommendVideoServiceTest {
     @BeforeEach
     void setUp() {
         recommendService = mock(RecommendService.class);
-        service = new RecommendVideoService(recommendService,
-                "scripts", "node", "chrome", "ffmpeg");
+        service = new RecommendVideoService(recommendService, "node", "ffmpeg");
     }
 
     @Test
@@ -39,14 +38,13 @@ class RecommendVideoServiceTest {
     @Test
     void unknownResolutionThrows() {
         assertThrows(IllegalArgumentException.class, () -> service.render(List.of(1L), null, "MP4", "4KXX"));
-        verify(recommendService, never()).buildHtml(org.mockito.ArgumentMatchers.anyList());
+        // 校验在组装 RenderInput 之前就拦下（不会白跑 node）
+        org.mockito.Mockito.verifyNoInteractions(recommendService);
     }
 
     @Test
     void unknownFormatThrows() {
         assertThrows(IllegalArgumentException.class, () -> service.render(List.of(1L), null, "AVI", "1080P"));
-        // 未走到 HTML 生成
-        verify(recommendService, never()).buildHtml(org.mockito.ArgumentMatchers.anyList());
     }
 
     @Test

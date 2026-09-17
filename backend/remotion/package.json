@@ -12,7 +12,7 @@
     "verify:params": "tsx scripts/verify-params.ts",
     "player:poc": "tsx scripts/serve-player.ts",
     "render:recommend": "tsx scripts/render-recommend.ts",
-    "extract:css": "node scripts/extract-chapter-css.mjs",
+    "check:native": "node scripts/check-native.mjs",
     "build:player": "vite build --config vite.player.config.ts"
   },
   "dependencies": {

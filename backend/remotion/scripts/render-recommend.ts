@@ -1,15 +1,16 @@
 /**
- * 生产渲染入口：Java `RecommendVideoService` 调这个脚本把推荐模板渲成带原声的视频。
+ * 生产渲染入口：Java `RecommendVideoService` 调这个脚本把推荐模板渲成**带原声与 BGM 的成品**。
  *
  * 契约（Java ↔ Node）：
- *   --input   <json>   RenderInput（{template,title,subtitle,intro,media[],params}）
+ *   --input   <json>   RenderInput（{template,style,title,subtitle,intro,media[],params}）
  *   --output  <file>   产物路径（扩展名必须与 --format 匹配）
- *   --asset-root <dir> 素材根目录（media/*.mp4、封面等；脚本内起本地 HTTP 服务，不向 Remotion 传 file://）
+ *   --asset-root <dir> 素材根目录（media/*.mp4、封面、BGM；脚本内起本地 HTTP 服务，不向 Remotion 传 file://）
  *   --format  mp4|webm 默认 mp4
- *   --concurrency <n>  默认 1（POC 实测稳定值）
+ *   --concurrency <n>  默认 2（导出队列本身单线程串行，机器不会被任务叠加打满）
  *
  * 输出：成功时 stdout 打印一行 JSON 摘要（Java 解析用），失败非 0 退出并把原因写到 stderr。
- * 音频：**不做静音处理**（产物带素材原声），BGM 由 Java 侧 FFmpeg 混流。
+ * 音频：**不做静音处理**——素材原声由 `<OffthreadVideo>` 提供，BGM 由 `<Audio>` 在 Remotion 内混入，
+ *       Java 侧不再需要 FFmpeg concat / amix 混流（设计规格 §7）。
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -31,7 +32,7 @@ async function main(): Promise<void> {
   const outputPath = argument('--output');
   const assetRoot = argument('--asset-root');
   const format = (argument('--format') ?? 'mp4').toLowerCase();
-  const concurrency = Number(argument('--concurrency') ?? '1');
+  const concurrency = Number(argument('--concurrency') ?? '2');
 
   if (!inputPath || !outputPath) throw new Error('缺少参数：--input 与 --output 必填');
   if (!assetRoot) throw new Error('缺少参数：--asset-root 必填');
@@ -54,8 +55,14 @@ async function main(): Promise<void> {
       codec: format === 'webm' ? 'vp8' : 'h264',
       outputLocation: path.resolve(outputPath),
       inputProps: { input: renderInput },
-      concurrency: Number.isFinite(concurrency) && concurrency > 0 ? Math.floor(concurrency) : 1,
-      // 不传 muted/audioCodec：保留素材原声（BGM 由 Java FFmpeg 混流）
+      concurrency: Number.isFinite(concurrency) && concurrency > 0 ? Math.floor(concurrency) : 2,
+      // 显式编码参数：默认值对 1080P 偏慢/偏大，这里固定成"质量够、体积稳"的组合
+      crf: format === 'webm' ? undefined : 18,
+      pixelFormat: 'yuv420p',
+      x264Preset: format === 'webm' ? undefined : 'veryfast',
+      audioCodec: format === 'webm' ? 'opus' : 'aac',
+      audioBitrate: '192k',
+      // 不传 muted：保留素材原声 + 内建 BGM
     });
     console.log(JSON.stringify({
       ok: true,

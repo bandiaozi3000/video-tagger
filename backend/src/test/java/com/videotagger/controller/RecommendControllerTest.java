@@ -16,8 +16,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -60,70 +58,23 @@ class RecommendControllerTest {
     @MockBean
     VideoExportTaskService exportTaskService;
     @Test
-    void htmlReturnsSelfContainedFile() throws Exception {
-        Mockito.when(recommendService.buildHtml(Mockito.anyList(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any())).thenReturn("<!DOCTYPE html><h1>我的番剧推荐</h1>");
-
+    void htmlShareEndpointRetired() throws Exception {
+        // `/html`（HTML 分享包）随旧模板链路退役：该路径不再存在（无处理器 → 500 包裹）
         mvc.perform(post("/api/recommend/html")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ids\":[1,2,3]}"))
-                .andExpect(status().isOk())
-                .andExpect(content().contentType("text/html;charset=UTF-8"))
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("我的番剧推荐")))
-                .andExpect(header().string("Content-Disposition",
-                        org.hamcrest.Matchers.containsString("video-tagger-recommend.html")));
+                .andExpect(status().is5xxServerError());
     }
 
     @Test
-    void htmlPassesTitleThrough() throws Exception {
-        Mockito.when(recommendService.buildHtml(Mockito.anyList(),
-                Mockito.eq("2026 春季补番"), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any())).thenReturn("<!DOCTYPE html><h1>2026 春季补番</h1>");
-
-        mvc.perform(post("/api/recommend/html")
+    void previewWithoutPlayerBundleFailsLoud() throws Exception {
+        // Player 静态包未构建 → 409 并给出可操作的中文提示（不是静默回退到旧 HTML）
+        Mockito.when(recommendVideoService.playerPagePath()).thenReturn(null);
+        mvc.perform(post("/api/recommend/preview")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ids\":[1,2],\"title\":\"2026 春季补番\"}"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("2026 春季补番")));
-    }
-
-    @Test
-    void htmlPassesDetailShowThrough() throws Exception {
-        Mockito.when(recommendService.buildHtml(Mockito.anyList(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.eq(Map.of("status", true, "note", false, "tag", true)))).thenReturn("<!DOCTYPE html>");
-
-        mvc.perform(post("/api/recommend/html")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ids\":[1],\"detailShow\":{\"status\":true,\"note\":false,\"tag\":true}}"))
-                .andExpect(status().isOk());
-    }
-
-    @Test
-    void htmlEmptyIdsReturns400() throws Exception {
-        Mockito.when(recommendService.buildHtml(Mockito.anyList(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
-                .thenThrow(new IllegalArgumentException("ids 不能为空"));
-
-        mvc.perform(post("/api/recommend/html")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"ids\":[]}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400));
+                        .content("{\"ids\":[1,2,3]}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("build:player")));
     }
 
     @Test
