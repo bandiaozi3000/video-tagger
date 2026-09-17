@@ -54,6 +54,8 @@ public class RecommendVideoService {
     private final String nodePath;
     private final String chromePath;
     private final String ffmpegPath;
+    private final String remotionDir;
+    private final String ffprobePath;
 
     @Autowired
     public RecommendVideoService(RecommendService recommendService,
@@ -61,13 +63,17 @@ public class RecommendVideoService {
                                  @Value("${videotagger.render.scripts-dir}") String scriptsDir,
                                  @Value("${videotagger.render.node-path}") String nodePath,
                                  @Value("${videotagger.render.chrome-path}") String chromePath,
-                                 @Value("${videotagger.render.ffmpeg-path}") String ffmpegPath) {
+                                 @Value("${videotagger.render.ffmpeg-path}") String ffmpegPath,
+                                 @Value("${videotagger.render.remotion-dir:backend/remotion}") String remotionDir,
+                                 @Value("${videotagger.render.ffprobe-path:}") String ffprobePath) {
         this.recommendService = recommendService;
         this.clipSourceService = clipSourceService;
         this.scriptsDir = scriptsDir;
         this.nodePath = nodePath;
         this.chromePath = chromePath;
         this.ffmpegPath = ffmpegPath;
+        this.remotionDir = remotionDir;
+        this.ffprobePath = ffprobePath;
     }
 
     public RecommendVideoService(RecommendService recommendService,
@@ -75,7 +81,7 @@ public class RecommendVideoService {
                                  @Value("${videotagger.render.node-path}") String nodePath,
                                  @Value("${videotagger.render.chrome-path}") String chromePath,
                                  @Value("${videotagger.render.ffmpeg-path}") String ffmpegPath) {
-        this(recommendService, null, scriptsDir, nodePath, chromePath, ffmpegPath);
+        this(recommendService, null, scriptsDir, nodePath, chromePath, ffmpegPath, "backend/remotion", "");
     }
 
 
@@ -227,6 +233,14 @@ public class RecommendVideoService {
                     }
                     bgmFile = concat.toAbsolutePath().toString();
                 }
+            }
+
+            // 3. 渲染：chapter 样式走 Remotion 逐帧渲染（产物带原声），其余样式（clip）仍走旧 render.js。
+            if (clipSourceService != null && recommendService.isRemotionStyle(groupStyle)) {
+                return renderWithRemotion(work, ids, title, fmt, wh, bgmFile, bgmTracks, subtitle, coverSize,
+                        groupBy, groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages,
+                        bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed,
+                        endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preparedClips);
             }
 
             // 3. 时长 = 开局定格 + 序言(如有) + 章节×真实组数(如有分组) + 详情×N + 结尾（精确对齐显示时长配置，无缓冲）
@@ -385,6 +399,203 @@ public class RecommendVideoService {
     }
 
     /**
+     * chapter 样式：Remotion 逐帧渲染（产物带素材原声）+ 最终 BGM 混流。
+     *
+     * 与旧链路（Puppeteer 实时录屏 → 静音视频 → BGM 铺满）的区别：
+     * Remotion 产物**自带原声**，所以 BGM 由「铺满」改为「与原声混合」（设计规格 §8.3）。
+     */
+    private Path renderWithRemotion(Path work, List<Long> ids, String title, String fmt, int[] wh, String bgmFile,
+                                    List<RecommendService.BgmTrack> bgmTracks, String subtitle, String coverSize,
+                                    String groupBy, String groupStyle, List<Long> openingIds, String intro,
+                                    RecommendService.Durations durations, String endingTitle, String endingText,
+                                    String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity,
+                                    Integer bgBlur, Integer bgBrightness, String prologueTitle, String groupSort,
+                                    Integer openingSpeed, Integer endingScrollSpeed, Integer bgmScale, Integer bgmX,
+                                    Integer bgmY, String brandTitle, Integer perScreen, Map<String, Boolean> detailShow,
+                                    Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips) throws IOException {
+        Path remotion = resolveRemotionDir();
+        if (remotion == null) {
+            throw new IllegalStateException("未找到 Remotion 工程（期望 <remotion-dir>/scripts/render-recommend.ts，"
+                    + "当前配置 " + remotionDir + "）");
+        }
+
+        String inputJson = recommendService.buildRenderInput(ids, title, bgmTracks, subtitle, coverSize, groupBy,
+                groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
+                bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale,
+                bgmX, bgmY, brandTitle, perScreen, detailShow, preparedClips, "embed", 30, wh[0], wh[1],
+                rel -> probeMediaDuration(work.resolve(rel).toAbsolutePath().toString()));
+        Path inputFile = work.resolve("render-input.json");
+        Files.writeString(inputFile, inputJson, StandardCharsets.UTF_8);
+        Path rendered = work.resolve("rendered." + fmt);
+        Path out = uniqueExportName(title, fmt);
+
+        var cmd = new ArrayList<String>();
+        cmd.add(nodePath);
+        cmd.add(remotion.resolve("node_modules/tsx/dist/cli.mjs").toAbsolutePath().toString());
+        cmd.add(remotion.resolve("scripts/render-recommend.ts").toAbsolutePath().toString());
+        cmd.add("--input"); cmd.add(inputFile.toAbsolutePath().toString());
+        cmd.add("--output"); cmd.add(rendered.toAbsolutePath().toString());
+        cmd.add("--asset-root"); cmd.add(work.toAbsolutePath().toString());
+        cmd.add("--format"); cmd.add(fmt);
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.directory(remotion.toFile());
+        pb.redirectErrorStream(true);
+        log.info("Remotion 渲染推荐视频: {} 部, {}x{}, node={}, remotion={}", ids.size(), wh[0], wh[1], nodePath, remotion);
+        long t0 = System.currentTimeMillis();
+        Process p = pb.start();
+        String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        boolean finished;
+        try {
+            finished = p.waitFor(RENDER_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            p.destroyForcibly();
+            throw new IllegalStateException("Remotion 渲染被中断", e);
+        }
+        if (!finished) {
+            p.destroyForcibly();
+            throw new IllegalStateException("Remotion 渲染超时（>" + RENDER_TIMEOUT_SECONDS + "s）");
+        }
+        if (p.exitValue() != 0) {
+            log.error("Remotion 渲染失败 {}:\n{}", p.exitValue(), output);
+            throw new IllegalStateException("Remotion 渲染失败（node 退出 " + p.exitValue() + "）: " + lastLines(output));
+        }
+        if (!Files.exists(rendered) || Files.size(rendered) < 1024) {
+            log.error("Remotion 产物为空:\n{}", output);
+            throw new IllegalStateException("Remotion 渲染失败（产物为空）");
+        }
+        log.info("Remotion 渲染完成 {}（{}s，{}KB）", rendered.getFileName(),
+                (System.currentTimeMillis() - t0) / 1000.0, Files.size(rendered) / 1024);
+
+        // 最终混流：无 BGM → 直接用（原声已在产物里）；有 BGM → 原声 + BGM 混合
+        if (bgmFile == null) {
+            Files.move(rendered, out, StandardCopyOption.REPLACE_EXISTING);
+        } else {
+            boolean hasAudio = probeHasAudio(rendered.toAbsolutePath().toString());
+            if (hasAudio) {
+                List<String> mixed = runMix(remotionMixCommand(rendered, bgmFile, out, fmt, true));
+                if (mixed == null) {
+                    log.warn("原声+BGM 混合失败，回退为 BGM 铺满（产物音轨可能缺失）");
+                    if (runMix(remotionMixCommand(rendered, bgmFile, out, fmt, false)) == null) {
+                        throw new IllegalStateException("Remotion 最终混流失败（ffmpeg）");
+                    }
+                }
+            } else if (runMix(remotionMixCommand(rendered, bgmFile, out, fmt, false)) == null) {
+                throw new IllegalStateException("Remotion 最终混流失败（ffmpeg）");
+            }
+        }
+        if (!Files.exists(out) || Files.size(out) < 1024) {
+            throw new IllegalStateException("Remotion 渲染失败（最终产物为空）");
+        }
+        log.info("Remotion 导出完成 {}（{}KB）", out.getFileName(), Files.size(out) / 1024);
+        return out;
+    }
+
+    /** Remotion 产物 + BGM → 成品。mixWithOriginal=true → 原声与 BGM 混合（BGM 压低到 45%）；false → BGM 铺满。 */
+    private List<String> remotionMixCommand(Path rendered, String bgmFile, Path out, String fmt, boolean mixWithOriginal) {
+        List<String> mx = new ArrayList<>();
+        mx.add(ffmpegPath);
+        mx.add("-y");
+        mx.add("-i"); mx.add(rendered.toAbsolutePath().toString());
+        mx.add("-stream_loop"); mx.add("-1"); mx.add("-i"); mx.add(bgmFile);
+        if (mixWithOriginal) {
+            mx.add("-filter_complex");
+            mx.add("[1:a]volume=0.45[bgm];[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]");
+            mx.add("-map"); mx.add("0:v:0");
+            mx.add("-map"); mx.add("[aout]");
+        } else {
+            mx.add("-map"); mx.add("0:v:0");
+            mx.add("-map"); mx.add("1:a:0");
+        }
+        mx.add("-c:v"); mx.add("copy");
+        mx.add("-c:a"); mx.add(fmt.equals("webm") ? "libopus" : "aac");
+        mx.add("-shortest");
+        mx.add(out.toAbsolutePath().toString());
+        return mx;
+    }
+
+    /** 跑一次 ffmpeg 混流；成功返回输出日志，失败返回 null（不抛，交给调用方决定回退）。 */
+    private List<String> runMix(List<String> command) {
+        try {
+            ProcessBuilder pm = new ProcessBuilder(command);
+            pm.redirectErrorStream(true);
+            Process proc = pm.start();
+            String logOutput = new String(proc.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int rc = proc.waitFor();
+            if (rc != 0) {
+                // 首次尝试失败可能是预期内的（无音轨却走了 amix 分支）→ 用 WARN，由调用方决定回退
+                log.warn("本次混流尝试失败 {}（详见日志尾部）", rc);
+                log.debug("混流输出:\n{}", logOutput);
+                return null;
+            }
+            return command;
+        } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            log.error("最终混流启动失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 探测文件是否含音轨（ffprobe 不可用/探测异常 → 按“有原声”处理，并依赖 amix 失败回退兜底）。 */
+    private boolean probeHasAudio(String file) {
+        try {
+            Path ffprobe = ffprobePath();
+            if (ffprobe == null) return true;
+            ProcessBuilder pb = new ProcessBuilder(ffprobe.toString(), "-v", "error", "-select_streams", "a",
+                    "-show_entries", "stream=index", "-of", "csv=p=0", file);
+            pb.redirectErrorStream(true);
+            Process pr = pb.start();
+            String probeOut = new String(pr.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            pr.waitFor(30, TimeUnit.SECONDS);
+            return !probeOut.isBlank();
+        } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            log.warn("音轨探测失败，按有原声处理（混流失败会回退）: {}", e.getMessage());
+            return true;
+        }
+    }
+
+    /** 定位 Remotion 工程目录（与 resolveScriptsDir 同理：IDE 与 mvn 的 cwd 不同）。 */
+    private Path resolveRemotionDir() {
+        List<Path> candidates = List.of(
+                Paths.get(remotionDir),
+                Paths.get(remotionDir).toAbsolutePath(),
+                Paths.get("backend/remotion").toAbsolutePath(),
+                Paths.get("../backend/remotion").toAbsolutePath(),
+                Paths.get("remotion").toAbsolutePath());
+        for (Path candidate : candidates) {
+            if (Files.isRegularFile(candidate.resolve("scripts/render-recommend.ts"))) {
+                return candidate.toAbsolutePath().normalize();
+            }
+        }
+        return null;
+    }
+
+    /** 分辨率 → 像素（供预览等外部使用；未知/空 → 720P）。 */
+    public static int[] pixelsOf(String resolution) {
+        int[] wh = RESOLUTIONS.get(normalize(resolution == null || resolution.isBlank() ? "720P" : resolution));
+        return wh == null ? RESOLUTIONS.get("720P") : wh;
+    }
+
+    /** 素材时长探测（秒）；探测不可用/失败返回 0。供预览组装 RenderInput 计算片段时长。 */
+    public double probeDurationSeconds(String file) {
+        return probeMediaDuration(file);
+    }
+
+    /** Remotion Player 预览页是否已构建（未构建时预览回退旧 HTML）。 */
+    public boolean hasPlayerBundle() {
+        Path remotion = resolveRemotionDir();
+        return remotion != null && Files.isRegularFile(remotion.resolve("dist-player/player.html"))
+                && Files.isRegularFile(remotion.resolve("dist-player/player.html"));
+    }
+
+    /** Player 预览页 HTML（已构建的 dist-player/player.html）。 */
+    public Path playerPagePath() {
+        Path remotion = resolveRemotionDir();
+        return remotion == null ? null : remotion.resolve("dist-player/player.html");
+    }
+
+    /**
      * 定位 render.js 所在目录。配置值相对应用工作目录（IDE 从项目根、mvn 从 backend 启动，
      * 两者 cwd 不同），先按配置解析，找不到则按常见候选兜底，避免一种启动方式配置失效。
      */
@@ -482,8 +693,17 @@ public class RecommendVideoService {
     }
 
     /** ffprobe 路径推导：与 ffmpeg 同目录、ffmpeg 换 ffprobe（存在才返回，否则 null 走 ffmpeg -i 回退）。 */
+    /**
+     * ffprobe 定位：优先配置的 ffprobe-path，否则取 ffmpeg-path 同目录同名文件。
+     * 取不到 → 音轨探测按“有原声”处理，混流失败会自动回退（不阻断导出）。
+     */
     private Path ffprobePath() {
         try {
+            if (ffprobePath != null && !ffprobePath.isBlank()) {
+                Path configured = Path.of(ffprobePath).toAbsolutePath();
+                if (Files.isRegularFile(configured)) return configured;
+                log.warn("配置的 ffprobe 不存在: {}（回退为按有原声处理）", ffprobePath);
+            }
             Path ff = Path.of(ffmpegPath).toAbsolutePath();
             String name = ff.getFileName() == null ? "ffmpeg" : ff.getFileName().toString();
             String probeName = name.endsWith(".exe")

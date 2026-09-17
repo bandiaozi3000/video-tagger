@@ -100,3 +100,25 @@
 ### 12. UI 默认沿用当前网站风格
 - **记忆**：`ui-style-consistent`
 - **内容**：新增页面、工作台和复杂交互默认复用当前网站的颜色变量、字体、渐变、表面层级、边框、圆角、间距、按钮、表单、弹窗、状态反馈、动效与响应式规则，不另建割裂的视觉体系。参考 Animeko 等产品时只借鉴功能结构和交互效率，视觉仍落回 Video Tagger 当前风格；除非用户明确要求改版，禁止引入独立主题或第三方默认皮肤。
+
+---
+
+## 五、数据 / 兼容性类
+
+### 13. 桌面轨道冻结：不删不维护，将来一次性全量重建（2026-09-17 用户拍板）
+
+- **背景（实测）**：桌面端 = Electron 壳 + SQLite 数据源；而日常开发跑的是 **MySQL**（`.idea/workspace.xml` 里 IDEA 启动参数带 `--spring.profiles.active=mysql`），`data/video_tagger.db` 自 2026-08-26 起未再被写入。用户确认：桌面端几乎不用，且 SQLite 里的旧数据不要。
+- **规则**：牵扯桌面的代码 **保留不删**（留给将来回头的路），但**不再同步维护**：
+  - 不写 `migration-sqlite/vNN.sql`、不更新 `sqlite-schema.sql` 基线、不改 `MigrationTool` 表/列清单、不改 `SqliteSchemaMigratorTest` 版本断言。
+  - 不打包（`pack.bat`）、不跑桌面验收（`VT_SCREENSHOT`）、不升 `desktop/package.json` 版本号。
+  - 不主动去"修复"桌面包或 `desktop/` 下的脚本。
+- **不加成本但需避开**：`body.desktop-mode` 布局依赖 `#titlebar` / `.sidebar` / `.statusbar` / `.container` 四个容器（类名，见 `index.html`）。改 `index.html` 大结构时保留它们——这是唯一"每天在动 + 无任何报错 + 将来要重写"的项。
+- **不属于冻结范围（勿误删）**：`sqlite-jdbc` 依赖、`AnimekoTagService` / `AnimekoWatchImportService` / `AnimekoTagServiceTest` / `AnimekoWatchImportServiceTest`——它们用 SQLite JDBC 当**客户端**读 Animeko 自己的库（现场打标 / 观看导入），与桌面数据源无关。
+- **解冻条件**：真的要用桌面端时。解冻动作（前提：MySQL 为唯一真源，桌面本地数据视为弃）：
+  1. 补 `db/sqlite-schema.sql` 到当前 MySQL 结构（新增表/列）；
+  2. 补 `MigrationTool` 的表清单 + 每表 SELECT 列清单——**欠着 `highlight_project` / `highlight_project_item` / `highlight_export` 三张表**（自 2026-08-14 建工具起从未进过清单，漏了不报错）；
+  3. 审计 9 对 mapper 方言（`MybatisConfig` 的 `databaseId` 分支）之外新增的 MySQL 专有 SQL；
+  4. 跑 `MigrationTool` 全量重建（fat jar 须用 `PropertiesLauncher`，命令见 `worklog/2026-08-26.md`）；
+  5. 重建 `desktop/resources/`（jre/node/chrome/ffmpeg，现均缺失，`pack.bat` 会直接报错）+ 重新打包。
+- **已知按设计不做**：向量检索（Milvus 摘除，纯关键词 LIKE 兜底，见 `design/2026-08-14-desktop-port.md`）。
+- **同步位置**：本条同时写入项目根 `AGENTS.md` §1「桌面轨道冻结」；AGENTS.md §2 的「双库演进」改为"已冻结"。

@@ -9,7 +9,11 @@
     "test": "vitest run",
     "studio": "remotion studio src/index.ts",
     "render:poc": "tsx scripts/render-poc.ts",
-    "player:poc": "tsx scripts/serve-player.ts"
+    "verify:params": "tsx scripts/verify-params.ts",
+    "player:poc": "tsx scripts/serve-player.ts",
+    "render:recommend": "tsx scripts/render-recommend.ts",
+    "extract:css": "node scripts/extract-chapter-css.mjs",
+    "build:player": "vite build --config vite.player.config.ts"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.524",

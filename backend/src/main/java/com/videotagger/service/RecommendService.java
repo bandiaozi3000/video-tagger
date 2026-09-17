@@ -1,6 +1,7 @@
 package com.videotagger.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.videotagger.entity.Collection;
 import com.videotagger.entity.MediaFormat;
@@ -319,6 +320,169 @@ public class RecommendService {
             if (lower.endsWith(".ogg")) return "audio/ogg";
         }
         return "audio/mpeg";
+    }
+
+    /** 当前样式是否走 Remotion 渲染（chapter 及其历史别名 stream/overview 回退目标）。 */
+    public boolean isRemotionStyle(String groupStyle) {
+        return "chapter".equals(normalizeStyle(groupStyle));
+    }
+
+    /**
+     * 组装 Remotion 渲染输入（生产链路：Java → Node renderer）。
+     *
+     * 与 {@link #buildHtml} 的区别：输出的是给 Remotion 的 JSON（不注入 HTML），
+     * 封面用 embed 模式的 data URI（不把外部 URL 交给 Remotion），
+     * 片段用已准备的本地相对路径（相对工作目录，即 Node 侧的 --asset-root）。
+     *
+     * @param probeSeconds 素材时长探测（入参为工作目录相对的素材路径，返回秒）；仅用于开放时长片段
+     */
+    public String buildRenderInput(List<Long> ids, String title, List<BgmTrack> bgmTracks, String subtitle,
+                                  String coverSize, String groupBy, String groupStyle, List<Long> openingIds,
+                                  String intro, Durations durations, String endingTitle, String endingText,
+                                  String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity,
+                                  Integer bgBlur, Integer bgBrightness, String prologueTitle, String groupSort,
+                                  Integer openingSpeed, Integer endingScrollSpeed, Integer bgmScale, Integer bgmX,
+                                  Integer bgmY, String brandTitle, Integer perScreen,
+                                  Map<String, Boolean> detailShow,
+                                  Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips,
+                                  String coverMode, int fps, int width, int height,
+                                  java.util.function.ToDoubleFunction<String> probeSeconds) {
+        if (ids == null || ids.isEmpty()) {
+            throw new IllegalArgumentException("ids 不能为空");
+        }
+        Durations dur = normalizeDurations(durations);
+        Map<String, Object> root = new LinkedHashMap<>();
+        root.put("template", "MULTI_MEDIA_RECOMMEND");
+        root.put("title", title == null ? "" : title.trim());
+        root.put("subtitle", subtitle == null ? "" : subtitle.trim());
+        root.put("intro", intro == null ? "" : intro.trim());
+
+        List<Map<String, Object>> mediaViews = new ArrayList<>();
+        int order = 0;
+        for (Long id : ids) {
+            MediaDetail d;
+            try {
+                d = mediaService.get(id);
+            } catch (RuntimeException e) {
+                log.warn("Remotion 输入跳过不存在的媒体 {}: {}", id, e.getMessage());
+                continue;
+            }
+            order++;
+            List<RecommendClipSourceService.PreparedClip> clips =
+                    preparedClips == null ? null : preparedClips.get(id);
+            Map<String, Object> view = new LinkedHashMap<>();
+            view.put("mediaId", d.id());
+            view.put("order", order);
+            view.put("mode", (clips == null || clips.isEmpty()) ? "INFO_ONLY" : "CLIPS_SELECTED");
+            view.put("title", d.title() == null ? "" : d.title());
+            if (d.originalTitle() != null && !d.originalTitle().isBlank()) view.put("originalTitle", d.originalTitle());
+            if (d.year() != null) view.put("year", d.year());
+            if (d.season() != null) view.put("season", d.season());
+            // 封面：渲染用 embed（data URI，无头环境自足）；浏览器预览用 url（/covers/x.jpg，宿主直接托管）
+            String cover = resolveCoverDataUrl(d, coverMode == null || coverMode.isBlank() ? "embed" : coverMode);
+            if (cover != null && !cover.isBlank()) view.put("coverAssetPath", cover);
+            view.put("description", d.note() == null ? "" : d.note().trim());
+            List<String> tagNames = new ArrayList<>();
+            for (List<Object> tag : buildTags(d.id())) {
+                if (!tag.isEmpty() && tag.get(0) != null) tagNames.add(String.valueOf(tag.get(0)));
+            }
+            view.put("tags", tagNames);
+
+            List<Map<String, Object>> clipViews = new ArrayList<>();
+            if (clips != null) {
+                for (RecommendClipSourceService.PreparedClip clip : clips) {
+                    Map<String, Object> cv = new LinkedHashMap<>();
+                    cv.put("clipId", clip.id());
+                    cv.put("title", clip.title() == null || clip.title().isBlank() ? "未命名片段" : clip.title());
+                    if (clip.note() != null && !clip.note().isBlank()) cv.put("note", clip.note());
+                    cv.put("assetPath", clip.path());
+                    if (clip.startSec() != null) cv.put("sourceStartMs", Math.round(clip.startSec() * 1000));
+                    cv.put("durationMs", clipDurationMs(clip, probeSeconds));
+                    // 已准备素材保留原声（RecommendClipSourceService 不再 -an）；无音轨素材自然不会出声
+                    cv.put("hasAudio", true);
+                    clipViews.add(cv);
+                }
+            }
+            view.put("clips", clipViews);
+            mediaViews.add(view);
+        }
+        if (mediaViews.isEmpty()) {
+            throw new IllegalArgumentException("没有可用媒体（全部不存在或已删除）");
+        }
+        root.put("media", mediaViews);
+
+        Map<String, Object> p = new LinkedHashMap<>();
+        p.put("title", title == null ? "" : title.trim());
+        p.put("brandTitle", brandTitle == null ? "" : brandTitle.trim());
+        p.put("subtitle", subtitle == null ? "" : subtitle.trim());
+        p.put("intro", intro == null ? "" : intro.trim());
+        p.put("prologueTitle", prologueTitle == null ? "" : prologueTitle.trim());
+        p.put("endingTitle", endingTitle == null ? "" : endingTitle.trim());
+        p.put("endingText", endingText == null ? "" : endingText.trim());
+        p.put("coverSize", Integer.parseInt(normalizeCoverSize(coverSize)));
+        Map<String, Object> show = new LinkedHashMap<>();
+        show.put("status", detailShow == null || detailShow.get("status") == null || detailShow.get("status"));
+        show.put("note", detailShow == null || detailShow.get("note") == null || detailShow.get("note"));
+        show.put("tag", detailShow == null || detailShow.get("tag") == null || detailShow.get("tag"));
+        p.put("detailShow", show);
+        p.put("bgColor", bgColor == null ? "" : bgColor.trim());
+        p.put("bgImages", bgImages == null ? List.of() : bgImages);
+        p.put("bgRotationSec", clamp(bgRotationSec, 1, 60, 8));
+        p.put("bgOpacity", clamp(bgOpacity, 0, 100, 100));
+        p.put("bgBlur", clamp(bgBlur, 0, 100, 0));
+        p.put("bgBrightness", clamp(bgBrightness, 0, 100, 50));
+        List<Map<String, Object>> bgmViews = new ArrayList<>();
+        if (bgmTracks != null) {
+            for (BgmTrack t : bgmTracks) {
+                if (t == null || t.name() == null || t.name().isBlank()) continue;
+                Map<String, Object> tv = new LinkedHashMap<>();
+                tv.put("name", t.name());
+                bgmViews.add(tv);
+            }
+        }
+        p.put("bgmTracks", bgmViews);
+        p.put("bgmScale", clamp(bgmScale, 50, 200, 100));
+        p.put("bgmX", clamp(bgmX, 0, 100, 1));
+        p.put("bgmY", clamp(bgmY, 0, 100, 8));
+        p.put("openingSpeed", clampSpeed(openingSpeed));
+        p.put("endingScrollSpeed", clampSpeed(endingScrollSpeed));
+        Map<String, Object> durs = new LinkedHashMap<>();
+        durs.put("opening", dur.opening());
+        durs.put("intro", dur.intro());
+        durs.put("group", dur.group());
+        durs.put("detail", dur.detail());
+        durs.put("ending", dur.ending());
+        p.put("durations", durs);
+        p.put("fps", fps);
+        p.put("width", width);
+        p.put("height", height);
+        // 决策 B：以下四项 Remotion 侧不消费（分组网格屏不做），仍透传保持与前端请求 1:1
+        p.put("groupBy", groupBy == null ? "" : groupBy);
+        p.put("groupSort", groupSort == null || groupSort.isBlank() ? "date-desc" : groupSort);
+        p.put("perScreen", perScreen == null ? 1 : Math.max(1, Math.min(10, perScreen)));
+        p.put("openingIds", openingIds == null ? List.of() : openingIds);
+        root.put("params", p);
+
+        try {
+            return objectMapper.writeValueAsString(root);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("生成 Remotion 渲染输入失败: " + e.getMessage(), e);
+        }
+    }
+
+    /** 片段时长（毫秒）：已知起止 → 直接算；开放时长 → 探测已准备素材。 */
+    private long clipDurationMs(RecommendClipSourceService.PreparedClip clip,
+                                java.util.function.ToDoubleFunction<String> probeSeconds) {
+        if (clip.startSec() != null && clip.endSec() != null && clip.endSec() > clip.startSec()) {
+            return Math.round((clip.endSec() - clip.startSec()) * 1000);
+        }
+        try {
+            double seconds = probeSeconds.applyAsDouble(clip.path());
+            if (seconds > 0) return Math.round(seconds * 1000);
+        } catch (RuntimeException e) {
+            log.warn("片段时长探测失败 {}: {}", clip.path(), e.getMessage());
+        }
+        throw new IllegalStateException("片段时长不可用（开放时长且探测失败）: " + clip.path());
     }
 
     private String buildSlidesJson(List<Long> ids, String groupBy, List<Long> openingIds, String groupSort,

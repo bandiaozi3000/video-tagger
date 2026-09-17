@@ -1,39 +1,45 @@
+import { resolveParams } from './params';
 import type { MultiMediaPocInput, PocMedia, Scene, ScenePlan } from './types';
+import { TEMPLATE_IDS } from './types';
 
-export const POC_FPS = 30;
-export const POC_WIDTH = 1280;
-export const POC_HEIGHT = 720;
-
-const openingFrames = 3 * POC_FPS;
-const clipInfoFrames = 3 * POC_FPS;
-const infoOnlyFrames = 5 * POC_FPS;
-const endingFrames = 3 * POC_FPS;
+/** 秒 → 帧（舍入，至少 1 帧）；秒到帧的转换只发生在这里。 */
+const secToFrames = (seconds: number, fps: number): number => Math.max(1, Math.round(seconds * fps));
 
 export function buildScenePlan(input: MultiMediaPocInput): ScenePlan {
   validateInput(input);
+  const params = resolveParams(input.params, input);
+  const { fps, width, height } = params;
   const scenes: Scene[] = [];
   let fromFrame = 0;
-  scenes.push({ type: 'COLLECTION_OPENING', fromFrame, durationInFrames: openingFrames });
-  fromFrame += openingFrames;
+  const push = (scene: Omit<Scene, 'fromFrame'>): void => {
+    scenes.push({ ...scene, fromFrame });
+    fromFrame += scene.durationInFrames;
+  };
+
+  push({ type: 'COLLECTION_OPENING', durationInFrames: secToFrames(params.durations.opening, fps) });
+  // 序言屏与旧模板一致：intro 文案为空则不产生该场景
+  if (params.intro.trim()) {
+    push({ type: 'COLLECTION_INTRO', durationInFrames: secToFrames(params.durations.intro, fps) });
+  }
 
   for (const media of input.media) {
-    const infoDuration = media.clips.length > 0 ? clipInfoFrames : infoOnlyFrames;
-    scenes.push({ type: 'MEDIA_INFO', mediaId: media.mediaId, fromFrame, durationInFrames: infoDuration });
-    fromFrame += infoDuration;
+    push({ type: 'MEDIA_INFO', mediaId: media.mediaId, durationInFrames: secToFrames(params.durations.detail, fps) });
     for (const clip of media.clips) {
-      const durationInFrames = Math.max(1, Math.round((clip.durationMs / 1000) * POC_FPS));
-      scenes.push({ type: 'MEDIA_CLIP', mediaId: media.mediaId, clipId: clip.clipId, fromFrame, durationInFrames });
-      fromFrame += durationInFrames;
+      push({
+        type: 'MEDIA_CLIP',
+        mediaId: media.mediaId,
+        clipId: clip.clipId,
+        durationInFrames: secToFrames(clip.durationMs / 1000, fps),
+      });
     }
   }
 
-  scenes.push({ type: 'COLLECTION_ENDING', fromFrame, durationInFrames: endingFrames });
-  fromFrame += endingFrames;
-  return { fps: POC_FPS, width: POC_WIDTH, height: POC_HEIGHT, durationInFrames: fromFrame, scenes };
+  push({ type: 'COLLECTION_ENDING', durationInFrames: secToFrames(params.durations.ending, fps) });
+  return { fps, width, height, durationInFrames: fromFrame, scenes };
 }
 
 function validateInput(input: MultiMediaPocInput): void {
-  if (!input || input.template !== 'MULTI_MEDIA_REMOTION_POC') throw new Error('POC 模板类型无效');
+  if (!input || !TEMPLATE_IDS.includes(input.template)) throw new Error('POC 模板类型无效');
   if (!Array.isArray(input.media) || input.media.length === 0) throw new Error('至少需要一个媒体');
   const mediaIds = new Set<number>();
   const clipIds = new Set<number>();

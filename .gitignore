@@ -67,3 +67,4 @@ backend/test-bg.png
 .claude/
 .tmp/
 tag-tray.log
+backend/remotion/dist-player/

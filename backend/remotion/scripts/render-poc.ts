@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
-import http from 'node:http';
 import path from 'node:path';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
+import { safePath, startAssetServer } from './asset-server';
 import type { MultiMediaPocInput } from '../src/types';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
@@ -71,33 +71,4 @@ function validateInput(input: MultiMediaPocInput, root: string): void {
   }
 }
 
-function safePath(root: string, relative: string): string | null {
-  if (!relative || path.isAbsolute(relative)) return null;
-  const file = path.resolve(root, relative);
-  return file.startsWith(`${root}${path.sep}`) ? file : null;
-}
 
-async function startAssetServer(root: string): Promise<{ baseUrl: string; close: () => Promise<void> }> {
-  const server = http.createServer(async (request, response) => {
-    const relative = decodeURIComponent((request.url || '').replace(/^\/assets\/?/, ''));
-    const file = safePath(root, relative);
-    if (!file) { response.statusCode = 400; response.end('invalid asset path'); return; }
-    try {
-      const body = await fs.readFile(file);
-      response.setHeader('Content-Type', contentType(file));
-      response.end(body);
-    } catch { response.statusCode = 404; response.end('asset not found'); }
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('无法启动 POC 资源服务');
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}/assets`,
-    close: () => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())),
-  };
-}
-
-function contentType(file: string): string {
-  const ext = path.extname(file).toLowerCase();
-  return ({ '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.mp4': 'video/mp4' } as Record<string, string>)[ext] || 'application/octet-stream';
-}

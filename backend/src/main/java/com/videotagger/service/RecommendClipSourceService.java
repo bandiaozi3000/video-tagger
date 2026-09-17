@@ -103,7 +103,9 @@ public class RecommendClipSourceService {
                 : clip.getVideoDuration() == null ? null : clip.getVideoDuration() - clip.getTimestampSec();
         if (duration != null) command.addAll(List.of("-t", format(duration)));
         command.addAll(List.of("-c:v", "libx264", "-preset", "fast", "-crf", "20",
-                "-an", "-movflags", "+faststart", "-f", "mp4", temp.toString()));
+                // 保留素材原声（Remotion 路径需要原声；旧 Puppeteer 路径输出静音视频，多一条音轨无害）
+                "-c:a", "aac", "-b:a", "128k",
+                "-movflags", "+faststart", "-f", "mp4", temp.toString()));
         Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
         Thread drainer = new Thread(() -> {
             try { process.getInputStream().transferTo(java.io.OutputStream.nullOutputStream()); }

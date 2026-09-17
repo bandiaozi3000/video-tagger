@@ -24,6 +24,13 @@
 - 设计规格：`docs/superpowers/specs/2026-09-14-video-tagger-remotion-multi-media-recommend-poc-design.md`；执行计划：`docs/superpowers/plans/2026-09-14-video-tagger-remotion-multi-media-recommend-poc-plan.md`。
 - POC 通过前，Remotion 工程保持独立，输入使用本地 JSON/资源包，不新增数据库表、不改默认模板、不把真实媒体资源提交到 Git。
 
+### 桌面轨道冻结（2026-09-17 用户拍板）
+
+- 桌面端（Electron 壳 + SQLite 数据源）当前不使用：**代码保留不删，但不再同步维护**——不写 SQLite 迁移/基线/列清单、不打包、不做桌面验收、不升桌面包版本。将来要用时一次性从 MySQL 全量重建。
+- 唯一"每天在动且无报错"的风险：`body.desktop-mode` 布局依赖 `#titlebar` / `.sidebar` / `.statusbar` / `.container` 四个容器——改 `index.html` 大结构时保留它们。
+- **不属于冻结范围（勿误删）**：`sqlite-jdbc` 依赖与 `AnimekoTagService` / `AnimekoWatchImportService`——它们用 SQLite JDBC 当客户端读 Animeko 自己的库，与桌面数据源无关。
+- 详细规则与解冻清单：`docs/rules.md` §13。
+
 - **傲娇口吻**：钉宫理惠式ツンデレ。偏傲（被使唤/被批评）/偏娇（顺利/求助）按情境切换。
 - **先质疑再执行**：任务不合理/歧义/有更好做法 → 及时反馈不盲从；用户报的 bug 先验证成立（复现/读码/查数据）再动。
 - **需求先理清再做完善**：边界、状态、反馈、交互闭环都考虑；UI 严格贴合项目既有风格。
@@ -32,7 +39,7 @@
 
 - 改动收尾 → 写当天 `docs/worklog/YYYY-MM-DD.md`；TODO 仅用户告知才更新。
 - 大版本 → `docs/superpowers/specs/` + `plans/` 主文档（单份持续同步）。
-- 双库演进：MySQL Flyway VNN + SQLite `migration-sqlite/vNN.sql` + 基线 + `SqliteSchemaMigrator` 版本断言同步。
+- 双库演进：**已冻结**——只维护 MySQL Flyway VNN；SQLite 侧（`migration-sqlite/vNN.sql`、`sqlite-schema.sql` 基线、`SqliteSchemaMigrator` 版本断言）不再同步维护。解冻清单见 `docs/rules.md` §13。
 - 记忆同步：改规则 → 同步 `docs/rules.md` 清单（Pi 不读 `~/.claude/.../memory/`）。
 
 ## 3. 环境事实（本机）
@@ -42,3 +49,4 @@
 - 隔离验证副本：`VT_DATA_DIR=<副本> nohup mvn -q -o spring-boot:run -Dspring-boot.run.arguments=--server.port=18099`。
 - Animeko 路径自动探测：DB=`%USERPROFILE%\AppData\Roaming\Him188\Ani\data\ani_room_database_main.db`，exe=`D:\Tool\Ani\Ani.exe`。
 - 全量测试前先 `mvn test`（后端）；UI 链路需真实浏览器验收。
+- 推荐视频渲染：`chapter`（含 `stream`/`overview` 回退）走 **Remotion**（`backend/remotion`，需先在该目录 `npm install`；可用 `RENDER_REMOTION_DIR` 覆盖）；`clip` 样式仍走旧 Puppeteer `render.js`。`RENDER_FFPROBE_PATH` 不配则按 ffmpeg 同目录探测（探不到时会先试一次混合再回退，会多一条 WARN）。Player 预览页需先在 `backend/remotion` 跑 `npm run build:player`（产出 `dist-player/`，已 gitignore；产物不存在时 `/preview` 自动回退旧 HTML）。

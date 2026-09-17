@@ -82,6 +82,10 @@ public class RecommendController {
     @PostMapping(value = "/preview", produces = MediaType.TEXT_HTML_VALUE)
     public ResponseEntity<String> preview(@RequestBody RecommendExportRequest body) throws IOException {
         RecommendService.Durations dur = recommendService.normalizeDurations(body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec());
+        // chapter 系样式 → Remotion Player 预览（与导出成片同源：同一 Composition + 同一份 CSS）；未构建则回退旧 HTML
+        if (recommendService.isRemotionStyle(body.groupStyle()) && recommendVideoService.hasPlayerBundle()) {
+            return remotionPreview(body, dur);
+        }
         if (body.mediaClips() == null || body.mediaClips().isEmpty()) {
             String html = recommendService.buildHtml(body.ids(), body.title(), body.bgmTracks(), body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.intro(), dur, body.endingTitle(), body.endingText(), body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(), body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(), body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(), "url", body.detailShow());
             return ResponseEntity.ok().contentType(MediaType.valueOf("text/html;charset=UTF-8")).body(html);
@@ -95,6 +99,60 @@ public class RecommendController {
         Files.writeString(work.resolve("index.html"), html, StandardCharsets.UTF_8);
         return ResponseEntity.ok().contentType(MediaType.valueOf("text/html;charset=UTF-8")).body(html.replace("media/clip-", "/recommend-previews/" + token + "/media/clip-"));
     }
+    /**
+     * Remotion Player 预览页：注入 RenderInput JSON 与素材基址，返回 dist-player/player.html。
+     * 片段素材落在 data/recommend-previews/{token}/（不删，供浏览器按帧取用；与旧预览同一套路由）。
+     */
+    private ResponseEntity<String> remotionPreview(RecommendExportRequest body, RecommendService.Durations dur) throws IOException {
+        Path page = recommendVideoService.playerPagePath();
+        if (page == null || !Files.isRegularFile(page)) return legacyPreview(body, dur);
+        String token = UUID.randomUUID().toString();
+        Path work = Path.of("data", "recommend-previews", token).toAbsolutePath();
+        Files.createDirectories(work);
+        Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips = Map.of();
+        try {
+            if (body.mediaClips() != null && !body.mediaClips().isEmpty()) {
+                RecommendClipSourceService.PreparedClips prepared = clipSourceService.prepare(body.mediaClips(), work);
+                if (prepared.hasMissing()) {
+                    deleteTree(work);
+                    throw new IllegalArgumentException("片段素材不可用: " + prepared.missing());
+                }
+                preparedClips = prepared.byMedia();
+            }
+            int[] wh = RecommendVideoService.pixelsOf(body.resolution());
+            String inputJson = recommendService.buildRenderInput(body.ids(), body.title(), body.bgmTracks(),
+                    body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.intro(),
+                    dur, body.endingTitle(), body.endingText(), body.bgColor(), body.bgImages(), body.bgRotationSec(),
+                    body.bgOpacity(), body.bgBlur(), body.bgBrightness(), body.prologueTitle(), body.groupSort(),
+                    body.openingSpeed(), body.endingScrollSpeed(), body.bgmScale(), body.bgmX(), body.bgmY(),
+                    body.brandTitle(), body.perScreen(), body.detailShow(), preparedClips, "url", 30, wh[0], wh[1],
+                    rel -> recommendVideoService.probeDurationSeconds(work.resolve(rel).toAbsolutePath().toString()));
+            String inject = "<script>window.__VT_INPUT__=" + inputJson
+                    + ";window.__VT_ASSET_BASE__=\"/recommend-previews/" + token + "\";</script>";
+            String html = Files.readString(page, StandardCharsets.UTF_8).replace("<!--VT_PREVIEW_INJECT-->", inject);
+            return ResponseEntity.ok().contentType(MediaType.valueOf("text/html;charset=UTF-8")).body(html);
+        } catch (RuntimeException e) {
+            deleteTree(work);
+            throw e;
+        }
+    }
+
+    /** 旧 HTML 预览（clip 样式，或 Remotion Player 页未构建时的回退）。 */
+    private ResponseEntity<String> legacyPreview(RecommendExportRequest body, RecommendService.Durations dur) throws IOException {
+        if (body.mediaClips() == null || body.mediaClips().isEmpty()) {
+            String html = recommendService.buildHtml(body.ids(), body.title(), body.bgmTracks(), body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.intro(), dur, body.endingTitle(), body.endingText(), body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(), body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(), body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(), "url", body.detailShow());
+            return ResponseEntity.ok().contentType(MediaType.valueOf("text/html;charset=UTF-8")).body(html);
+        }
+        String token = UUID.randomUUID().toString();
+        Path work = Path.of("data", "recommend-previews", token).toAbsolutePath();
+        Files.createDirectories(work);
+        RecommendClipSourceService.PreparedClips prepared = clipSourceService.prepare(body.mediaClips(), work);
+        if (prepared.hasMissing()) { deleteTree(work); throw new IllegalArgumentException("片段素材不可用: " + prepared.missing()); }
+        String html = recommendService.buildHtml(body.ids(), body.title(), body.bgmTracks(), body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.intro(), dur, body.endingTitle(), body.endingText(), body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(), body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(), body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(), "url", body.detailShow(), prepared.byMedia());
+        Files.writeString(work.resolve("index.html"), html, StandardCharsets.UTF_8);
+        return ResponseEntity.ok().contentType(MediaType.valueOf("text/html;charset=UTF-8")).body(html.replace("media/clip-", "/recommend-previews/" + token + "/media/clip-"));
+    }
+
     @PostMapping(value = "/html")
     public ResponseEntity<byte[]> html(@RequestBody RecommendExportRequest body) throws IOException {
         RecommendService.Durations dur = recommendService.normalizeDurations(
