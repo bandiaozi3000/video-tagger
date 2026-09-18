@@ -100,6 +100,45 @@ export interface ClipBrief {
   endSec?: number | null;
 }
 
+/** 候选筛选条件（系列化：可随模板保存，套用时重算候选媒体）。 */
+export interface CandidateFilter {
+  collectionId: number | null;
+  year: string;
+  tagId: number | null;
+  tagName: string;
+}
+
+/** 导出变体：在基础配置上做具名覆盖（时长档/画幅/形态/每屏）。 */
+export interface Variant {
+  id: string;
+  name: string;
+  overrides: {
+    resolution?: string;
+    format?: string;
+    groupStyle?: string;
+    perScreen?: number;
+    openingSec?: number;
+    introSec?: number;
+    groupSec?: number;
+    detailSec?: number;
+    endingSec?: number;
+  };
+}
+
+/** 草稿/模板载荷（version=2）。 */
+export interface PresetPayload {
+  version: 2;
+  config: EditorConfig;
+  filter: CandidateFilter;
+  variants: Variant[];
+}
+
+export interface TemplateSummary {
+  id: number;
+  name: string;
+  createdAt: number;
+}
+
 export interface ExportTask {
   id: number;
   title: string;
@@ -167,6 +206,10 @@ export const api = {
   clips: (mediaId: number) => json<ClipBrief[]>(`/api/clips/media/${mediaId}`),
 
   draft: () => json<{ config: string | null; updatedAt: number | null }>('/api/recommend/draft'),
+  templates: () => json<TemplateSummary[]>('/api/recommend/templates'),
+  templateConfig: (id: number) => json<{ id: number; name: string; config: string | null }>(`/api/recommend/templates/${id}`),
+  saveTemplate: (name: string, config: string) => postJson<{ id: number }>('/api/recommend/templates', { name, config }),
+  deleteTemplate: (id: number) => fetch(`/api/recommend/templates/${id}`, { method: 'DELETE' }).then(() => undefined),
   saveDraft: (config: string) => json<void>('/api/recommend/draft', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

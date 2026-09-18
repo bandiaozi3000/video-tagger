@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { api, type ClipBrief, type EditorConfig, type MediaBrief, type MediaClips } from './api';
-import { fileToBase64 } from './state';
+import { fileToBase64, parsePayload } from './state';
 import { THEME_PRESETS } from '../src/theme';
 
 type Patch = (patch: Partial<EditorConfig>) => void;
@@ -53,11 +53,14 @@ function Range({ value, onChange, min, max, step = 1, suffix }: {
 }
 
 /** 工具栏：导出格式/清晰度 + 导出 + 导出任务入口。 */
-export function Toolbar({ config, patch, onExport, onOpenTasks, busy }: {
+export function Toolbar({ config, patch, onExport, onExportAll, variantCount, onOpenTasks, onOpenTemplates, busy }: {
   config: EditorConfig;
   patch: Patch;
   onExport: () => void;
+  onExportAll: () => void;
+  variantCount: number;
   onOpenTasks: () => void;
+  onOpenTemplates: () => void;
   busy: boolean;
 }) {
   return (
@@ -80,9 +83,14 @@ export function Toolbar({ config, patch, onExport, onOpenTasks, busy }: {
           <option value="1080P">1080P</option>
           <option value="4K">4K</option>
         </select>
-        <button type="button" className="btn-mini" onClick={onOpenTasks}>🗂 导出任务</button>
+        <button type="button" className="btn-mini" onClick={onOpenTemplates}>🗂 模板</button>
+        <button type="button" className="btn-mini" onClick={onOpenTasks}>📋 导出任务</button>
         <button type="button" className="btn-primary" disabled={busy || config.ids.length === 0} onClick={onExport}>
           {busy ? '提交中…' : '导出视频'}
+        </button>
+        <button type="button" className="btn-primary" disabled={busy || config.ids.length === 0 || variantCount === 0}
+                title="按变体逐个提交（每个变体一个任务）" onClick={onExportAll}>
+          导出全部变体{variantCount > 0 ? `（${variantCount}）` : ''}
         </button>
       </div>
     </div>
@@ -239,17 +247,169 @@ export function BgmOverlay({ config, patch, shellRef }: {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+/** 导出变体：具名覆盖（时长档/画幅/形态/每屏）；导出时逐个提交给现有 /video。 */
+function VariantGroup({ variants, onVariants }: {
+  variants: import('./api').Variant[];
+  onVariants: (variants: import('./api').Variant[]) => void;
+}) {
+  const update = (id: string, overrides: import('./api').Variant['overrides']) =>
+    onVariants(variants.map((item) => (item.id === id ? { ...item, overrides: { ...item.overrides, ...overrides } } : item)));
+
+  return (
+    <>
+      <div className="vt-variants">
+        {variants.map((variant) => (
+          <div key={variant.id} className="vt-variant">
+            <div className="vt-variant-head">
+              <input value={variant.name} onChange={(event) =>
+                onVariants(variants.map((item) => (item.id === variant.id ? { ...item, name: event.target.value } : item)))} />
+              <button type="button" className="btn-mini"
+                      onClick={() => onVariants(variants.filter((item) => item.id !== variant.id))}>✕</button>
+            </div>
+            <span className="vt-inline-group">
+              <label className="vt-inline">清晰度
+                <select value={variant.overrides.resolution ?? ''} onChange={(event) => update(variant.id, { resolution: event.target.value || undefined })}>
+                  <option value="">同主配置</option>
+                  <option value="720P">720P</option>
+                  <option value="1080P">1080P</option>
+                  <option value="4K">4K</option>
+                </select>
+              </label>
+              <label className="vt-inline">形态
+                <select value={variant.overrides.groupStyle ?? ''} onChange={(event) => update(variant.id, { groupStyle: event.target.value || undefined })}>
+                  <option value="">同主配置</option>
+                  <option value="chapter">章节式</option>
+                  <option value="clip">片段放映式</option>
+                </select>
+              </label>
+              <label className="vt-inline">资料卡秒数
+                <input type="number" min={3} max={15} value={variant.overrides.detailSec ?? ''}
+                       onChange={(event) => update(variant.id, { detailSec: event.target.value ? Number(event.target.value) : undefined })} />
+              </label>
+            </span>
+          </div>
+        ))}
+      </div>
+      <span className="vt-inline-group">
+        <button type="button" className="btn-mini" onClick={() => onVariants([...variants, {
+          id: `v${variants.length + 1}-${Math.floor(performance.now())}`,
+          name: `变体 ${variants.length + 1}`,
+          overrides: {},
+        }])}>＋ 新增变体</button>
+        <button type="button" className="btn-mini" title="完整版 + 30 秒短版" onClick={() => onVariants([
+          { id: `full-${Math.floor(performance.now())}`, name: '完整版', overrides: {} },
+          { id: `short-${Math.floor(performance.now())}`, name: '短版（30 秒级）', overrides: { openingSec: 2, introSec: 1, groupSec: 1, detailSec: 3, endingSec: 2 } },
+        ])}>⚡ 全量 + 短版</button>
+      </span>
+      <p className="vt-hint">变体只覆盖写明的项，其余跟主配置；「导出全部变体」在右上角。无变体时导出按钮 = 当前配置。</p>
+    </>
+  );
+}
+
+/** 模板面板：保存/套用/删除（套用会带回候选筛选条件、可再重算候选）。 */
+export function TemplatePanel({ onClose, notify, payload, onApply }: {
+  onClose: () => void;
+  notify: (message: string) => void;
+  payload: () => import('./api').PresetPayload;
+  onApply: (payload: import('./api').PresetPayload) => void;
+}) {
+  const [templates, setTemplates] = React.useState<import('./api').TemplateSummary[]>([]);
+  const [name, setName] = React.useState('');
+
+  const refresh = React.useCallback(() => {
+    api.templates().then(setTemplates).catch(() => undefined);
+  }, []);
+  React.useEffect(refresh, [refresh]);
+
+  const save = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      notify('请先填模板名');
+      return;
+    }
+    try {
+      await api.saveTemplate(trimmed, JSON.stringify(payload()));
+      setName('');
+      refresh();
+      notify(`已保存模板「${trimmed}」`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '保存失败');
+    }
+  };
+
+  const apply = async (id: number) => {
+    try {
+      const detail = await api.templateConfig(id);
+      const parsed = parsePayload(detail.config);
+      if (!parsed) {
+        // 旧结构（v0.28 之前的模板）：不兼容就不读；顺手给一个清理入口
+        // （当前默认 profile 跑 SQLite，而 SQLite 侧迁移按冻结条款不再维护 → 旧行靠这里清）
+        if (window.confirm(`模板「${detail.name}」是旧结构（v0.28 之前），不兼容。删除它吗？`)) {
+          await api.deleteTemplate(id);
+          refresh();
+          notify('已删除旧结构模板');
+        }
+        return;
+      }
+      onApply(parsed);
+      notify(`已套用模板「${detail.name}」（候选筛选一并带回）`);
+      onClose();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '套用失败');
+    }
+  };
+
+  return (
+    <div className="vt-overlay">
+      <div className="vt-panel">
+        <div className="vt-panel-head">
+          <strong>模板（配置 + 候选筛选 + 变体）</strong>
+          <button type="button" className="btn-mini" onClick={onClose}>关闭</button>
+        </div>
+        <div className="vt-template-save">
+          <input placeholder="模板名（如：季度回顾）" value={name} onChange={(event) => setName(event.target.value)} />
+          <button type="button" className="btn-primary" onClick={() => void save()}>保存当前为模板</button>
+        </div>
+        <ul className="vt-task-list">
+          {templates.length === 0 ? <li className="vt-hint">暂无模板</li> : null}
+          {templates.map((template) => (
+            <li key={template.id}>
+              <span className="vt-task-title">{template.name}</span>
+              <span className="vt-task-btns">
+                <button type="button" className="btn-mini" onClick={() => void apply(template.id)}>套用</button>
+                <button type="button" className="btn-mini"
+                        onClick={() => void api.deleteTemplate(template.id).then(refresh)}>✕</button>
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="vt-hint">套用后仍可手工改；要按保存的筛选重新凑批媒体，点篮子里的「↻ 按筛选重算候选」。</p>
+      </div>
+    </div>
+  );
+}
+
 /** 媒体篮子：筛选 + 分页 + 勾选 + 已选顺序 + 片段挂载。 */
-export function BasketPane({ config, patch }: { config: EditorConfig; patch: Patch }) {
+export function BasketPane({ config, patch, filter, onFilter }: {
+  config: EditorConfig;
+  patch: Patch;
+  /** 候选筛选（提升到编辑器层：可随模板保存、套用时重算候选）。 */
+  filter: import('./api').CandidateFilter;
+  onFilter: (filter: import('./api').CandidateFilter) => void;
+}) {
   const [list, setList] = React.useState<MediaBrief[]>([]);
   const [total, setTotal] = React.useState(0);
   const [page, setPage] = React.useState(1);
   const [collections, setCollections] = React.useState<{ id: number; name: string }[]>([]);
   const [years, setYears] = React.useState<number[]>([]);
-  const [sourceId, setSourceId] = React.useState<number | null>(null);
-  const [year, setYear] = React.useState('');
-  const [tagText, setTagText] = React.useState('');
-  const [tagId, setTagId] = React.useState<number | null>(null);
+  const [tagText, setTagText] = React.useState(filter.tagName);
+  const [recomputing, setRecomputing] = React.useState(false);
+  const sourceId = filter.collectionId;
+  const year = filter.year;
+  const tagId = filter.tagId;
+  const setSourceId = (value: number | null) => onFilter({ ...filter, collectionId: value });
+  const setYear = (value: string) => onFilter({ ...filter, year: value });
+  const setTagId = (value: number | null) => onFilter({ ...filter, tagId: value });
   const [clipMedia, setClipMedia] = React.useState<MediaBrief | null>(null);
   const [loading, setLoading] = React.useState(false);
   const pageSize = 30;
@@ -315,12 +475,26 @@ export function BasketPane({ config, patch }: { config: EditorConfig; patch: Pat
   const applyTag = async () => {
     const name = tagText.trim();
     if (!name) {
-      setTagId(null);
+      onFilter({ ...filter, tagId: null, tagName: '' });
       return;
     }
     const id = await api.resolveTagId(name).catch(() => null);
-    setTagId(id);
+    onFilter({ ...filter, tagId: id, tagName: id === null ? '' : name });
     if (id === null) setTagText('');
+  };
+
+  /** 按筛选条件重算候选（系列化：套用模板/换一批媒体时用；之后仍可人工微调）。 */
+  const recompute = async () => {
+    setRecomputing(true);
+    try {
+      const all = await api.media({ limit: 500, offset: 0, collectionId: sourceId, tagId, year });
+      const ids = all.map((item) => item.id);
+      patch({ ids, openingIds: config.openingIds.filter((id) => ids.includes(id)) });
+    } catch {
+      // 失败保持原勾选
+    } finally {
+      setRecomputing(false);
+    }
   };
 
   const openClips = (media: MediaBrief) => setClipMedia(media);
@@ -341,13 +515,15 @@ export function BasketPane({ config, patch }: { config: EditorConfig; patch: Pat
         <input className="vt-tag-input" placeholder="标签过滤（回车）" value={tagText}
                onChange={(event) => setTagText(event.target.value)}
                onKeyDown={(event) => { if (event.key === 'Enter') void applyTag(); }} />
-        {tagId !== null ? <button type="button" className="btn-mini" onClick={() => { setTagText(''); setTagId(null); }}>✕ 标签</button> : null}
-      </div>
+        {tagId !== null ? <button type="button" className="btn-mini" onClick={() => { setTagText(''); setTagId(null); }}>✕ 标签</button> : null}      </div>
 
       <div className="vt-basket-actions">
         <span>{loading ? '加载中…' : `共 ${total} 部 · 第 ${page}/${pages} 页`}</span>
         <span className="vt-basket-actions-btns">
           <button type="button" className="btn-mini" onClick={() => patch({ ids: [...new Set([...config.ids, ...pageIds])] })}>全选本页</button>
+          <button type="button" className="btn-primary" disabled={recomputing}
+                  title="按上方筛选条件重算候选（会替换当前勾选；之后仍可手工微调）"
+                  onClick={() => void recompute()}>{recomputing ? '重算中…' : '↻ 按筛选重算候选'}</button>
           <button type="button" className="btn-mini" onClick={() => patch({ ids: [], openingIds: [], mediaClips: {} })}>清空</button>
         </span>
       </div>
@@ -449,13 +625,15 @@ export function BasketPane({ config, patch }: { config: EditorConfig; patch: Pat
 }
 
 /** Inspector：参数面板（阶段 2：接受选中对象；阶段 3 按对象轴重排）。 */
-export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, selection, rendered }: {
+export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, selection, rendered, variants, onVariants }: {
   config: EditorConfig;
   patch: Patch;
   mediaBriefs: MediaBrief[];
   missingByMedia: Record<number, string>;
   selection: import('./timeline').Selection;
   rendered: { input: import('../src/types').MultiMediaPocInput } | null;
+  variants: import('./api').Variant[];
+  onVariants: (variants: import('./api').Variant[]) => void;
 }) {
   const bgmInput = React.useRef<HTMLInputElement>(null);
   const bgInput = React.useRef<HTMLInputElement>(null);
@@ -632,6 +810,10 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
             );
           })}
         </div>
+      </Group>
+
+      <Group title={`导出变体（${variants.length}）`}>
+        <VariantGroup variants={variants} onVariants={onVariants} />
       </Group>
 
       <Group title="背景音乐（BGM）">

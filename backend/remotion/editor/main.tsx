@@ -13,9 +13,17 @@ import { createRoot, type Root } from 'react-dom/client';
 import { Player, type PlayerRef } from '@remotion/player';
 import { RecommendComposition } from '../src/RecommendComposition';
 import type { MultiMediaPocInput } from '../src/types';
-import { api, type EditorConfig, type ExportTask, type MediaBrief } from './api';
-import { applyLocalParams, loadConfig, saveConfig, sessionSignature } from './state';
-import { BasketPane, BgmOverlay, InspectorPane, Toolbar } from './panes';
+import { api, type CandidateFilter, type EditorConfig, type ExportTask, type MediaBrief, type Variant } from './api';
+import {
+  applyLocalParams,
+  buildPayload,
+  defaultFilter,
+  loadConfig,
+  parsePayload,
+  saveConfig,
+  sessionSignature,
+} from './state';
+import { BasketPane, BgmOverlay, InspectorPane, TemplatePanel, Toolbar } from './panes';
 import { Timeline, type Selection } from './timeline';
 import { buildScenePlan } from '../src/scene-plan';
 import type { ScenePlan } from '../src/types';
@@ -29,6 +37,10 @@ function App() {
   const [missing, setMissing] = React.useState<import('./api').MissingClip[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [tasksOpen, setTasksOpen] = React.useState(false);
+  const [templatesOpen, setTemplatesOpen] = React.useState(false);
+  const [filter, setFilter] = React.useState<CandidateFilter>(defaultFilter);
+  const [variants, setVariants] = React.useState<Variant[]>([]);
+  const draftReady = React.useRef(false);
   const [toast, setToast] = React.useState<string | null>(null);
   const [frame, setFrame] = React.useState(0);
   const [selection, setSelection] = React.useState<Selection>({ kind: 'global' });
@@ -50,6 +62,33 @@ function App() {
     setToast(message);
     window.setTimeout(() => setToast((value) => (value === message ? null : value)), 2600);
   };
+
+  // —— 草稿（服务端会话暂存为准；1s 防抖写入）——
+  React.useEffect(() => {
+    let cancelled = false;
+    api.draft()
+      .then((draft) => {
+        if (cancelled) return;
+        const payload = parsePayload(draft.config);
+        if (payload) {
+          setConfig(payload.config);
+          saveConfig(payload.config);
+          setFilter(payload.filter);
+          setVariants(payload.variants);
+        }
+        draftReady.current = true;
+      })
+      .catch(() => { draftReady.current = true; });
+    return () => { cancelled = true; };
+  }, []);
+
+  React.useEffect(() => {
+    if (!draftReady.current) return;
+    const timer = window.setTimeout(() => {
+      api.saveDraft(JSON.stringify(buildPayload(config, filter, variants))).catch(() => undefined);
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [config, filter, variants]);
 
   // —— 会话同步（仅素材/媒体集/分组/BGM 变化触发；参数变化走本地补丁）——
   const signature = sessionSignature(config);
@@ -161,15 +200,37 @@ function App() {
   }, [missing]);
 
   const onExport = async () => {
-    if (missing.length > 0) {
-      const detail = missing.slice(0, 5).map((item) => `· ${item.title || '片段'}：${item.reason}`).join('\n');
-      const more = missing.length > 5 ? `\n（其余 ${missing.length - 5} 项同理）` : '';
-      if (!window.confirm(`有 ${missing.length} 个片段素材不可用，导出将被后端拦截：\n${detail}${more}\n\n仍要提交吗？`)) return;
-    }
+    if (!confirmMissing()) return;
     try {
       setBusy(true);
       const response = await api.exportVideo(config);
       notify(`已提交导出任务 #${response.taskId}（队列串行执行）`);
+      setTasksOpen(true);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '导出失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** 缺失素材的导出前确认（设计规格 §9：降级不阻断，但导出前要交代清楚）。 */
+  const confirmMissing = () => {
+    if (missing.length === 0) return true;
+    const detail = missing.slice(0, 5).map((item) => `· ${item.title || '片段'}：${item.reason}`).join('\n');
+    const more = missing.length > 5 ? `\n（其余 ${missing.length - 5} 项同理）` : '';
+    return window.confirm(`有 ${missing.length} 个片段素材不可用，导出会被后端拦截：\n${detail}${more}\n\n仍要提交吗？`);
+  };
+
+  /** 导出全部变体（无变体 → 当单个当前配置）；变体 = 基础配置 + 具名覆盖，逐个提交（后端签名不变）。 */
+  const onExportAll = async () => {
+    if (!confirmMissing()) return;
+    const targets: Variant[] = variants.length > 0 ? variants : [{ id: 'base', name: '当前配置', overrides: {} }];
+    try {
+      setBusy(true);
+      for (const variant of targets) {
+        await api.exportVideo({ ...config, ...variant.overrides } as EditorConfig);
+      }
+      notify(`已提交 ${targets.length} 个导出任务（队列串行渲染）`);
       setTasksOpen(true);
     } catch (error) {
       notify(error instanceof Error ? error.message : '导出失败');
@@ -194,10 +255,13 @@ function App() {
   return (
     <div className="vt-workspace">
       <Toolbar config={config} patch={patch} onExport={() => void onExport()}
-               onOpenTasks={() => setTasksOpen(true)} busy={busy} />
+               onExportAll={() => void onExportAll()}
+               variantCount={variants.length}
+               onOpenTasks={() => setTasksOpen(true)}
+               onOpenTemplates={() => setTemplatesOpen(true)} busy={busy} />
 
       <div className="vt-body">
-        <BasketPane config={config} patch={patch} />
+        <BasketPane config={config} patch={patch} filter={filter} onFilter={setFilter} />
 
         <div className="vt-stage">
           {rendered ? (
@@ -241,7 +305,8 @@ function App() {
         </div>
 
         <InspectorPane config={config} patch={patch} mediaBriefs={mediaBriefs} missingByMedia={inspectorMissing}
-                       selection={selection} rendered={rendered} />
+                       selection={selection} rendered={rendered}
+                       variants={variants} onVariants={setVariants} />
       </div>
 
       {rendered ? (
@@ -264,6 +329,19 @@ function App() {
       ) : null}
 
       {tasksOpen ? <TaskPanel onClose={() => setTasksOpen(false)} notify={notify} /> : null}
+      {templatesOpen ? (
+        <TemplatePanel
+          onClose={() => setTemplatesOpen(false)}
+          notify={notify}
+          payload={() => buildPayload(config, filter, variants)}
+          onApply={(next) => {
+            setConfig(next.config);
+            saveConfig(next.config);
+            setFilter(next.filter);
+            setVariants(next.variants);
+          }}
+        />
+      ) : null}
       {toast ? <div className="vt-toast">{toast}</div> : null}
     </div>
   );

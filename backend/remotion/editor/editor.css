@@ -315,3 +315,19 @@
 }
 .vt-drop-opening.over { background: rgba(255, 209, 102, .16); border-color: rgba(255, 209, 102, .9); }
 .vt-selected.over { background: rgba(79, 195, 247, .08); }
+
+/* —— 模板 / 变体（阶段 4）—— */
+.vt-template-save { display: flex; gap: 8px; margin-bottom: 10px; }
+.vt-template-save input { flex: 1; }
+.vt-variants { display: flex; flex-direction: column; gap: 8px; }
+.vt-variant {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid rgba(130, 160, 255, .18);
+  border-radius: 8px;
+  background: rgba(12, 10, 22, .5);
+}
+.vt-variant-head { display: flex; align-items: center; gap: 6px; }
+.vt-variant-head input { flex: 1; }

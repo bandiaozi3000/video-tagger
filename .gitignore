@@ -68,3 +68,6 @@ backend/test-bg.png
 .tmp/
 tag-tray.log
 backend/remotion/dist-editor/
+
+# Codex CLI 项目级目录（工具生成，不进版本库）
+.codex/

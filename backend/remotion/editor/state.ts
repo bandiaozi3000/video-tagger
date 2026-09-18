@@ -5,7 +5,7 @@
  * （缺省值 + 钳位都在那里）。服务端只负责"媒体/片段/BGM 这些需要 DB 与素材的部分"，
  * 纯参数改动直接补进 `input.params` → 即时生效，不走网络（设计规格 §6.1）。
  */
-import type { EditorConfig } from './api';
+import type { CandidateFilter, EditorConfig, PresetPayload, Variant } from './api';
 import type { MultiMediaPocInput } from '../src/types';
 
 const STORAGE_KEY = 'vt-recommend-editor-config';
@@ -130,6 +130,44 @@ export function applyLocalParams(input: MultiMediaPocInput, config: EditorConfig
       preset: config.preset,
     },
   };
+}
+
+export function defaultFilter(): CandidateFilter {
+  return { collectionId: null, year: '', tagId: null, tagName: '' };
+}
+
+/** 默认变体：短版 + 完整版（用户拍板的「同配置多版本」最小形态）。 */
+export function defaultVariants(): Variant[] {
+  return [];
+}
+
+/** 组装草稿/模板载荷（version=2）。 */
+export function buildPayload(config: EditorConfig, filter: CandidateFilter, variants: Variant[]): PresetPayload {
+  return {
+    version: 2,
+    // 草稿/模板不带 BGM（base64 体积大；与旧行为一致）
+    config: { ...config, bgmTracks: [] },
+    filter,
+    variants,
+  };
+}
+
+/** 解析载荷；结构不符（或旧版 v1 快照）→ null，由调用方给出「不兼容」提示。 */
+export function parsePayload(json: string | null | undefined): PresetPayload | null {
+  if (!json) return null;
+  try {
+    const value = JSON.parse(json) as Partial<PresetPayload> & { ids?: unknown };
+    if (!value || typeof value !== 'object') return null;
+    if (value.version !== 2 || !value.config) return null;   // 旧结构（v0.28 之前）不兼容
+    return {
+      version: 2,
+      config: { ...defaultConfig(), ...(value.config as EditorConfig) },
+      filter: { ...defaultFilter(), ...(value.filter ?? {}) },
+      variants: Array.isArray(value.variants) ? value.variants : [],
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** 读本地文件为 base64（去掉 data URI 前缀）。 */
