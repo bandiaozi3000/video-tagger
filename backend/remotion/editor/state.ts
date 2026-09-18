@@ -182,3 +182,21 @@ export function fileToBase64(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+/**
+ * 读本地文件为 **data URI**（保留前缀）。
+ *
+ * 背景图用这个而不是 {@link fileToBase64}：成片里背景图走 `assetUrl()`，只有 `http(s)`/`data:`/`/`
+ * 三种值会被原样透传，裸 base64 会被当成相对路径拼成 `${assetBaseUrl}/<base64>` → 图永远加载不出来。
+ *
+ * ponytail: data URI 会随请求与草稿一起传（大图会撑大 localStorage 与草稿 JSON）；
+ * 要到「大图也不占载荷」时，再像 BGM 一样落盘到会话目录并回传相对路径（需同时兼顾导出侧素材根）。
+ */
+export function fileToDataUri(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error(`读取文件失败: ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}

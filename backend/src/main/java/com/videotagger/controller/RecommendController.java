@@ -27,6 +27,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+
 /**
  * 推荐工作台后端：编辑会话（素材准备 + RenderInput）与导出任务。
  *
@@ -137,7 +139,13 @@ public class RecommendController {
                 rel -> recommendVideoService.probeDurationSeconds(session.dir().resolve(rel).toAbsolutePath().toString()));
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("token", session.token());
-        resp.put("input", objectMapper.readValue(inputJson, Object.class));
+        Map<String, Object> input = objectMapper.readValue(inputJson, new TypeReference<Map<String, Object>>() { });
+        // 浏览器预览必需：片段/BGM 的 assetPath 是**相对会话目录**的路径，没有基址就会被拼到
+        // RecommendComposition 的开发缺省值 `http://127.0.0.1:18126/assets` 上（那个服务只在渲染进程里起）
+        // → 表现为「背景音乐条在、但没有声音」。根相对路径让浏览器按应用同源解析。
+        // 导出链路不受影响：`render-recommend.ts` 自己起本地素材服务并覆盖 assetBaseUrl。
+        input.put("assetBaseUrl", "/recommend-previews/" + session.token());
+        resp.put("input", input);
         resp.put("missing", missing);
         return resp;
     }

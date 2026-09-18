@@ -80,8 +80,16 @@ function App() {
         if (cancelled) return;
         const payload = parsePayload(draft.config);
         if (payload) {
-          setConfig(payload.config);
-          saveConfig(payload.config);
+          // 草稿里**不含 BGM**（base64 体积大，`buildPayload` 刻意剥掉），只能活在本机 localStorage。
+          // 不合并就会被草稿覆盖成空 → 表现为「加了背景音乐、切个 tab 回来就没了」。
+          const local = loadConfig();
+          const merged: EditorConfig = {
+            ...payload.config,
+            bgmTracks: local.bgmTracks ?? [],
+            bgImages: payload.config.bgImages?.length ? payload.config.bgImages : (local.bgImages ?? []),
+          };
+          setConfig(merged);
+          saveConfig(merged);
           setFilter(payload.filter);
           setVariants(payload.variants);
         }

@@ -88,3 +88,22 @@
 - 1080P/4K 导出耗时仍未测；真实音频 ducking 断言仍待素材（v0.28 遗留，非本版引入）。
 - v0.28 遗留的「候选重算按钮 / HTML5 拖拽落点 / 模板删除确认 / 帧溢出校正」仍未做浏览器级验证。
 - 本版未升 `pom.xml` 版本号：等你说「v0.29 收尾」再统一改版本 + CHANGELOG + story。
+
+## 9. 修复记录（同日「背景音乐 / 图片 / 详情内容不生效」）
+
+| # | 根因（代码事实） | 影响面 | 修复 |
+|---|---|---|---|
+| 1 | 会话响应从未返回 `assetBaseUrl`，合成退回开发缺省值 `http://127.0.0.1:18126/assets`（那个服务只在渲染进程里起） | 预览里 **BGM 与片段素材**都加载不到 —— 表现为「音乐条在、就是没声音」 | `RecommendController.sessionResponse` 注入 `assetBaseUrl = /recommend-previews/<token>`（根相对路径，浏览器同源解析；导出链路自带素材服务并覆盖该字段，不受影响） |
+| 2 | 草稿刻意不含 `bgmTracks`（base64 体积大），而草稿加载分支整体覆盖本机配置 | BGM **切 tab / 刷新即丢** | 草稿加载时合并本机 `bgmTracks`（`bgImages` 也做兜底） |
+| 3 | 背景图存的是**裸 base64**，而 `assetUrl()` 只原样透传 `http(s)://` / `data:` / `/` 三类值 | 背景图**预览与导出都坏** | 背景图改存 data URI（`fileToDataUri`） |
+
+实测证据（隔离实例 18099 + 真实浏览器 + ffmpeg 造的 wav/png 探针）：
+
+- 修复后 `<audio src="…/recommend-previews/<token>/bgm-0.wav">`，`readyState=4`，`fetch` 得 `200 audio/x-wav len=264678`。
+- 上传 BGM → 切到「媒体」再切回「推荐」：`localStorage.bgmTracks` 仍为 1、徽标保留（修复前会变 0）。
+- 背景图以 `data:image/png;base64,` 出现在舞台（截图可见橙色背景铺满）。
+- 资料卡的 备注 / 标签 / 状态 三项开关均生效；「切走再切回会重建会话 → 详情刷新」也实测通过（改库后：不重建显示旧值，重建显示新值）。
+- 门禁：`mvn -o test` **368 passed**、`tsc --noEmit` 干净、`vitest` 26、`check:native` 21。
+
+遗留：data URI 背景图对导出耗时/体积/内存的影响未测（大图会撑大 localStorage 与草稿 JSON，升级路径是像 BGM 一样落盘会话目录）；Java 侧修复需 Build + 重启才对 8080 生效。
+

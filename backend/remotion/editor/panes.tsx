@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { api, type ClipBrief, type EditorConfig, type MediaBrief, type MediaClips } from './api';
-import { fileToBase64, parsePayload } from './state';
+import { fileToBase64, fileToDataUri, parsePayload } from './state';
 import { THEME_PRESETS } from '../src/theme';
 
 type Patch = (patch: Partial<EditorConfig>) => void;
@@ -749,7 +749,8 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
     if (!files || files.length === 0) return;
     const images = [...config.bgImages];
     for (const file of Array.from(files)) {
-      images.push(await fileToBase64(file));
+      // 存 data URI（不能只存 base64：成片里背景图走 assetUrl 透传规则，裸 base64 会被当相对路径）
+      images.push(await fileToDataUri(file));
     }
     patch({ bgImages: images });
   };
