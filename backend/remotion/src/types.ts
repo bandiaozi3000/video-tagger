@@ -1,8 +1,6 @@
 import type { RenderParams } from './params';
 import type { TemplateStyle } from './theme';
-
 export type MediaMode = 'CLIPS_SELECTED' | 'INFO_ONLY';
-
 export type SceneType =
   | 'COLLECTION_OPENING'
   | 'COLLECTION_INTRO'
@@ -71,6 +69,15 @@ export interface Scene {
   durationInFrames: number;
 }
 
+/** 一组推荐媒体（分组维度由 Java 侧计算；排序与兼底在 scene-plan）。 */
+export interface GroupPlan {
+  /** 组名；无分组时为空串。 */
+  name: string;
+  /** 组序（强调色轮转依据）；无分组 -1。 */
+  index: number;
+  media: PocMedia[];
+}
+
 export interface ScenePlan {
   style: TemplateStyle;
   fps: number;
@@ -80,4 +87,10 @@ export interface ScenePlan {
   scenes: Scene[];
   /** 有原声的片段场景区间（供 BGM ducking 按帧查询）。 */
   audioWindows: { fromFrame: number; toFrame: number }[];
+  /** 已解析参数（缺省值 + 钳位后）——组件直接用它，避免每帧二次 `resolveParams`。 */
+  params: RenderParams;
+  /** 媒体 id → 媒体（每帧查找从 O(n) 降为 O(1)）。 */
+  mediaIndex: Map<number, PocMedia>;
+  /** 分组结果（章节页按组名取成员，避免每帧 filter 全表）。 */
+  groups: GroupPlan[];
 }

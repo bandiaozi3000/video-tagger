@@ -1,7 +1,8 @@
-import { resolveParams } from './params';
-import type { MultiMediaPocInput, PocMedia, Scene, ScenePlan } from './types';
+import { resolveParams, resolveStyle } from './params';
+import type { GroupPlan, MultiMediaPocInput, PocMedia, Scene, ScenePlan } from './types';
 import { TEMPLATE_IDS } from './types';
-import { resolveStyle } from './params';
+
+export type { GroupPlan };
 
 /**
  * 帧级场景计划 —— **唯一时长权威**（设计规格 §6.1）。
@@ -12,14 +13,6 @@ import { resolveStyle } from './params';
 
 /** 秒 → 帧（舍入，至少 1 帧）。 */
 const secToFrames = (seconds: number, fps: number): number => Math.max(1, Math.round(seconds * fps));
-
-export interface GroupPlan {
-  /** 组名；无分组时为空串。 */
-  name: string;
-  /** 组序（强调色轮转依据）；无分组 -1。 */
-  index: number;
-  media: PocMedia[];
-}
 
 /** 分组名里的年份（用于 `groupBy=year` 的组排序）；解析不出 → null（排最后）。 */
 function yearOfGroup(name: string): number | null {
@@ -120,7 +113,18 @@ export function buildScenePlan(input: MultiMediaPocInput): ScenePlan {
     })
     .map((scene) => ({ fromFrame: scene.fromFrame, toFrame: scene.fromFrame + scene.durationInFrames }));
 
-  return { style, fps, width, height, durationInFrames: fromFrame, scenes, audioWindows };
+  return {
+    style,
+    fps,
+    width,
+    height,
+    durationInFrames: fromFrame,
+    scenes,
+    audioWindows,
+    params,
+    mediaIndex: new Map(input.media.map((media) => [media.mediaId, media])),
+    groups,
+  };
 }
 
 /** 某帧是否有片段原声（BGM ducking 依据）。 */
@@ -158,22 +162,28 @@ function validateMedia(media: PocMedia, mediaIds: Set<number>, clipIds: Set<numb
   }
 }
 
-export function mediaForScene(input: MultiMediaPocInput, scene: Scene): PocMedia | undefined {
-  return input.media.find((media) => media.mediaId === scene.mediaId);
+export function mediaForScene(plan: ScenePlan, scene: Scene): PocMedia | undefined {
+  return scene.mediaId === undefined ? undefined : plan.mediaIndex.get(scene.mediaId);
+}
+
+/** 按组名取成员（章节页用；预先分组过，避免每帧扫全表）。 */
+export function mediaOfGroup(plan: ScenePlan, groupName: string | undefined): PocMedia[] {
+  if (!groupName) return [];
+  return plan.groups.find((group) => group.name === groupName)?.media ?? [];
 }
 
 /** 底部进度条文案。 */
-export function sceneLabel(input: MultiMediaPocInput, scene: Scene | undefined, total: number): string {
+export function sceneLabel(plan: ScenePlan, scene: Scene | undefined, total: number): string {
   if (!scene) return '—';
   if (scene.type === 'COLLECTION_OPENING') return '开场';
   if (scene.type === 'COLLECTION_INTRO') return '序言';
   if (scene.type === 'COLLECTION_ENDING') return '结尾';
   if (scene.type === 'GROUP_INTRO') return `章节 · ${scene.groupName ?? ''}`;
   if (scene.type === 'MEDIA_GRID') {
-    const first = input.media.find((m) => m.mediaId === scene.mediaIds?.[0]);
+    const first = scene.mediaIds?.[0] === undefined ? undefined : plan.mediaIndex.get(scene.mediaIds[0]);
     return `${first?.order ?? 1}-${(scene.mediaIds?.length ?? 1) + (first?.order ?? 1) - 1} / ${total}`;
   }
-  const media = input.media.find((item) => item.mediaId === scene.mediaId);
+  const media = mediaForScene(plan, scene);
   if (!media) return '—';
   return scene.type === 'MEDIA_CLIP' ? `${media.title} · 片段` : `${media.title}`;
 }

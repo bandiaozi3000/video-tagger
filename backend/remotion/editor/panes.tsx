@@ -88,6 +88,103 @@ export function Toolbar({ config, patch, onExport, onOpenTasks, busy }: {
   );
 }
 
+/** 选中对象标题。 */
+function selectionHeader(selection: import('./timeline').Selection,
+                         media: { title: string } | null,
+                         clip: { title: string } | null): string {
+  if (selection.kind === 'clip' && clip) return `当前片段 · ${clip.title}`;
+  if (selection.kind === 'media' && media) return `当前媒体 · ${media.title}`;
+  if (selection.kind === 'scene') return '当前段';
+  return '全局设置';
+}
+
+/** 把某部媒体在推荐顺序里上/下移一位。 */
+function moveMedia(config: EditorConfig, patch: Patch, mediaId: number, delta: number): void {
+  const index = config.ids.indexOf(mediaId);
+  const next = index + delta;
+  if (index < 0 || next < 0 || next >= config.ids.length) return;
+  const ids = [...config.ids];
+  [ids[index], ids[next]] = [ids[next], ids[index]];
+  patch({ ids });
+}
+
+/**
+ * 片段选择器（篮子与 Inspector 共用，避免两份实现）：候选片段 → 播放顺序 → 字幕条内容。
+ * 片段列表按媒体懒加载（`/api/clips/media/{id}`）。
+ */
+export function ClipPicker({ mediaId, title, config, onClips }: {
+  mediaId: number;
+  title: string;
+  config: EditorConfig;
+  onClips: (clips: MediaClips) => void;
+}) {
+  const [clips, setClips] = React.useState<ClipBrief[] | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    api.clips(mediaId).then((list) => !cancelled && setClips(list)).catch(() => !cancelled && setClips([]));
+    return () => { cancelled = true; };
+  }, [mediaId]);
+
+  const current: MediaClips = config.mediaClips[String(mediaId)] ?? { order: [] };
+  const badge = current.badge ?? {};
+
+  const setOrder = (order: number[]) => onClips({ order, badge: current.badge });
+  const swap = (index: number, delta: number) => {
+    const order = [...current.order];
+    const target = index + delta;
+    if (target < 0 || target >= order.length) return;
+    [order[index], order[target]] = [order[target], order[index]];
+    setOrder(order);
+  };
+
+  if (clips === null) return <p className="vt-hint">读取片段…</p>;
+  if (clips.length === 0) return <p className="vt-hint">「{title}」没有片段</p>;
+
+  return (
+    <div className="vt-clip-picker">
+      <div className="vt-clip-candidates">
+        {clips.map((clip) => {
+          const picked = current.order.includes(clip.id);
+          return (
+            <label key={clip.id} className="vt-clip-item">
+              <input type="checkbox" checked={picked} onChange={() =>
+                setOrder(picked ? current.order.filter((id) => id !== clip.id) : [...current.order, clip.id])} />
+              <span>{clip.title || `片段 #${clip.id}`}</span>
+              <span className="vt-hint">{clip.timestampSec ?? '?'}s</span>
+            </label>
+          );
+        })}
+      </div>
+      {current.order.length > 0 ? (
+        <div className="vt-clip-order">
+          <div className="vt-hint">播放顺序（{current.order.length}）</div>
+          {current.order.map((clipId, index) => (
+            <div key={clipId} className="vt-clip-order-row">
+              <span>{index + 1}. {clips.find((clip) => clip.id === clipId)?.title ?? `#${clipId}`}</span>
+              <span>
+                <button type="button" className="btn-mini" onClick={() => swap(index, -1)}>↑</button>
+                <button type="button" className="btn-mini" onClick={() => swap(index, 1)}>↓</button>
+              </span>
+            </div>
+          ))}
+          <div className="vt-clip-badges">
+            <span className="vt-hint">字幕条</span>
+            {([['mediaTitle', '媒体名'], ['clipTitle', '片段名'], ['index', '序号'], ['note', '备注']] as const).map(([key, label]) => (
+              <label key={key} className="vt-inline">
+                <input type="checkbox" checked={Boolean(badge[key])} onChange={(event) =>
+                  onClips({ order: current.order, badge: { ...badge, [key]: event.target.checked } })} />
+                {label}
+              </label>
+            ))}
+            <input className="vt-badge-custom" placeholder="自定义文案" value={badge.custom ?? ''}
+                   onChange={(event) => onClips({ order: current.order, badge: { ...badge, custom: event.target.value } })} />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /** 媒体篮子：筛选 + 分页 + 勾选 + 已选顺序 + 片段挂载。 */
 export function BasketPane({ config, patch }: { config: EditorConfig; patch: Patch }) {
   const [list, setList] = React.useState<MediaBrief[]>([]);
@@ -100,7 +197,6 @@ export function BasketPane({ config, patch }: { config: EditorConfig; patch: Pat
   const [tagText, setTagText] = React.useState('');
   const [tagId, setTagId] = React.useState<number | null>(null);
   const [clipMedia, setClipMedia] = React.useState<MediaBrief | null>(null);
-  const [clips, setClips] = React.useState<ClipBrief[]>([]);
   const [loading, setLoading] = React.useState(false);
   const pageSize = 30;
 
@@ -153,20 +249,7 @@ export function BasketPane({ config, patch }: { config: EditorConfig; patch: Pat
     if (id === null) setTagText('');
   };
 
-  const openClips = async (media: MediaBrief) => {
-    setClipMedia(media);
-    setClips(await api.clips(media.id).catch(() => []));
-  };
-
-  const clipConfig: MediaClips = clipMedia ? (config.mediaClips[String(clipMedia.id)] ?? { order: [] }) : { order: [] };
-
-  const updateClips = (next: MediaClips) => {
-    if (!clipMedia) return;
-    const mediaClips = { ...config.mediaClips };
-    if (next.order.length === 0) delete mediaClips[String(clipMedia.id)];
-    else mediaClips[String(clipMedia.id)] = next;
-    patch({ mediaClips });
-  };
+  const openClips = (media: MediaBrief) => setClipMedia(media);
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -208,7 +291,7 @@ export function BasketPane({ config, patch }: { config: EditorConfig; patch: Pat
               <div className="vt-media-title" title={item.title}>{item.title}</div>
               <div className="vt-media-foot">
                 <span className="vt-media-year">{item.year ?? '—'}</span>
-                <button type="button" className={cls('btn-mini', clipCount > 0 && 'active')} onClick={() => void openClips(item)}>
+                <button type="button" className={cls('btn-mini', clipCount > 0 && 'active')} onClick={() => openClips(item)}>
                   {clipCount > 0 ? `片段 ${clipCount}` : '选片段'}
                 </button>
               </div>
@@ -247,73 +330,34 @@ export function BasketPane({ config, patch }: { config: EditorConfig; patch: Pat
             <strong>片段 · {clipMedia.title}</strong>
             <button type="button" className="btn-mini" onClick={() => setClipMedia(null)}>关闭</button>
           </div>
-          <div className="vt-clip-body">
-            <div className="vt-clip-candidates">
-              {clips.length === 0 ? <span className="vt-hint">该媒体没有片段</span> : null}
-              {clips.map((clip) => {
-                const picked = clipConfig.order.includes(clip.id);
-                return (
-                  <label key={clip.id} className="vt-clip-item">
-                    <input type="checkbox" checked={picked} onChange={() => {
-                      const order = picked ? clipConfig.order.filter((value) => value !== clip.id) : [...clipConfig.order, clip.id];
-                      updateClips({ ...clipConfig, order });
-                    }} />
-                    <span>{clip.title || `片段 #${clip.id}`}</span>
-                    <span className="vt-hint">{clip.timestampSec ?? '?'}s</span>
-                  </label>
-                );
-              })}
-            </div>
-            <div className="vt-clip-order">
-              <div className="vt-hint">播放顺序</div>
-              {clipConfig.order.map((clipId, index) => (
-                <div key={clipId} className="vt-clip-order-row">
-                  <span>{index + 1}. {clips.find((clip) => clip.id === clipId)?.title ?? `#${clipId}`}</span>
-                  <span>
-                    <button type="button" className="btn-mini" onClick={() => {
-                      const order = [...clipConfig.order];
-                      if (index === 0) return;
-                      [order[index - 1], order[index]] = [order[index], order[index - 1]];
-                      updateClips({ ...clipConfig, order });
-                    }}>↑</button>
-                    <button type="button" className="btn-mini" onClick={() => {
-                      const order = [...clipConfig.order];
-                      if (index === order.length - 1) return;
-                      [order[index + 1], order[index]] = [order[index], order[index + 1]];
-                      updateClips({ ...clipConfig, order });
-                    }}>↓</button>
-                  </span>
-                </div>
-              ))}
-              <div className="vt-clip-badges">
-                <span className="vt-hint">字幕条内容</span>
-                {([['mediaTitle', '媒体名'], ['clipTitle', '片段名'], ['index', '序号'], ['note', '备注']] as const).map(([key, label]) => (
-                  <label key={key} className="vt-inline">
-                    <input type="checkbox" checked={Boolean(clipConfig.badge?.[key])} onChange={(event) =>
-                      updateClips({ ...clipConfig, badge: { ...clipConfig.badge, [key]: event.target.checked } })} />
-                    {label}
-                  </label>
-                ))}
-                <input className="vt-badge-custom" placeholder="自定义文案" value={clipConfig.badge?.custom ?? ''}
-                       onChange={(event) => updateClips({ ...clipConfig, badge: { ...clipConfig.badge, custom: event.target.value } })} />
-              </div>
-            </div>
-          </div>
+          <ClipPicker mediaId={clipMedia.id} title={clipMedia.title} config={config}
+                      onClips={(next) => {
+                        const mediaClips = { ...config.mediaClips };
+                        if (next.order.length === 0) delete mediaClips[String(clipMedia.id)];
+                        else mediaClips[String(clipMedia.id)] = next;
+                        patch({ mediaClips });
+                      }} />
         </div>
       ) : null}
     </div>
   );
 }
 
-/** Inspector：阶段 1 扁平参数面板（内容 / 页面 / 背景 / BGM / 开场 / 导出）。 */
-export function InspectorPane({ config, patch, mediaBriefs, missingByMedia }: {
+/** Inspector：参数面板（阶段 2：接受选中对象；阶段 3 按对象轴重排）。 */
+export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, selection, rendered }: {
   config: EditorConfig;
   patch: Patch;
   mediaBriefs: MediaBrief[];
   missingByMedia: Record<number, string>;
+  selection: import('./timeline').Selection;
+  rendered: { input: import('../src/types').MultiMediaPocInput } | null;
 }) {
   const bgmInput = React.useRef<HTMLInputElement>(null);
   const bgInput = React.useRef<HTMLInputElement>(null);
+  const selectedMedia = selection.mediaId === undefined ? null : rendered?.input.media.find((media) => media.mediaId === selection.mediaId) ?? null;
+  const selectedClip = selectedMedia && selection.clipId !== undefined
+    ? selectedMedia.clips.find((clip) => clip.clipId === selection.clipId) ?? null
+    : null;
 
   const addBgm = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -333,8 +377,55 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia }: {
     patch({ bgImages: images });
   };
 
+  const clipConfig: MediaClips = selectedMedia ? (config.mediaClips[String(selectedMedia.mediaId)] ?? { order: [] }) : { order: [] };
+  const updateSelectedClips = (next: MediaClips) => {
+    if (!selectedMedia) return;
+    const mediaClips = { ...config.mediaClips };
+    if (next.order.length === 0) delete mediaClips[String(selectedMedia.mediaId)];
+    else mediaClips[String(selectedMedia.mediaId)] = next;
+    patch({ mediaClips });
+  };
+
   return (
     <div className="vt-inspector">
+      <Group title={selectionHeader(selection, selectedMedia, selectedClip)} defaultOpen>
+        {selectedMedia ? (
+          <div className="vt-selected-obj">
+            <Field label="片内顺序">
+              <span className="vt-inline">
+                #{selectedMedia.order}
+                <button type="button" className="btn-mini" onClick={() => moveMedia(config, patch, selectedMedia.mediaId, -1)}>↑ 上移</button>
+                <button type="button" className="btn-mini" onClick={() => moveMedia(config, patch, selectedMedia.mediaId, 1)}>↓ 下移</button>
+              </span>
+            </Field>
+            <Field label="开场代表秀">
+              <input type="checkbox" checked={config.openingIds.includes(selectedMedia.mediaId)} onChange={() =>
+                patch({
+                  openingCustom: true,
+                  openingIds: config.openingIds.includes(selectedMedia.mediaId)
+                    ? config.openingIds.filter((id) => id !== selectedMedia.mediaId)
+                    : [...config.openingIds, selectedMedia.mediaId],
+                })} />
+            </Field>
+            <ClipPicker mediaId={selectedMedia.mediaId} title={selectedMedia.title} config={config} onClips={updateSelectedClips} />
+            {selectedClip ? (
+              <Field label="片段字幕条">
+                <span className="vt-inline-group">
+                  {([['mediaTitle', '媒体名'], ['clipTitle', '片段名'], ['index', '序号'], ['note', '备注']] as const).map(([key, label]) => (
+                    <label key={key} className="vt-inline">
+                      <input type="checkbox" checked={Boolean(clipConfig.badge?.[key])} onChange={(event) =>
+                        updateSelectedClips({ ...clipConfig, badge: { ...clipConfig.badge, [key]: event.target.checked } })} />
+                      {label}
+                    </label>
+                  ))}
+                </span>
+              </Field>
+            ) : null}
+          </div>
+        ) : (
+          <p className="vt-hint">在时间轴或左侧篮子里选一部媒体/一个片段，这里就显示它的可改项；不选则改全局。</p>
+        )}
+      </Group>
       <Group title="内容 · 主题" defaultOpen>
         <Field label="标题文案"><input value={config.title} placeholder="我的番剧推荐"
                onChange={(event) => patch({ title: event.target.value })} /></Field>

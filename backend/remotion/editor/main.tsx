@@ -12,22 +12,27 @@ import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Player, type PlayerRef } from '@remotion/player';
 import { RecommendComposition } from '../src/RecommendComposition';
-import { buildScenePlan } from '../src/scene-plan';
 import type { MultiMediaPocInput } from '../src/types';
 import { api, type EditorConfig, type ExportTask, type MediaBrief } from './api';
 import { applyLocalParams, loadConfig, saveConfig, sessionSignature } from './state';
 import { BasketPane, InspectorPane, Toolbar } from './panes';
+import { Timeline, type Selection } from './timeline';
+import { buildScenePlan } from '../src/scene-plan';
+import type { ScenePlan } from '../src/types';
 import './editor.css';
 
-type Rendered = { input: MultiMediaPocInput; frameCount: number };
+type Rendered = { input: MultiMediaPocInput; plan: ScenePlan; frameCount: number };
 
 function App() {
   const [config, setConfig] = React.useState<EditorConfig>(() => loadConfig());
   const [remoteInput, setRemoteInput] = React.useState<MultiMediaPocInput | null>(null);
-  const [missing, setMissing] = React.useState<Record<number, string>>({});
+  const [missing, setMissing] = React.useState<import('./api').MissingClip[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [tasksOpen, setTasksOpen] = React.useState(false);
   const [toast, setToast] = React.useState<string | null>(null);
+  const [frame, setFrame] = React.useState(0);
+  const [selection, setSelection] = React.useState<Selection>({ kind: 'global' });
+  const [rangeScene, setRangeScene] = React.useState<number | null>(null);
   const tokenRef = React.useRef<string | null>(null);
   const playerRef = React.useRef<PlayerRef>(null);
   const lastFrameRef = React.useRef(0);
@@ -51,7 +56,7 @@ function App() {
   React.useEffect(() => {
     if (config.ids.length === 0) {
       setRemoteInput(null);
-      setMissing({});
+      setMissing([]);
       return;
     }
     let cancelled = false;
@@ -65,11 +70,7 @@ function App() {
           if (cancelled) return;
           tokenRef.current = response.token;
           setRemoteInput(response.input);
-          const map: Record<number, string> = {};
-          for (const item of response.missing || []) {
-            map[item.clipId] = `${item.title || '片段'}：${item.reason}`;
-          }
-          setMissing(map);
+          setMissing(response.missing || []);
         } catch (error) {
           if (!cancelled) notify(error instanceof Error ? error.message : '会话同步失败');
         } finally {
@@ -91,8 +92,23 @@ function App() {
   const rendered: Rendered | null = React.useMemo(() => {
     if (!remoteInput || remoteInput.media.length === 0) return null;
     const input = applyLocalParams(remoteInput, config, config.ids.length);
-    return { input, frameCount: buildScenePlan(input).durationInFrames };
+    const plan = buildScenePlan(input);
+    return { input, plan, frameCount: plan.durationInFrames };
   }, [remoteInput, config]);
+
+  // 帧游标：Player 事件驱动（时间轴游标 + 当前段）
+  React.useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    const onFrame = (event: { detail: { frame: number } }) => { lastFrameRef.current = event.detail.frame; setFrame(event.detail.frame); };
+    const onSeeked = (event: { detail: { frame: number } }) => setFrame(event.detail.frame);
+    player.addEventListener('frameupdate', onFrame);
+    player.addEventListener('seeked', onSeeked);
+    return () => {
+      player.removeEventListener('frameupdate', onFrame);
+      player.removeEventListener('seeked', onSeeked);
+    };
+  }, [rendered !== null]);
 
   // —— 帧校正（设计规格 §6.6）：时长缩短后当前帧可能越界 → 跳到原段的新段首 ——
   React.useEffect(() => {
@@ -100,12 +116,28 @@ function App() {
     const player = playerRef.current;
     if (!player) return;
     if (lastFrameRef.current < rendered.frameCount) return;
-    const plan = buildScenePlan(rendered.input);
+    const plan = rendered.plan;
     const scene = plan.scenes.filter((item) => item.fromFrame <= lastFrameRef.current).pop();
     const target = scene ? scene.fromFrame : Math.max(0, rendered.frameCount - 1);
     player.seekTo(Math.min(target, rendered.frameCount - 1));
     lastFrameRef.current = Math.min(target, rendered.frameCount - 1);
+    setFrame(lastFrameRef.current);
   }, [rendered?.frameCount, rendered?.input]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 范围预览：只循环选中段（段丢失/时长变化导致越界时自动退出）
+  React.useEffect(() => {
+    if (rangeScene === null) return;
+    const scene = rendered?.plan.scenes[rangeScene];
+    if (!scene || scene.fromFrame + scene.durationInFrames > (rendered?.frameCount ?? 0)) setRangeScene(null);
+  }, [rangeScene, rendered?.frameCount, rendered?.input]);
+
+  const rangeSceneValue = rangeScene === null ? null : rendered?.plan.scenes[rangeScene] ?? null;
+
+  const seekTo = (target: number) => {
+    playerRef.current?.seekTo(target);
+    lastFrameRef.current = target;
+    setFrame(target);
+  };
 
   React.useEffect(() => {
     const player = playerRef.current;
@@ -115,7 +147,24 @@ function App() {
     return () => player.removeEventListener('frameupdate', onFrame);
   }, [rendered !== null]);
 
+  const missingByClip = React.useMemo(() => {
+    const map: Record<number, string> = {};
+    for (const item of missing) map[item.clipId] = `${item.title || '片段'}：${item.reason}`;
+    return map;
+  }, [missing]);
+
+  const missingByMedia = React.useMemo(() => {
+    const map: Record<number, string> = {};
+    for (const item of missing) if (!map[item.mediaId]) map[item.mediaId] = `${item.title || '片段'}：${item.reason}`;
+    return map;
+  }, [missing]);
+
   const onExport = async () => {
+    if (missing.length > 0) {
+      const detail = missing.slice(0, 5).map((item) => `· ${item.title || '片段'}：${item.reason}`).join('\n');
+      const more = missing.length > 5 ? `\n（其余 ${missing.length - 5} 项同理）` : '';
+      if (!window.confirm(`有 ${missing.length} 个片段素材不可用，导出将被后端拦截：\n${detail}${more}\n\n仍要提交吗？`)) return;
+    }
     try {
       setBusy(true);
       const response = await api.exportVideo(config);
@@ -135,6 +184,12 @@ function App() {
     year: media.year ?? null,
   }));
 
+  const inspectorMissing = React.useMemo(() => {
+    const map: Record<number, string> = {};
+    for (const [clipId, reason] of Object.entries(missingByClip)) map[Number(clipId)] = reason;
+    return map;
+  }, [missingByClip]);
+
   return (
     <div className="vt-workspace">
       <Toolbar config={config} patch={patch} onExport={() => void onExport()}
@@ -150,8 +205,8 @@ function App() {
               style={{
                 // 容器必须给**确定高度**：只给 % / flex 会让 Player 内部包装层算成 0 高，画布被顶出视口
                 // （v0.27 旧预览页踩过同一个坑，这里用画幅比例 + 高度上限双约束）
-                aspectRatio: `${rendered.input.params?.width ?? 1280} / ${rendered.input.params?.height ?? 720}`,
-                maxWidth: `calc(74vh * ${rendered.input.params?.width ?? 1280} / ${rendered.input.params?.height ?? 720})`,
+                aspectRatio: `${rendered.plan.width} / ${rendered.plan.height}`,
+                maxWidth: `calc(74vh * ${rendered.plan.width} / ${rendered.plan.height})`,
               }}
             >
               <Player
@@ -159,9 +214,11 @@ function App() {
                 component={RecommendComposition}
                 inputProps={{ input: rendered.input }}
                 durationInFrames={rendered.frameCount}
-                fps={rendered.input.params?.fps ?? 30}
-                compositionWidth={rendered.input.params?.width ?? 1280}
-                compositionHeight={rendered.input.params?.height ?? 720}
+                fps={rendered.plan.fps}
+                compositionWidth={rendered.plan.width}
+                compositionHeight={rendered.plan.height}
+                inFrame={rangeSceneValue ? rangeSceneValue.fromFrame : null}
+                outFrame={rangeSceneValue ? rangeSceneValue.fromFrame + rangeSceneValue.durationInFrames - 1 : null}
                 style={{ width: '100%', height: '100%' }}
                 controls
                 loop
@@ -175,13 +232,33 @@ function App() {
           )}
           <div className="vt-stage-meta">
             {rendered
-              ? `${rendered.input.params?.width}×${rendered.input.params?.height} · ${rendered.input.params?.fps}fps · ${rendered.frameCount} 帧 · ${rendered.input.media.length} 部 · 与导出同源`
+              ? `${rendered.plan.width}×${rendered.plan.height} · ${rendered.plan.fps}fps · ${rendered.frameCount} 帧 · ${rendered.input.media.length} 部 · 与导出同源`
               : '—'}
           </div>
         </div>
 
-        <InspectorPane config={config} patch={patch} mediaBriefs={mediaBriefs} missingByMedia={missing} />
+        <InspectorPane config={config} patch={patch} mediaBriefs={mediaBriefs} missingByMedia={inspectorMissing}
+                       selection={selection} rendered={rendered} />
       </div>
+
+      {rendered ? (
+        <Timeline
+          input={rendered.input}
+          plan={rendered.plan}
+          frame={frame}
+          selection={selection}
+          missingByClip={missingByClip}
+          missingByMedia={missingByMedia}
+          onSeek={seekTo}
+          onSelect={(next) => {
+            setSelection(next);
+            // 「只看本段」开着时，选中别的段就跟着换范围（否则游标跑到范围外，行为很迷惑）
+            if (rangeScene !== null && next.sceneIndex !== undefined) setRangeScene(next.sceneIndex);
+          }}
+          rangeOn={rangeScene !== null}
+          onToggleRange={() => setRangeScene(rangeScene === null ? Math.max(0, rendered.plan.scenes.findIndex((scene) => frame >= scene.fromFrame && frame < scene.fromFrame + scene.durationInFrames)) : null)}
+        />
+      ) : null}
 
       {tasksOpen ? <TaskPanel onClose={() => setTasksOpen(false)} notify={notify} /> : null}
       {toast ? <div className="vt-toast">{toast}</div> : null}
