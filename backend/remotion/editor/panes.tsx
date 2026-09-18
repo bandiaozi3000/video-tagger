@@ -12,27 +12,42 @@ type Patch = (patch: Partial<EditorConfig>) => void;
 
 const cls = (...names: (string | false | undefined)[]) => names.filter(Boolean).join(' ');
 
-function Group({ title, children, defaultOpen = false }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+/** 对象轴/参数分组：面板内的一节（kicker + 标题 + 折叠）。 */
+function Group({ title, kicker, right, children, defaultOpen = false }: {
+  title: string;
+  kicker?: string;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
   const [open, setOpen] = React.useState(defaultOpen);
   return (
-    <section className={cls('vt-group', open && 'open')}>
-      <button type="button" className="vt-group-title" onClick={() => setOpen(!open)}>
-        <span>{open ? '▾' : '▸'}</span>
-        {title}
+    <section className={cls('vt-sec', open && 'open')}>
+      <button type="button" className="vt-sec-h" onClick={() => setOpen(!open)}>
+        <span className="lb">{kicker ? <em>{kicker}</em> : null}{title}</span>
+        <span className="cw">{right}{open ? '▾' : '▸'}</span>
       </button>
-      {open ? <div className="vt-group-body">{children}</div> : null}
+      {open ? <div className="vt-sec-b">{children}</div> : null}
     </section>
   );
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+/** 字段：标签在上、控件满宽（v0.29 起不再左右挤压）；`hl` = 与当前选中对象相关，左侧亮竖线。 */
+function Field({ label, hint, hl, children }: { label: string; hint?: string; hl?: boolean; children: React.ReactNode }) {
   return (
-    <label className="vt-field">
+    <div className={cls('vt-field', hl && 'hl')}>
       <span className="vt-field-label">{label}</span>
       <span className="vt-field-control">{children}</span>
       {hint ? <span className="vt-hint">{hint}</span> : null}
-    </label>
+    </div>
   );
+}
+
+/** 秒 → m:ss（抬头卡状态胶囊用）。 */
+function formatClock(seconds: number | null): string {
+  if (seconds === null || !Number.isFinite(seconds)) return '—';
+  const total = Math.max(0, Math.round(seconds));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
 function Range({ value, onChange, min, max, step = 1, suffix }: {
@@ -52,8 +67,8 @@ function Range({ value, onChange, min, max, step = 1, suffix }: {
   );
 }
 
-/** 工具栏：导出格式/清晰度 + 导出 + 导出任务入口。 */
-export function Toolbar({ config, patch, onExport, onExportAll, variantCount, onOpenTasks, onOpenTemplates, busy }: {
+/** 抬头卡（v0.29）：状态胶囊 + 主操作（只留一个主按钮）+ 设置条。 */
+export function Hero({ config, patch, onExport, onExportAll, variantCount, onOpenTasks, onOpenTemplates, busy, meta }: {
   config: EditorConfig;
   patch: Patch;
   onExport: () => void;
@@ -62,38 +77,84 @@ export function Toolbar({ config, patch, onExport, onExportAll, variantCount, on
   onOpenTasks: () => void;
   onOpenTemplates: () => void;
   busy: boolean;
+  meta: { seconds: number | null; frames: number | null; missingCount: number; savedAt: string | null };
 }) {
+  const empty = config.ids.length === 0;
   return (
-    <div className="vt-toolbar">
-      <div className="vt-toolbar-left">
-        <strong>推荐工作台</strong>
-        <span className="vt-toolbar-note">已选 {config.ids.length} 部 · 本地自动暂存</span>
+    <header className="vt-hero">
+      <div className="vt-hero-top">
+        <div>
+          <div className="vt-hero-title">推荐工作台</div>
+          <div className="vt-hero-sub">选片、排段、调参、导出——一屏完成，改动即时可见</div>
+          <div className="vt-status">
+            <span className="vt-chip pk">已选 <b>{config.ids.length}</b> 部</span>
+            {meta.frames !== null ? (
+              <span className="vt-chip">预计时长 <b>{formatClock(meta.seconds)}</b> · <b>{meta.frames}</b> 帧</span>
+            ) : null}
+            <span className="vt-chip">分辨率 <b>{config.resolution}</b> · <b>{config.format}</b></span>
+            {meta.missingCount > 0
+              ? <span className="vt-chip warn">⚠ 素材缺失 <b>{meta.missingCount}</b> 项</span>
+              : <span className="vt-chip cy">● 素材就绪</span>}
+            <span className="vt-chip cy">{meta.savedAt ? `本地自动暂存 · ${meta.savedAt}` : '本地自动暂存'}</span>
+          </div>
+        </div>
+        <div className="vt-actions">
+          <button type="button" className="btn-primary" disabled={busy || empty} onClick={onExport}>
+            {busy ? '提交中…' : '▶ 导出视频'}
+          </button>
+          <button type="button" className="btn-mini" disabled={busy || empty}
+                  title="按变体逐个提交（每个变体一个任务）" onClick={onExportAll}>
+            导出全部变体{variantCount > 0 ? `（${variantCount}）` : ''}
+          </button>
+          <button type="button" className="btn-mini" onClick={onOpenTasks}>导出任务</button>
+        </div>
       </div>
-      <div className="vt-toolbar-right">
-        <select value={config.groupStyle} onChange={(event) => patch({ groupStyle: event.target.value })} title="推荐模板">
-          <option value="chapter">章节式</option>
-          <option value="clip">片段放映式</option>
-        </select>
-        <select value={config.format} onChange={(event) => patch({ format: event.target.value })} title="视频格式">
-          <option value="MP4">MP4</option>
-          <option value="WEBM">WEBM</option>
-        </select>
-        <select value={config.resolution} onChange={(event) => patch({ resolution: event.target.value })} title="清晰度">
-          <option value="720P">720P</option>
-          <option value="1080P">1080P</option>
-          <option value="4K">4K</option>
-        </select>
-        <button type="button" className="btn-mini" onClick={onOpenTemplates}>🗂 模板</button>
-        <button type="button" className="btn-mini" onClick={onOpenTasks}>📋 导出任务</button>
-        <button type="button" className="btn-primary" disabled={busy || config.ids.length === 0} onClick={onExport}>
-          {busy ? '提交中…' : '导出视频'}
-        </button>
-        <button type="button" className="btn-primary" disabled={busy || config.ids.length === 0 || variantCount === 0}
-                title="按变体逐个提交（每个变体一个任务）" onClick={onExportAll}>
-          导出全部变体{variantCount > 0 ? `（${variantCount}）` : ''}
-        </button>
+
+      <div className="vt-settings">
+        <div className="vt-set">
+          <span>模板</span>
+          <button type="button" className="btn-mini" onClick={onOpenTemplates}>🗂 保存 / 套用</button>
+        </div>
+        <div className="vt-set">
+          <span>样式</span>
+          <select value={config.groupStyle} onChange={(event) => patch({ groupStyle: event.target.value })} title="推荐形态">
+            <option value="chapter">章节式</option>
+            <option value="clip">片段放映式</option>
+          </select>
+        </div>
+        <div className="vt-set">
+          <span>画质</span>
+          <select value={config.resolution} onChange={(event) => patch({ resolution: event.target.value })} title="清晰度">
+            <option value="720P">720P</option>
+            <option value="1080P">1080P</option>
+            <option value="4K">4K</option>
+          </select>
+        </div>
+        <div className="vt-set">
+          <span>封装</span>
+          <select value={config.format} onChange={(event) => patch({ format: event.target.value })} title="视频封装格式">
+            <option value="MP4">MP4</option>
+            <option value="WEBM">WEBM</option>
+          </select>
+        </div>
+        <div className="vt-set">
+          <span>主题</span>
+          <div className="vt-presets">
+            {THEME_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className={cls('vt-preset', config.preset === preset.id && 'active')}
+                title={preset.note}
+                onClick={() => patch({ preset: preset.id })}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
-    </div>
+    </header>
   );
 }
 
@@ -412,6 +473,7 @@ export function BasketPane({ config, patch, filter, onFilter }: {
   const setTagId = (value: number | null) => onFilter({ ...filter, tagId: value });
   const [clipMedia, setClipMedia] = React.useState<MediaBrief | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const [tab, setTab] = React.useState<'candidates' | 'selected'>('candidates');
   const pageSize = 30;
 
   React.useEffect(() => {
@@ -502,42 +564,51 @@ export function BasketPane({ config, patch, filter, onFilter }: {
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
-    <div className="vt-basket">
-      <div className="vt-basket-filters">
-        <select value={sourceId ?? ''} onChange={(event) => { setPage(1); setSourceId(event.target.value ? Number(event.target.value) : null); }}>
-          <option value="">全部媒体</option>
-          {collections.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
-        <select value={year} onChange={(event) => { setPage(1); setYear(event.target.value); }}>
-          <option value="">全部年份</option>
-          {years.map((value) => <option key={value} value={value}>{value} 年</option>)}
-        </select>
-        <input className="vt-tag-input" placeholder="标签过滤（回车）" value={tagText}
-               onChange={(event) => setTagText(event.target.value)}
-               onKeyDown={(event) => { if (event.key === 'Enter') void applyTag(); }} />
-        {tagId !== null ? <button type="button" className="btn-mini" onClick={() => { setTagText(''); setTagId(null); }}>✕ 标签</button> : null}      </div>
-
-      <div className="vt-basket-actions">
-        <span>{loading ? '加载中…' : `共 ${total} 部 · 第 ${page}/${pages} 页`}</span>
-        <span className="vt-basket-actions-btns">
-          <button type="button" className="btn-mini" onClick={() => patch({ ids: [...new Set([...config.ids, ...pageIds])] })}>全选本页</button>
-          <button type="button" className="btn-primary" disabled={recomputing}
-                  title="按上方筛选条件重算候选（会替换当前勾选；之后仍可手工微调）"
-                  onClick={() => void recompute()}>{recomputing ? '重算中…' : '↻ 按筛选重算候选'}</button>
-          <button type="button" className="btn-mini" onClick={() => patch({ ids: [], openingIds: [], mediaClips: {} })}>清空</button>
-        </span>
+    <section className="panel vt-col">
+      <div className="panel-head">
+        <div>
+          <span className="kicker">Library</span>
+          <h3>候选库</h3>
+        </div>
+        <div className="vt-head-r">共 <b style={{ color: 'var(--text)' }}>{loading ? '…' : total}</b> 部</div>
       </div>
 
-      <div
-        className={`vt-drop-opening${dropZone === 'opening' ? ' over' : ''}`}
-        onDragOver={(event) => { event.preventDefault(); setDropZone('opening'); }}
-        onDragLeave={() => setDropZone(null)}
-        onDrop={onDropTo('opening')}
-      >
-        🎬 拖到这里 = 加入开场代表秀（{config.openingIds.length}）
+      <div className="vt-tabs">
+        <button type="button" className={cls('vt-tab', tab === 'candidates' && 'on')} onClick={() => setTab('candidates')}>
+          候选 <i>{total}</i>
+        </button>
+        <button type="button" className={cls('vt-tab', tab === 'selected' && 'on')} onClick={() => setTab('selected')}>
+          已选 <i>{config.ids.length}</i>
+        </button>
       </div>
 
-      <div className="vt-media-grid">
+      {tab === 'candidates' ? (
+        <>
+          <div className="vt-scroll">
+            <div className="vt-filters">
+              <select value={sourceId ?? ''} onChange={(event) => { setPage(1); setSourceId(event.target.value ? Number(event.target.value) : null); }}>
+                <option value="">全部媒体</option>
+                {collections.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+              <select value={year} onChange={(event) => { setPage(1); setYear(event.target.value); }}>
+                <option value="">全部年份</option>
+                {years.map((value) => <option key={value} value={value}>{value} 年</option>)}
+              </select>
+              <input className="vt-tag-input full" placeholder="🏷 标签过滤（回车）" value={tagText}
+                     onChange={(event) => setTagText(event.target.value)}
+                     onKeyDown={(event) => { if (event.key === 'Enter') void applyTag(); }} />
+            </div>
+
+            <div className="vt-tools">
+              <button type="button" className="btn-mini" onClick={() => patch({ ids: [...new Set([...config.ids, ...pageIds])] })}>☑ 全选本页</button>
+              <button type="button" className="btn-mini" disabled={recomputing}
+                      title="按上方筛选条件重算候选（会替换当前勾选；之后仍可手工微调）"
+                      onClick={() => void recompute()}>{recomputing ? '重算中…' : '↻ 按筛选重算'}</button>
+              {tagId !== null ? <button type="button" className="btn-mini" onClick={() => { setTagText(''); setTagId(null); }}>✕ 清除标签</button> : null}
+              <button type="button" className="btn-mini" onClick={() => patch({ ids: [], openingIds: [], mediaClips: {} })}>清空</button>
+            </div>
+
+            <div className="vt-media-grid">
         {list.map((item) => {
           const cover = item.coverPath || item.fallbackCoverPath || item.externalCoverUrl;
           const clipCount = config.mediaClips[String(item.id)]?.order.length ?? 0;
@@ -556,25 +627,39 @@ export function BasketPane({ config, patch, filter, onFilter }: {
               <div className="vt-media-foot">
                 <span className="vt-media-year">{item.year ?? '—'}</span>
                 <button type="button" className={cls('btn-mini', clipCount > 0 && 'active')} onClick={() => openClips(item)}>
-                  {clipCount > 0 ? `片段 ${clipCount}` : '选片段'}
+                  {clipCount > 0 ? `片段 ${clipCount}` : '＋ 片段'}
                 </button>
               </div>
             </div>
           );
         })}
       </div>
+          </div>
+          <div className="vt-basket-pager">
+            <span>{loading ? '加载中…' : `第 ${page} / ${pages} 页`}</span>
+            <span className="vt-pager-btns">
+              <button type="button" className="btn-mini" disabled={page <= 1} onClick={() => setPage(page - 1)}>‹ 上一页</button>
+              <button type="button" className="btn-mini" disabled={page >= pages} onClick={() => setPage(page + 1)}>下一页 ›</button>
+            </span>
+          </div>
+        </>
+      ) : (
+        <div className="vt-scroll">
+          <div
+            className={cls('vt-drop-opening', dropZone === 'opening' && 'over')}
+            onDragOver={(event) => { event.preventDefault(); setDropZone('opening'); }}
+            onDragLeave={() => setDropZone(null)}
+            onDrop={onDropTo('opening')}
+          >
+            🎬 拖到这里 = 加入开场代表秀（{config.openingIds.length}）
+          </div>
 
-      <div className="vt-basket-pager">
-        <button type="button" className="btn-mini" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</button>
-        <button type="button" className="btn-mini" disabled={page >= pages} onClick={() => setPage(page + 1)}>下一页</button>
-      </div>
-
-      <div className={`vt-selected${dropZone === 'list' ? ' over' : ''}`}
-           onDragOver={(event) => { event.preventDefault(); setDropZone('list'); }}
-           onDragLeave={() => setDropZone(null)}
-           onDrop={onDropTo('list')}>
-        <div className="vt-selected-head">推荐顺序（{config.ids.length}）· 可拖拽排序</div>
-        <ol className="vt-selected-list">
+          <div className={cls('vt-selected', dropZone === 'list' && 'over')}
+               onDragOver={(event) => { event.preventDefault(); setDropZone('list'); }}
+               onDragLeave={() => setDropZone(null)}
+               onDrop={onDropTo('list')}>
+            <div className="vt-selected-head">推荐顺序（{config.ids.length}） · 拖拽可排序</div>
+            <ol className="vt-selected-list">
           {config.ids.map((id, index) => {
             const item = list.find((value) => value.id === id);
             return (
@@ -593,6 +678,7 @@ export function BasketPane({ config, patch, filter, onFilter }: {
                     draggedId.current = from;
                     patch({ ids });
                   }}>
+                <span className="idx">{index + 1}</span>
                 <span className="vt-selected-title">{item?.title ?? `#${id}`}</span>
                 <span className="vt-selected-btns">
                   <button type="button" className="btn-mini" onClick={() => move(index, -1)}>↑</button>
@@ -602,25 +688,33 @@ export function BasketPane({ config, patch, filter, onFilter }: {
               </li>
             );
           })}
-        </ol>
-      </div>
+            </ol>
+            {config.ids.length === 0 ? <p className="vt-hint">还没选片：到「候选」页勾选或拖进来。</p> : null}
+          </div>
+        </div>
+      )}
 
       {clipMedia ? (
-        <div className="vt-clip-panel">
-          <div className="vt-clip-head">
-            <strong>片段 · {clipMedia.title}</strong>
-            <button type="button" className="btn-mini" onClick={() => setClipMedia(null)}>关闭</button>
+        <div className="vt-overlay">
+          <div className="vt-panel">
+            <div className="vt-panel-head">
+              <strong>片段 · {clipMedia.title}</strong>
+              <span className="btns">
+                <button type="button" className="btn-mini" onClick={() => setClipMedia(null)}>关闭</button>
+              </span>
+            </div>
+            <ClipPicker mediaId={clipMedia.id} title={clipMedia.title} config={config}
+                        onClips={(next) => {
+                          const mediaClips = { ...config.mediaClips };
+                          if (next.order.length === 0) delete mediaClips[String(clipMedia.id)];
+                          else mediaClips[String(clipMedia.id)] = next;
+                          patch({ mediaClips });
+                        }} />
+            <p className="vt-hint">勾选后该媒体在成片里播放这些片段（按上面的顺序）；一个都不勾则回到资料卡。</p>
           </div>
-          <ClipPicker mediaId={clipMedia.id} title={clipMedia.title} config={config}
-                      onClips={(next) => {
-                        const mediaClips = { ...config.mediaClips };
-                        if (next.order.length === 0) delete mediaClips[String(clipMedia.id)];
-                        else mediaClips[String(clipMedia.id)] = next;
-                        patch({ mediaClips });
-                      }} />
         </div>
       ) : null}
-    </div>
+    </section>
   );
 }
 
@@ -669,19 +763,42 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
     patch({ mediaClips });
   };
 
+  const objName = selectedClip?.title ?? selectedMedia?.title ?? (selection.kind === 'scene' ? '当前段' : '全局设置');
+  const crumb = selection.kind === 'global'
+    ? '全局设置'
+    : selection.kind === 'clip'
+      ? `第 ${selectedMedia?.order ?? '?'} 位 › 片段`
+      : selection.kind === 'media'
+        ? `第 ${selectedMedia?.order ?? '?'} 位 › 媒体`
+        : `时间轴 · 第 ${(selection.sceneIndex ?? 0) + 1} 段`;
+
   return (
-    <div className="vt-inspector">
-      <Group title={selectionHeader(selection, selectedMedia, selectedClip)} defaultOpen>
+    <section className="panel vt-col">
+      <div className="panel-head">
+        <div>
+          <span className="kicker">Inspector</span>
+          <h3>对象轴</h3>
+        </div>
+        <div className="vt-head-r">改动即时生效</div>
+      </div>
+
+      <div className="vt-objbar">
+        <div className="vt-crumb">{crumb}</div>
+        <div className="vt-objname"><span className="dot" />{objName}</div>
+      </div>
+
+      <div className="vt-scroll flush">
+      <Group kicker="Object" title={selection.kind === 'global' ? '全局参数' : selectionHeader(selection, selectedMedia, selectedClip)} defaultOpen>
         {selectedMedia ? (
           <div className="vt-selected-obj">
-            <Field label="片内顺序">
+            <Field label="片内顺序（选中对象）" hl>
               <span className="vt-inline">
                 #{selectedMedia.order}
                 <button type="button" className="btn-mini" onClick={() => moveMedia(config, patch, selectedMedia.mediaId, -1)}>↑ 上移</button>
                 <button type="button" className="btn-mini" onClick={() => moveMedia(config, patch, selectedMedia.mediaId, 1)}>↓ 下移</button>
               </span>
             </Field>
-            <Field label="开场代表秀">
+            <Field label="开场代表秀" hl>
               <input type="checkbox" checked={config.openingIds.includes(selectedMedia.mediaId)} onChange={() =>
                 patch({
                   openingCustom: true,
@@ -692,7 +809,7 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
             </Field>
             <ClipPicker mediaId={selectedMedia.mediaId} title={selectedMedia.title} config={config} onClips={updateSelectedClips} />
             {selectedClip ? (
-              <Field label="片段字幕条">
+              <Field label="片段字幕条" hl>
                 <span className="vt-inline-group">
                   {([['mediaTitle', '媒体名'], ['clipTitle', '片段名'], ['index', '序号'], ['note', '备注']] as const).map(([key, label]) => (
                     <label key={key} className="vt-inline">
@@ -709,24 +826,7 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
           <p className="vt-hint">在时间轴或左侧篮子里选一部媒体/一个片段，这里就显示它的可改项；不选则改全局。</p>
         )}
       </Group>
-      <Group title="主题预设" defaultOpen>
-        <div className="vt-presets">
-          {THEME_PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              className={cls('vt-preset', config.preset === preset.id && 'active')}
-              title={preset.note}
-              onClick={() => patch({ preset: preset.id })}
-            >
-              {preset.name}
-            </button>
-          ))}
-        </div>
-        <p className="vt-hint">切换即生效（本地参数）；「星云暗房」= 与今天成片一致的那套。</p>
-      </Group>
-
-      <Group title="内容 · 主题" defaultOpen>
+      <Group kicker="Content" title="内容 · 主题" defaultOpen>
         <Field label="标题文案"><input value={config.title} placeholder="我的番剧推荐"
                onChange={(event) => patch({ title: event.target.value })} /></Field>
         <Field label="左上角角标"><input value={config.brandTitle} maxLength={20}
@@ -744,7 +844,7 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
                onChange={(event) => patch({ endingText: event.target.value })} /></Field>
       </Group>
 
-      <Group title="页面展示与交互" defaultOpen>
+      <Group kicker="Layout" title="页面展示与交互" defaultOpen>
         <Field label="分组方式">
           <select value={config.groupBy} onChange={(event) => patch({ groupBy: event.target.value })}>
             <option value="none">不分组</option>
@@ -768,6 +868,9 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
                onChange={(value) => patch({ openingSpeed: value })} /></Field>
         <Field label="结尾滚动速度"><Range value={config.endingScrollSpeed} min={0} max={100}
                onChange={(value) => patch({ endingScrollSpeed: value })} /></Field>
+      </Group>
+
+      <Group kicker="Timing" title="时长与显示" defaultOpen>
         <Field label="显示时长（秒）" hint="开场 / 序言 / 章节 / 资料卡 / 结尾">
           <span className="vt-durations">
             {([['openingSec', '开场'], ['introSec', '序言'], ['groupSec', '章节'], ['detailSec', '资料'], ['endingSec', '结尾']] as const)
@@ -792,7 +895,7 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
         </Field>
       </Group>
 
-      <Group title="开场代表秀">
+      <Group kicker="Opening" title="开场代表秀">
         <Field label="自定义开场封面">
           <input type="checkbox" checked={config.openingCustom}
                  onChange={(event) => patch({ openingCustom: event.target.checked })} />
@@ -812,11 +915,11 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
         </div>
       </Group>
 
-      <Group title={`导出变体（${variants.length}）`}>
+      <Group kicker="Variants" title={`导出变体（${variants.length}）`}>
         <VariantGroup variants={variants} onVariants={onVariants} />
       </Group>
 
-      <Group title="背景音乐（BGM）">
+      <Group kicker="Audio" title="背景音乐（BGM）">
         <button type="button" className="btn-mini" onClick={() => bgmInput.current?.click()}>🎵 添加音频</button>
         <input ref={bgmInput} type="file" accept="audio/*" multiple hidden
                onChange={(event) => { void addBgm(event.target.files); event.target.value = ''; }} />
@@ -837,7 +940,7 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
                onChange={(value) => patch({ bgmY: value })} /></Field>
       </Group>
 
-      <Group title="背景层">
+      <Group kicker="Background" title="背景层">
         <Field label="背景图">
           <button type="button" className="btn-mini" onClick={() => bgInput.current?.click()}>🖼 添加图片</button>
           <input ref={bgInput} type="file" accept="image/*" multiple hidden
@@ -867,7 +970,7 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
       </Group>
 
       {Object.keys(missingByMedia).length > 0 ? (
-        <Group title={`素材缺失 ${Object.keys(missingByMedia).length} 项`} defaultOpen>
+        <Group kicker="Missing" title={`素材缺失 ${Object.keys(missingByMedia).length} 项`} defaultOpen>
           <ul className="vt-missing-list">
             {Object.entries(missingByMedia).map(([mediaId, reason]) => (
               <li key={mediaId}>#{mediaId}：{reason}</li>
@@ -875,6 +978,7 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
           </ul>
         </Group>
       ) : null}
-    </div>
+      </div>
+    </section>
   );
 }

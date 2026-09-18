@@ -23,13 +23,19 @@ import {
   saveConfig,
   sessionSignature,
 } from './state';
-import { BasketPane, BgmOverlay, InspectorPane, TemplatePanel, Toolbar } from './panes';
+import { BasketPane, BgmOverlay, Hero, InspectorPane, TemplatePanel } from './panes';
 import { Timeline, type Selection } from './timeline';
 import { buildScenePlan } from '../src/scene-plan';
 import type { ScenePlan } from '../src/types';
 import './editor.css';
 
 type Rendered = { input: MultiMediaPocInput; plan: ScenePlan; frameCount: number };
+
+/** 帧 → m:ss（播放控制条用）。 */
+function clockText(frames: number, fps: number): string {
+  const total = Math.floor(Math.max(0, frames) / Math.max(1, fps));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
 
 function App() {
   const [config, setConfig] = React.useState<EditorConfig>(() => loadConfig());
@@ -43,6 +49,9 @@ function App() {
   const draftReady = React.useRef(false);
   const [toast, setToast] = React.useState<string | null>(null);
   const [frame, setFrame] = React.useState(0);
+  const [playing, setPlaying] = React.useState(false);
+  const [rate, setRate] = React.useState(1);
+  const [savedAt, setSavedAt] = React.useState<string | null>(null);
   const [selection, setSelection] = React.useState<Selection>({ kind: 'global' });
   const [rangeScene, setRangeScene] = React.useState<number | null>(null);
   const tokenRef = React.useRef<string | null>(null);
@@ -85,7 +94,9 @@ function App() {
   React.useEffect(() => {
     if (!draftReady.current) return;
     const timer = window.setTimeout(() => {
-      api.saveDraft(JSON.stringify(buildPayload(config, filter, variants))).catch(() => undefined);
+      api.saveDraft(JSON.stringify(buildPayload(config, filter, variants)))
+        .then(() => setSavedAt(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })))
+        .catch(() => undefined);
     }, 1000);
     return () => window.clearTimeout(timer);
   }, [config, filter, variants]);
@@ -142,11 +153,17 @@ function App() {
     if (!player) return;
     const onFrame = (event: { detail: { frame: number } }) => { lastFrameRef.current = event.detail.frame; setFrame(event.detail.frame); };
     const onSeeked = (event: { detail: { frame: number } }) => setFrame(event.detail.frame);
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
     player.addEventListener('frameupdate', onFrame);
     player.addEventListener('seeked', onSeeked);
+    player.addEventListener('play', onPlay);
+    player.addEventListener('pause', onPause);
     return () => {
       player.removeEventListener('frameupdate', onFrame);
       player.removeEventListener('seeked', onSeeked);
+      player.removeEventListener('play', onPlay);
+      player.removeEventListener('pause', onPause);
     };
   }, [rendered !== null]);
 
@@ -177,6 +194,24 @@ function App() {
     playerRef.current?.seekTo(target);
     lastFrameRef.current = target;
     setFrame(target);
+  };
+
+  /** 播放/暂停（播放控制条的圆按钮）。 */
+  const togglePlay = () => {
+    const player = playerRef.current;
+    if (!player) return;
+    if (playing) player.pause();
+    else player.play();
+  };
+
+  /** 跳到上/下一段的段首。 */
+  const stepScene = (delta: number) => {
+    if (!rendered) return;
+    const scenes = rendered.plan.scenes;
+    const current = scenes.findIndex((scene) => frame >= scene.fromFrame && frame < scene.fromFrame + scene.durationInFrames);
+    const at = current < 0 ? 0 : current;
+    const target = Math.min(scenes.length - 1, Math.max(0, at + delta));
+    if (scenes[target]) seekTo(scenes[target].fromFrame);
   };
 
   React.useEffect(() => {
@@ -254,79 +289,122 @@ function App() {
 
   return (
     <div className="vt-workspace">
-      <Toolbar config={config} patch={patch} onExport={() => void onExport()}
-               onExportAll={() => void onExportAll()}
-               variantCount={variants.length}
-               onOpenTasks={() => setTasksOpen(true)}
-               onOpenTemplates={() => setTemplatesOpen(true)} busy={busy} />
+      <Hero config={config} patch={patch} busy={busy} variantCount={variants.length}
+            onExport={() => void onExport()} onExportAll={() => void onExportAll()}
+            onOpenTasks={() => setTasksOpen(true)} onOpenTemplates={() => setTemplatesOpen(true)}
+            meta={{
+              seconds: rendered ? rendered.frameCount / rendered.plan.fps : null,
+              frames: rendered?.frameCount ?? null,
+              missingCount: missing.length,
+              savedAt,
+            }} />
 
       <div className="vt-body">
         <BasketPane config={config} patch={patch} filter={filter} onFilter={setFilter} />
 
-        <div className="vt-stage">
-          {rendered ? (
-            <div
-              className="vt-player-shell"
-              ref={shellRef}
-              style={{
-                // 容器必须给**确定高度**：只给 % / flex 会让 Player 内部包装层算成 0 高，画布被顶出视口
-                // （v0.27 旧预览页踩过同一个坑，这里用画幅比例 + 高度上限双约束）
-                aspectRatio: `${rendered.plan.width} / ${rendered.plan.height}`,
-                maxWidth: `calc(74vh * ${rendered.plan.width} / ${rendered.plan.height})`,
-              }}
-            >
-              <Player
-                ref={playerRef}
-                component={RecommendComposition}
-                inputProps={{ input: rendered.input }}
-                durationInFrames={rendered.frameCount}
-                fps={rendered.plan.fps}
-                compositionWidth={rendered.plan.width}
-                compositionHeight={rendered.plan.height}
-                inFrame={rangeSceneValue ? rangeSceneValue.fromFrame : null}
-                outFrame={rangeSceneValue ? rangeSceneValue.fromFrame + rangeSceneValue.durationInFrames - 1 : null}
-                style={{ width: '100%', height: '100%' }}
-                controls
-                loop
-                doubleClickToFullscreen
-              />
-              <BgmOverlay config={config} patch={patch} shellRef={shellRef} />
+        <section className="panel vt-col">
+          <div className="panel-head">
+            <div>
+              <span className="kicker">Stage</span>
+              <h3>预览舞台</h3>
             </div>
-          ) : (
-            <div className="vt-empty">
-              {config.ids.length === 0 ? '从左侧勾选要推荐的媒体' : busy ? '准备素材中…' : '准备中…'}
+            <div className="vt-head-r">
+              {rendered
+                ? `${rendered.plan.width}×${rendered.plan.height} · ${rendered.plan.fps}fps · ${rendered.input.media.length} 部`
+                : '—'}
+              <span style={{ color: 'var(--cyan)' }}>● 与导出同源</span>
             </div>
-          )}
-          <div className="vt-stage-meta">
-            {rendered
-              ? `${rendered.plan.width}×${rendered.plan.height} · ${rendered.plan.fps}fps · ${rendered.frameCount} 帧 · ${rendered.input.media.length} 部 · 与导出同源`
-              : '—'}
           </div>
-        </div>
+
+          <div className="vt-stage-body">
+            {rendered ? (
+              <div
+                className="vt-player-shell"
+                ref={shellRef}
+                style={{
+                  // 容器必须给**确定高度**：只给 % / flex 会让 Player 内部包装层算成 0 高，画布被顶出视口
+                  // （v0.27 旧预览页踩过同一个坑，这里用画幅比例 + 高度上限双约束）
+                  aspectRatio: `${rendered.plan.width} / ${rendered.plan.height}`,
+                  maxWidth: `calc(42vh * ${rendered.plan.width} / ${rendered.plan.height})`,
+                }}
+              >
+                <Player
+                  ref={playerRef}
+                  component={RecommendComposition}
+                  inputProps={{ input: rendered.input }}
+                  durationInFrames={rendered.frameCount}
+                  fps={rendered.plan.fps}
+                  compositionWidth={rendered.plan.width}
+                  compositionHeight={rendered.plan.height}
+                  inFrame={rangeSceneValue ? rangeSceneValue.fromFrame : null}
+                  outFrame={rangeSceneValue ? rangeSceneValue.fromFrame + rangeSceneValue.durationInFrames - 1 : null}
+                  playbackRate={rate}
+                  style={{ width: '100%', height: '100%' }}
+                  controls
+                  loop
+                  doubleClickToFullscreen
+                />
+                <BgmOverlay config={config} patch={patch} shellRef={shellRef} />
+              </div>
+            ) : (
+              <div className="vt-empty">
+                {config.ids.length === 0 ? '从左侧勾选要推荐的媒体' : busy ? '准备素材中…' : '准备中…'}
+              </div>
+            )}
+
+            <div className="vt-transport">
+              <button type="button" className="vt-tbtn" title="上一段" disabled={!rendered} onClick={() => stepScene(-1)}>⏮</button>
+              <button type="button" className="vt-tbtn main" disabled={!rendered}
+                      title={playing ? '暂停' : '播放'} onClick={togglePlay}>{playing ? '❚❚' : '▶'}</button>
+              <button type="button" className="vt-tbtn" title="下一段" disabled={!rendered} onClick={() => stepScene(1)}>⏭</button>
+              <div className="vt-clock">
+                <span className="vt-time">
+                  {clockText(frame, rendered?.plan.fps ?? 30)}
+                  <small> / {rendered ? clockText(rendered.frameCount, rendered.plan.fps) : '0:00'}</small>
+                </span>
+                <span className="vt-frame">帧 {frame} / {rendered?.frameCount ?? 0}</span>
+              </div>
+              <div className="right">
+                <button type="button" className={rangeScene !== null ? 'vt-toggle on' : 'vt-toggle'}
+                        disabled={!rendered}
+                        title="只循环当前段（范围预览）"
+                        onClick={() => setRangeScene(rangeScene === null
+                          ? Math.max(0, rendered?.plan.scenes.findIndex((scene) => frame >= scene.fromFrame && frame < scene.fromFrame + scene.durationInFrames) ?? 0)
+                          : null)}>
+                  ⟳ 只看本段
+                </button>
+                <select value={rate} onChange={(event) => setRate(Number(event.target.value))} title="预览倍速（不影响导出）">
+                  <option value={0.5}>0.5× 速度</option>
+                  <option value={1}>1× 速度</option>
+                  <option value={1.5}>1.5× 速度</option>
+                  <option value={2}>2× 速度</option>
+                </select>
+              </div>
+            </div>
+
+            {rendered ? (
+              <Timeline
+                input={rendered.input}
+                plan={rendered.plan}
+                frame={frame}
+                selection={selection}
+                missingByClip={missingByClip}
+                missingByMedia={missingByMedia}
+                onSeek={seekTo}
+                onSelect={(next) => {
+                  setSelection(next);
+                  // 「只看本段」开着时，选中别的段就跟着换范围（否则游标跑到范围外，行为很迷惑）
+                  if (rangeScene !== null && next.sceneIndex !== undefined) setRangeScene(next.sceneIndex);
+                }}
+              />
+            ) : null}
+          </div>
+        </section>
 
         <InspectorPane config={config} patch={patch} mediaBriefs={mediaBriefs} missingByMedia={inspectorMissing}
                        selection={selection} rendered={rendered}
                        variants={variants} onVariants={setVariants} />
       </div>
-
-      {rendered ? (
-        <Timeline
-          input={rendered.input}
-          plan={rendered.plan}
-          frame={frame}
-          selection={selection}
-          missingByClip={missingByClip}
-          missingByMedia={missingByMedia}
-          onSeek={seekTo}
-          onSelect={(next) => {
-            setSelection(next);
-            // 「只看本段」开着时，选中别的段就跟着换范围（否则游标跑到范围外，行为很迷惑）
-            if (rangeScene !== null && next.sceneIndex !== undefined) setRangeScene(next.sceneIndex);
-          }}
-          rangeOn={rangeScene !== null}
-          onToggleRange={() => setRangeScene(rangeScene === null ? Math.max(0, rendered.plan.scenes.findIndex((scene) => frame >= scene.fromFrame && frame < scene.fromFrame + scene.durationInFrames)) : null)}
-        />
-      ) : null}
 
       {tasksOpen ? <TaskPanel onClose={() => setTasksOpen(false)} notify={notify} /> : null}
       {templatesOpen ? (

@@ -36,7 +36,7 @@ const COLORS: Record<Scene['type'], string> = {
   COLLECTION_ENDING: 'rgba(255,209,102,.5)',
 };
 
-export function Timeline({ input, plan, frame, selection, missingByClip, missingByMedia, onSeek, onSelect, rangeOn, onToggleRange }: {
+export function Timeline({ input, plan, frame, selection, missingByClip, missingByMedia, onSeek, onSelect }: {
   input: MultiMediaPocInput;
   plan: ScenePlan;
   frame: number;
@@ -46,8 +46,6 @@ export function Timeline({ input, plan, frame, selection, missingByClip, missing
   missingByMedia: Record<number, string>;
   onSeek: (frame: number) => void;
   onSelect: (selection: Selection) => void;
-  rangeOn: boolean;
-  onToggleRange: () => void;
 }) {
   const scrollerRef = React.useRef<HTMLDivElement>(null);
   const total = Math.max(1, plan.durationInFrames);
@@ -97,21 +95,14 @@ export function Timeline({ input, plan, frame, selection, missingByClip, missing
     }
   };
 
+  const totalSec = plan.durationInFrames / plan.fps;
+  const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds) % 60).padStart(2, '0')}`;
+
   return (
     <div className="vt-timeline">
-      <div className="vt-timeline-head">
-        <span className="vt-timeline-label">
-          {activeScene ? `${sceneLabel(plan, activeScene, input.media.length)} · ${activeScene.fromFrame + Math.floor(activeScene.durationInFrames / 2)}/${plan.durationInFrames} 帧` : '时间轴'}
-        </span>
-        <span className="vt-timeline-tools">
-          <span className="vt-hint">{plan.scenes.length} 段 · {Math.round(plan.durationInFrames / plan.fps)}s</span>
-          <button type="button" className={rangeOn ? 'btn-primary' : 'btn-mini'} onClick={onToggleRange}
-                  title="只循环当前段（范围预览）">
-            {rangeOn ? '← 全片' : '只看本段'}
-          </button>
-        </span>
+      <div className="vt-ruler">
+        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => <span key={ratio}>{clock(totalSec * ratio)}</span>)}
       </div>
-
       <div className="vt-timeline-track" ref={scrollerRef} onClick={seekByRatio}>
         {plan.scenes.map((scene, index) => {
           const missing = scene.type === 'MEDIA_CLIP' && scene.clipId !== undefined
@@ -146,11 +137,20 @@ export function Timeline({ input, plan, frame, selection, missingByClip, missing
         })}
         <span className="vt-playhead" style={{ left: `${(frame / total) * 100}%` }} />
       </div>
-      {rendering !== null ? <span className="vt-hint">缩略图渲染中…（{readyThumbs.length}/{Math.min(wantThumbs.length, THUMB_LIMIT)}）</span> : null}
+      <div className="vt-timeline-foot">
+        <span>
+          <b>{activeScene ? sceneLabel(plan, activeScene, input.media.length) : '时间轴'}</b>
+          {activeScene ? ` · 第 ${activeIndex + 1} 段 · ${Math.round(activeScene.durationInFrames / plan.fps)}s` : ''}
+        </span>
+        <span className="vt-hint">
+          {rendering !== null
+            ? `缩略图渲染中…（${readyThumbs.length}/${Math.min(wantThumbs.length, THUMB_LIMIT)}）`
+            : `${plan.scenes.length} 段 · 总长 ${clock(plan.durationInFrames / plan.fps)} · 点段跳转 / 点轨定位`}
+        </span>
+      </div>
     </div>
   );
 }
-
 /** 视口触发器：段进入时间轴可视区时回调一次。 */
 function ThumbTrigger({ index, root, onVisible }: {
   index: number;
