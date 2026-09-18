@@ -59,6 +59,9 @@ async function main(): Promise<void> {
       // 显式编码参数：默认值对 1080P 偏慢/偏大，这里固定成"质量够、体积稳"的组合
       crf: format === 'webm' ? undefined : 18,
       pixelFormat: 'yuv420p',
+      // 显式 bt709：Remotion 4.x 的 colorSpace 默认 "default" = 全范围 yuvj420p，
+      // 会被播放器/平台当成 limited 解读 → 偏暗偏灰（且与自家素材 bt709 不一致）。
+      colorSpace: 'bt709',
       x264Preset: format === 'webm' ? undefined : 'veryfast',
       audioCodec: format === 'webm' ? 'opus' : 'aac',
       audioBitrate: '192k',

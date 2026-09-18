@@ -263,3 +263,55 @@
 }
 .vt-selected-obj { display: flex; flex-direction: column; gap: 8px; }
 .vt-clip-picker { display: flex; flex-direction: column; gap: 6px; }
+
+/* —— 主题预设（阶段 3）—— */
+.vt-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.vt-preset {
+  border: 1px solid rgba(130, 160, 255, .22);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: inherit;
+  background: rgba(20, 18, 34, .7);
+  cursor: pointer;
+}
+.vt-preset.active { border-color: rgba(79, 195, 247, .85); box-shadow: 0 0 12px rgba(79, 195, 247, .28); }
+
+/* —— BGM 条就地编辑浮层（仅编辑器可见）—— */
+.vt-player-shell { position: relative; }
+.vt-bgm-overlay {
+  position: absolute;
+  width: 150px;
+  height: 26px;
+  transform-origin: left bottom;
+  border: 1px dashed rgba(79, 195, 247, .75);
+  border-radius: 999px;
+  background: rgba(79, 195, 247, .1);
+  pointer-events: none;
+}
+.vt-bgm-overlay.dragging { background: rgba(79, 195, 247, .22); }
+.vt-bgm-overlay-move { position: absolute; inset: 0; pointer-events: auto; cursor: move; border-radius: 999px; }
+.vt-bgm-overlay-scale {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #4fc3f7;
+  box-shadow: 0 0 8px rgba(79, 195, 247, .9);
+  pointer-events: auto;
+  cursor: nwse-resize;
+}
+
+/* —— 拖拽落点（阶段 3）—— */
+.vt-drop-opening {
+  padding: 5px 8px;
+  border: 1px dashed rgba(255, 209, 102, .45);
+  border-radius: 8px;
+  font-size: 11px;
+  color: #ffd166;
+  text-align: center;
+}
+.vt-drop-opening.over { background: rgba(255, 209, 102, .16); border-color: rgba(255, 209, 102, .9); }
+.vt-selected.over { background: rgba(79, 195, 247, .08); }

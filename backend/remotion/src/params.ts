@@ -1,5 +1,5 @@
 import type { MultiMediaPocInput } from './types';
-import { themeOf, type TemplateStyle } from './theme';
+import { themeOfPreset, type TemplateStyle } from './theme';
 
 /**
  * 推荐模板参数契约。
@@ -92,6 +92,8 @@ export interface RenderParams {
   perScreen: number;
   /** 开场只显影这些媒体（空 = 全部）。 */
   openingIds: number[];
+  /** 视觉主题预设 id（`theme.ts` 的 THEME_PRESETS；缺省/未知 → 基线外观）。 */
+  preset: string;
 }
 
 export const DEFAULT_PARAMS: RenderParams = {
@@ -134,6 +136,7 @@ export const DEFAULT_PARAMS: RenderParams = {
   groupSort: 'date-desc',
   perScreen: 1,
   openingIds: [],
+  preset: 'starlit',
 };
 
 /** 是否配置了全片背景层（bgColor 或 bgImages）。配置后各场景底色让位。 */
@@ -160,7 +163,7 @@ export function resolveStyle(input: MultiMediaPocInput): TemplateStyle {
 
 /** 模板形态对应的主题（视觉令牌）。 */
 export function resolveTheme(input: MultiMediaPocInput) {
-  return themeOf(resolveStyle(input));
+  return themeOfPreset(resolveStyle(input), input.params?.preset);
 }
 
 export function resolveParams(raw?: Partial<RenderParams>, fallbackText?: { title?: string; subtitle?: string; intro?: string }): RenderParams {
@@ -226,5 +229,6 @@ export function resolveParams(raw?: Partial<RenderParams>, fallbackText?: { titl
     groupSort: str(p.groupSort) || 'date-desc',
     perScreen: clamp(p.perScreen ?? 1, 1, 10, 1),
     openingIds: Array.isArray(p.openingIds) ? p.openingIds.filter((v): v is number => typeof v === 'number') : [],
+    preset: str(p.preset) || 'starlit',
   };
 }

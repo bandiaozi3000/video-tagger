@@ -1,7 +1,10 @@
 /**
  * 探针 ① 驱动：构建探针页 → 本地静态服务 → 无头 Chrome 打开 → 逐步驱动 → 打印结论。
  *
- * 用法（在 backend/remotion 下）：npx tsx probe/run-player-probe.ts
+ * 用法（在 backend/remotion 下）：npm run verify:player
+ *
+ * 同时是**保帧回归门禁**（v0.28 阶段 3 固化）：下面断言失败即非 0 退出——
+ * 「热更新 inputProps 不重置帧/不打断播放」是编辑器即时生效的全部地基，换预览实现时必须拦住。
  */
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -121,11 +124,28 @@ async function main(): Promise<void> {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 
-  console.log('\n=== 探针 ① 结果（current() = 当前帧号，-1 表示 ref 不可用）===');
+  console.log('\n=== 保帧 / 热更新门禁 ===');
   console.log(JSON.stringify(results, null, 2));
+
+  const r = results as Record<string, number>;
+  const checks: [string, boolean, string][] = [
+    ['seekTo 生效（帧 = 90）', r.afterSeek90 === 90, 'PlayerRef.seekTo 应精确落帧'],
+    ['热更新保帧（时长不变）', r.sameDuration_frame === 90, '热更新 inputProps 不得重置当前帧'],
+    ['热更新保帧（时长变长）', r.longer_frame === 90, '总长变化也不得重置帧'],
+    ['缩短时长后不越界', r.shorter_frame >= 0 && r.shorter_frame <= r.shorter_duration - 1, '当前帧超出新总长时必须钳位'],
+    ['播放中热更新不打断', r.playing1 === 1 && r.playing2 === 1, '热更新期间 isPlaying 应保持 true'],
+    ['播放中热更新帧继续前进', r.playAdvanced === 1, '热更新后帧必须继续走'],
+  ];
+  let failed = 0;
+  for (const [name, ok, hint] of checks) {
+    console.log(`${ok ? '✅' : '❌'} ${name}${ok ? '' : ' —— ' + hint}`);
+    if (!ok) failed += 1;
+  }
+  console.log(JSON.stringify({ 检查项: checks.length, 失败: failed }));
+  process.exit(failed > 0 ? 1 : 0);
 }
 
 main().catch((error: unknown) => {
-  console.error('探针失败:', error instanceof Error ? error.stack ?? error.message : String(error));
+  console.error('门禁失败:', error instanceof Error ? error.stack ?? error.message : String(error));
   process.exit(1);
 });

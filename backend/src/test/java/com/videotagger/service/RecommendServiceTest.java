@@ -63,12 +63,29 @@ class RecommendServiceTest {
     private String renderInput(List<Long> ids, String groupBy, String style,
                                List<RecommendService.BgmTrack> bgmTracks, List<String> bgmPaths,
                                Map<Long, List<RecommendClipSourceService.PreparedClip>> clips) {
+        return renderInput(ids, groupBy, style, bgmTracks, bgmPaths, clips, null);
+    }
+
+    /** 同上，但可指定主题预设。 */
+    private String renderInput(List<Long> ids, String groupBy, String style,
+                               List<RecommendService.BgmTrack> bgmTracks, List<String> bgmPaths,
+                               Map<Long, List<RecommendClipSourceService.PreparedClip>> clips, String preset) {
         return service.buildRenderInput(ids, "标题", bgmTracks, "副标题", "50", groupBy, style,
                 List.of(), "序言", service.normalizeDurations(null, null, null, null, null),
                 "结尾标题", "结尾文案", "", List.of(), 8, 100, 0, 50,
-                "序言标题", "date-desc", 50, 50, 100, 1, 8, "品牌", 1, null,
+                "序言标题", "date-desc", 50, 50, 100, 1, 8, "品牌", 1, null, preset,
                 clips == null ? Map.of() : clips, "embed", 30, 1280, 720, bgmPaths,
                 rel -> rel.startsWith("bgm-") ? 42.5 : 3.5);
+    }
+
+    /** 主题预设写入参数区；未指定 → 基线 `starlit`。 */
+    @Test
+    void 主题预设写入参数区() throws Exception {
+        when(mediaService.get(1L)).thenReturn(media(1L, "标题一", 2020));
+        assertEquals("starlit", parse(renderInput(List.of(1L), null, null, null, null, null))
+                .get("params").get("preset").asText());
+        assertEquals("ember-dusk", parse(renderInput(List.of(1L), null, null, null, null, null, "ember-dusk"))
+                .get("params").get("preset").asText());
     }
 
     private JsonNode parse(String json) throws Exception {

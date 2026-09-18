@@ -125,7 +125,7 @@ public class RecommendService {
                                   Integer bgBlur, Integer bgBrightness, String prologueTitle, String groupSort,
                                   Integer openingSpeed, Integer endingScrollSpeed, Integer bgmScale, Integer bgmX,
                                   Integer bgmY, String brandTitle, Integer perScreen,
-                                  Map<String, Boolean> detailShow,
+                                  Map<String, Boolean> detailShow, String preset,
                                   Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips,
                                   String coverMode, int fps, int width, int height,
                                   List<String> bgmAssetPaths,
@@ -255,6 +255,7 @@ public class RecommendService {
         p.put("groupBy", groupBy == null ? "" : groupBy);
         p.put("groupSort", groupSort == null || groupSort.isBlank() ? "date-desc" : groupSort);
         p.put("perScreen", perScreen == null ? 1 : Math.max(1, Math.min(10, perScreen)));
+        p.put("preset", preset == null || preset.isBlank() ? "starlit" : preset.trim());
         p.put("openingIds", openingIds == null ? List.of() : openingIds);
         root.put("params", p);
 

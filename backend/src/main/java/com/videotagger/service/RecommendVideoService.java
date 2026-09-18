@@ -124,7 +124,7 @@ public class RecommendVideoService {
         return render(ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle,
                 subtitle, coverSize, openingIds, intro, durations, endingTitle, endingText, bgColor,
                 bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort,
-                openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, null);
+                openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, null, null);
     }
 
     public Path render(List<Long> ids, String title, String format, String resolution, List<String> bgmPaths,
@@ -136,7 +136,7 @@ public class RecommendVideoService {
                        String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
                        Integer bgmScale,
                        Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
-                       Map<String, Boolean> detailShow,
+                       Map<String, Boolean> detailShow, String preset,
                        Map<Long, RecommendMediaClips> requestedClips) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
@@ -169,7 +169,7 @@ public class RecommendVideoService {
             return renderWithRemotion(work, ids, title, fmt, wh, bgmPaths, bgmTracks, groupBy, groupStyle,
                     openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
                     bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed,
-                    endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preparedClips,
+                    endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset, preparedClips,
                     subtitle, coverSize);
         } catch (IOException e) {
             throw new IllegalStateException("渲染准备失败: " + e.getMessage(), e);
@@ -190,7 +190,7 @@ public class RecommendVideoService {
                                     String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity,
                                     Integer bgBlur, Integer bgBrightness, String prologueTitle, String groupSort,
                                     Integer openingSpeed, Integer endingScrollSpeed, Integer bgmScale, Integer bgmX,
-                                    Integer bgmY, String brandTitle, Integer perScreen, Map<String, Boolean> detailShow,
+                                    Integer bgmY, String brandTitle, Integer perScreen, Map<String, Boolean> detailShow, String preset,
                                     Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips,
                                     String subtitle, String coverSize) throws IOException {
         Path remotion = resolveRemotionDir();
@@ -224,7 +224,7 @@ public class RecommendVideoService {
         String inputJson = recommendService.buildRenderInput(ids, title, audioTracks, subtitle, coverSize, groupBy,
                 groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
                 bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale,
-                bgmX, bgmY, brandTitle, perScreen, detailShow, preparedClips, "embed", 30, wh[0], wh[1],
+                bgmX, bgmY, brandTitle, perScreen, detailShow, preset, preparedClips, "embed", 30, wh[0], wh[1],
                 bgmRelPaths,
                 rel -> mediaProbe.durationSeconds(work.resolve(rel).toAbsolutePath().toString()));
         Path inputFile = work.resolve("render-input.json");

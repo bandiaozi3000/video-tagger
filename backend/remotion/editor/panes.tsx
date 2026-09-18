@@ -6,6 +6,7 @@
 import React from 'react';
 import { api, type ClipBrief, type EditorConfig, type MediaBrief, type MediaClips } from './api';
 import { fileToBase64 } from './state';
+import { THEME_PRESETS } from '../src/theme';
 
 type Patch = (patch: Partial<EditorConfig>) => void;
 
@@ -185,6 +186,59 @@ export function ClipPicker({ mediaId, title, config, onClips }: {
   );
 }
 
+/** BGM 条就地编辑浮层（设计规格 §6.4）：拖拽改 x/y、角柄拖拽改缩放。
+ *  浮层只活在这一层（编辑器页面），不进成片——`Root.tsx` / `render-recommend.ts` 都不引用它。
+ *  坐标映射：成片里 BGM 条定位是 `left: bgmX%、bottom: bgmY%`（左上为原点，y 自下而上）。 */
+export function BgmOverlay({ config, patch, shellRef }: {
+  config: EditorConfig;
+  patch: Patch;
+  shellRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const drag = React.useRef<{ mode: 'move' | 'scale'; x: number; y: number; bx: number; by: number; bscale: number } | null>(null);
+  const [dragging, setDragging] = React.useState(false);
+
+  const start = (mode: 'move' | 'scale') => (event: React.PointerEvent<HTMLSpanElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current = { mode, x: event.clientX, y: event.clientY, bx: config.bgmX, by: config.bgmY, bscale: config.bgmScale };
+    setDragging(true);
+  };
+
+  const move = (event: React.PointerEvent<HTMLSpanElement>) => {
+    const state = drag.current;
+    const box = shellRef.current?.getBoundingClientRect();
+    if (!state || !box) return;
+    if (state.mode === 'move') {
+      const nextX = state.bx + ((event.clientX - state.x) / Math.max(1, box.width)) * 100;
+      const nextY = state.by - ((event.clientY - state.y) / Math.max(1, box.height)) * 100;
+      patch({ bgmX: Math.round(clamp(nextX, 0, 100)), bgmY: Math.round(clamp(nextY, 0, 100)) });
+    } else {
+      const delta = ((event.clientX - state.x) / Math.max(1, box.width)) * 200;
+      patch({ bgmScale: Math.round(clamp(state.bscale + delta, 50, 200)) });
+    }
+  };
+
+  const end = () => { drag.current = null; setDragging(false); };
+
+  if (config.bgmTracks.length === 0) return null;
+
+  return (
+    <span
+      className={`vt-bgm-overlay${dragging ? ' dragging' : ''}`}
+      style={{ left: `${config.bgmX}%`, bottom: `${config.bgmY}%`, transform: `scale(${config.bgmScale / 100})` }}
+      title="拖拽移动音乐条 · 右下角柄缩放（仅编辑时可见，不进成片）"
+    >
+      <span className="vt-bgm-overlay-move" onPointerDown={start('move')} onPointerMove={move}
+            onPointerUp={end} onPointerCancel={end} />
+      <span className="vt-bgm-overlay-scale" onPointerDown={start('scale')} onPointerMove={move}
+            onPointerUp={end} onPointerCancel={end} />
+    </span>
+  );
+}
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
 /** 媒体篮子：筛选 + 分页 + 勾选 + 已选顺序 + 片段挂载。 */
 export function BasketPane({ config, patch }: { config: EditorConfig; patch: Patch }) {
   const [list, setList] = React.useState<MediaBrief[]>([]);
@@ -224,6 +278,26 @@ export function BasketPane({ config, patch }: { config: EditorConfig; patch: Pat
 
   const selected = React.useMemo(() => new Set(config.ids), [config.ids]);
   const pageIds = list.map((item) => item.id);
+  const [dropZone, setDropZone] = React.useState<'list' | 'opening' | null>(null);
+
+  /** 拖拽载荷：被拖的媒体 id（HTML5 DnD 在编辑器内部只传 id，不需要序列化对象）。 */
+  const draggedId = React.useRef<number | null>(null);
+
+  const onDropTo = (zone: 'list' | 'opening') => (event: React.DragEvent) => {
+    event.preventDefault();
+    setDropZone(null);
+    const id = Number(event.dataTransfer.getData('text/vt-media')) || draggedId.current;
+    draggedId.current = null;
+    if (!id) return;
+    if (zone === 'opening') {
+      patch({
+        openingCustom: true,
+        openingIds: config.openingIds.includes(id) ? config.openingIds : [...config.openingIds, id],
+      });
+      return;
+    }
+    if (!config.ids.includes(id)) patch({ ids: [...config.ids, id] });
+  };
 
   const toggle = (id: number) => {
     const ids = selected.has(id) ? config.ids.filter((value) => value !== id) : [...config.ids, id];
@@ -278,12 +352,26 @@ export function BasketPane({ config, patch }: { config: EditorConfig; patch: Pat
         </span>
       </div>
 
+      <div
+        className={`vt-drop-opening${dropZone === 'opening' ? ' over' : ''}`}
+        onDragOver={(event) => { event.preventDefault(); setDropZone('opening'); }}
+        onDragLeave={() => setDropZone(null)}
+        onDrop={onDropTo('opening')}
+      >
+        🎬 拖到这里 = 加入开场代表秀（{config.openingIds.length}）
+      </div>
+
       <div className="vt-media-grid">
         {list.map((item) => {
           const cover = item.coverPath || item.fallbackCoverPath || item.externalCoverUrl;
           const clipCount = config.mediaClips[String(item.id)]?.order.length ?? 0;
           return (
-            <div key={item.id} className={cls('vt-media-card', selected.has(item.id) && 'selected')}>
+            <div key={item.id} className={cls('vt-media-card', selected.has(item.id) && 'selected')} draggable
+                 onDragStart={(event) => {
+                   draggedId.current = item.id;
+                   event.dataTransfer.setData('text/vt-media', String(item.id));
+                   event.dataTransfer.effectAllowed = 'copyMove';
+                 }}>
               <div className="vt-media-cover">
                 {cover ? <img src={cover} alt="" loading="lazy" /> : <span className="vt-cover-placeholder">{(item.title || '?').slice(0, 1)}</span>}
                 <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} title="加入推荐" />
@@ -305,13 +393,30 @@ export function BasketPane({ config, patch }: { config: EditorConfig; patch: Pat
         <button type="button" className="btn-mini" disabled={page >= pages} onClick={() => setPage(page + 1)}>下一页</button>
       </div>
 
-      <div className="vt-selected">
-        <div className="vt-selected-head">推荐顺序（{config.ids.length}）</div>
+      <div className={`vt-selected${dropZone === 'list' ? ' over' : ''}`}
+           onDragOver={(event) => { event.preventDefault(); setDropZone('list'); }}
+           onDragLeave={() => setDropZone(null)}
+           onDrop={onDropTo('list')}>
+        <div className="vt-selected-head">推荐顺序（{config.ids.length}）· 可拖拽排序</div>
         <ol className="vt-selected-list">
           {config.ids.map((id, index) => {
             const item = list.find((value) => value.id === id);
             return (
-              <li key={id}>
+              <li key={id} draggable
+                  onDragStart={(event) => {
+                    draggedId.current = id;
+                    event.dataTransfer.setData('text/vt-media', String(id));
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    const from = draggedId.current;
+                    if (from === null || from === id) return;
+                    const ids = config.ids.filter((value) => value !== from);
+                    const at = ids.indexOf(id);
+                    ids.splice(at < 0 ? ids.length : at, 0, from);
+                    draggedId.current = from;
+                    patch({ ids });
+                  }}>
                 <span className="vt-selected-title">{item?.title ?? `#${id}`}</span>
                 <span className="vt-selected-btns">
                   <button type="button" className="btn-mini" onClick={() => move(index, -1)}>↑</button>
@@ -426,6 +531,23 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
           <p className="vt-hint">在时间轴或左侧篮子里选一部媒体/一个片段，这里就显示它的可改项；不选则改全局。</p>
         )}
       </Group>
+      <Group title="主题预设" defaultOpen>
+        <div className="vt-presets">
+          {THEME_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              className={cls('vt-preset', config.preset === preset.id && 'active')}
+              title={preset.note}
+              onClick={() => patch({ preset: preset.id })}
+            >
+              {preset.name}
+            </button>
+          ))}
+        </div>
+        <p className="vt-hint">切换即生效（本地参数）；「星云暗房」= 与今天成片一致的那套。</p>
+      </Group>
+
       <Group title="内容 · 主题" defaultOpen>
         <Field label="标题文案"><input value={config.title} placeholder="我的番剧推荐"
                onChange={(event) => patch({ title: event.target.value })} /></Field>

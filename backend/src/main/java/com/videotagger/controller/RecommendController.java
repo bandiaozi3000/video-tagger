@@ -74,7 +74,7 @@ public class RecommendController {
                                          Integer bgmScale,
                                          Integer bgmX, Integer bgmY,
                                          String brandTitle, Integer perScreen, String coverMode,
-                                         Map<String, Boolean> detailShow,
+                                         Map<String, Boolean> detailShow, String preset,
                                          Map<Long, RecommendMediaClips> mediaClips) {
     }
 
@@ -132,7 +132,7 @@ public class RecommendController {
                 dur, body.endingTitle(), body.endingText(), body.bgColor(), body.bgImages(), body.bgRotationSec(),
                 body.bgOpacity(), body.bgBlur(), body.bgBrightness(), body.prologueTitle(), body.groupSort(),
                 body.openingSpeed(), body.endingScrollSpeed(), body.bgmScale(), body.bgmX(), body.bgmY(),
-                body.brandTitle(), body.perScreen(), body.detailShow(), preparedClips, "url", 30, wh[0], wh[1],
+                body.brandTitle(), body.perScreen(), body.detailShow(), body.preset(), preparedClips, "url", 30, wh[0], wh[1],
                 bgmRels,
                 rel -> recommendVideoService.probeDurationSeconds(session.dir().resolve(rel).toAbsolutePath().toString()));
         Map<String, Object> resp = new LinkedHashMap<>();
@@ -169,7 +169,7 @@ public class RecommendController {
                 body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(),
                 body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(),
                 body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(),
-                body.detailShow(), body.mediaClips());
+                body.detailShow(), body.preset(), body.mediaClips());
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("taskId", t.id());
         resp.put("status", t.status());

@@ -15,7 +15,7 @@ import { RecommendComposition } from '../src/RecommendComposition';
 import type { MultiMediaPocInput } from '../src/types';
 import { api, type EditorConfig, type ExportTask, type MediaBrief } from './api';
 import { applyLocalParams, loadConfig, saveConfig, sessionSignature } from './state';
-import { BasketPane, InspectorPane, Toolbar } from './panes';
+import { BasketPane, BgmOverlay, InspectorPane, Toolbar } from './panes';
 import { Timeline, type Selection } from './timeline';
 import { buildScenePlan } from '../src/scene-plan';
 import type { ScenePlan } from '../src/types';
@@ -35,6 +35,7 @@ function App() {
   const [rangeScene, setRangeScene] = React.useState<number | null>(null);
   const tokenRef = React.useRef<string | null>(null);
   const playerRef = React.useRef<PlayerRef>(null);
+  const shellRef = React.useRef<HTMLDivElement>(null);
   const lastFrameRef = React.useRef(0);
 
   const patch = React.useCallback((changes: Partial<EditorConfig>) => {
@@ -202,6 +203,7 @@ function App() {
           {rendered ? (
             <div
               className="vt-player-shell"
+              ref={shellRef}
               style={{
                 // 容器必须给**确定高度**：只给 % / flex 会让 Player 内部包装层算成 0 高，画布被顶出视口
                 // （v0.27 旧预览页踩过同一个坑，这里用画幅比例 + 高度上限双约束）
@@ -224,6 +226,7 @@ function App() {
                 loop
                 doubleClickToFullscreen
               />
+              <BgmOverlay config={config} patch={patch} shellRef={shellRef} />
             </div>
           ) : (
             <div className="vt-empty">

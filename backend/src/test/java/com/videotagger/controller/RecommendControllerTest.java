@@ -79,13 +79,13 @@ class RecommendControllerTest {
         Mockito.when(recommendService.normalizeDurations(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                         Mockito.any()))
                 .thenReturn(new RecommendService.Durations(10, 5, 5, 10, 5));
-        Mockito.when(recommendService.buildRenderInput(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                        Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                        Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                        Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                        Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                        Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.anyInt(), Mockito.anyInt(),
-                        Mockito.any(), Mockito.any()))
+        Mockito.when(recommendService.buildRenderInput(
+                Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.anyInt(), Mockito.anyInt(), Mockito.anyInt(), Mockito.any(), Mockito.any()))
                 .thenReturn("{\"template\":\"MULTI_MEDIA_RECOMMEND\",\"media\":[]}");
 
         mvc.perform(post("/api/recommend/session")
@@ -130,13 +130,13 @@ class RecommendControllerTest {
     void videoCreatesAsyncTaskReturnsTaskId() throws Exception {
         VideoExportTaskService.VideoExportTask task =
                 new VideoExportTaskService.VideoExportTask(7L, "标题", 2, "RUNNING", null, null, "MP4", 1L, 0L);
-        Mockito.when(exportTaskService.create(Mockito.anyList(),
+        Mockito.when(exportTaskService.create(
+                Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any()))
+                Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(task);
 
         mvc.perform(post("/api/recommend/video")
@@ -146,12 +146,12 @@ class RecommendControllerTest {
                 .andExpect(jsonPath("$.taskId").value(7))
                 .andExpect(jsonPath("$.status").value("RUNNING"));
 
-        Mockito.verify(exportTaskService).create(Mockito.anyList(),
+        Mockito.verify(exportTaskService).create(
+                Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any());
+                Mockito.any(), Mockito.any(), Mockito.any());
     }
 }

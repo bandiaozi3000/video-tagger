@@ -60,6 +60,8 @@ export interface EditorConfig {
   bgmY: number;
   openingIds: number[];
   openingCustom: boolean;
+  /** 视觉主题预设 id（theme.ts 的 THEME_PRESETS）。 */
+  preset: string;
   format: string;
   resolution: string;
   mediaClips: Record<string, MediaClips>;

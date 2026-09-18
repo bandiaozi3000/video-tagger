@@ -45,6 +45,7 @@ export function defaultConfig(): EditorConfig {
     bgmY: 8,
     openingIds: [],
     openingCustom: false,
+    preset: 'starlit',
     format: 'MP4',
     resolution: '720P',
     mediaClips: {},
@@ -126,6 +127,7 @@ export function applyLocalParams(input: MultiMediaPocInput, config: EditorConfig
       groupSort: config.groupSort,
       perScreen: config.perScreen,
       openingIds: validOpening,
+      preset: config.preset,
     },
   };
 }
