@@ -10,10 +10,11 @@
     "studio": "remotion studio src/index.ts",
     "render:poc": "tsx scripts/render-poc.ts",
     "verify:params": "tsx scripts/verify-params.ts",
-    "player:poc": "tsx scripts/serve-player.ts",
     "render:recommend": "tsx scripts/render-recommend.ts",
     "check:native": "node scripts/check-native.mjs",
-    "build:player": "vite build --config vite.player.config.ts"
+    "build:editor": "vite build --config vite.editor.config.ts",
+    "probe:player": "tsx probe/run-player-probe.ts",
+    "probe:cost": "tsx probe/run-cost-probe.ts"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.524",

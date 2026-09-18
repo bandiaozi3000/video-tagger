@@ -19,7 +19,7 @@ public class WebConfig implements WebMvcConfigurer {
     private final String clipVideoDir;
     private final String clipImageDir;
     private final String recommendPreviewDir;
-    private final String remotionPlayerDir;
+    private final String editorDir;
 
     public WebConfig(@Value("${videotagger.cover-dir:data/covers}") String coverDir,
                      @Value("${videotagger.site-dir:data/site}") String siteDir,
@@ -33,11 +33,11 @@ public class WebConfig implements WebMvcConfigurer {
         this.clipVideoDir = Paths.get(clipVideoDir).toAbsolutePath() + "/";
         this.clipImageDir = Paths.get(clipImageDir).toAbsolutePath() + "/";
         this.recommendPreviewDir = Paths.get("data/recommend-previews").toAbsolutePath() + "/";
-        this.remotionPlayerDir = resolvePlayerDir(remotionDir) + "/";
+        this.editorDir = resolveBuildDir(remotionDir, "dist-editor") + "/";
     }
 
-    /** Remotion Player 静态包目录：IDE（cwd=项目根）与 mvn（cwd=backend）两种启动方式都要能命中。 */
-    private static java.nio.file.Path resolvePlayerDir(String remotionDir) {
+    /** Remotion 前端构建产物目录（编辑器）：IDE（cwd=项目根）与 mvn（cwd=backend）两种启动方式都要能命中。 */
+    private static java.nio.file.Path resolveBuildDir(String remotionDir, String buildDir) {
         List<Path> candidates = List.of(
                 Paths.get(remotionDir),
                 Paths.get("..").resolve(remotionDir),
@@ -45,11 +45,11 @@ public class WebConfig implements WebMvcConfigurer {
                 Paths.get("backend/remotion"),
                 Paths.get("../backend/remotion"));
         for (java.nio.file.Path candidate : candidates) {
-            if (java.nio.file.Files.isDirectory(candidate.resolve("dist-player"))) {
-                return candidate.resolve("dist-player").toAbsolutePath().normalize();
+            if (java.nio.file.Files.isDirectory(candidate.resolve(buildDir))) {
+                return candidate.resolve(buildDir).toAbsolutePath().normalize();
             }
         }
-        return Paths.get(remotionDir).toAbsolutePath().resolve("dist-player");
+        return Paths.get(remotionDir).toAbsolutePath().resolve(buildDir);
     }
 
     @Override
@@ -66,8 +66,8 @@ public class WebConfig implements WebMvcConfigurer {
                 .addResourceLocations("file:" + clipImageDir);
         registry.addResourceHandler("/recommend-previews/**")
                 .addResourceLocations("file:" + recommendPreviewDir);
-        // Remotion Player 预览页静态包（dist-player/；未构建时该路由 404，/preview 会回退旧 HTML）
-        registry.addResourceHandler("/recommend-player/**")
-                .addResourceLocations("file:" + remotionPlayerDir);
+        // 推荐工作台编辑器（Remotion 工程构建产物 dist-editor/；未构建时该路由 404，编辑器入口给出构建命令）
+        registry.addResourceHandler("/recommend-editor/**")
+                .addResourceLocations("file:" + editorDir);
     }
 }

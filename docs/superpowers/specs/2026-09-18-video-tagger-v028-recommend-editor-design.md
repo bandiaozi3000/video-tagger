@@ -2,7 +2,7 @@
 
 - **日期**：2026-09-18
 - **关联版本**：**v0.28**（用户 2026-09-18 拍板）
-- **状态**：**已批准**（2026-09-18 经五轮 Grilling 逐项拍板；用户同日批准，装载方式按 **A 单页挂载**）。本规格**不含任何代码改动**；配套计划：`docs/superpowers/plans/2026-09-18-video-tagger-v028-recommend-editor-plan.md`（待确认后开工）。
+- **状态**：**阶段 1 已实现**（2026-09-18）。规格已批准（装载方式 A 单页挂载）；配套计划：`docs/superpowers/plans/2026-09-18-video-tagger-v028-recommend-editor-plan.md`。阶段 2/3/4 未开工；阶段 1 的实际实现与偏离见 `docs/worklog/2026-09-18.md` 增量六。
 - **前置文档**：
   - v0.27 渲染链路重写：`docs/superpowers/specs/2026-09-18-video-tagger-remotion-native-recommend-design.md`
   - 当日工作日志：`docs/worklog/2026-09-18.md`
@@ -451,3 +451,8 @@ data/video-assets/.../asset-21.mp4 → h264/aac, yuv420p(tv, bt709)
 
 - 2026-09-18：初版。依据同一天五轮 Grilling 的 24 项决策（§2）与两组实测探针（§3.2）编写；状态为**待批准**。
 - 2026-09-18（同日）：用户批准本规格，并裁定 §16-1 装载方式为 **A 单页挂载**；配套执行计划已编写并待确认。§16-2（主题预设审美）不阻塞，阶段 3 开工前以 3 张静态样张定稿。
+- 2026-09-18（同日，阶段 1 实现后补记）**与规格的三处偏离**：
+  1. **端点合并**：计划里的 `POST /session/{token}/assets` 合并进 `POST /session/{token}/render-input`（§12 端点表按下述更新：会话素材增量与参数重算同一入口）。
+  2. **阶段 1 篮子功能面收窄**：分组视图 / 框选 / 列表视图 / 仅显示已勾选暂未复刻；草稿落库属阶段 4，阶段 1 先用 localStorage 桥接。
+  3. **旧预览链路删除范围适度外扩**：连同 `src/player.tsx` 一并删除根 `index.html`、`scripts/serve-player.ts` 与 `player:poc` 脚本（后者是旧预览页的 dev 入口，删 `player.tsx` 后必然失效）。
+- 2026-09-18（同日，阶段 1 实现后补记）**实测修正**：`vite.editor.config.ts` 需 `define` 替换 `process.env.NODE_ENV`（lib 模式不自动替换 → 浏览器报 `process is not defined`）；编辑器 Player 容器必须给**确定高度**（画幅比例 + 高度上限），否则塌陷成 2px。

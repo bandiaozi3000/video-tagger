@@ -3339,3 +3339,25 @@ body.desktop-mode .site-footer { display: none; }
 .ep-light.off, .clip-light.off { background: var(--red); box-shadow: 0 0 5px rgba(255,77,91,.4); }
 .ep-light.run { background: var(--amber); animation: btBlink 1s ease-in-out infinite; }
 @keyframes btBlink { 50% { opacity: .25; } }
+
+/* ========== 推荐工作台（v0.28）：编辑器挂载点 ========== */
+.recommend-editor-root {
+    display: block;
+    padding: 4px 2px 24px;
+}
+.vt-editor-missing {
+    margin: 40px auto;
+    max-width: 560px;
+    padding: 18px 20px;
+    border: 1px dashed rgba(130, 160, 255, .3);
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.9;
+    color: #c9c6dd;
+    background: rgba(18, 16, 32, .5);
+}
+.vt-editor-missing code {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, .08);
+}

@@ -23,7 +23,7 @@ import { openBrowser, renderStill, selectComposition } from '@remotion/renderer'
 import { DEFAULT_PARAMS, type RenderParams } from '../src/params';
 import { bgmGainAt } from '../src/bgm';
 import { buildScenePlan } from '../src/scene-plan';
-import type { MultiMediaPocInput, ScenePlan, SceneType } from '../src/types';
+import type { MultiMediaPocInput, PocMedia, ScenePlan, SceneType } from '../src/types';
 import { startAssetServer } from './asset-server';
 
 const COMPOSITION_ID = 'MultiMediaRecommendPoc';
@@ -109,8 +109,19 @@ async function main(): Promise<void> {
 
   const raw = JSON.parse(await fs.readFile(inputPath, 'utf8')) as MultiMediaPocInput;
   // 验证基座：短时长（省时间）+ 序言有文案 + 首个片段有备注（否则 detailShow.note 无从观察）
+  // 注：`poc/real-input.json` 里的 clip 没有 note 时，`detailShow.note` 这一项会恒判「未生效」（假阴性）
+  // —— 这里给首个片段补一条备注，让该断言重新可观察（v0.28 修正测量基座）。
+  const mediaWithNote: PocMedia[] = raw.media.map((media, index) => index !== 0
+    ? media
+    : {
+        ...media,
+        clips: media.clips.map((clip, clipIndex) => clipIndex !== 0
+          ? clip
+          : { ...clip, note: clip.note?.trim() ? clip.note : '基线片段备注。' }),
+      });
   const baseInput: MultiMediaPocInput = {
     ...raw,
+    media: mediaWithNote,
     intro: raw.intro?.trim() ? raw.intro : '基线序言文案。',
     params: {
       ...DEFAULT_PARAMS,

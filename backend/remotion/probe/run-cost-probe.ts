@@ -36,7 +36,7 @@ const ms = (from: number) => Math.round(performance.now() - from);
 
 async function main(): Promise<void> {
   await fs.mkdir(outDir, { recursive: true });
-  const marks: Record<string, number> = {};
+  const marks: Record<string, unknown> = {};
 
   let t = performance.now();
   const serveUrl = await bundle({ entryPoint: path.join(projectRoot, 'src', 'index.ts') });
@@ -75,9 +75,11 @@ async function main(): Promise<void> {
     const second = await openBrowser('chrome', { logLevel: 'error' });
     marks.browserLaunch2Ms = ms(t);
     // renderer 的 openBrowser 返回内部包装对象，直接 close() 会抛（缺少内部选项）→ 探针里忽略
-    await second.close().catch(() => undefined);
+    const closable = second as unknown as { close: () => Promise<unknown> };
+    await Promise.resolve(closable.close()).catch(() => undefined);
   } finally {
-    await browser.close().catch(() => undefined);
+    const closable = browser as unknown as { close: () => Promise<unknown> };
+    await Promise.resolve(closable.close()).catch(() => undefined);
   }
 
   console.log('\n=== 探针 ② 结果 ===');

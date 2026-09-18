@@ -57,26 +57,26 @@ public class RecommendVideoService {
     private final String nodePath;
     private final String ffmpegPath;
     private final String remotionDir;
-    private final String ffprobePath;
+    private final MediaProbe mediaProbe;
 
     @Autowired
     public RecommendVideoService(RecommendService recommendService,
                                  RecommendClipSourceService clipSourceService,
+                                 MediaProbe mediaProbe,
                                  @Value("${videotagger.render.node-path}") String nodePath,
                                  @Value("${videotagger.render.ffmpeg-path}") String ffmpegPath,
-                                 @Value("${videotagger.render.remotion-dir:backend/remotion}") String remotionDir,
-                                 @Value("${videotagger.render.ffprobe-path:}") String ffprobePath) {
+                                 @Value("${videotagger.render.remotion-dir:backend/remotion}") String remotionDir) {
         this.recommendService = recommendService;
         this.clipSourceService = clipSourceService;
+        this.mediaProbe = mediaProbe;
         this.nodePath = nodePath;
         this.ffmpegPath = ffmpegPath;
         this.remotionDir = remotionDir;
-        this.ffprobePath = ffprobePath;
     }
 
     /** 测试/无片段场景用的简化构造（clipSourceService 为空 → 不支持片段）。 */
     public RecommendVideoService(RecommendService recommendService, String nodePath, String ffmpegPath) {
-        this(recommendService, null, nodePath, ffmpegPath, "backend/remotion", "");
+        this(recommendService, null, new MediaProbe(ffmpegPath, ""), nodePath, ffmpegPath, "backend/remotion");
     }
 
     public Path render(List<Long> ids, String resolution) {
@@ -226,7 +226,7 @@ public class RecommendVideoService {
                 bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale,
                 bgmX, bgmY, brandTitle, perScreen, detailShow, preparedClips, "embed", 30, wh[0], wh[1],
                 bgmRelPaths,
-                rel -> probeMediaDuration(work.resolve(rel).toAbsolutePath().toString()));
+                rel -> mediaProbe.durationSeconds(work.resolve(rel).toAbsolutePath().toString()));
         Path inputFile = work.resolve("render-input.json");
         Files.writeString(inputFile, inputJson, StandardCharsets.UTF_8);
         Path rendered = work.resolve("rendered." + fmt);
@@ -247,7 +247,17 @@ public class RecommendVideoService {
                 ids.size(), wh[0], wh[1], bgmRelPaths.size(), nodePath, remotion);
         long t0 = System.currentTimeMillis();
         Process p = pb.start();
-        String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        // 先起排空线程再 waitFor：readAllBytes() 会阻塞在管道上，子进程卡死时超时永远不触发（v0.28 修复）
+        java.io.ByteArrayOutputStream sink = new java.io.ByteArrayOutputStream();
+        Thread drainer = new Thread(() -> {
+            try (var in = p.getInputStream()) {
+                in.transferTo(sink);
+            } catch (IOException ignored) {
+                // 进程被杀时读取中断属正常
+            }
+        }, "recommend-render-output");
+        drainer.setDaemon(true);
+        drainer.start();
         boolean finished;
         try {
             finished = p.waitFor(RENDER_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -260,6 +270,12 @@ public class RecommendVideoService {
             p.destroyForcibly();
             throw new IllegalStateException("Remotion 渲染超时（>" + RENDER_TIMEOUT_SECONDS + "s）");
         }
+        try {
+            drainer.join(TimeUnit.SECONDS.toMillis(5));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        String output = sink.toString(StandardCharsets.UTF_8);
         if (p.exitValue() != 0) {
             log.error("Remotion 渲染失败 {}:\n{}", p.exitValue(), output);
             throw new IllegalStateException("Remotion 渲染失败（node 退出 " + p.exitValue() + "）: " + lastLines(output));
@@ -319,22 +335,9 @@ public class RecommendVideoService {
         return wh == null ? RESOLUTIONS.get("720P") : wh;
     }
 
-    /** 素材时长探测（秒）；探测不可用/失败返回 0。供预览组装 RenderInput 计算片段时长。 */
+    /** 素材时长探测（秒）；探测不可用/失败返回 0。供组装 RenderInput 计算片段与 BGM 时长。 */
     public double probeDurationSeconds(String file) {
-        return probeMediaDuration(file);
-    }
-
-    /** Remotion Player 预览页是否已构建（未构建时预览报错提示执行 `npm run build:player`）。 */
-    public boolean hasPlayerBundle() {
-        return playerPagePath() != null;
-    }
-
-    /** Player 预览页 HTML（已构建的 dist-player/player.html）。 */
-    public Path playerPagePath() {
-        Path remotion = resolveRemotionDir();
-        if (remotion == null) return null;
-        Path page = remotion.resolve("dist-player/player.html");
-        return Files.isRegularFile(page) ? page : null;
+        return mediaProbe.durationSeconds(file);
     }
 
     private static void deleteTree(Path root) {
@@ -350,13 +353,9 @@ public class RecommendVideoService {
         return resolution == null ? null : resolution.trim().toUpperCase(Locale.ROOT);
     }
 
-    /** BGM 临时文件扩展名（按源文件名推断，未知 → .mp3）。 */
+    /** BGM 临时文件扩展名（与 {@link RecommendSessionService#audioExtension} 同一份真值）。 */
     private static String audioExtension(String file) {
-        String lower = file.toLowerCase(Locale.ROOT);
-        for (String ext : List.of(".m4a", ".wav", ".ogg", ".flac", ".aac")) {
-            if (lower.endsWith(ext)) return ext;
-        }
-        return ".mp3";
+        return RecommendSessionService.audioExtension(file);
     }
 
     private static String lastLines(String output) {
@@ -366,59 +365,5 @@ public class RecommendVideoService {
         String[] lines = output.split("\\R");
         int from = Math.max(0, lines.length - 8);
         return String.join(" | ", java.util.Arrays.copyOfRange(lines, from, lines.length));
-    }
-
-    /** 探测音频/视频文件时长（秒）：优先 ffprobe（与 ffmpeg 同目录），回退 ffmpeg -i 解析。失败 → 0。 */
-    private double probeMediaDuration(String file) {
-        try {
-            Path ffprobe = ffprobePath();
-            if (ffprobe != null) {
-                ProcessBuilder pb = new ProcessBuilder(ffprobe.toString(), "-v", "error",
-                        "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", file);
-                pb.redirectErrorStream(true);
-                Process p = pb.start();
-                String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
-                p.waitFor();
-                if (!out.isEmpty()) {
-                    return Double.parseDouble(out.trim().split("\\s+")[0]);
-                }
-            }
-            // 回退：ffmpeg -i 解析 stderr 的 Duration: HH:MM:SS.cc
-            ProcessBuilder pb = new ProcessBuilder(ffmpegPath, "-i", file);
-            pb.redirectErrorStream(true);
-            Process p = pb.start();
-            String err = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            p.waitFor();
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("Duration: (\\d{2}):(\\d{2}):(\\d{2}\\.?\\d*)").matcher(err);
-            if (m.find()) {
-                return Integer.parseInt(m.group(1)) * 3600 + Integer.parseInt(m.group(2)) * 60
-                        + Double.parseDouble(m.group(3));
-            }
-        } catch (Exception e) {
-            log.warn("探测素材时长失败 {}: {}", file, e.getMessage());
-        }
-        return 0;
-    }
-
-    /**
-     * ffprobe 定位：优先配置的 ffprobe-path，否则取 ffmpeg-path 同目录同名文件。
-     * 取不到 → 片段开放时长与 BGM 曲长按 0 处理（Remotion 侧按均分兜底）。
-     */
-    private Path ffprobePath() {
-        try {
-            if (ffprobePath != null && !ffprobePath.isBlank()) {
-                Path configured = Path.of(ffprobePath).toAbsolutePath();
-                if (Files.isRegularFile(configured)) return configured;
-                log.warn("配置的 ffprobe 不存在: {}（时长探测回退 ffmpeg -i）", ffprobePath);
-            }
-            Path ff = Path.of(ffmpegPath).toAbsolutePath();
-            String name = ff.getFileName() == null ? "ffmpeg" : ff.getFileName().toString();
-            String probeName = name.endsWith(".exe") ? "ffprobe.exe" : "ffprobe";
-            Path probe = ff.getParent().resolve(probeName);
-            return Files.isRegularFile(probe) ? probe : null;
-        } catch (Exception e) {
-            return null;
-        }
     }
 }

@@ -11,5 +11,5 @@
     "noEmit": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src", "scripts", "remotion.config.ts"]
+  "include": ["src", "scripts", "editor", "probe", "remotion.config.ts"]
 }

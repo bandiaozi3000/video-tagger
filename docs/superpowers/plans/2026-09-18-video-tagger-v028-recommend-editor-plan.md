@@ -2,7 +2,7 @@
 
 - **日期**：2026-09-18
 - **设计规格**：`docs/superpowers/specs/2026-09-18-video-tagger-v028-recommend-editor-design.md`
-- **状态**：**待用户确认**。规格已批准（2026-09-18），装载方式按 **A 单页挂载**（§16-1 已裁）。**计划确认前不动任何生产代码**；已落盘的只有探针脚本 `backend/remotion/probe/`（5 个文件，未提交）。
+- **状态**：**阶段 1 已执行完成**（2026-09-18）；阶段 2/3/4 待开工。规格已批准（2026-09-18），装载方式按 **A 单页挂载**（§16-1 已裁）。阶段 1 的实现、验证证据与偏离见 `docs/worklog/2026-09-18.md` 增量六。
 - **依据**：同日五轮 Grilling 的 24 项决策（规格 §2）+ 两组实测探针（规格 §3.2）。
 
 ## 前置约束（执行期不得违反）
@@ -17,20 +17,20 @@
 
 ---
 
-## 阶段 1：会话与即时预览（旧 preview 退役）
+## 阶段 1：会话与即时预览（旧 preview 退役）—— **已执行完成**（2026-09-18）
 
-| # | 任务 | 产物 / 文件 | 验收 |
-|---|---|---|---|
-| 1.1 | 编辑会话服务 | 新增 `RecommendSessionService`：token 生命周期（创建/固定/回收）、目录 `data/recommend-previews/<token>/`、启动时清理超期 token（默认 7 天） | 单测：token 复用、回收、超期清理 |
-| 1.2 | 会话端点 | `POST /api/recommend/session`、`POST /api/recommend/session/{token}/assets`（增量）、`DELETE /api/recommend/session/{token}` | 隔离实例 curl：创建→增量→回收；missing 清单正确 |
-| 1.3 | 片段素材混合策略 | 扩展 `RecommendClipSourceService`：① 会话缓存命中 ② READY 物化产物 + ffprobe 编解码判定（h264+aac 直用，否则重编码）③ 兜底裁剪；缓存键 `clipId+startMs+endMs+判定` | 手工造 HEVC 源 → 自动走重编码；h264 源 → 零重编码复用（日志可见） |
-| 1.4 | 编辑器构建与挂载（方式 A） | 新增 `vite.editor.config.ts` → `dist-editor/`、`editor/main.tsx`、`editor/index.html`、npm `build:editor`；`index.html` 加 `#recommend-editor-root` + ESM 加载；`WebConfig` 增 `/recommend-editor/**`；`app.js` 懒挂载/卸载协议（含滚动位置逻辑让位） | 进入 `view-recommend` 挂载、离开卸载；无残留监听；`app.js` 行数净减 |
-| 1.5 | Player 常驻 + 即时生效 | `editor/` 内 `Player` + 本地配置状态；改动 → `inputProps` 热更新，防抖 ≤100ms；按规格 §6.6 做**段内帧校正** | 实测：滑块 → 画面 ≤100ms；播放中改动不断播；缩时长后不落末帧 |
-| 1.6 | 旧预览链路退役 | 删 `POST /api/recommend/preview`、前端预览弹窗与 `srcdoc` 逻辑、`dist-player/`、`vite.player.config.ts`、`build:player`、根 `player.html`、`src/player.tsx` 的注入入口、`WebConfig./recommend-player/**`、`RecommendVideoService.hasPlayerBundle()/playerPagePath()` | `grep -rn "recommend-player\|dist-player\|build:player"` → 0 命中（除本文档） |
-| 1.7 | 顺带修 ②③④ | ② `RecommendVideoService` 超时死代码（drainer 范式，含 `probeMediaDuration` 两处）；③ 删 `/prepare-clips`；④ 删 `app.js` 死 message 监听 + `computeRecommendDuration`，时长由本地 `ScenePlan` 显示 | ② 注入卡死场景：超时生效、任务转 `ERROR`；③④ grep 0 命中 |
-| 1.8 | 探针脚本入册 | `package.json` 增 `probe:player` / `probe:cost` | 两个脚本可跑通 |
+| # | 任务 | 状态 |
+|---|---|---|
+| 1.1 | 编辑会话服务 | ✅ `RecommendSessionService`（token 生命周期 + 超期清理 + BGM 落盘） |
+| 1.2 | 会话端点 | ✅ `POST /session`、`POST /session/{token}/render-input`（**与原计划的差异：assets 合并进此端点**）、`DELETE /session/{token}` |
+| 1.3 | 片段素材混合策略 | ✅ 实现 + 3 例单测；⚠️ 真实素材端到端未验（无 READY 产物、`data/videos` 空） |
+| 1.4 | 编辑器构建与挂载（方式 A） | ✅ `vite.editor.config.ts` + `editor/` + `build:editor` + `/recommend-editor/**` + app.js 挂载/卸载 |
+| 1.5 | Player 常驻 + 即时生效 | ✅ 本地参数补丁（实测 14ms）；⚠️ 帧溢出校正待人工验收 |
+| 1.6 | 旧预览链路退役 | ✅ `/preview`、`dist-player`、`vite.player.config.ts`、`src/player.tsx`、`player.html`、`/recommend-player/**`、`hasPlayerBundle/playerPagePath` 均已删（另删 dev 入口 `scripts/serve-player.ts` + 根 `index.html`） |
+| 1.7 | 顺带修 ②③④ | ✅ 超时死代码（渲染 + 探测）、孤儿端点、总时长死链路 |
+| 1.8 | 探针脚本入册 | ✅ `probe:player` / `probe:cost` |
 
-**阶段 1 门禁**：`npx tsc --noEmit`、`npx vitest run`、`mvn -o test`、`probe:player` 回归（保帧三条）+ 隔离实例会话端到端。
+**阶段 1 门禁结果**：`tsc` ✅／`vitest` 26 ✅／`check:native` ✅／`verify:params` 38-0-0-0 ✅／`build:editor` ✅／`mvn test` 367 ✅／隔离实例会话端到端 ✅（含一次 390 帧精确匹配的导出）。详见 worklog 增量六。
 
 ---
 

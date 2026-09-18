@@ -54,21 +54,6 @@ public class VideoExportTaskService {
                                   String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
                                   Integer bgmScale,
                                   Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
-                                  Map<String, Boolean> detailShow) {
-        return create(ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle, subtitle, coverSize,
-                openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity,
-                bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale, bgmX,
-                bgmY, brandTitle, perScreen, detailShow, null);
-    }
-    public VideoExportTask create(List<Long> ids, String title, String format, String resolution,
-                                  List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
-                                  String groupBy, String groupStyle, String subtitle, String coverSize,
-                                  List<Long> openingIds, String intro, RecommendService.Durations durations,
-                                  String endingTitle, String endingText, String bgColor, List<String> bgImages,
-                                  Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
-                                  String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
-                                  Integer bgmScale,
-                                  Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
                                   Map<String, Boolean> detailShow,
                                   Map<Long, RecommendMediaClips> requestedClips) {
         long id = seq.getAndIncrement();

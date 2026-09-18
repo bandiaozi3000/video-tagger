@@ -1,7 +1,12 @@
 package com.videotagger.service;
 
 import com.videotagger.entity.Clip;
+import com.videotagger.entity.VideoAsset;
 import com.videotagger.mapper.ClipMapper;
+import com.videotagger.mapper.VideoAssetMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -15,18 +20,42 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** 校验并准备推荐导出所选 Clip 的本地视频素材。 */
+/**
+ * 校验并准备推荐所选 Clip 的本地视频素材（**混合策略**，设计规格 §8.1）。
+ *
+ * 优先级：
+ * 1. 会话缓存命中（同一会话内同一片段不重复准备）；
+ * 2. 已物化的 `GENERATED_CLIP` 产物且区间一致 → **探测编解码**：浏览器可播（h264+aac 等）直接复制，
+ *    否则从该产物重编码（比从整集源重编码快）；
+ * 3. 回退：从 `data/videos` 的整集源裁剪重编码（旧行为）。
+ *
+ * 为什么必须探测：物化用 `-c copy`（`ClipMaterializationService.cut`），产物编解码继承源片；
+ * HEVC/AV1 源直接给 Chromium 会预览黑屏。探测失败按"不可播"处理（保守重编码）。
+ */
 @Service
 public class RecommendClipSourceService {
+
+    private static final Logger log = LoggerFactory.getLogger(RecommendClipSourceService.class);
+    /** 物化产物时长与 clip 区间允许的偏差（毫秒）：超过即视为区间已变（如用户改过裁剪点）。 */
+    private static final long DURATION_TOLERANCE_MS = 400;
+
     private final ClipMapper clipMapper;
     private final LocalVideoResolver videoResolver;
     private final ClipExportProperties properties;
+    private final VideoAssetMapper assetMapper;
+    private final MediaProbe mediaProbe;
+    private final Path assetRoot;
 
     public RecommendClipSourceService(ClipMapper clipMapper, LocalVideoResolver videoResolver,
-                                      ClipExportProperties properties) {
+                                      ClipExportProperties properties, VideoAssetMapper assetMapper,
+                                      MediaProbe mediaProbe,
+                                      @Value("${videotagger.video-assets.root-dir:${VT_DATA_DIR:data}/video-assets}") String assetRoot) {
         this.clipMapper = clipMapper;
         this.videoResolver = videoResolver;
         this.properties = properties;
+        this.assetMapper = assetMapper;
+        this.mediaProbe = mediaProbe;
+        this.assetRoot = Path.of(assetRoot).toAbsolutePath().normalize();
     }
 
     public PreparedClips prepare(Map<Long, RecommendMediaClips> requested, Path workDir) {
@@ -45,11 +74,9 @@ public class RecommendClipSourceService {
                 String label = clip == null ? "片段 #" + clipId : displayName(clip);
                 try {
                     if (clip == null) throw new IllegalArgumentException("片段不存在或不属于所选媒体");
-                    validateRange(clip);
-                    Path source = videoResolver.resolve(clip.getVideoFp());
                     Path output = outputs.computeIfAbsent(clipId, id -> workDir.resolve("media").resolve("clip-" + id + ".mp4"));
                     if (!Files.isRegularFile(output)) {
-                        export(clip, source, output);
+                        prepareOne(clip, output);
                     }
                     mediaPrepared.add(new PreparedClip(clip.getId(), clip.getTitle(), clip.getNote(),
                             clip.getTimestampSec(), clip.getEndSec(), relativePath(workDir, output),
@@ -63,18 +90,61 @@ public class RecommendClipSourceService {
         return new PreparedClips(prepared, missing);
     }
 
-    private Map<Long, Clip> loadClips(Map<Long, RecommendMediaClips> requested) {
-        Map<Long, Clip> result = new HashMap<>();
-        for (Map.Entry<Long, RecommendMediaClips> entry : requested.entrySet()) {
-            Long mediaId = entry.getKey();
-            if (mediaId == null || entry.getValue() == null || entry.getValue().order() == null) continue;
-            Map<Long, Clip> owned = new HashMap<>();
-            for (Clip clip : clipMapper.listByMedia(mediaId)) owned.put(clip.getId(), clip);
-            for (Long clipId : entry.getValue().order()) {
-                if (clipId != null) result.put(clipId, owned.get(clipId));
+    /** 单个片段：物化产物直用 / 产物重编码 / 源视频重编码。 */
+    private void prepareOne(Clip clip, Path output) throws IOException, InterruptedException {
+        Artifact artifact = reusableArtifact(clip);
+        if (artifact != null) {
+            if (playable(artifact)) {
+                Files.createDirectories(output.getParent());
+                Files.copy(artifact.file(), output, StandardCopyOption.REPLACE_EXISTING);
+                log.info("片段 {} 复用物化产物（零重编码）: {}", clip.getId(), artifact.file().getFileName());
+                return;
             }
+            log.info("片段 {} 物化产物编解码不可直用，改为重编码: {}", clip.getId(), artifact.file().getFileName());
+            export(clip, artifact.file(), output, false);
+            return;
         }
-        return result;
+        validateRange(clip);
+        Path source = videoResolver.resolve(clip.getVideoFp());
+        export(clip, source, output, true);
+    }
+
+    /** 物化产物（文件 + 库里记的编解码）。 */
+    private record Artifact(Path file, String videoCodec, String audioCodec) {
+    }
+
+    /** 可复用的物化产物：READY + 文件在场 + 区间与 clip 一致；否则 null。 */
+    private Artifact reusableArtifact(Clip clip) {
+        Long assetId = clip.getVideoAssetId();
+        if (assetId == null || assetId == 0L || assetMapper == null) return null;
+        try {
+            VideoAsset asset = assetMapper.selectById(assetId);
+            if (asset == null || !"AVAILABLE".equals(asset.getAvailabilityState()) || asset.getStoragePath() == null) {
+                return null;
+            }
+            Path file = assetRoot.resolve(asset.getStoragePath()).normalize();
+            if (!file.startsWith(assetRoot) || !Files.isRegularFile(file)) return null;
+            long startMs = startMs(clip);
+            Long endMs = endMs(clip);
+            if (endMs == null || endMs <= startMs) return null;
+            long expected = endMs - startMs;
+            if (asset.getDurationMs() != null && Math.abs(asset.getDurationMs() - expected) > DURATION_TOLERANCE_MS) {
+                return null;   // 区间已变（用户改过裁剪点），产物不再对应
+            }
+            return new Artifact(file, asset.getVideoCodec(), asset.getAudioCodec());
+        } catch (RuntimeException e) {
+            log.warn("读取物化产物失败 clip={}: {}", clip.getId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /** 产物是否可被浏览器直接播放：存库编解码优先，字段缺失才探测（探测不出 → 不可直用）。 */
+    private boolean playable(Artifact artifact) {
+        if (artifact.videoCodec() != null && !artifact.videoCodec().isBlank()) {
+            return new MediaProbe.Codecs(artifact.videoCodec().toLowerCase(Locale.ROOT),
+                    artifact.audioCodec() == null ? null : artifact.audioCodec().toLowerCase(Locale.ROOT), true).webPlayable();
+        }
+        return mediaProbe.codecs(artifact.file().toString()).webPlayable();
     }
 
     private void validateRange(Clip clip) {
@@ -92,18 +162,28 @@ public class RecommendClipSourceService {
         }
     }
 
-    private void export(Clip clip, Path source, Path output) throws IOException, InterruptedException {
+    /**
+     * 裁剪编码：`fromSource=true` 时按 clip 区间取源片；false 表示输入已是裁剪好的产物（只重编码）。
+     */
+    private void export(Clip clip, Path input, Path output, boolean fromSource) throws IOException, InterruptedException {
         Files.createDirectories(output.getParent());
         Path temp = output.resolveSibling(output.getFileName() + ".part");
         Files.deleteIfExists(temp);
-        List<String> command = new ArrayList<>(List.of(properties.getFfmpegPath(), "-y", "-ss",
-                format(clip.getTimestampSec()), "-i", source.toString()));
-        Double duration = clip.getEndSec() != null
-                ? clip.getEndSec() - clip.getTimestampSec()
-                : clip.getVideoDuration() == null ? null : clip.getVideoDuration() - clip.getTimestampSec();
-        if (duration != null) command.addAll(List.of("-t", format(duration)));
+        List<String> command = new ArrayList<>();
+        command.add(properties.getFfmpegPath());
+        command.add("-y");
+        if (fromSource) {
+            command.addAll(List.of("-ss", format(startMs(clip) / 1000d)));
+        }
+        command.addAll(List.of("-i", input.toString()));
+        if (fromSource) {
+            Long endMs = endMs(clip);
+            if (endMs != null) {
+                command.addAll(List.of("-t", format((endMs - startMs(clip)) / 1000d)));
+            }
+        }
         command.addAll(List.of("-c:v", "libx264", "-preset", "fast", "-crf", "20",
-                // 保留素材原声（Remotion 路径需要原声；旧 Puppeteer 路径输出静音视频，多一条音轨无害）
+                // 保留素材原声（Remotion 路径需要原声）
                 "-c:a", "aac", "-b:a", "128k",
                 "-movflags", "+faststart", "-f", "mp4", temp.toString()));
         Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
@@ -127,6 +207,30 @@ public class RecommendClipSourceService {
         } catch (java.nio.file.AtomicMoveNotSupportedException e) {
             Files.move(temp, output, StandardCopyOption.REPLACE_EXISTING);
         }
+    }
+
+    private Map<Long, Clip> loadClips(Map<Long, RecommendMediaClips> requested) {
+        Map<Long, Clip> result = new HashMap<>();
+        for (Map.Entry<Long, RecommendMediaClips> entry : requested.entrySet()) {
+            Long mediaId = entry.getKey();
+            if (mediaId == null || entry.getValue() == null || entry.getValue().order() == null) continue;
+            Map<Long, Clip> owned = new HashMap<>();
+            for (Clip clip : clipMapper.listByMedia(mediaId)) owned.put(clip.getId(), clip);
+            for (Long clipId : entry.getValue().order()) {
+                if (clipId != null) result.put(clipId, owned.get(clipId));
+            }
+        }
+        return result;
+    }
+
+    private static long startMs(Clip clip) {
+        if (clip.getStartMs() != null) return clip.getStartMs();
+        return clip.getTimestampSec() == null ? 0L : Math.round(clip.getTimestampSec() * 1000);
+    }
+
+    private static Long endMs(Clip clip) {
+        if (clip.getEndMs() != null) return clip.getEndMs();
+        return clip.getEndSec() == null ? null : Math.round(clip.getEndSec() * 1000);
     }
 
     private static String relativePath(Path root, Path path) {

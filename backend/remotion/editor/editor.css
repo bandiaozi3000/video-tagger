@@ -1,0 +1,201 @@
+/**
+ * 推荐工作台编辑器样式：只负责**布局**与编辑器专属件；
+ * 按钮/输入框等控件沿用宿主 `app.css` 的既有类（`.btn-mini` / `.btn-primary`），保持整站风格一致。
+ */
+
+.vt-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  color: var(--text, #e6e6f0);
+}
+
+.vt-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid rgba(130, 160, 255, .18);
+  border-radius: 10px;
+  background: rgba(18, 16, 32, .55);
+}
+
+.vt-toolbar-left { display: flex; align-items: baseline; gap: 10px; }
+.vt-toolbar-note { font-size: 12px; opacity: .68; }
+.vt-toolbar-right { display: flex; align-items: center; gap: 8px; }
+
+.vt-body {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(420px, 1fr) minmax(280px, 360px);
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 1400px) {
+  .vt-body { grid-template-columns: minmax(240px, 290px) minmax(360px, 1fr) minmax(260px, 320px); }
+}
+
+/* —— 媒体篮子 —— */
+.vt-basket {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(130, 160, 255, .16);
+  border-radius: 10px;
+  background: rgba(14, 12, 26, .5);
+  max-height: calc(100vh - 190px);
+  overflow: auto;
+}
+
+.vt-basket-filters,
+.vt-basket-actions,
+.vt-basket-pager { display: flex; align-items: center; gap: 6px; }
+.vt-basket-actions { justify-content: space-between; font-size: 12px; opacity: .8; }
+.vt-tag-input { flex: 1; min-width: 80px; }
+
+.vt-media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+
+.vt-media-card {
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 8px;
+  background: rgba(10, 9, 20, .6);
+  font-size: 11px;
+}
+.vt-media-card.selected { border-color: rgba(79, 195, 247, .75); box-shadow: 0 0 12px rgba(79, 195, 247, .25); }
+.vt-media-cover { position: relative; aspect-ratio: 3 / 4; border-radius: 6px; overflow: hidden; background: #0d0a18; }
+.vt-media-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vt-media-cover input[type="checkbox"] { position: absolute; top: 4px; left: 4px; }
+.vt-cover-placeholder { display: grid; place-items: center; height: 100%; font-size: 22px; opacity: .5; }
+.vt-media-title { margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-media-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; gap: 4px; }
+.vt-media-year { opacity: .6; }
+
+.vt-selected { border-top: 1px dashed rgba(255, 255, 255, .12); padding-top: 8px; }
+.vt-selected-head { font-size: 12px; opacity: .8; margin-bottom: 4px; }
+.vt-selected-list { margin: 0; padding-left: 18px; max-height: 220px; overflow: auto; font-size: 12px; }
+.vt-selected-list li { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.vt-selected-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.vt-clip-panel { border-top: 1px dashed rgba(255, 255, 255, .12); padding-top: 8px; font-size: 12px; }
+.vt-clip-head { display: flex; align-items: center; justify-content: space-between; }
+.vt-clip-body { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 6px; }
+.vt-clip-candidates { max-height: 180px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.vt-clip-item { display: flex; align-items: center; gap: 6px; }
+.vt-clip-order-row { display: flex; align-items: center; justify-content: space-between; }
+.vt-clip-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.vt-badge-custom { flex: 1; min-width: 100px; }
+
+/* —— 舞台（Player）—— */
+.vt-stage { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.vt-player-shell {
+  width: 100%;
+  margin: 0 auto;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+}
+.vt-empty {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(255, 255, 255, .14);
+  border-radius: 12px;
+  opacity: .6;
+}
+.vt-stage-meta { font-size: 12px; opacity: .65; }
+
+/* —— Inspector —— */
+.vt-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid rgba(130, 160, 255, .16);
+  border-radius: 10px;
+  background: rgba(14, 12, 26, .5);
+  max-height: calc(100vh - 190px);
+  overflow: auto;
+}
+
+.vt-group { border-bottom: 1px solid rgba(255, 255, 255, .07); padding-bottom: 4px; }
+.vt-group-title {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: inherit;
+  padding: 6px 2px;
+  cursor: pointer;
+  font-size: 13px;
+  letter-spacing: .5px;
+}
+.vt-group-body { display: flex; flex-direction: column; gap: 8px; padding: 2px 2px 8px; }
+
+.vt-field { display: grid; grid-template-columns: 88px 1fr; align-items: center; gap: 6px; font-size: 12px; }
+.vt-field-label { opacity: .78; }
+.vt-field-control { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.vt-field-control input[type="text"],
+.vt-field-control input:not([type]),
+.vt-field-control textarea,
+.vt-field-control select { width: 100%; }
+.vt-hint { grid-column: 1 / -1; font-size: 11px; opacity: .55; }
+.vt-range-val { font-size: 11px; opacity: .7; min-width: 44px; }
+.vt-inline { display: inline-flex; align-items: center; gap: 4px; }
+.vt-inline-group { display: flex; gap: 10px; flex-wrap: wrap; }
+.vt-durations { display: flex; gap: 4px; flex-wrap: wrap; }
+.vt-duration { display: flex; flex-direction: column; font-size: 10px; opacity: .85; }
+.vt-duration input { width: 46px; }
+.vt-opening-list { display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow: auto; font-size: 12px; }
+.vt-bgm-list { list-style: none; margin: 0; padding: 0; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+.vt-bgm-list li { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.vt-missing-list { margin: 0; padding-left: 16px; font-size: 12px; color: #ffb38a; }
+
+/* —— 导出任务面板 —— */
+.vt-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 4, 10, .62);
+  display: grid;
+  place-items: center;
+  z-index: 900;
+}
+.vt-panel {
+  width: min(760px, 92vw);
+  max-height: 80vh;
+  overflow: auto;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(130, 160, 255, .22);
+  background: #0d0b18;
+}
+.vt-panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.vt-task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.vt-task-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vt-task-status { padding: 1px 6px; border-radius: 999px; background: rgba(255, 255, 255, .1); }
+.vt-task-done { background: rgba(52, 211, 153, .22); }
+.vt-task-error { background: rgba(255, 120, 120, .24); }
+.vt-task-running { background: rgba(79, 195, 247, .22); }
+.vt-task-msg { color: #ffb38a; }
+
+.vt-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(20, 18, 34, .95);
+  border: 1px solid rgba(130, 160, 255, .28);
+  font-size: 12px;
+  z-index: 950;
+}
