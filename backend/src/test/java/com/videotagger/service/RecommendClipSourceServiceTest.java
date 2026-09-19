@@ -14,6 +14,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -135,5 +136,39 @@ class RecommendClipSourceServiceTest {
 
         assertEquals(1, result.missing().size());
         assertTrue(result.missing().get(0).reason().contains("找不到本地源视频"));
+    }
+@Test
+    void transcodesWhenArtifactFpsDiffersFromTimeline() throws Exception {
+        // 2026-09-19 回归：帧率与时间轴不一致的产物**不能**直通。
+        // 以前只看编解码，23.976fps 的产物被零重编码复制进 30fps 时间轴 →
+        // 逐帧按时间取源帧时出现规律性重复/跳帧（观感「片段一直在晃」）。
+        Path artifact = assetRoot.resolve("asset-23.mp4");
+        Files.write(artifact, new byte[2048]);
+
+        VideoAsset asset = new VideoAsset();
+        asset.setId(99L);
+        asset.setAvailabilityState("AVAILABLE");
+        asset.setStoragePath("asset-23.mp4");
+        asset.setDurationMs(10_000L);
+        asset.setVideoCodec("h264");
+        asset.setAudioCodec("aac");
+
+        ClipMapper clipMapper = mock(ClipMapper.class);
+        VideoAssetMapper assetMapper = mock(VideoAssetMapper.class);
+        when(clipMapper.listByMedia(MEDIA_ID)).thenReturn(List.of(clip()));
+        when(assetMapper.selectById(99L)).thenReturn(asset);
+
+        MediaProbe probe = mock(MediaProbe.class);
+        when(probe.fps(anyString())).thenReturn(23.976);
+        when(probe.codecs(anyString())).thenReturn(new MediaProbe.Codecs("h264", "aac", true));
+
+        RecommendClipSourceService.PreparedClips result =
+                service(clipMapper, assetMapper, mock(LocalVideoResolver.class), probe)
+                        .prepare(request(), workDir);
+
+        // 走了重编码分支（测试环境无 ffmpeg → 记为 missing），而不是把 23.976 的产物直接复制
+        assertEquals(1, result.missing().size(), "帧率不一致应改走重编码，不应直通");
+        Path output = workDir.resolve("media/clip-" + CLIP_ID + ".mp4");
+        assertTrue(!Files.exists(output) || Files.size(output) != 2048L, "不应留下与产物字节相同的直通文件");
     }
 }
