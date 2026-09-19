@@ -72,6 +72,31 @@ export function saveConfig(config: EditorConfig): void {
 }
 
 /**
+ * 编辑器 UI 偏好（纯视图状态，**不进草稿/模板**）。
+ *
+ * 目前只存「右栏分组开关」：用户把哪些组打开/收起，换对象、切 tab、刷新后都要保持。
+ */
+const UI_STATE_KEY = 'vt-recommend-editor-ui';
+
+export function loadGroupOpen(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(UI_STATE_KEY);
+    const parsed = raw ? JSON.parse(raw) as { groups?: Record<string, boolean> } : null;
+    return parsed?.groups && typeof parsed.groups === 'object' ? parsed.groups : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveGroupOpen(groups: Record<string, boolean>): void {
+  try {
+    localStorage.setItem(UI_STATE_KEY, JSON.stringify({ groups }));
+  } catch {
+    // 同上：失败不影响编辑
+  }
+}
+
+/**
  * 会话同步签名：只有这些字段变化才需要重新问后端（媒体集 / 片段挂载 / 分组名 / BGM 素材）。
  * 其余参数走 {@link applyLocalParams} 本地补丁。
  */
@@ -133,7 +158,7 @@ export function applyLocalParams(input: MultiMediaPocInput, config: EditorConfig
 }
 
 export function defaultFilter(): CandidateFilter {
-  return { collectionId: null, year: '', tagId: null, tagName: '' };
+  return { q: '', collectionId: null, year: '', format: '', subcategoryId: null, tagId: null, tagName: '', status: '', confirmed: null };
 }
 
 /** 默认变体：短版 + 完整版（用户拍板的「同配置多版本」最小形态）。 */

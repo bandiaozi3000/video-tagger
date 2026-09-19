@@ -23,8 +23,8 @@ import {
   saveConfig,
   sessionSignature,
 } from './state';
-import { BasketPane, BgmOverlay, Hero, InspectorPane, TemplatePanel } from './panes';
-import { Timeline, type Selection } from './timeline';
+import { BasketPane, BgmOverlay, InspectorPane, ParamPalette, TemplatePanel, Toolbar } from './panes';
+import { Filmstrip, Timeline, selectionOfScene, type Selection } from './timeline';
 import { buildScenePlan } from '../src/scene-plan';
 import type { ScenePlan } from '../src/types';
 import './editor.css';
@@ -44,6 +44,12 @@ function App() {
   const [busy, setBusy] = React.useState(false);
   const [tasksOpen, setTasksOpen] = React.useState(false);
   const [templatesOpen, setTemplatesOpen] = React.useState(false);
+  /** 沉浸模式（P）：隐左右栏与工具栏，只留画布。 */
+  const [immersive, setImmersive] = React.useState(false);
+  /** Ctrl+K 参数搜索面板。 */
+  const [paletteOpen, setPaletteOpen] = React.useState(false);
+  /** 参数搜索跳转：让右栏展开并滚到指定分组（分组标题）。 */
+  const [focusGroup, setFocusGroup] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState<CandidateFilter>(defaultFilter);
   const [variants, setVariants] = React.useState<Variant[]>([]);
   const draftReady = React.useRef(false);
@@ -155,6 +161,19 @@ function App() {
     return { input, plan, frameCount: plan.durationInFrames };
   }, [remoteInput, config]);
 
+  /**
+   * Player 的 `inputProps` 必须是**稳定引用**（v0.29 修复）。
+   *
+   * 父组件每帧都会重渲染（`frameupdate` → `setFrame`），若这里写 `{{ input: rendered.input }}` 字面量，
+   * Remotion 会重建 `config`，而它的播放循环 `useEffect` 依赖 `config` → 每帧重启一次（`startedTime` /
+   * `framesAdvanced` 归零）→ 帧钟只跑到 ~0.65× 实时（≈20fps）；`<audio>` 走真实时间，超前后被同步机制
+   * 每 ~2s 往回 seek ~0.6s（听感：同一小段反复重放）。
+   */
+  const playerInputProps = React.useMemo(
+    () => ({ input: rendered?.input as MultiMediaPocInput }),
+    [rendered?.input],
+  );
+
   // 帧游标：Player 事件驱动（时间轴游标 + 当前段）
   React.useEffect(() => {
     const player = playerRef.current;
@@ -230,6 +249,43 @@ function App() {
     return () => player.removeEventListener('frameupdate', onFrame);
   }, [rendered !== null]);
 
+  /** 快捷键：`Ctrl/Cmd+K` 参数搜索、`P` 沉浸、`Esc` 退出沉浸/关面板。 */
+  React.useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const tag = (event.target as HTMLElement | null)?.tagName;
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen(true);
+        return;
+      }
+      if (event.key === 'Escape') {
+        setPaletteOpen(false);
+        setImmersive(false);
+        return;
+      }
+      if (typing) return;
+      if (event.key.toLowerCase() === 'p' && !event.ctrlKey && !event.metaKey) setImmersive((value) => !value);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  /**
+   * 点画布 = 选中当前画面所属的段/媒体（参数跟着对象走）。
+   *
+   * 两条边界：底部 48px 是 Player 自带控制条（不抢它的点击）；BGM 浮层自己处理拖拽。
+   */
+  const onCanvasClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!rendered) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (event.clientY > rect.bottom - 48) return;
+    if ((event.target as HTMLElement).closest('.vt-bgm-overlay')) return;
+    const index = rendered.plan.scenes.findIndex((scene) => frame >= scene.fromFrame && frame < scene.fromFrame + scene.durationInFrames);
+    const scene = rendered.plan.scenes[index];
+    if (scene) setSelection(selectionOfScene(scene, index));
+  };
+
   const missingByClip = React.useMemo(() => {
     const map: Record<number, string> = {};
     for (const item of missing) map[item.clipId] = `${item.title || '片段'}：${item.reason}`;
@@ -296,32 +352,34 @@ function App() {
   }, [missingByClip]);
 
   return (
-    <div className="vt-workspace">
-      <Hero config={config} patch={patch} busy={busy} variantCount={variants.length}
-            onExport={() => void onExport()} onExportAll={() => void onExportAll()}
-            onOpenTasks={() => setTasksOpen(true)} onOpenTemplates={() => setTemplatesOpen(true)}
-            meta={{
-              seconds: rendered ? rendered.frameCount / rendered.plan.fps : null,
-              frames: rendered?.frameCount ?? null,
-              missingCount: missing.length,
-              savedAt,
-            }} />
+    <div className={immersive ? 'vt-workspace flash' : 'vt-workspace'}>
+      <Toolbar config={config} patch={patch} busy={busy} variantCount={variants.length}
+               onExport={() => void onExport()} onExportAll={() => void onExportAll()}
+               onOpenTasks={() => setTasksOpen(true)} onOpenTemplates={() => setTemplatesOpen(true)}
+               onOpenVariants={() => { setSelection({ kind: 'global' }); setFocusGroup('导出变体'); }}
+               onOpenSearch={() => setPaletteOpen(true)}
+               meta={{
+                 seconds: rendered ? rendered.frameCount / rendered.plan.fps : null,
+                 frames: rendered?.frameCount ?? null,
+                 missingCount: missing.length,
+                 savedAt,
+               }} />
 
-      <div className="vt-body">
-        <BasketPane config={config} patch={patch} filter={filter} onFilter={setFilter} />
+      <div className={immersive ? 'vt-body stage-only' : 'vt-body'}>
+        <BasketPane config={config} patch={patch} filter={filter} onFilter={setFilter} onSelect={setSelection}
+                    highlightMediaId={selection.kind === 'media' || selection.kind === 'clip' ? selection.mediaId : undefined} />
 
         <section className="panel vt-col">
-          <div className="panel-head">
-            <div>
-              <span className="kicker">Stage</span>
-              <h3>预览舞台</h3>
-            </div>
-            <div className="vt-head-r">
+          <div className="vt-colhead">
+            <h3>预览</h3>
+            <span className="vt-colhead-meta">
               {rendered
                 ? `${rendered.plan.width}×${rendered.plan.height} · ${rendered.plan.fps}fps · ${rendered.input.media.length} 部`
                 : '—'}
-              <span style={{ color: 'var(--cyan)' }}>● 与导出同源</span>
-            </div>
+            </span>
+            <span className="sp" />
+            <button type="button" className={immersive ? 'btn-mini on' : 'btn-mini'} title="沉浸模式（P）"
+                    onClick={() => setImmersive((value) => !value)}>{immersive ? '退出沉浸' : '⛶ 沉浸'}</button>
           </div>
 
           <div className="vt-stage-body">
@@ -329,17 +387,17 @@ function App() {
               <div
                 className="vt-player-shell"
                 ref={shellRef}
+                onClick={onCanvasClick}
+                title="点画面 = 选中当前段"
                 style={{
-                  // 容器必须给**确定高度**：只给 % / flex 会让 Player 内部包装层算成 0 高，画布被顶出视口
-                  // （v0.27 旧预览页踩过同一个坑，这里用画幅比例 + 高度上限双约束）
+                  // 只锁画幅比例：宽度吃掉中栏（去掉 v0.29 的 42vh 硬上限 —— 它把画布卡小、还把时间轴顶到屏外）
                   aspectRatio: `${rendered.plan.width} / ${rendered.plan.height}`,
-                  maxWidth: `calc(42vh * ${rendered.plan.width} / ${rendered.plan.height})`,
                 }}
               >
                 <Player
                   ref={playerRef}
                   component={RecommendComposition}
-                  inputProps={{ input: rendered.input }}
+                  inputProps={playerInputProps}
                   durationInFrames={rendered.frameCount}
                   fps={rendered.plan.fps}
                   compositionWidth={rendered.plan.width}
@@ -391,13 +449,29 @@ function App() {
             </div>
 
             {rendered ? (
-              <Timeline
+              <Filmstrip
                 input={rendered.input}
                 plan={rendered.plan}
                 frame={frame}
                 selection={selection}
                 missingByClip={missingByClip}
                 missingByMedia={missingByMedia}
+                onSeek={seekTo}
+                onSelect={(next) => {
+                  setSelection(next);
+                  if (rangeScene !== null && next.sceneIndex !== undefined) setRangeScene(next.sceneIndex);
+                }}
+              />
+            ) : null}
+
+            {rendered ? (
+              <Timeline
+                plan={rendered.plan}
+                frame={frame}
+                selection={selection}
+                missingByClip={missingByClip}
+                missingByMedia={missingByMedia}
+                mediaCount={rendered.input.media.length}
                 onSeek={seekTo}
                 onSelect={(next) => {
                   setSelection(next);
@@ -410,9 +484,18 @@ function App() {
         </section>
 
         <InspectorPane config={config} patch={patch} mediaBriefs={mediaBriefs} missingByMedia={inspectorMissing}
-                       selection={selection} rendered={rendered}
+                       selection={selection} rendered={rendered} focusGroup={focusGroup}
+                       onSelect={setSelection} onOpenSearch={() => setPaletteOpen(true)}
                        variants={variants} onVariants={setVariants} />
       </div>
+
+      {immersive ? <div className="vt-immersive-tip">沉浸模式 · <span className="kbd">Esc</span> 或 <span className="kbd">P</span> 退出</div> : null}
+      {paletteOpen ? (
+        <ParamPalette
+          onClose={() => setPaletteOpen(false)}
+          onJump={(title) => { setSelection({ kind: 'global' }); setFocusGroup(title); setPaletteOpen(false); }}
+        />
+      ) : null}
 
       {tasksOpen ? <TaskPanel onClose={() => setTasksOpen(false)} notify={notify} /> : null}
       {templatesOpen ? (

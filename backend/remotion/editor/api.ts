@@ -100,12 +100,50 @@ export interface ClipBrief {
   endSec?: number | null;
 }
 
-/** 候选筛选条件（系列化：可随模板保存，套用时重算候选媒体）。 */
+/** 候选筛选条件（系列化：可随模板保存，套用时重算候选媒体）。
+ *
+ * 每个维度单值；空值（`''` / `null`）表示该维度不筛。旧草稿/模板缺字段时由 `parsePayload` 合并
+ * `defaultFilter()` 补全 → 行为与升级前一致。
+ */
 export interface CandidateFilter {
+  /** 标题关键词（空白串 = 不筛） */
+  q: string;
   collectionId: number | null;
+  /** 首播年（精确；`''` = 不筛） */
   year: string;
+  /** 格式 code（`''` = 不筛） */
+  format: string;
+  subcategoryId: number | null;
   tagId: number | null;
   tagName: string;
+  /** WANT / WATCHING / DONE / PAUSED / DROPPED（`''` = 不筛） */
+  status: string;
+  /** `null` = 全部 / `1` = 已确认 / `0` = 待确认 —— 0 必须照发，不能用真值判断 */
+  confirmed: number | null;
+}
+
+/** 候选筛选 → `/api/media` 与 `/api/media/count` 的共用查询参数。 */
+export function filterParams(filter: CandidateFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  const q = filter.q.trim();
+  if (q) params.set('q', q);
+  if (filter.collectionId != null) params.set('collectionId', String(filter.collectionId));
+  if (filter.year) params.set('year', filter.year);
+  if (filter.format) params.set('format', filter.format);
+  if (filter.subcategoryId != null) params.set('subcategoryId', String(filter.subcategoryId));
+  if (filter.tagId != null) params.set('tagId', String(filter.tagId));
+  if (filter.status) params.set('status', filter.status);
+  if (filter.confirmed != null) params.set('confirmed', String(filter.confirmed));
+  return params;
+}
+
+/** 格式字典（`/api/media-formats`）：子分类自带 `parentId` 与全局 mediaCount。 */
+export interface MediaFormatBrief {
+  id: number;
+  code: string;
+  name: string;
+  hasChildren?: number | null;
+  subcategories?: { id: number; parentId: number | null; name: string; mediaCount?: number | null }[];
 }
 
 /** 导出变体：在基础配置上做具名覆盖（时长档/画幅/形态/每屏）。 */
@@ -181,27 +219,26 @@ export const api = {
   deleteSession: (token: string) =>
     fetch(`/api/recommend/session/${token}`, { method: 'DELETE' }).then(() => undefined),
 
-  media: (query: { limit: number; offset: number; collectionId?: number | null; tagId?: number | null; year?: string }) => {
-    const params = new URLSearchParams({ limit: String(query.limit), offset: String(query.offset) });
-    if (query.collectionId) params.set('collectionId', String(query.collectionId));
-    if (query.tagId) params.set('tagId', String(query.tagId));
-    if (query.year) params.set('year', query.year);
+  media: (query: { limit: number; offset: number; filter: CandidateFilter; ids?: number[] }) => {
+    const params = filterParams(query.filter);
+    params.set('limit', String(query.limit));
+    params.set('offset', String(query.offset));
+    if (query.ids && query.ids.length > 0) params.set('ids', query.ids.join(','));
     return json<MediaBrief[]>(`/api/media?${params.toString()}`);
   },
-  mediaCount: (query: { collectionId?: number | null; tagId?: number | null; year?: string }) => {
-    const params = new URLSearchParams();
-    if (query.collectionId) params.set('collectionId', String(query.collectionId));
-    if (query.tagId) params.set('tagId', String(query.tagId));
-    if (query.year) params.set('year', query.year);
+  mediaCount: (filter: CandidateFilter) => {
+    const params = filterParams(filter);
     return json<number>(`/api/media/count${params.toString() ? '?' + params.toString() : ''}`);
   },
   years: () => json<number[]>('/api/media/years'),
   collections: () => json<{ id: number; name: string }[]>('/api/collections'),
-  resolveTagId: async (name: string): Promise<number | null> => {
+  formats: () => json<MediaFormatBrief[]>('/api/media-formats'),
+  /** 标签建议（筛选面板的搜索式选择器；只选既有标签，不创建）。 */
+  tagSuggest: async (q: string): Promise<{ id: number; name: string }[]> => {
     const page = await json<{ items?: { id: number; name: string }[] }>(
-      `/api/tags/manage?q=${encodeURIComponent(name)}&size=50`,
+      `/api/tags/manage?q=${encodeURIComponent(q)}&size=20`,
     );
-    return (page.items || []).find((tag) => tag.name === name)?.id ?? null;
+    return (page.items || []).map((tag) => ({ id: tag.id, name: tag.name }));
   },
   clips: (mediaId: number) => json<ClipBrief[]>(`/api/clips/media/${mediaId}`),
 
