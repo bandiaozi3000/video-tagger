@@ -140,6 +140,10 @@ h3.sec{font-family:var(--display);font-weight:400;font-size:17px;margin:40px 0 1
   <div class="screen"><video src="preview-clip-infocard.mp4" controls preload="metadata"></video></div>
   <div class="screenbar"><span class="n">D</span><span>片段：卡片缩小成左下信息卡（已去掉往复缩放导致的抖动）</span></div>
 
+  <h3 class="sec">片段抖动修复：前后对照（同素材同窗口）</h3>
+  <div class="screen"><video src="preview-clip-infocard-30fps.mp4" controls preload="metadata"></video></div>
+  <div class="screenbar"><span class="n">后</span><span>素材先归一化到 30fps CFR：0 对重复帧，每帧都在推进（帧间隔 0.0333 恒定）</span></div>
+
   <h3 class="sec">本次改动的实测依据</h3>
   <p class="note">
     · <b>填满度</b>：掠影段取样 5 帧，画面空占比 0.0%–1.2%，九宫格每格均有内容 → 任何时刻都没有黑底。<br>
