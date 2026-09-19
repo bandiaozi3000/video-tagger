@@ -45,17 +45,21 @@ public class RecommendClipSourceService {
     private final VideoAssetMapper assetMapper;
     private final MediaProbe mediaProbe;
     private final Path assetRoot;
+    /** 推荐时间轴帧率：片段素材的帧率与它不一致时不能直通（否则播放时帧节奏不匀 = "晃"）。 */
+    private final double targetFps;
 
     public RecommendClipSourceService(ClipMapper clipMapper, LocalVideoResolver videoResolver,
                                       ClipExportProperties properties, VideoAssetMapper assetMapper,
                                       MediaProbe mediaProbe,
-                                      @Value("${videotagger.video-assets.root-dir:${VT_DATA_DIR:data}/video-assets}") String assetRoot) {
+                                      @Value("${videotagger.video-assets.root-dir:${VT_DATA_DIR:data}/video-assets}") String assetRoot,
+                                      @Value("${videotagger.render.fps:30}") double targetFps) {
         this.clipMapper = clipMapper;
         this.videoResolver = videoResolver;
         this.properties = properties;
         this.assetMapper = assetMapper;
         this.mediaProbe = mediaProbe;
         this.assetRoot = Path.of(assetRoot).toAbsolutePath().normalize();
+        this.targetFps = targetFps > 0 ? targetFps : 30;
     }
 
     public PreparedClips prepare(Map<Long, RecommendMediaClips> requested, Path workDir) {
@@ -139,7 +143,28 @@ public class RecommendClipSourceService {
     }
 
     /** 产物是否可被浏览器直接播放：存库编解码优先，字段缺失才探测（探测不出 → 不可直用）。 */
+    /**
+     * 物化产物能否直重复用：编解码可播 **且帧率与推荐时间轴一致**。
+     *
+     * 帧率那条是 2026-09-19 补的：以前只看编解码，于是 23.976fps 的素材被零重编码直通，
+     * 进 30fps 时间轴后帧节奏不匀（源帧重复/跳过混排），观感就是“片段一直在晃”。
+     * 探测不到帧率（探针不可用）时按可复用来处理，避免在探测失败时把全部片段都转一遍。
+     */
     private boolean playable(Artifact artifact) {
+        if (!codecsPlayable(artifact)) return false;
+        double fps = mediaProbe.fps(artifact.file().toString());
+        if (fps <= 0) {
+            log.warn("片段物化产物帧率探测失败，按可复用处理: {}", artifact.file().getFileName());
+            return true;
+        }
+        if (Math.abs(fps - targetFps) > 0.05) {
+            log.info("片段物化产物帧率 {} ≠ 时间轴 {}，改为重编码（CFR）: {}", fps, targetFps, artifact.file().getFileName());
+            return false;
+        }
+        return true;
+    }
+
+    private boolean codecsPlayable(Artifact artifact) {
         if (artifact.videoCodec() != null && !artifact.videoCodec().isBlank()) {
             return new MediaProbe.Codecs(artifact.videoCodec().toLowerCase(Locale.ROOT),
                     artifact.audioCodec() == null ? null : artifact.audioCodec().toLowerCase(Locale.ROOT), true).webPlayable();
@@ -183,6 +208,8 @@ public class RecommendClipSourceService {
             }
         }
         command.addAll(List.of("-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                // 常帧率 + 对齐推荐时间轴帧率：帧率不匹配的素材直接进时间轴会帧节奏不匀（“抖”）
+                "-vsync", "cfr", "-r", String.valueOf((int) Math.round(targetFps)),
                 // 保留素材原声（Remotion 路径需要原声）
                 "-c:a", "aac", "-b:a", "128k",
                 "-movflags", "+faststart", "-f", "mp4", temp.toString()));

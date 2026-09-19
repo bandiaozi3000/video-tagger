@@ -54,7 +54,7 @@ class RecommendClipSourceServiceTest {
         ClipExportProperties properties = new ClipExportProperties();
         properties.setFfmpegPath("no-such-ffmpeg-binary");
         properties.setTaskTimeoutSec(5);
-        return new RecommendClipSourceService(clipMapper, resolver, properties, assetMapper, probe, assetRoot.toString());
+        return new RecommendClipSourceService(clipMapper, resolver, properties, assetMapper, probe, assetRoot.toString(), 30);
     }
 
     private Map<Long, RecommendMediaClips> request() {

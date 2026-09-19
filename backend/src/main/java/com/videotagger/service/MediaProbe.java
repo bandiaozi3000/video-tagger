@@ -32,6 +32,7 @@ public class MediaProbe {
     private static final Pattern DURATION = Pattern.compile("Duration: (\\d{2}):(\\d{2}):(\\d{2}\\.?\\d*)");
     private static final Pattern VIDEO_CODEC = Pattern.compile("Video:\\s*([A-Za-z0-9_]+)");
     private static final Pattern AUDIO_CODEC = Pattern.compile("Audio:\\s*([A-Za-z0-9_]+)");
+    private static final Pattern FPS = Pattern.compile("([0-9]+(?:\\.[0-9]+)?)\\s*fps");
 
     /** 编解码判定结果：`decided=false` 表示探测不出来（调用方应按"保守"处理）。 */
     public record Codecs(String video, String audio, boolean decided) {
@@ -75,6 +76,35 @@ public class MediaProbe {
             }
         } catch (RuntimeException e) {
             log.warn("探测素材时长失败 {}: {}", file, e.getMessage());
+        }
+        return 0;
+    }
+
+    /** 视频流帧率（fps）；探测失败/不可用 → 0。ffprobe 优先，回退 `ffmpeg -i` 里的 `xx fps`。
+     *
+     * 为什么需要它：推荐时间轴固定 30fps，而片段素材常是 23.976 / 25 / 29.97。
+     * 帧率不匹配的素材直接进时间轴，播放时帧节奏就会不匀（有的源帧重复、有的跳过）——
+     * 看起来就是“片段一直在晃”。所以直通复用前必须先比帧率。
+     */
+    public double fps(String file) {
+        try {
+            Path probe = ffprobe();
+            if (probe != null) {
+                String out = run(List.of(probe.toString(), "-v", "error", "-select_streams", "v:0",
+                        "-show_entries", "stream=r_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1", file));
+                String value = out == null ? "" : out.trim().split("\\s+")[0];
+                String[] parts = value.split("/");
+                if (parts.length >= 1 && !parts[0].isBlank()) {
+                    double numerator = Double.parseDouble(parts[0]);
+                    double denominator = parts.length > 1 ? Double.parseDouble(parts[1]) : 1;
+                    if (numerator > 0 && denominator > 0) return numerator / denominator;
+                }
+            }
+            String info = run(List.of(ffmpegPath, "-i", file));
+            Matcher m = info == null ? null : FPS.matcher(info);
+            if (m != null && m.find()) return Double.parseDouble(m.group(1));
+        } catch (RuntimeException e) {
+            log.warn("探测素材帧率失败 {}: {}", file, e.getMessage());
         }
         return 0;
     }
