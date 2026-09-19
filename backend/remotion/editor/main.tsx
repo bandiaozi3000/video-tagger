@@ -12,6 +12,8 @@ import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Player, type PlayerRef } from '@remotion/player';
 import { RecommendComposition } from '../src/RecommendComposition';
+import { CinemaComposition } from '../src/cinema';
+import { buildCinemaPlan } from '../src/cinema/plan';
 import type { MultiMediaPocInput } from '../src/types';
 import { api, type CandidateFilter, type EditorConfig, type ExportTask, type MediaBrief, type Variant } from './api';
 import {
@@ -157,7 +159,12 @@ function App() {
   const rendered: Rendered | null = React.useMemo(() => {
     if (!remoteInput || remoteInput.media.length === 0) return null;
     const input = applyLocalParams(remoteInput, config, config.ids.length);
-    const plan = buildScenePlan(input);
+    // 形态路由：cinema 走新计划与新合成（旧 chapter/clip 一行未改）。
+    // 计划对象在此处按 `ScenePlan` 视图共享给时间轴/胶片条——它们只读
+    // fromFrame / durationInFrames / mediaId / clipId / fps 这几个共同字段。
+    const plan = input.style === 'cinema'
+      ? (buildCinemaPlan(input) as unknown as ScenePlan)
+      : buildScenePlan(input);
     return { input, plan, frameCount: plan.durationInFrames };
   }, [remoteInput, config]);
 
@@ -396,7 +403,7 @@ function App() {
               >
                 <Player
                   ref={playerRef}
-                  component={RecommendComposition}
+                  component={rendered.input.style === 'cinema' ? CinemaComposition : RecommendComposition}
                   inputProps={playerInputProps}
                   durationInFrames={rendered.frameCount}
                   fps={rendered.plan.fps}

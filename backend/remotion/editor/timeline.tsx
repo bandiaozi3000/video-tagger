@@ -12,6 +12,7 @@
 import React from 'react';
 import { Thumbnail } from '@remotion/player';
 import { RecommendComposition } from '../src/RecommendComposition';
+import { CinemaComposition } from '../src/cinema';
 import { sceneLabel } from '../src/scene-plan';
 import type { MultiMediaPocInput, Scene, ScenePlan } from '../src/types';
 
@@ -39,6 +40,37 @@ const COLORS: Record<Scene['type'], string> = {
   COLLECTION_ENDING: 'rgba(255,209,102,.5)',
 };
 
+/** 银幕式幕名 → 时间轴/胶片条上的短标签。 */
+const CINEMA_LABELS: Record<string, string> = {
+  SCAN: '速览',
+  FLASH: '闪回',
+  SETTLE: '定格',
+  HOOK: '钩子',
+  SLATE: '片单卡',
+  TITLE: '片名卡',
+  COVER: '封面镜头',
+  CLIP: '片段',
+  ENDING: '落款',
+};
+
+/** 银幕式幕色（与旧模板同一套色板，只是换了归类）。 */
+const CINEMA_COLORS: Record<string, string> = {
+  SCAN: 'rgba(79,195,247,.55)',
+  FLASH: 'rgba(79,195,247,.55)',
+  SETTLE: 'rgba(111,139,255,.55)',
+  HOOK: 'rgba(79,195,247,.55)',
+  SLATE: 'rgba(111,139,255,.55)',
+  TITLE: 'rgba(255,209,102,.5)',
+  COVER: 'rgba(200,206,230,.28)',
+  CLIP: 'rgba(255,143,184,.5)',
+  ENDING: 'rgba(255,209,102,.5)',
+};
+
+/** 幕色：银幕式幕型 → 自己的表；旧幕型 → 旧表。 */
+export function colorOfScene(scene: { type: string }): string {
+  return CINEMA_COLORS[scene.type] ?? COLORS[scene.type as Scene['type']] ?? 'rgba(200,206,230,.28)';
+}
+
 /** 段 → 选中对象（时间轴、胶片条、画布点击共用同一套映射）。 */
 export function selectionOfScene(scene: Scene, index: number): Selection {
   if (scene.type === 'MEDIA_CLIP' && scene.mediaId !== undefined && scene.clipId !== undefined) {
@@ -50,12 +82,17 @@ export function selectionOfScene(scene: Scene, index: number): Selection {
 
 /** 段名（片段段统一显示"片段"，其余用 `sceneLabel`）。 */
 function labelOf(plan: ScenePlan, scene: Scene, mediaCount: number): string {
+  if (plan.style === 'cinema') {
+    const name = CINEMA_LABELS[(scene as { type: string }).type] ?? '—';
+    const media = scene.mediaId === undefined ? undefined : plan.mediaIndex.get(scene.mediaId);
+    return media ? `${media.title} · ${name}` : name;
+  }
   return scene.type === 'MEDIA_CLIP' ? '片段' : sceneLabel(plan, scene, mediaCount);
 }
 
-/** 段级缺失原因（片段段看 clipId，媒体段看 mediaId）。 */
+/** 段级素材缺失原因：片段段看 clipId，媒体段看 mediaId（银幕式与前两者同字段）。 */
 function missingOf(scene: Scene, missingByClip: Record<number, string>, missingByMedia: Record<number, string>): string | undefined {
-  if (scene.type === 'MEDIA_CLIP' && scene.clipId !== undefined) return missingByClip[scene.clipId];
+  if (scene.clipId !== undefined) return missingByClip[scene.clipId];
   return scene.mediaId === undefined ? undefined : missingByMedia[scene.mediaId];
 }
 
@@ -103,7 +140,7 @@ export function Timeline({ plan, frame, selection, missingByClip, missingByMedia
               <span
                 key={`${index}-${scene.fromFrame}`}
                 className={`vt-tl-seg${selection.sceneIndex === index ? ' selected' : ''}${index === activeIndex ? ' active' : ''}${missing ? ' missing' : ''}`}
-                style={{ flexGrow: scene.durationInFrames, background: COLORS[scene.type] }}
+                style={{ flexGrow: scene.durationInFrames, background: colorOfScene(scene) }}
                 title={missing ? `${labelOf(plan, scene, mediaCount)}｜素材缺失：${missing}` : labelOf(plan, scene, mediaCount)}
                 onClick={(event) => { event.stopPropagation(); pick(scene, index); }}
               />
@@ -128,7 +165,7 @@ export function Timeline({ plan, frame, selection, missingByClip, missingByMedia
                 <div
                   key={`${index}-${scene.fromFrame}`}
                   className={`vt-tl-cell${selection.sceneIndex === index ? ' selected' : ''}${index === activeIndex ? ' active' : ''}${missing ? ' missing' : ''}`}
-                  style={{ flexGrow: scene.durationInFrames, background: COLORS[scene.type] }}
+                  style={{ flexGrow: scene.durationInFrames, background: colorOfScene(scene) }}
                   title={missing ? `素材缺失：${missing}` : labelOf(plan, scene, mediaCount)}
                   onClick={(event) => { event.stopPropagation(); pick(scene, index); }}
                 >
@@ -240,10 +277,10 @@ export function Filmstrip({ input, plan, frame, selection, missingByClip, missin
             title={missing ? `素材缺失：${missing}` : `${labelOf(plan, scene, mediaCount)} · ${Math.round(scene.durationInFrames / plan.fps)}s`}
             onClick={() => pick(scene, index)}
           >
-            <span className="vt-film-thumb" style={{ background: COLORS[scene.type] }}>
+            <span className="vt-film-thumb" style={{ background: colorOfScene(scene) }}>
               {ready ? (
                 <Thumbnail
-                  component={RecommendComposition}
+                  component={input.style === 'cinema' ? CinemaComposition : RecommendComposition}
                   inputProps={{ input }}
                   frameToDisplay={scene.fromFrame + Math.floor(scene.durationInFrames / 2)}
                   durationInFrames={plan.durationInFrames}

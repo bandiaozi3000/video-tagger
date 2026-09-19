@@ -2,11 +2,18 @@ package com.videotagger.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.videotagger.entity.Clip;
 import com.videotagger.entity.Collection;
+import com.videotagger.entity.Episode;
+import com.videotagger.entity.ExternalWork;
 import com.videotagger.entity.MediaFormat;
 import com.videotagger.entity.MediaSubcategory;
+import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.CollectionMapper;
+import com.videotagger.mapper.EpisodeMapper;
+import com.videotagger.mapper.ExternalWorkMapper;
 import com.videotagger.mapper.MediaFormatMapper;
 import com.videotagger.mapper.MediaSubcategoryMapper;
 import com.videotagger.mapper.TagMapper;
@@ -50,12 +57,18 @@ public class RecommendService {
     private final MediaFormatMapper mediaFormatMapper;
     private final CoverService coverService;
     private final CollectionMapper collectionMapper;
+    private final ExternalWorkMapper externalWorkMapper;
+    private final EpisodeMapper episodeMapper;
+    private final ClipMapper clipMapper;
     private final ObjectMapper objectMapper;
 
     public RecommendService(MediaService mediaService, TagMapper tagMapper,
                             MediaSubcategoryMapper mediaSubcategoryMapper,
                             MediaFormatMapper mediaFormatMapper, CoverService coverService,
                             CollectionMapper collectionMapper,
+                            ExternalWorkMapper externalWorkMapper,
+                            EpisodeMapper episodeMapper,
+                            ClipMapper clipMapper,
                             ObjectMapper objectMapper) {
         this.mediaService = mediaService;
         this.tagMapper = tagMapper;
@@ -63,6 +76,9 @@ public class RecommendService {
         this.mediaFormatMapper = mediaFormatMapper;
         this.coverService = coverService;
         this.collectionMapper = collectionMapper;
+        this.externalWorkMapper = externalWorkMapper;
+        this.episodeMapper = episodeMapper;
+        this.clipMapper = clipMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -105,7 +121,9 @@ public class RecommendService {
 
     /** 模板形态：`clip` → 片段优先；其余（含 chapter/stream/overview/空）→ 章节叙事。 */
     public static String styleOf(String groupStyle) {
-        return "clip".equals(normalizeStyle(groupStyle)) ? "clip" : "chapter";
+        String style = normalizeStyle(groupStyle);
+        // cinema = 「银幕式」模板（v0.29 期间新增），与旧 chapter/clip **并存**（旧版一行未改）
+        return "cinema".equals(style) ? "cinema" : ("clip".equals(style) ? "clip" : "chapter");
     }
 
     /**
@@ -165,15 +183,47 @@ public class RecommendService {
             // 封面：渲染用 embed（data URI，无头环境自足）；浏览器预览用 url（/covers/x.jpg，宿主直接托管）
             String cover = resolveCoverDataUrl(d, coverMode == null || coverMode.isBlank() ? "embed" : coverMode);
             if (cover != null && !cover.isBlank()) view.put("coverAssetPath", cover);
+            // 每部一色：从封面本地文件算主色（读不到 → 不填，渲染侧退到确定性兜底色）
+            String accent = coverService.accentColorForPath(d.coverPath());
+            if (accent != null) view.put("accentColor", accent);
             view.put("description", d.note() == null ? "" : d.note().trim());
             List<String> tagNames = new ArrayList<>();
             for (List<Object> tag : buildTags(d.id())) {
                 if (!tag.isEmpty() && tag.get(0) != null) tagNames.add(String.valueOf(tag.get(0)));
             }
             view.put("tags", tagNames);
+            // 番剧元数据（Bangumi/AniList 同步结果）：剧情简介 / 类型数组 / 总集数（v0.29 视觉重设计接线）
+            List<ExternalWork> works = externalWorkMapper.listByMedia(d.id());
+            ExternalWork work = works.stream()
+                    .filter((w) -> w.getDescription() != null && !w.getDescription().isBlank())
+                    .findFirst()
+                    .orElse(works.isEmpty() ? null : works.get(0));
+            if (work != null) {
+                String synopsis = cleanSynopsis(work.getDescription());
+                if (synopsis != null) view.put("synopsis", synopsis);
+                List<String> genres = parseGenres(work.getGenresJson());
+                if (!genres.isEmpty()) view.put("genres", genres);
+            }
+            Integer episodeCount = work == null ? null : work.getEpisodeCount();
+            if (episodeCount == null) {
+                long rows = episodeMapper.countByMedia(d.id());
+                episodeCount = rows > 0 ? (int) rows : null;
+            }
+            if (episodeCount != null) view.put("episodeCount", episodeCount);
+            if (d.subcategory() != null && !d.subcategory().isBlank()) view.put("subcategory", d.subcategory());
             // 分组名（Remotion 侧据此排章节页与组序）
             String groupName = groupOf(d, groupBy);
             if (groupName != null) view.put("group", groupName);
+
+            // 片段行：PreparedClip 只带渲染必需字段，tag / 所属集号得回查原始行
+            Map<Long, Clip> clipRows = new HashMap<>();
+            Map<Long, Episode> episodeRows = new HashMap<>();
+            if (clips != null && !clips.isEmpty()) {
+                List<Long> clipIds = new ArrayList<>();
+                for (RecommendClipSourceService.PreparedClip clip : clips) clipIds.add(clip.id());
+                for (Clip row : clipMapper.listByIds(clipIds)) clipRows.put(row.getId(), row);
+                for (Episode row : episodeMapper.listByMedia(d.id())) episodeRows.put(row.getId(), row);
+            }
 
             List<Map<String, Object>> clipViews = new ArrayList<>();
             if (clips != null) {
@@ -182,6 +232,15 @@ public class RecommendService {
                     cv.put("clipId", clip.id());
                     cv.put("title", clip.title() == null || clip.title().isBlank() ? "未命名片段" : clip.title());
                     if (clip.note() != null && !clip.note().isBlank()) cv.put("note", clip.note());
+                    Clip row = clipRows.get(clip.id());
+                    if (row != null && row.getTag() != null && !row.getTag().isBlank()) cv.put("tag", row.getTag().trim());
+                    Episode episode = row == null || row.getEpisodeId() == null ? null : episodeRows.get(row.getEpisodeId());
+                    if (episode != null) {
+                        if (episode.getEpisodeNo() != null) cv.put("episodeNo", episode.getEpisodeNo());
+                        // 集标题常是抓来的网页标题（“...-番剧-全集-高清在线观看-bilibili-哔哩哔哩”），只在短且干净时带上
+                        String episodeTitle = episode.getTitle() == null ? "" : episode.getTitle().trim();
+                        if (!episodeTitle.isBlank() && episodeTitle.length() <= 24) cv.put("episodeTitle", episodeTitle);
+                    }
                     cv.put("assetPath", clip.path());
                     if (clip.startSec() != null) cv.put("sourceStartMs", Math.round(clip.startSec() * 1000));
                     cv.put("durationMs", clipDurationMs(clip, probeSeconds));
@@ -267,6 +326,31 @@ public class RecommendService {
     }
 
     /** 片段时长（毫秒）：已知起止 → 直接算；开放时长 → 探测已准备素材。 */
+    /** 简介清洗：去全角缩进与多余空白，超长截断（渲染侧只排 2–3 行）。 */
+    private static String cleanSynopsis(String raw) {
+        if (raw == null) return null;
+        String text = raw.replace('\u3000', ' ').replaceAll("\\s+", " ").trim();
+        if (text.isEmpty()) return null;
+        return text.length() > 220 ? text.substring(0, 220).trim() + "…" : text;
+    }
+
+    /** `genres_json` → 短标签：Bangumi 的类型数组里混着制作公司/播出季度/关键词，一并保留（渲染侧只取前几个）。 */
+    private List<String> parseGenres(String json) {
+        if (json == null || json.isBlank()) return List.of();
+        try {
+            List<String> parsed = objectMapper.readValue(json, new TypeReference<List<String>>() { });
+            List<String> out = new ArrayList<>();
+            for (String value : parsed) {
+                if (value == null || value.isBlank()) continue;
+                out.add(value.trim());
+                if (out.size() >= 6) break;
+            }
+            return out;
+        } catch (JsonProcessingException e) {
+            return List.of();
+        }
+    }
+
     private long clipDurationMs(RecommendClipSourceService.PreparedClip clip,
                                 java.util.function.ToDoubleFunction<String> probeSeconds) {
         if (clip.startSec() != null && clip.endSec() != null && clip.endSec() > clip.startSec()) {
@@ -346,8 +430,7 @@ public class RecommendService {
     }
 
     /** 标签热度：countByMedia 过滤 refCount>0，取前 N（次数降序）。 */
-    private List<List<Object>> buildTags(Long mediaId) {
-        List<List<Object>> tags = new ArrayList<>();
+    private List<List<Object>> buildTags(Long mediaId) {        List<List<Object>> tags = new ArrayList<>();
         for (TagUsage u : tagMapper.countByMedia(mediaId)) {
             if (tags.size() >= MAX_TAG_COUNT) {
                 break;
@@ -368,7 +451,7 @@ public class RecommendService {
         }
         String s = groupStyle.trim().toLowerCase();
         return switch (s) {
-            case "chapter", "clip" -> s;
+            case "chapter", "clip", "cinema" -> s;
             case "stream", "overview" -> "chapter";
             default -> "chapter";
         };

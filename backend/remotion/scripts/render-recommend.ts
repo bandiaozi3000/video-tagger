@@ -41,13 +41,15 @@ async function main(): Promise<void> {
   const input = JSON.parse(await fs.readFile(path.resolve(inputPath), 'utf8')) as MultiMediaPocInput;
   await fs.access(assetRoot);
 
+  // 形态选合成：银幕式走新 composition，其余沿用旧 composition（旧链路不动）
+  const compositionId = input.style === 'cinema' ? 'MultiMediaRecommendCinema' : COMPOSITION_ID;
   const assetServer = await startAssetServer(path.resolve(assetRoot));
   const renderInput: MultiMediaPocInput = { ...input, assetBaseUrl: assetServer.baseUrl };
   const startedAt = Date.now();
 
   try {
     const serveUrl = await bundle({ entryPoint: path.join(projectRoot, 'src', 'index.ts') });
-    const composition = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps: { input: renderInput } });
+    const composition = await selectComposition({ serveUrl, id: compositionId, inputProps: { input: renderInput } });
     await fs.mkdir(path.dirname(path.resolve(outputPath)), { recursive: true });
     await renderMedia({
       composition,

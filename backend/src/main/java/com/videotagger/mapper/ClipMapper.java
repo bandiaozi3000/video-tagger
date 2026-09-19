@@ -43,6 +43,11 @@ public interface ClipMapper extends BaseMapper<Clip> {
     @Select("SELECT tag, COUNT(*) AS count FROM clips GROUP BY tag ORDER BY count DESC LIMIT #{limit}")
     List<TagSuggestion> countTags(@Param("limit") int limit);
 
+    /** 按 id 批量取片段行：推荐输入需要 `tag` / `episodeId` 这类 PreparedClip 未携带的字段。 */
+    @Select("<script>SELECT * FROM clips WHERE id IN "
+            + "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></script>")
+    List<Clip> listByIds(@Param("ids") List<Long> ids);
+
     @Select("SELECT * FROM clips "
             + "WHERE url = #{url} AND ABS(timestamp_sec - #{ts}) < #{window} "
             + "ORDER BY timestamp_sec ASC")

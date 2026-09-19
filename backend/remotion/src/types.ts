@@ -17,7 +17,8 @@ export interface PocClip {
   title: string;
   /** 片段备注，由 `detailShow.note` 控制显示。 */
   note?: string;
-  assetPath: string;
+  /** 片段标签（用户写的短标签，如「可爱小猫」「高甜」）——片段屏的主文案。 */
+  tag?: string;  assetPath: string;
   durationMs: number;
   sourceStartMs?: number;
   hasAudio: boolean;
@@ -34,8 +35,18 @@ export interface PocMedia {
   coverAssetPath?: string;
   description?: string;
   tags: string[];
+  /** Bangumi 剧情简介（`external_work.description`）；与用户手写的 {@link description} 并存。 */
+  synopsis?: string;
+  /** Bangumi 类型/制作公司/播出季度/关键词数组（`external_work.genres_json`）。 */
+  genres?: string[];
+  /** 总集数（`external_work.episode_count`，缺省时由 episode 行数兜底）。 */
+  episodeCount?: number;
+  /** 分类文案（番剧 / 电影 / 电视剧…）。 */
+  subcategory?: string;
   /** 分组名（由 Java 侧按 `groupBy` 计算，含"未分组/未知年份"等兜底文案）；无分组时缺省。 */
   group?: string;
+  /** 从封面实测提取的主色（`CoverService.accentColorForPath`，「银幕式」模板的"每部一色"）。 */
+  accentColor?: string;
   clips: PocClip[];
 }
 
@@ -45,8 +56,8 @@ export type TemplateId = (typeof TEMPLATE_IDS)[number];
 
 export interface MultiMediaPocInput {
   template: TemplateId;
-  /** 模板形态：`chapter` 章节叙事 / `clip` 片段优先。缺省 `chapter`。 */
-  style?: TemplateStyle;
+  /** 模板形态：`chapter` 章节叙事 / `clip` 片段优先 / `cinema` 银幕式（v0.29 期间新增）。缺省 `chapter`。 */
+  style?: TemplateStyle | 'cinema';
   title: string;
   subtitle?: string;
   intro?: string;
@@ -79,7 +90,7 @@ export interface GroupPlan {
 }
 
 export interface ScenePlan {
-  style: TemplateStyle;
+  style: TemplateStyle | 'cinema';
   fps: number;
   width: number;
   height: number;

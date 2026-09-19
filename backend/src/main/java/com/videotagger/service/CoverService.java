@@ -9,6 +9,9 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -19,7 +22,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
+import javax.imageio.ImageIO;
 
 /**
  * 封面下载与落盘。存储走本地目录 + Spring 静态映射（/covers/**），不上 minio。
@@ -196,8 +202,76 @@ public class CoverService {
         }
     }
 
-    /** 解析 data URL（data:image/...;base64,...）或裸 base64 为字节；非法抛 IllegalArgumentException。 */
-    public byte[] decodeDataUrl(String dataUrl) {
+    /**
+     * 封面主色（推荐模板「每部一色」用）：降到 72×96 → 量化成小簇 → 取「占比 × 饱和」最高的一簇。
+     *
+     * 只要一簇颜色，不要调色板：多数封面会同时存在人像肤色与大块背景色，
+     * 按饱和×占比取能稳定拿到「那张图看上去的颜色」。过暗/过亮的像素直接剔除。
+     * 读不到、越界、或 ImageIO 解不了（如 webp）→ null，渲染侧退到确定性的兜底色。
+     */
+    public String accentColorForPath(String coverPath) {
+        try {
+            Path file = coverFile(coverPath);
+            if (file == null) return null;
+            BufferedImage source = ImageIO.read(file.toFile());
+            if (source == null) return null;
+            BufferedImage small = new BufferedImage(72, 96, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = small.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(source, 0, 0, 72, 96, null);
+            g.dispose();
+            Map<Integer, long[]> buckets = new HashMap<>();
+            for (int y = 0; y < 96; y++) {
+                for (int x = 0; x < 72; x++) {
+                    int rgb = small.getRGB(x, y);
+                    int r = (rgb >> 16) & 0xff;
+                    int gr = (rgb >> 8) & 0xff;
+                    int b = rgb & 0xff;
+                    double max = Math.max(r, Math.max(gr, b));
+                    double min = Math.min(r, Math.min(gr, b));
+                    double lum = 0.2126 * r + 0.7152 * gr + 0.0722 * b;
+                    double sat = max == 0 ? 0 : (max - min) / max;
+                    if (lum < 40 || lum > 225 || sat < 0.18) continue;
+                    int key = ((r >> 4) << 8) | ((gr >> 4) << 4) | (b >> 4);
+                    long[] acc = buckets.computeIfAbsent(key, (k) -> new long[5]);
+                    acc[0] += r;
+                    acc[1] += gr;
+                    acc[2] += b;
+                    acc[3] += 1;
+                    acc[4] += Math.round(sat * 1000);
+                }
+            }
+            long[] best = null;
+            double bestScore = 0;
+            for (long[] acc : buckets.values()) {
+                if (acc[3] == 0) continue;
+                double score = acc[3] * (acc[4] / 1000.0 / acc[3]);
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = acc;
+                }
+            }
+            if (best == null) return null;
+            return String.format("#%02x%02x%02x", best[0] / best[3], best[1] / best[3], best[2] / best[3]);
+        } catch (IOException e) {
+            log.warn("提取封面主色失败 {}: {}", coverPath, e.getMessage());
+            return null;
+        }
+    }
+
+    /** `/covers/**` → 本地文件（越界/不存在 → null）。与 {@link #base64ForCoverPath} 同一套校验。 */
+    private Path coverFile(String coverPath) {
+        if (coverPath == null || coverPath.isBlank()) return null;
+        String normalized = coverPath.replace('\\', '/');
+        if (!normalized.startsWith("/covers/")) {
+            log.warn("拒绝读取越界封面路径: {}", coverPath);
+            return null;
+        }
+        Path file = coverDir.resolve(normalized.substring("/covers/".length())).normalize();
+        return file.startsWith(coverDir) && Files.isRegularFile(file) ? file : null;
+    }
+
+    /** 解析 data URL（data:image/...;base64,...）或裸 base64 为字节；非法抛 IllegalArgumentException。 */    public byte[] decodeDataUrl(String dataUrl) {
         if (dataUrl == null || dataUrl.isBlank()) {
             throw new IllegalArgumentException("cover data 为空");
         }

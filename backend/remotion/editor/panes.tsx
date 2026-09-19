@@ -173,6 +173,9 @@ export function Toolbar({ config, patch, onExport, onExportAll, variantCount, on
                 onClick={() => patch({ groupStyle: 'chapter' })}>章节式</button>
         <button type="button" className={config.groupStyle === 'clip' ? 'on' : ''}
                 onClick={() => patch({ groupStyle: 'clip' })}>片段放映</button>
+        <button type="button" className={config.groupStyle === 'cinema' ? 'on' : ''}
+                title="银幕式：片名卡 → 画面/片段 → 硬切（每部一色）"
+                onClick={() => patch({ groupStyle: 'cinema' })}>银幕式</button>
       </div>
 
       <button ref={themeRef} type="button" className="btn-mini vt-tb-btn" data-vt="theme" title="主题预设（画面立即重排）"
@@ -490,6 +493,7 @@ function VariantGroup({ variants, onVariants }: {
                   <option value="">同主配置</option>
                   <option value="chapter">章节式</option>
                   <option value="clip">片段放映式</option>
+                  <option value="cinema">银幕式</option>
                 </select>
               </label>
               <label className="vt-inline">资料卡秒数

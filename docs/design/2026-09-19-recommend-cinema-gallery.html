@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>银幕式 · 展览预览（竖幅）</title>
+<style>
+/* ============================================================
+   预览稿：竖幅「美术馆展览」形式
+   · 竖排展品（每张 16:9 帧 = 一件作品），左侧编号 + 展签
+   · 展签排版：拉丁小字 + 中文名 + 一句说明 + 技术参数（美术馆标签的做法）
+   · 深色墙面 + 细白描边 + 大留白；不用卡片阴影、不用圆角（与视频同一套语言）
+   ============================================================ */
+:root{
+  --display:"阿里巴巴普惠体 2 115 Black","阿里巴巴普惠体 2 105 Heavy","PingFang SC",sans-serif;
+  --num:"Mona-Sans","阿里巴巴普惠体 2 65 Medium",sans-serif;
+  --text:"阿里巴巴普惠体 2 55 Regular","PingFang SC","Microsoft YaHei",sans-serif;
+  --wall:#0c0d10; --wall2:#12141a; --ink:#f2f1ee; --muted:#8f8f96; --dim:#5c5c63; --hair:rgba(255,255,255,.14);
+  --accent:#7fd0e8;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#08090b;color:var(--ink);font-family:var(--text)}
+.page{max-width:1180px;margin:0 auto;padding:40px 24px 90px}
+.masthead{border-bottom:1px solid var(--hair);padding-bottom:22px;margin-bottom:34px;display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.masthead h1{margin:0;font-family:var(--display);font-weight:400;font-size:30px;letter-spacing:.01em}
+.masthead .sub{margin-top:8px;color:var(--muted);font-size:13.5px;line-height:1.7}
+.masthead .meta{font-family:var(--num);font-size:11.5px;letter-spacing:.18em;color:var(--dim);text-align:right;line-height:1.9;text-transform:uppercase}
+
+/* 竖幅海报：一张可单独导出的展品总览 */
+.poster{width:1080px;max-width:100%;margin:0 auto 54px;background:linear-gradient(180deg,var(--wall) 0%,var(--wall2) 100%);border:1px solid var(--hair);padding:64px 58px 54px}
+.poster .ph{border-bottom:1px solid var(--hair);padding-bottom:20px;margin-bottom:30px}
+.poster .ph .k{font-family:var(--num);font-size:11px;letter-spacing:.34em;color:var(--accent);text-transform:uppercase}
+.poster .ph h2{margin:14px 0 0;font-family:var(--display);font-weight:400;font-size:52px;line-height:1.05}
+.poster .ph p{margin:12px 0 0;color:var(--muted);font-size:14.5px;line-height:1.8;max-width:46ch}
+.strip{display:flex;flex-direction:column;gap:26px}
+.exhibit{display:grid;grid-template-columns:44px 1fr;gap:16px;align-items:start}
+.exhibit.hero .shot{box-shadow:0 30px 80px rgba(0,0,0,.55)}
+.exhibit.soft{width:88%;margin:0 auto}
+.exhibit .no{font-family:var(--num);font-size:12px;letter-spacing:.16em;color:var(--dim);padding-top:2px}
+.exhibit .shot{border:1px solid var(--hair);position:relative}
+.exhibit .shot img{width:100%;display:block}
+.exhibit .label{margin-top:9px;display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.exhibit .label .t{font-family:var(--display);font-weight:400;font-size:15px}
+.exhibit .label .d{color:var(--muted);font-size:12.5px}
+.exhibit .label .p{margin-left:auto;font-family:var(--num);font-size:11px;letter-spacing:.14em;color:var(--dim)}
+.poster .foot{margin-top:34px;padding-top:18px;border-top:1px solid var(--hair);display:flex;justify-content:space-between;gap:20px;color:var(--dim);font-family:var(--num);font-size:11px;letter-spacing:.16em;text-transform:uppercase}
+
+/* 成片：直接嵌进页面，点开就播 */
+.screen{border:1px solid var(--hair);background:#000;margin-bottom:14px}
+.screen video{width:100%;display:block;background:#000}
+.screenbar{display:flex;align-items:baseline;gap:14px;margin:0 0 30px;font-size:12.5px;color:var(--muted)}
+.screenbar .n{font-family:var(--num);letter-spacing:.16em;color:var(--dim);font-size:11px}
+h3.sec{font-family:var(--display);font-weight:400;font-size:17px;margin:40px 0 16px;padding-bottom:10px;border-bottom:1px solid var(--hair)}
+.note{color:var(--muted);font-size:13px;line-height:1.9}
+.note b{color:var(--ink);font-weight:400}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="masthead">
+    <div>
+      <h1>银幕式 · 预告片动效</h1>
+      <div class="sub">推荐视频新模板 · 开篇与逐部段落的动效预览<br>真素材（真封面 / 真片段）· 1280×720 · 30fps</div>
+    </div>
+    <div class="meta">
+      Cinema Template<br>v0.29 · 2026-09-19<br>Pi · Video Tagger
+    </div>
+  </div>
+
+  <!-- ================= 竖幅海报 ================= -->
+  <div class="poster" id="poster">
+    <div class="ph">
+      <div class="k">Exhibition · 展览</div>
+      <h2>冲入 · 掠影<br>卡片缩小成画面</h2>
+      <p>开篇四拍：掠过 → 减速落位 → 标题介入（被封面遮挡一瞬）→ 柔光收束。逐部段：片名卡缩小，片段从卡片矩形里长出来，卡片成为右下角角标。</p>
+    </div>
+    <div class="strip">
+      <div class="exhibit hero">
+        <div class="no">01</div>
+        <div>
+          <div class="shot"><img src="2026-09-19-recommend-cinema-raid-r2.png" alt=""></div>
+          <div class="label"><span class="t">掠影</span><span class="d">四张封面贴脸掠过，模糊随速度；远景墙反向漂移</span><span class="p">frame 30</span></div>
+        </div>
+      </div>
+      <div class="exhibit soft">
+        <div class="no">02</div>
+        <div>
+          <div class="shot"><img src="2026-09-19-recommend-cinema-raid-r4.png" alt=""></div>
+          <div class="label"><span class="t">遮挡</span><span class="d">主推横扫而过，遮住标题一瞬（标题层在卡片之下）</span><span class="p">frame 80</span></div>
+        </div>
+      </div>
+      <div class="exhibit soft">
+        <div class="no">03</div>
+        <div>
+          <div class="shot"><img src="2026-09-19-recommend-cinema-slate-fence.png" alt=""></div>
+          <div class="label"><span class="t">片单卡 · 上下栅栏</span><span class="d">上排垂下、下排上顶、错半格互锁；两排以不同速率横移，中缝给主题/引言/统计</span><span class="p">frame 170</span></div>
+        </div>
+      </div>
+      <div class="exhibit soft">
+        <div class="no">04</div>
+        <div>
+          <div class="shot"><img src="2026-09-19-recommend-cinema-tc-title.png" alt=""></div>
+          <div class="label"><span class="t">片名卡</span><span class="d">3:4 封面卡 + 编号 / 标题 / 事实行 / 备注</span><span class="p">frame 200</span></div>
+        </div>
+      </div>
+      <div class="exhibit soft">
+        <div class="no">05</div>
+        <div>
+          <div class="shot"><img src="2026-09-19-recommend-cinema-tc-m2.png" alt=""></div>
+          <div class="label"><span class="t">变形中</span><span class="d">片段以 clip-path 从卡片矩形展开；卡片同时缩向右下角</span><span class="p">frame 236</span></div>
+        </div>
+      </div>
+      <div class="exhibit soft">
+        <div class="no">06</div>
+        <div>
+          <div class="shot"><img src="2026-09-19-recommend-cinema-clip-infocard.png" alt=""></div>
+          <div class="label"><span class="t">落定 · 左下信息卡</span><span class="d">封面缩略图 + 番剧名 + 年份·集数·类型 + 推荐语，常驻可读</span><span class="p">frame 270</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+      <span>Cinema · Chrome Chapters</span>
+      <span>1280 × 720 · 30 fps · yuv420p(tv, bt709)</span>
+    </div>
+  </div>
+
+  <!-- ================= 成片 ================= -->
+  <h3 class="sec">成片（点播放）</h3>
+  <div class="screen"><video src="preview-opening-raid.mp4" controls preload="metadata"></video></div>
+  <div class="screenbar"><span class="n">A</span><span>开篇掠影 · 10s（掠影 → 片单卡 → 第一张片名卡）</span></div>
+  <div class="screen"><video src="preview-title-clip.mp4" controls preload="metadata"></video></div>
+  <div class="screenbar"><span class="n">B</span><span>片名卡缩小成片段 · 6.76s（片单卡 → 片名卡 → 变形 → 角标）</span></div>
+
+  <h3 class="sec">片单卡横移（3s）</h3>
+  <div class="screen"><video src="preview-slate-fence.mp4" controls preload="metadata"></video></div>
+  <div class="screenbar"><span class="n">C</span><span>片单卡 · 上下栅栏互锁（12 部，两排反向横移）</span></div>
+
+  <h3 class="sec">片段 · 卡片缩小 → 左下信息卡（5.2s）</h3>
+  <div class="screen"><video src="preview-clip-infocard.mp4" controls preload="metadata"></video></div>
+  <div class="screenbar"><span class="n">D</span><span>片段：卡片缩小成左下信息卡（已去掉往复缩放导致的抖动）</span></div>
+
+  <h3 class="sec">本次改动的实测依据</h3>
+  <p class="note">
+    · <b>填满度</b>：掠影段取样 5 帧，画面空占比 0.0%–1.2%，九宫格每格均有内容 → 任何时刻都没有黑底。<br>
+    · <b>运动量</b>：相邻取样帧像素差 23–35（静态排版接近 0）→ 持续在动，不是"几帧一动"。<br>
+    · <b>色彩分级</b>：全区平均色 rgb(78,82,83)（偏冷）→ 封面原色已被统一，像一部片子而不是一堆截图。<br>
+    · <b>变形连续性</b>：片名卡末帧与片段幕首帧在"卡片区域"测量完全一致（亮度 140 / σ74）→ 是同一张卡变形，不是硬切。
+  </p>
+</div>
+</body>
+</html>

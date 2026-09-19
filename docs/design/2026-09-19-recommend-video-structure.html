@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>推荐视频结构设计 · 每部「片名卡 → 画面/片段 → 连播」</title>
+<style>
+/* ============================================================
+   结构稿：解决"多部 + 每部带片段"该怎么排
+   共同语言：单色底 + 每部一色（封面实测）+ 真字重字体 + 零装饰
+   取色实测：5609 #4a8a62 · 7492 #9a2616 · 2849 #fad7a8 · 2507 #0075b8
+   ============================================================ */
+:root{
+  --display:"阿里巴巴普惠体 2 115 Black","阿里巴巴普惠体 2 105 Heavy","阿里巴巴普惠体 2 85 Bold",sans-serif;
+  --num:"Mona-Sans","阿里巴巴普惠体 2 65 Medium",sans-serif;
+  --text:"阿里巴巴普惠体 2 55 Regular","Microsoft YaHei",sans-serif;
+  --ink:#f2f1ee; --muted:#8a8a8f; --dim:#55555a;
+  --a-5609:#4a8a62; --a-7492:#9a2616; --a-2849:#fad7a8; --a-2507:#0075b8;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#131316;color:#e8e7e4;font-family:var(--text)}
+.wrap{max-width:1500px;margin:0 auto;padding:26px 20px 70px}
+h1{font-size:20px;margin:0 0 8px;font-family:var(--display);font-weight:400}
+.lead{color:#9a9a9f;font-size:13px;line-height:1.9;margin:0 0 22px;max-width:118ch}
+.lead b{color:#e8e7e4}
+h2{font-size:15px;font-family:var(--display);font-weight:400;margin:30px 0 6px}
+.note{color:#8f8f94;font-size:12.5px;line-height:1.85;margin:0 0 14px;max-width:118ch}
+.note em{color:#c9c9cd;font-style:normal}
+
+/* 分镜时间轴 */
+.track{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.beat{border:1px solid #2c2c33;background:#1a1a1e;padding:8px 10px;min-width:120px;flex:1 1 120px}
+.beat .t{font-family:var(--num);font-size:11px;color:#8a8a8f;letter-spacing:.08em}
+.beat .n{font-size:12.5px;color:#e8e7e4;margin-top:3px}
+.beat .d{font-size:11px;color:#6f6f76;margin-top:2px}
+.beat.pos{border-color:#3d4a3f;background:#161c17}
+.beat.clip{border-color:#4a2a24;background:#1d1310}
+.beat.pay{border-color:#3a3a55;background:#171722}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:#83838a;margin:0 0 6px}
+.legend i{display:inline-block;width:10px;height:10px;margin-right:6px;vertical-align:-1px}
+.legend .pos{background:#161c17;border:1px solid #3d4a3f}
+.legend .clip{background:#1d1310;border:1px solid #4a2a24}
+.legend .pay{background:#171722;border:1px solid #3a3a55}
+
+/* 舞台 */
+.row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.row.three{grid-template-columns:repeat(3,1fr)}
+.panel{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#000;box-shadow:0 16px 40px rgba(0,0,0,.5),0 0 0 1px #2a2a30}
+.stage{position:absolute;left:0;top:0;width:1280px;height:720px;transform-origin:0 0;overflow:hidden;background:#0b0b0c}
+.cap{margin:7px 0 0;font-size:11.5px;color:#83838a;line-height:1.7}
+.cap b{color:#c9c9cd;font-weight:400}
+@media(max-width:1080px){.row,.row.three{grid-template-columns:1fr}}
+
+.abs{position:absolute}
+.t-display{font-family:var(--display);font-weight:400;line-height:.99;letter-spacing:-.01em;color:var(--ink)}
+.t-num{font-family:var(--num);font-weight:700;letter-spacing:-.02em}
+.t-meta{font-family:var(--num);font-weight:500;letter-spacing:.2em;color:var(--muted);text-transform:uppercase}
+.t-body{font-family:var(--text);color:#c9c7c3;line-height:1.7}
+.rule{height:2px;width:64px}
+
+/* ---------- ① 片名卡（每部的开场拍） ---------- */
+.tc .base{inset:0;background:#0b0b0c}
+.tc .tint{inset:0;background:var(--tint);opacity:.24}
+.tc .vign{inset:0;background:radial-gradient(120% 100% at 24% 40%,transparent 30%,rgba(6,6,8,.75) 100%)}
+.tc .no{left:100px;top:236px;font-size:52px;color:var(--accent)}
+.tc .title{left:96px;top:298px;font-size:92px;max-width:13ch}
+.tc .rule{left:100px;top:452px;background:var(--accent)}
+.tc .facts{left:100px;top:482px;font-size:17px}
+.tc .end{right:100px;bottom:88px;font-size:15px;color:var(--dim)}
+
+/* ---------- ② 片段全屏 + lower-third ---------- */
+.cl .video{inset:0;background-size:cover;background-position:center;filter:saturate(.98) contrast(1.02)}
+.cl .vign{inset:0;background:radial-gradient(130% 100% at 50% 46%,transparent 44%,rgba(3,3,7,.7) 100%),linear-gradient(180deg,rgba(3,3,7,.55) 0%,transparent 22%,transparent 62%,rgba(3,3,7,.88) 100%)}
+.cl .ep{left:100px;top:82px;font-size:15px;color:rgba(255,255,255,.82)}
+.cl .name{left:100px;bottom:186px;font-size:16px;color:rgba(255,255,255,.9)}
+.cl .quote{left:98px;bottom:112px;font-size:31px;color:#fff;max-width:26ch;text-shadow:0 3px 22px rgba(0,0,0,.85)}
+.cl .rule{left:100px;bottom:86px;background:var(--accent)}
+.cl .count{right:100px;bottom:88px;font-size:14px;color:rgba(255,255,255,.7)}
+
+/* ---------- ③ 无片段部：封面镜头 ---------- */
+.st .photo{inset:0 40% 0 0;background-size:cover;background-position:center 20%;filter:contrast(1.03) saturate(.9) brightness(.95)}
+.st .edge{left:60%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.12)}
+.st .tint{left:60%;right:0;top:0;bottom:0;background:var(--tint);opacity:.10}
+.st .no{left:calc(60% + 52px);top:180px;font-size:44px;color:var(--accent)}
+.st .title{left:calc(60% + 50px);top:244px;font-size:60px;max-width:9ch}
+.st .facts{left:calc(60% + 52px);top:404px;font-size:16px}
+.st .quote{left:calc(60% + 52px);top:452px;font-size:22px;max-width:19ch}
+.st .end{left:calc(60% + 52px);bottom:82px;font-size:14px;color:var(--dim)}
+
+/* ---------- ④ 部间转场：色带擦除（三帧） ---------- */
+.tr .prev{inset:0;background-size:cover;background-position:center;filter:brightness(.7)}
+.tr .next{inset:0;background-size:cover;background-position:center;filter:brightness(.7)}
+.tr .band{top:0;bottom:0;background:var(--accent)}
+.tr .label{left:100px;bottom:88px;font-size:15px;color:rgba(255,255,255,.8)}
+
+/* ---------- ⑤ 同部多片段连播 ---------- */
+.mc .video{inset:0;background-size:cover;background-position:center}
+.mc .vign{inset:0;background:linear-gradient(180deg,rgba(3,3,7,.6) 0%,transparent 20%,transparent 74%,rgba(3,3,7,.8) 100%)}
+.mc .ep{left:100px;bottom:96px;font-size:16px;color:#fff}
+.mc .rule{left:100px;bottom:74px;background:var(--accent)}
+.mc .idx{right:100px;bottom:96px;font-size:14px;color:rgba(255,255,255,.72)}
+.mc .flash{inset:0;background:#fff;opacity:0}
+
+/* ---------- ⑥ 片尾落款 ---------- */
+.en .stats{left:100px;top:220px;font-size:96px;color:var(--ink)}
+.en .label{left:104px;top:356px;font-size:18px}
+.en .rule{left:104px;top:410px;background:rgba(255,255,255,.45)}
+.en .bgm{left:104px;bottom:96px;font-size:14px;color:var(--dim)}
+.en .wall{right:0;top:0;bottom:0;width:34%;display:flex;filter:grayscale(.6) brightness(.4)}
+.en .wall i{flex:1;background-size:cover;background-position:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>结构设计 · 「多部推荐 + 每部带片段」该怎么排</h1>
+  <p class="lead">
+    问题不在单帧好不好看，而在<strong>一部片子的"介绍"和"片段"是什么关系</strong>。现在的实现把它们做成两个平级场景（资料页 → 片段页），于是：① 有片段的部要先看一屏静态卡片才看到画面，节奏被打断；② 没片段的部只能干看卡片；③ 连续 12 部长得一模一样。<br>
+    <b>我的方案：把「一部」做成一个节拍单元 —— 片名卡（1.5s）→ 画面/片段（6–9s）→ 硬切进下一部</b>。信息不再单独占一屏，而是压成画面上的 <b>lower-third</b>（片名 · 年份 · 一句推荐语）——这正是预告片/混剪的通行做法（Apple TV+ sizzle、Netflix Next on Netflix、Aniplex 季番 PV 都是"标题卡 + 画面流 + 小字幕"，没有"资料页"这种物）。
+  </p>
+
+  <h2>① 分镜表（4 部示例，其中第 2 部带 2 个片段，总长 ≈ 46s）</h2>
+  <div class="legend">
+    <span><i class="pos"></i>片名卡 / 封面镜头（无片段也成立）</span>
+    <span><i class="clip"></i>真实片段（有片段才走这条）</span>
+    <span><i class="pay"></i>钩子 / 数据 / 落款</span>
+  </div>
+  <div class="track">
+    <div class="beat pay"><div class="t">0:00 – 0:03</div><div class="n">钩子</div><div class="d">主推封面满屏 + 一句钩子，不出信息</div></div>
+    <div class="beat pay"><div class="t">0:03 – 0:05</div><div class="n">片单卡</div><div class="d">4 部 · 722 集 · 2000–2026</div></div>
+    <div class="beat pos"><div class="t">0:05 – 0:06.5</div><div class="n">片名卡 01</div><div class="d">少女与战车</div></div>
+    <div class="beat pos"><div class="t">0:06.5 – 0:12.5</div><div class="n">封面镜头 01</div><div class="d">推镜 + lower-third</div></div>
+    <div class="beat pos"><div class="t">0:12.5 – 0:14</div><div class="n">片名卡 02</div><div class="d">巴哈姆特之怒</div></div>
+    <div class="beat clip"><div class="t">0:14 – 0:22</div><div class="n">片段 02a</div><div class="d">EP.02 · 全屏 + lower-third</div></div>
+    <div class="beat clip"><div class="t">0:22 – 0:28</div><div class="n">片段 02b</div><div class="d">EP.05 · 硬切连播，只换集号</div></div>
+    <div class="beat pos"><div class="t">0:28 – 0:29.5</div><div class="n">片名卡 03</div><div class="d">葬送的芙莉莲</div></div>
+    <div class="beat pos"><div class="t">0:29.5 – 0:35.5</div><div class="n">封面镜头 03</div><div class="d">推镜 + lower-third</div></div>
+    <div class="beat pos"><div class="t">0:35.5 – 0:37</div><div class="n">片名卡 04</div><div class="d">败犬女主太多了</div></div>
+    <div class="beat pos"><div class="t">0:37 – 0:43</div><div class="n">封面镜头 04</div><div class="d">推镜 + lower-third</div></div>
+    <div class="beat pay"><div class="t">0:43 – 0:46</div><div class="n">落款</div><div class="d">数字 + 曲名（有 BGM 时）</div></div>
+  </div>
+  <p class="note">
+    <b>三条硬规则</b>：<em>① 有片段的部不再出"资料页"</em>——片名卡之后直接放画面，信息走 lower-third；<em>② 同一部的多个片段之间不插全屏卡</em>，硬切 + 集号小字变化，连成一段"能看下去的画面"（这才是沉浸感的来源）；<em>③ 无片段的部用"封面镜头"顶上</em>——推镜/位移 + 排版承担信息，让它在节奏上和有片段的部等价（否则 99% 的条目会变成"卡片静帧"，整片一停一顿）。
+  </p>
+
+  <h2>② 片名卡（每部的开场拍，1.5s）</h2>
+  <p class="note">作用：给"部"一个呼吸点，同时把<em>要记住的名字</em>先交出去（预告片惯例：标题在画面之前）。底色 = 该部主色压到 24%，于是每部的卡都不一样。没有封面也能成立。</p>
+  <div class="row">
+    <div>
+      <div class="panel"><div class="stage tc" style="--tint:var(--a-7492);--accent:#d4553a">
+        <div class="abs base"></div><div class="abs tint"></div><div class="abs vign"></div>
+        <div class="abs no t-num">03</div>
+        <div class="abs title t-display">巴哈姆特之怒<br>GENESIS</div>
+        <div class="abs rule rule"></div>
+        <div class="abs facts t-meta">2014 · 12 集 · 奇幻 · 战斗</div>
+        <div class="abs end t-num">本片单 03 / 04</div>
+      </div></div>
+      <p class="cap"><b>片名卡 · 无片段部同样适用</b>：96px 真字重标题直接压在色底上，只有一条 64px 色线。</p>
+    </div>
+    <div>
+      <div class="panel"><div class="stage tc" style="--tint:var(--a-5609);--accent:#6fbd88">
+        <div class="abs base"></div><div class="abs tint"></div><div class="abs vign"></div>
+        <div class="abs no t-num">01</div>
+        <div class="abs title t-display">少女与战车</div>
+        <div class="abs rule rule"></div>
+        <div class="abs facts t-meta">2012 · 12 集 · 战车道</div>
+        <div class="abs end t-num">本片单 01 / 04</div>
+      </div></div>
+      <p class="cap"><b>同结构、不同色</b>：整片的辨识度靠"每部一色"承担，而不是靠换模板。</p>
+    </div>
+  </div>
+
+  <h2>③ 片段段：全屏画面 + lower-third</h2>
+  <p class="note">画面就是画面——<em>没有海报、没有边框、没有进度条、没有音乐条</em>。信息只用两条：上一行"片名 · 年份"，下一行一句推荐语（大字、带阴影，静音也能读）；集号在左上角极小字。底部那条 64px 色线是"这部"的标记。</p>
+  <div class="row">
+    <div>
+      <div class="panel"><div class="stage cl" style="--accent:#d4553a">
+        <div class="abs video" style="background-image:url('../../data/covers/7492.jpg')"></div>
+        <div class="abs vign"></div>
+        <div class="abs ep t-meta">EP.02 · 第 2 集</div>
+        <div class="abs name t-num">巴哈姆特之怒 GENESIS · 2014</div>
+        <div class="abs quote t-body">开场三分钟就把「人 · 神 · 魔」的世界观砸你脸上。</div>
+        <div class="abs rule rule"></div>
+        <div class="abs count t-num">片段 01 / 02</div>
+      </div></div>
+      <p class="cap"><b>片段 02a</b>：推荐语在下方 1/4 处，避开字幕与画面主体；右侧只有计数。</p>
+    </div>
+    <div>
+      <div class="panel"><div class="stage mc" style="--accent:#d4553a">
+        <div class="abs video" style="background-image:url('../../data/covers/5609.jpg')"></div>
+        <div class="abs vign"></div>
+        <div class="abs ep t-display" style="font-size:26px">EP.05　战车道、全国大赛</div>
+        <div class="abs rule rule"></div>
+        <div class="abs idx t-num">片段 02 / 02</div>
+      </div></div>
+      <p class="cap"><b>片段 02b（同部连播）</b>：不插卡、不重放片名，硬切进下一条，只有集号与计数在变——观众是在"看东西"，不是在"翻页"。</p>
+    </div>
+  </div>
+
+  <h2>④ 无片段的部：封面镜头（让节奏不塌）</h2>
+  <p class="note">关键差别：不再是"居中海报 + 居中文字列"这种卡片式排版，而是<em>封面出血到左边缘、画面缓慢位移（Ken Burns），信息压在右侧留白</em>。在时间轴上它和有片段的部占用同样的节拍，所以整片不会一停一顿。</p>
+  <div class="row">
+    <div>
+      <div class="panel"><div class="stage st" style="--tint:var(--a-2849);--accent:#c9866a">
+        <div class="abs photo" style="background-image:url('../../data/covers/2849.jpg')"></div>
+        <div class="abs edge"></div><div class="abs tint"></div>
+        <div class="abs no t-num">02</div>
+        <div class="abs title t-display">葬送的芙莉莲</div>
+        <div class="abs facts t-meta">2023 · 28 集 · 奇幻 · 公路片</div>
+        <div class="abs quote t-body">「 能活一千年的精灵，用后半生去理解人类的十年 」</div>
+        <div class="abs end t-num">本片单 02 / 04</div>
+      </div></div>
+      <p class="cap"><b>封面镜头</b>：左 60% 出血封面（推移），右 40% 留白承载信息。</p>
+    </div>
+    <div>
+      <div class="panel"><div class="stage st" style="--tint:var(--a-2507);--accent:#4aa8e0">
+        <div class="abs photo" style="background-image:url('../../data/covers/2507.jpg')"></div>
+        <div class="abs edge"></div><div class="abs tint"></div>
+        <div class="abs no t-num">04</div>
+        <div class="abs title t-display">败犬女主太多了！</div>
+        <div class="abs facts t-meta">2024 · 12 集 · 恋爱 · 校园</div>
+        <div class="abs quote t-body">「 输在起跑线上的人，才有自己的故事 」</div>
+        <div class="abs end t-num">本片单 04 / 04</div>
+      </div></div>
+      <p class="cap"><b>每部一色再上场</b>：右侧留白被该部主色轻轻染一层（10%），不同部之间立刻可区分。</p>
+    </div>
+  </div>
+
+  <h2>⑤ 部与部之间：色带擦除（用下一部的颜色转场）</h2>
+  <p class="note">转场不再靠"淡入淡出"（那是同一套模板互相叠），而是<em>用下一部的主色当幕布推过去</em>——转场本身就在预告"换了个片子"，同时顺手把每部一色的语言贯彻到底。<b>零新依赖</b>：`interpolate` 写 `clip-path` 即可。</p>
+  <div class="row three">
+    <div>
+      <div class="panel"><div class="stage tr" style="--accent:var(--a-2849)">
+        <div class="abs prev" style="background-image:url('../../data/covers/5609.jpg')"></div>
+        <div class="abs band" style="right:66%"></div>
+        <div class="abs label t-num">色带入场 30%</div>
+      </div></div>
+      <p class="cap">上一部画面 → 下一部颜色扫入</p>
+    </div>
+    <div>
+      <div class="panel"><div class="stage tr" style="--accent:var(--a-2849)">
+        <div class="abs prev" style="background-image:url('../../data/covers/5609.jpg')"></div>
+        <div class="abs band" style="left:0;right:0"></div>
+        <div class="abs label t-num" style="color:#241a12">满屏色（约 5 帧）</div>
+      </div></div>
+      <p class="cap">全屏色幕布：这一瞬也可以放片名卡</p>
+    </div>
+    <div>
+      <div class="panel"><div class="stage tr" style="--accent:var(--a-2849)">
+        <div class="abs next" style="background-image:url('../../data/covers/2849.jpg')"></div>
+        <div class="abs band" style="left:72%;right:-4%"></div>
+        <div class="abs label t-num">色带退场 70%</div>
+      </div></div>
+      <p class="cap">色带退出，露出下一部画面</p>
+    </div>
+  </div>
+
+  <h2>⑥ 落款（全片唯一的常驻信息位）</h2>
+  <p class="note">常驻 chrome 全砍之后，整片只有这一处"界面感"信息，且是设计过的排版：真实数字 + 曲名（有 BGM 时）。</p>
+  <div class="row">
+    <div>
+      <div class="panel"><div class="stage en">
+        <div class="abs wall"><i style="background-image:url('../../data/covers/5609.jpg')"></i><i style="background-image:url('../../data/covers/7492.jpg')"></i><i style="background-image:url('../../data/covers/2849.jpg')"></i><i style="background-image:url('../../data/covers/2507.jpg')"></i></div>
+        <div class="abs stats t-num">4 部 · 722 集</div>
+        <div class="abs label t-meta">2000 – 2026 · 8 个片段</div>
+        <div class="abs rule rule"></div>
+        <div class="abs bgm">BGM　福原美穂 – LET IT OUT</div>
+      </div></div>
+      <p class="cap"><b>落款</b>：数字当主体；曲名极小字放左下（有 BGM 才出现）；右侧低饱和封面墙收尾。</p>
+    </div>
+    <div>
+      <div class="panel"><div class="stage en" style="background:#0b0b0c">
+        <div class="abs stats t-display" style="font-size:104px;top:236px">这一季的 4 部</div>
+        <div class="abs label t-meta" style="top:386px">谢谢观看 · 期待下季</div>
+        <div class="abs rule rule" style="top:440px"></div>
+        <div class="abs bgm">编辑用文案位：endingTitle / endingText</div>
+      </div></div>
+      <p class="cap"><b>同一个落款的文案变体</b>：编辑器里已有的 <code>endingTitle / endingText</code> 直接落在这两行上。</p>
+    </div>
+  </div>
+
+  <p class="lead" style="margin-top:26px">
+    <b>为什么这套更好（对照你的场景）</b>：<br>
+    ① <b>有片段的部更像"预告片"</b>：片名先给 → 立刻上画面，信息不占独立一屏，节奏不断。<br>
+    ② <b>没片段的部不再"掉档"</b>：封面镜头 + 排版，和片段段共用同一节拍与同一套 lower-third，整片节奏一致。<br>
+    ③ <b>连续 12 部不像复读</b>：辨识度由"每部一色 + 每部母题"承担，转场也用下一部的颜色。<br>
+    ④ <b>信息量反而更清楚</b>：全片只有三处文字位（片名卡 / lower-third / 落款），观众不需要同时读四种东西。<br>
+    ⑤ 实现代价小：结构上是"<b>有片段的部跳过资料页</b>"（`scene-plan.ts` 一处判断）+ 片段场景内部加 1.2s 片名卡前置 + 去掉常驻 chrome；<b>不动 Java</b>。
+  </p>
+</div>
+
+<script>
+function fit(){
+  document.querySelectorAll('.panel').forEach((panel)=>{
+    const stage = panel.querySelector('.stage');
+    stage.style.transform = `scale(${panel.clientWidth / 1280})`;
+  });
+}
+new ResizeObserver(fit).observe(document.body);
+fit();
+window.__fit = fit;
+</script>
+</body>
+</html>

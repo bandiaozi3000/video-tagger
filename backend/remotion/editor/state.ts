@@ -118,7 +118,7 @@ export function applyLocalParams(input: MultiMediaPocInput, config: EditorConfig
     : openingIds.filter((id) => input.media.some((media) => media.mediaId === id));
   return {
     ...input,
-    style: config.groupStyle === 'clip' ? 'clip' : 'chapter',
+    style: config.groupStyle === 'clip' ? 'clip' : config.groupStyle === 'cinema' ? 'cinema' : 'chapter',
     params: {
       ...input.params,
       title: config.title,

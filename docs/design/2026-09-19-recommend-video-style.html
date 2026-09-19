@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>推荐视频样式设计稿 · 银幕·章节</title>
+<style>
+/* ============================================================
+   推荐视频样式设计稿（v0.29 视觉重设计 · 方向 A「银幕·章节」）
+   - 本文件是**设计稿**：用 CSS 动画模拟逐帧动效，便于肉眼评估节奏。
+   - 真实渲染里禁止 CSS animation/transition（帧模型硬禁则），
+     本稿每个动效都在下方「帧模型映射」里注明对应的 interpolate/spring 写法。
+   - 素材：真实封面（data/covers/*.jpg）+ 真实片段（少女与战车 ep1 10.6-23.6s）。
+   ============================================================ */
+:root{
+  --ink:#07070c; --ink2:#0d0e18; --paper:#f3efe6;
+  --sky:#4fc3f7; --blue:#6f8bff; --pink:#ff5b9a; --gold:#ffcf6b;
+  --text:#f5f4fb; --muted:#a9a8be; --faint:#6d6d85;
+  --stage-w:1280px; --stage-h:720px;
+  --serif:"Source Han Serif SC","Noto Serif SC","Songti SC",SimSun,serif;
+  --sans:"PingFang SC","Microsoft YaHei UI","Segoe UI",sans-serif;
+  --mono:"Cascadia Code",Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#111117;color:#e9e8f2;font-family:var(--sans)}
+a{color:var(--sky)}
+.wrap{max-width:1360px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:22px;margin:0 0 6px;font-weight:700;letter-spacing:.5px}
+.sub{color:var(--muted);font-size:13px;line-height:1.8;margin:0 0 20px}
+.sub b{color:var(--text)}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}
+.tab{padding:7px 14px;border-radius:999px;border:1px solid #2a2b3a;background:#171825;color:#c9c8d8;font-size:13px;cursor:pointer}
+.tab.on{background:linear-gradient(120deg,rgba(79,195,247,.22),rgba(255,91,154,.18));border-color:#4a5b8a;color:#fff}
+.tools{display:flex;gap:10px;align-items:center;margin:0 0 16px;color:var(--faint);font-size:12px;font-family:var(--mono)}
+.btn{padding:6px 12px;border-radius:8px;border:1px solid #2a2b3a;background:#171825;color:#c9c8d8;font-size:12px;cursor:pointer}
+/* 舞台：16:9，等比缩放到容器宽 */
+.stagebox{width:100%;max-width:var(--stage-w);aspect-ratio:16/9;position:relative;border-radius:14px;overflow:hidden;background:#000;box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px #23243a;margin:0 auto}
+.stage{position:absolute;left:0;top:0;width:var(--stage-w);height:var(--stage-h);transform-origin:0 0;background:var(--ink);overflow:hidden}
+.scene{position:absolute;inset:0;display:none;overflow:hidden}
+.scene.on{display:block}
+/* 播放时长的模拟进度（装饰用，真实值由帧算） */
+.hud{position:absolute;left:0;right:0;bottom:0;height:2px;background:rgba(255,255,255,.08)}
+.hud i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--sky),var(--pink));animation:run 6s linear infinite}
+@keyframes run{from{width:0}to{width:100%}}
+
+/* ============ 场景 1 · 开屏（主推满屏 + 标题压印） ============ */
+.op-bg{position:absolute;inset:-6%;/* bleed */background-size:cover;background-position:center;filter:blur(28px) brightness(.34) saturate(1.1);animation:op-bg 6s ease-out both}
+@keyframes op-bg{from{transform:scale(1.12)}to{transform:scale(1.22)}}
+.op-veil{position:absolute;inset:0;background:
+  radial-gradient(120% 90% at 20% 10%, rgba(79,195,247,.16), transparent 55%),
+  radial-gradient(90% 80% at 88% 88%, rgba(255,91,154,.14), transparent 60%),
+  linear-gradient(180deg,rgba(4,4,9,.35) 0%,rgba(4,4,9,.15) 38%,rgba(4,4,9,.92) 100%)}
+.op-hero{position:absolute;left:6.5%;bottom:11%;height:74%;aspect-ratio:3/4;border-radius:10px;overflow:hidden;
+  box-shadow:0 40px 90px rgba(0,0,0,.75),0 0 0 1px rgba(255,255,255,.12);animation:op-hero 6s cubic-bezier(.16,.8,.24,1) both}
+@keyframes op-hero{from{opacity:0;transform:translateY(70px) scale(1.02)}to{opacity:1;transform:none}}
+.op-hero img{width:100%;height:100%;object-fit:cover;display:block}
+.op-hero .scan{position:absolute;inset:0;background:linear-gradient(115deg,rgba(255,255,255,0) 40%,rgba(255,255,255,.18) 50%,rgba(255,255,255,0) 60%);animation:scan 2.6s ease-in-out .7s both}
+@keyframes scan{from{transform:translateX(-120%)}to{transform:translateX(120%)}}
+.op-txt{position:absolute;left:53%;right:6%;bottom:12%;animation:op-txt 6s ease-out both}
+@keyframes op-txt{from{opacity:0;transform:translateY(34px)}to{opacity:1;transform:none}}
+.op-kicker{font-family:var(--mono);font-size:15px;letter-spacing:.42em;color:var(--sky);text-transform:uppercase;display:flex;align-items:center;gap:14px}
+.op-kicker::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(79,195,247,.7),transparent)}
+.op-pick{display:inline-flex;align-items:center;gap:8px;margin:22px 0 0;padding:5px 12px;border-radius:999px;
+  border:1px solid rgba(255,207,107,.5);background:rgba(255,207,107,.1);color:var(--gold);font-size:13px;letter-spacing:.16em;font-family:var(--mono)}
+.op-title{font-family:var(--serif);font-weight:900;font-size:104px;line-height:1.02;letter-spacing:-.02em;margin:16px 0 0;
+  background:linear-gradient(96deg,#fff 12%,#dbe9ff 46%,var(--sky) 88%);-webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:0 8px 40px rgba(79,195,247,.18)}
+.op-meta{margin-top:20px;display:flex;align-items:center;gap:14px;color:var(--muted);font-size:16px;letter-spacing:.06em}
+.op-meta b{color:var(--text);font-weight:600}
+.op-dot{width:4px;height:4px;border-radius:50%;background:var(--faint)}
+.op-quote{margin-top:22px;max-width:30ch;font-size:19px;line-height:1.75;color:#d9d8e8}
+.op-quote::before{content:"「";color:var(--pink)}
+.op-quote::after{content:"」";color:var(--pink)}
+.op-corner{position:absolute;font-family:var(--mono);color:var(--faint);font-size:14px;letter-spacing:.2em}
+.op-corner.tl{left:6.5%;top:9%}
+.op-corner.br{right:6%;top:9%;text-align:right}
+.op-corner.br b{color:var(--text);font-size:34px;letter-spacing:0}
+
+/* ============ 场景 2 · 单媒体（出血封面 + 信息升起） ============ */
+.md-fill{position:absolute;inset:0;background-size:cover;background-position:26% center;filter:blur(46px) brightness(.28);transform:scale(1.25)}
+.md-shot{position:absolute;left:0;top:0;bottom:0;width:56%;overflow:hidden;animation:md-shot 6s cubic-bezier(.2,.75,.2,1) both}
+@keyframes md-shot{from{transform:translateX(-40px);opacity:0}to{transform:none;opacity:1}}
+.md-shot img{width:100%;height:100%;object-fit:cover;object-position:center 22%;display:block;animation:md-push 6s ease-out both}
+@keyframes md-push{from{transform:scale(1.06)}to{transform:scale(1.12)}}
+.md-shot::after{content:"";position:absolute;inset:0;background:
+  linear-gradient(90deg,rgba(7,7,12,.15),rgba(7,7,12,.55) 72%,var(--ink) 100%),
+  linear-gradient(0deg,var(--ink) 2%,transparent 34%)}
+.md-info{position:absolute;left:59%;right:6.5%;bottom:12%;animation:md-info 6s ease-out both}
+@keyframes md-info{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}
+.md-no{font-family:var(--mono);font-size:13px;letter-spacing:.4em;color:var(--sky)}
+.md-no b{font-family:var(--serif);font-size:30px;letter-spacing:0;color:var(--text)}
+.md-title{font-family:var(--serif);font-weight:900;font-size:62px;line-height:1.12;margin:14px 0 0;letter-spacing:-.01em}
+.md-facts{margin-top:16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;color:var(--muted);font-size:15px}
+.md-facts .k{padding:3px 9px;border-radius:6px;border:1px solid rgba(255,255,255,.16);color:#cfcee0;font-family:var(--mono);font-size:12.5px}
+.md-quote{margin-top:24px;padding-left:18px;border-left:3px solid var(--pink);font-size:21px;line-height:1.7;color:#e6e5f2;max-width:34ch}
+.md-tags{margin-top:22px;display:flex;gap:8px;flex-wrap:wrap}
+.md-tags i{font-style:normal;padding:5px 12px;border-radius:999px;background:rgba(111,139,255,.14);border:1px solid rgba(111,139,255,.32);color:#cfe0ff;font-size:13px}
+.md-count{position:absolute;right:6.5%;bottom:5.4%;font-family:var(--mono);color:var(--faint);font-size:13px;letter-spacing:.2em}
+.md-count b{color:var(--text)}
+
+/* ============ 场景 3 · 片段沉浸（满屏视频 + 字幕条 + 波动） ============ */
+.cl-bg{position:absolute;inset:-8%;overflow:hidden;/* bleed */}
+.cl-bg video{width:100%;height:100%;object-fit:cover;filter:blur(38px) brightness(.36) saturate(1.15)}
+.cl-main{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+.cl-main video{width:100%;height:100%;object-fit:contain;animation:cl-breathe 7s ease-in-out infinite alternate}
+@keyframes cl-breathe{from{transform:scale(1)}to{transform:scale(1.025)}}
+.cl-vig{position:absolute;inset:0;pointer-events:none;background:
+  radial-gradient(130% 100% at 50% 50%, transparent 42%, rgba(3,3,7,.72) 100%),
+  linear-gradient(180deg,rgba(3,3,7,.85) 0%,transparent 18%,transparent 62%,rgba(3,3,7,.9) 100%)}
+.cl-top{position:absolute;left:5%;right:5%;top:6.5%;display:flex;align-items:flex-start;justify-content:space-between;animation:cl-in 5s ease-out both}
+@keyframes cl-in{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:none}}
+.cl-top .l{display:flex;flex-direction:column;gap:6px}
+.cl-top .m{font-family:var(--serif);font-weight:800;font-size:34px;letter-spacing:.01em;text-shadow:0 3px 22px rgba(0,0,0,.85)}
+.cl-top .e{font-family:var(--mono);font-size:13px;letter-spacing:.28em;color:var(--sky)}
+.cl-top .r{font-family:var(--mono);font-size:13px;letter-spacing:.24em;color:var(--muted);text-align:right}
+.cl-top .r b{color:var(--text)}
+.cl-cap{position:absolute;left:5%;right:5%;bottom:12%;animation:cl-in 5s ease-out .2s both}
+.cl-cap .tagline{display:inline-block;padding:8px 16px;border-radius:8px;background:rgba(255,91,154,.14);border:1px solid rgba(255,91,154,.38);color:#ffd0e3;font-size:22px;letter-spacing:.02em}
+.cl-cap .note{margin-top:14px;font-size:26px;line-height:1.55;color:#fff;text-shadow:0 4px 26px rgba(0,0,0,.9);max-width:30ch}
+.cl-wave{position:absolute;left:5%;right:5%;bottom:6.6%;height:34px;display:flex;align-items:flex-end;gap:3px}
+.cl-wave i{flex:1;background:linear-gradient(180deg,var(--sky),rgba(255,91,154,.6));border-radius:2px;height:22%;animation:wv 1.1s ease-in-out infinite alternate}
+@keyframes wv{from{height:10%}to{height:92%}}
+.cl-bar{position:absolute;left:5%;right:5%;bottom:4%;height:2px;background:rgba(255,255,255,.16)}
+.cl-bar span{display:block;height:100%;width:38%;background:linear-gradient(90deg,var(--sky),var(--pink))}
+.cl-rec{position:absolute;right:5%;top:6.5%;display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--pink);letter-spacing:.2em}
+.cl-rec::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--pink);animation:blink 1.4s steps(1,end) infinite}
+@keyframes blink{50%{opacity:.15}}
+
+/* ============ 场景 4 · 结尾（封面墙 + 落款） ============ */
+.en-wall{position:absolute;inset:0;/* bleed */display:flex;flex-direction:column;justify-content:center;gap:26px;transform:rotate(-4deg) scale(1.14);opacity:.5}
+.en-row{display:flex;gap:22px;width:max-content;animation:en-slide 22s linear infinite}
+.en-row.rev{animation-direction:reverse}
+@keyframes en-slide{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.en-row img{width:168px;aspect-ratio:3/4;object-fit:cover;border-radius:8px;filter:grayscale(.35) brightness(.6)}
+.en-veil{position:absolute;inset:0;background:radial-gradient(70% 60% at 50% 50%, rgba(4,4,9,.92) 30%, rgba(4,4,9,.6) 100%)}
+.en-txt{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;animation:op-txt 5s ease-out both}
+.en-txt .big{font-family:var(--serif);font-weight:900;font-size:86px;letter-spacing:.06em;background:linear-gradient(96deg,#fff,var(--sky));-webkit-background-clip:text;background-clip:text;color:transparent}
+.en-txt .small{color:var(--muted);font-size:16px;letter-spacing:.24em;font-family:var(--mono)}
+
+/* ============ 场景 5 · 转场（遮罩擦除 + 光带） ============ */
+.tr-a,.tr-b{position:absolute;inset:0;background-size:cover;background-position:center}
+.tr-b{clip-path:inset(0 0 0 100%);animation:tr-wipe 2.6s cubic-bezier(.65,.02,.35,1) infinite}
+@keyframes tr-wipe{0%{clip-path:inset(0 0 0 100%)}45%{clip-path:inset(0 0 0 0)}100%{clip-path:inset(0 0 0 0)}}
+.tr-beam{position:absolute;top:0;bottom:0;width:18%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);mix-blend-mode:screen;animation:tr-beam 2.6s cubic-bezier(.65,.02,.35,1) infinite}
+@keyframes tr-beam{0%{transform:translateX(-10%)}55%{transform:translateX(560%)}100%{transform:translateX(560%)}}
+.tr-label{position:absolute;left:5%;bottom:7%;font-family:var(--mono);font-size:13px;letter-spacing:.24em;color:var(--muted)}
+
+/* ============ 备注区 ============ */
+.notes{margin:34px auto 0;max-width:var(--stage-w)}
+.notes h2{font-size:16px;margin:26px 0 10px;color:#fff}
+.notes p,.notes li{color:#b9b8c9;font-size:13.5px;line-height:1.9}
+.notes code{font-family:var(--mono);font-size:12.5px;background:#1b1c2a;padding:2px 6px;border-radius:4px;color:#cfd9ff}
+.notes table{width:100%;border-collapse:collapse;font-size:13px}
+.notes th,.notes td{border:1px solid #262738;padding:7px 10px;text-align:left;vertical-align:top;color:#b9b8c9}
+.notes th{background:#1a1b28;color:#fff;font-weight:600}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>推荐视频样式设计稿 · 方向 A「银幕·章节」</h1>
+  <p class="sub">
+    真实素材（真封面 + 真片段：少女与战车 ep1 10.6–23.6s）· 1280×720 舞台 · 5 段场景。<br>
+    <b>设计意图</b>：开屏只推 1 部、封面满屏出血换冲击力；单媒体段用「大图出血 + 信息从底部升起」把稀疏信息做成排版；片段段<b>去掉所有外框与侧栏</b>，视频即画面，信息压成上下两条。<br>
+    <b>注意</b>：本稿用 CSS 动画模拟节奏；真实渲染禁 CSS 动画，每个动效都有对应的帧模型写法（见文末映射表）。
+  </p>
+  <div class="tabs" id="tabs">
+    <button class="tab on" data-s="s-opening">① 开屏（6s）</button>
+    <button class="tab" data-s="s-media">② 单媒体（6s）</button>
+    <button class="tab" data-s="s-clip">③ 片段沉浸（7s）</button>
+    <button class="tab" data-s="s-ending">④ 结尾（5s）</button>
+    <button class="tab" data-s="s-transition">⑤ 转场（2.6s）</button>
+  </div>
+  <div class="tools">
+    <button class="btn" id="replay">↻ 重播本段</button>
+    <span>设计稿 · 非最终实现</span>
+  </div>
+
+  <div class="stagebox">
+    <div class="stage" id="stage">
+      <!-- ① 开屏 -->
+      <section class="scene on" id="s-opening">
+        <div class="op-bg" style="background-image:url('../../data/covers/2507.jpg')"></div>
+        <div class="op-veil"></div>
+        <div class="op-corner tl">BANGUMI · SEASON PICK</div>
+        <div class="op-corner br"><b>12</b><br>部精选</div>
+        <div class="op-hero">
+          <img src="../../data/covers/5609.jpg" alt="">
+          <span class="scan"></span>
+        </div>
+        <div class="op-txt">
+          <div class="op-kicker">Weekly Recommend</div>
+          <span class="op-pick">★ 本周主推</span>
+          <div class="op-title">少女与战车</div>
+          <div class="op-meta"><b>2012</b><span class="op-dot"></span>12 集<span class="op-dot"></span>番剧<span class="op-dot"></span>战车道</div>
+          <div class="op-quote">趣味性十足的一部番剧</div>
+        </div>
+        <div class="hud"><i></i></div>
+      </section>
+
+      <!-- ② 单媒体 -->
+      <section class="scene" id="s-media">
+        <div class="md-fill" style="background-image:url('../../data/covers/7492.jpg')"></div>
+        <div class="md-shot"><img src="../../data/covers/7492.jpg" alt=""></div>
+        <div class="md-info">
+          <div class="md-no">PICK NO.<b> 03</b> / 12</div>
+          <div class="md-title">巴哈姆特之怒<br>GENESIS</div>
+          <div class="md-facts"><span>2014</span><span class="op-dot"></span><span>12 集</span><span class="k">奇幻</span><span class="k">战斗</span><span class="k">MAPPA</span></div>
+          <div class="md-quote">这里是人、神、魔等种族共同生活的神秘世界，密斯塔尔希亚。</div>
+          <div class="md-tags"><i>游戏改</i><i>2014年10月</i><i>吉野弘幸</i></div>
+        </div>
+        <div class="md-count">第 <b>3</b> 部 / 共 12 部</div>
+        <div class="hud"><i></i></div>
+      </section>
+
+      <!-- ③ 片段沉浸 -->
+      <section class="scene" id="s-clip">
+        <div class="cl-bg"><video src="../../data/video-assets/media-0/entry-0/episode-740/asset-18.mp4" muted loop autoplay playsinline></video></div>
+        <div class="cl-main"><video src="../../data/video-assets/media-0/entry-0/episode-740/asset-18.mp4" muted loop autoplay playsinline></video></div>
+        <div class="cl-vig"></div>
+        <div class="cl-top">
+          <div class="l">
+            <div class="m">少女与战车</div>
+            <div class="e">EP.01 · 战车道、始动</div>
+          </div>
+          <div class="cl-rec">CLIP 01 / 02</div>
+        </div>
+        <div class="cl-cap">
+          <span class="tagline">实测片段 · 12.3s</span>
+          <div class="note">开场三分钟，直接把「战车道」的世界观砸你脸上。</div>
+        </div>
+        <div class="cl-wave" id="wave"></div>
+        <div class="cl-bar"><span></span></div>
+      </section>
+
+      <!-- ④ 结尾 -->
+      <section class="scene" id="s-ending">
+        <div class="en-wall">
+          <div class="en-row" id="row1"></div>
+          <div class="en-row rev" id="row2"></div>
+        </div>
+        <div class="en-veil"></div>
+        <div class="en-txt">
+          <div class="big">完</div>
+          <div class="small">我的番剧推荐 · 2026 秋</div>
+        </div>
+        <div class="hud"><i></i></div>
+      </section>
+
+      <!-- ⑤ 转场 -->
+      <section class="scene" id="s-transition">
+        <div class="tr-a" style="background-image:url('../../data/covers/5609.jpg')"></div>
+        <div class="tr-b" style="background-image:url('../../data/covers/7492.jpg')"></div>
+        <div class="tr-beam"></div>
+        <div class="tr-label">TRANSITION · WIPE + BEAM（手写遮罩，无新依赖）</div>
+      </section>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h2>与旧版的差异（一眼看懂改了什么）</h2>
+    <table>
+      <tr><th>段</th><th>旧版（现实现）</th><th>本稿</th></tr>
+      <tr><td>开屏</td><td>12 张封面均匀错落显影 + 居中玻璃标题板（"SEASON IN REVIEW"）</td><td><b>单一主推封面满屏</b> + 慢推镜 + 光扫；标题从右侧压印；元信息一行；背景是虚化封面墙（景深，不再是主角）</td></tr>
+      <tr><td>单媒体</td><td>左海报卡 + 右侧居中文字列 + 右下大描边序号</td><td>封面<b>左侧出血满高</b>（56%，带慢推镜）→ 信息从底部升起：NO.03 → 大字标题 → 年份/集数/类型 → 引号推荐语 → 标签；行尾"第 3 部 / 共 12 部"</td></tr>
+      <tr><td>片段</td><td>左海报 + 右视频小窗（带玻璃边框与卡片阴影）+ 下方说明行</td><td><b>满屏视频</b>（同帧模糊铺底 + 原比例居中，不裁画面）＋上下信息带＋左右暗角＋音频波动条＋呼吸感推镜；<b>无海报、无外框</b></td></tr>
+      <tr><td>结尾</td><td>封面墙 + 标题文字</td><td>双行反向滚动的封面墙（-4° 倾斜）+ 中央「完」+ 落款</td></tr>
+    </table>
+
+    <h2>帧模型映射（设计稿 → Remotion 实现，禁 CSS 动画）</h2>
+    <table>
+      <tr><th>动效</th><th>本稿写法</th><th>渲染实现</th></tr>
+      <tr><td>封面推镜</td><td><code>@keyframes op-bg/op-hero</code></td><td><code>interpolate(frame,[0,dur],[1.06,1.14])</code> 直接给 <code>scale</code></td></tr>
+      <tr><td>标题压印</td><td><code>op-txt</code></td><td><code>useEnter(delay, theme)</code> + <code>riseIn(progress, 34)</code></td></tr>
+      <tr><td>信息条升起</td><td><code>md-info</code></td><td><code>staggerFrames(theme,i,fps)</code> 逐行错峰</td></tr>
+      <tr><td>片段呼吸推镜</td><td><code>cl-breathe</code></td><td><code>1 + Math.sin(frame/fps*Math.PI*0.6)*0.02</code></td></tr>
+      <tr><td>音频波动条</td><td><code>wv</code> 随机高度</td><td><code>@remotion/media-utils</code> 的 <code>useAudioData/visualizeAudio</code>（可选依赖）或按帧 hash 伪波动</td></tr>
+      <tr><td>转场擦除</td><td><code>clip-path inset</code></td><td><code>interpolate(frame,[0,12],[100,0])</code> 写 <code>clipPath</code>（Sequence 叠加两层）</td></tr>
+      <tr><td>封面墙滚动</td><td><code>en-slide</code></td><td><code>interpolate(frame,[0,dur],[0,-offset])</code>，速度读 <code>endingScrollSpeed</code></td></tr>
+    </table>
+
+    <h2>待你拍板的点</h2>
+    <div class="grid2">
+      <div>
+        <p><b>1. 方向本身</b>：押「银幕·章节」（深黑影院 + 满屏出血 + 大字排版）。备选是「杂志编排」（亮纸底 + 巨字拼贴）与「星云玻璃」（沿用现有星空母题强化）。</p>
+        <p><b>2. 开屏主推</b>：复用现有 <code>openingIds</code> 当"主推"语义（空 = 取前 1 部）。开屏是否要保留"整批调性"的封面墙作为背景？</p>
+        <p><b>3. 片段画面</b>：原比例居中（不裁画面，两侧留黑）+ 模糊铺底；还是 <code>object-fit:cover</code> 满屏裁切（更沉浸但要切掉内容）？我押前者。</p>
+        <p><b>4. 字体</b>：大标题用宋体/思源宋体（serif）以拉开与站点的距离。渲染机若无此字体需打包字体文件（<code>staticFile</code> + <code>@font-face</code>），要不要接受这个成本？</p>
+      </div>
+      <div>
+        <p><b>5. 信息取舍</b>：单媒体段现在能拿到的只有 标题 / 年份 / 季 / 简介(=你手写那句话) / 标签 / 片段数（元数据未接线）。信息稀疏时是否允许"大片留白"？</p>
+        <p><b>6. 静音可读</b>：片段段的字幕条/标签是我按"静音观看"设计的，字号偏大（26px / 22px）。群里发的场景确认吗？</p>
+        <p><b>7. 每段时长</b>：开屏 6s、单媒体 6s、片段按素材长度（12.3s）、结尾 5s —— 节奏对不对？</p>
+        <p><b>8. 是否保留</b>"资料推荐 / 片段推荐"角标与"PICK NO.xx"这类英文小标（本稿最小化保留）。</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// 舞台等比缩放
+const stage = document.getElementById('stage');
+const box = document.querySelector('.stagebox');
+function fit(){
+  const k = box.clientWidth / 1280;
+  stage.style.transform = `scale(${k})`;
+  box.style.height = (720 * k) + 'px';
+}
+new ResizeObserver(fit).observe(box);
+fit();
+
+// 场景切换 + 重播（重新挂载节点以重启动画）
+const scenes = [...document.querySelectorAll('.scene')];
+function activate(id){
+  scenes.forEach(s => s.classList.toggle('on', s.id === id));
+  replay();
+}
+function replay(){
+  const on = document.querySelector('.scene.on');
+  if(!on) return;
+  const clone = on.cloneNode(true);
+  on.replaceWith(clone);
+  scenes[scenes.indexOf(on)] = clone;
+}
+document.getElementById('tabs').addEventListener('click', e => {
+  const b = e.target.closest('.tab'); if(!b) return;
+  [...document.querySelectorAll('.tab')].forEach(t => t.classList.toggle('on', t === b));
+  activate(b.dataset.s);
+  // 切换后重挂监听用的引用
+  [...document.querySelectorAll('.scene')].forEach(s => { if(!scenes.includes(s)) scenes.push(s); });
+});
+document.getElementById('replay').addEventListener('click', () => {
+  const on = document.querySelector('.scene.on');
+  const fresh = on.cloneNode(true);
+  on.replaceWith(fresh);
+});
+
+// 波形条（装饰：真实实现由音频数据驱动）
+const wave = document.getElementById('wave');
+for(let i=0;i<56;i++){
+  const b = document.createElement('i');
+  b.style.animationDelay = (i % 7) * 0.09 + 's';
+  b.style.animationDuration = (0.75 + (i % 5) * 0.12) + 's';
+  wave.appendChild(b);
+}
+// 结尾封面墙
+const covers = ['5609.jpg','7492.jpg','2849.jpg','2507.jpg','7117.jpg','7338.jpg','7174.jpg','7468.webp','4855.jpg'];
+[['row1',covers],['row2',[...covers].reverse()]].forEach(([id,list])=>{
+  const el = document.getElementById(id);
+  for(let k=0;k<2;k++) list.forEach(c=>{
+    const img = document.createElement('img');
+    img.src = `../../data/covers/${c}`;
+    img.alt = '';
+    el.appendChild(img);
+  });
+});
+</script>
+</body>
+</html>

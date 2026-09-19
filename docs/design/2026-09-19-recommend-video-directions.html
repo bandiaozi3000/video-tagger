@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>推荐视频 · 三个方向对照（A 黑白编辑式 / B 每部一色 / C 年度数据片）</title>
+<style>
+/* ============================================================
+   三个方向对照稿 · 每格都是真实 1280×720 舞台（同一套字体、同一批真封面）
+   共同原则（用户 2026-09-19 拍板）：
+     · 零圆角、零发光、零玻璃、零胶囊 chip、零描边空心数字、零等宽英文小标
+     · 常驻 chrome 全部砍掉（品牌条 / 进度胶囊 / 音乐条）—— 只在片尾留一条极简落款
+     · 单色系 + 每部一个从封面**实测提取**的强调色
+     · 标题 = 阿里巴巴普惠体 2 115 Black（真字重）；数字/西文 = Mona-Sans
+   取色实测：5609→#4a8a62  7492→#9a2616  2849→#fad7a8  2507→#0075b8
+   ============================================================ */
+:root{
+  --display:"阿里巴巴普惠体 2 115 Black","阿里巴巴普惠体 2 105 Heavy","阿里巴巴普惠体 2 85 Bold",sans-serif;
+  --num:"Mona-Sans","阿里巴巴普惠体 2 65 Medium",sans-serif;
+  --text:"阿里巴巴普惠体 2 55 Regular","Microsoft YaHei",sans-serif;
+  --ink:#f2f1ee; --muted:#8a8a8f; --dim:#5a5a5e;
+  --a-5609:#4a8a62; --a-7492:#9a2616; --a-2849:#fad7a8; --a-2507:#0075b8;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#131316;color:#e8e7e4;font-family:var(--text)}
+.wrap{max-width:1500px;margin:0 auto;padding:26px 20px 70px}
+h1{font-size:20px;margin:0 0 6px;font-family:var(--display);font-weight:400;letter-spacing:.01em}
+.lead{color:#9a9a9f;font-size:13px;line-height:1.85;margin:0 0 22px;max-width:110ch}
+.lead b{color:#e8e7e4}
+.dir{margin:0 0 34px}
+.dir > h2{font-size:15px;font-family:var(--display);font-weight:400;margin:0 0 4px;letter-spacing:.02em}
+.dir > p{color:#8f8f94;font-size:12.5px;line-height:1.8;margin:0 0 12px;max-width:120ch}
+.dir > p em{color:#c9c9cd;font-style:normal}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.panel{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#000;box-shadow:0 16px 40px rgba(0,0,0,.5),0 0 0 1px #2a2a30}
+.stage{position:absolute;left:0;top:0;width:1280px;height:720px;transform-origin:0 0;overflow:hidden;background:#0b0b0c}
+.cap{margin:7px 0 0;font-size:11.5px;color:#83838a;line-height:1.7}
+.cap b{color:#c9c9cd;font-weight:400}
+@media(max-width:1080px){.row{grid-template-columns:1fr}}
+
+/* 通用排版原子 */
+.line{height:1px;background:rgba(255,255,255,.16)}
+.dotline{width:64px;height:2px}
+.t-display{font-family:var(--display);font-weight:400;line-height:.98;letter-spacing:-.01em;color:var(--ink)}
+.t-num{font-family:var(--num);font-weight:700;letter-spacing:-.02em}
+.t-meta{font-family:var(--num);font-weight:500;letter-spacing:.2em;color:var(--muted);text-transform:uppercase}
+.t-body{font-family:var(--text);color:#c8c6c2;line-height:1.75}
+.abs{position:absolute}
+
+/* ============ A · 黑白编辑式 ============ */
+.A1 .photo{inset:0;background:url('../../data/covers/5609.jpg') center/cover;filter:grayscale(.55) contrast(1.06) brightness(.74)}
+.A1 .veil{inset:0;background:linear-gradient(180deg,rgba(11,11,12,.35) 0%,rgba(11,11,12,.1) 26%,rgba(11,11,12,.78) 62%,#0b0b0c 92%)}
+.A1 .rule{left:80px;bottom:250px;background:var(--a-5609)}
+.A1 .meta{left:80px;bottom:214px;font-size:19px}
+.A1 .title{left:76px;bottom:88px;font-size:124px}
+.A1 .quote{left:80px;bottom:44px;font-size:25px;color:#b6b4b0;max-width:34ch}
+.A1 .count{right:80px;top:72px;font-size:26px;color:var(--ink)}
+.A1 .count span{color:var(--dim)}
+
+.A2 .photo{inset:0 38% 0 0;background:url('../../data/covers/7492.jpg') center 24%/cover;filter:saturate(.72) contrast(1.04) brightness(.92)}
+.A2 .edge{left:62%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.14)}
+.A2 .no{left:66.4%;top:118px;font-size:86px;color:var(--a-7492)}
+.A2 .title{left:calc(66.4% + 4px);top:224px;font-size:66px;max-width:9.5ch}
+.A2 .facts{left:calc(66.4% + 5px);top:404px;font-size:17px}
+.A2 .quote{left:calc(66.4% + 5px);top:456px;font-size:24px;max-width:20ch}
+.A2 .foot{left:calc(66.4% + 5px);bottom:70px;right:80px;font-size:15px;color:var(--dim)}
+
+/* ============ B · 每部一色（動くポスター） ============ */
+.B1 .base{inset:0;background:#0a0d0b}
+.B1 .block{left:54%;right:0;top:0;bottom:64px;background:var(--a-5609);filter:saturate(.78) brightness(.52)}
+.B1 .blockline{left:54%;top:0;bottom:64px;width:1px;background:rgba(0,0,0,.35)}
+.B1 .poster{left:78px;top:74px;bottom:150px;width:336px;background:url('../../data/covers/5609.jpg') center/cover;box-shadow:26px 0 60px rgba(0,0,0,.55)}
+.B1 .title{left:calc(54% + 56px);top:236px;font-size:78px;color:#f6f5f2;max-width:8ch}
+.B1 .facts{left:calc(54% + 60px);top:352px;font-size:17px;color:rgba(255,255,255,.72)}
+.B1 .band{left:0;right:0;bottom:0;height:64px;display:flex;gap:2px}
+.B1 .band i{flex:1;background-size:cover;background-position:center;filter:grayscale(.5) brightness(.42)}
+
+.B2 .base{inset:0;background:linear-gradient(120deg,#1d0806 0%,#0b0b0c 72%)}
+.B2 .photo{left:52%;right:0;top:0;bottom:0;background:url('../../data/covers/7492.jpg') center 22%/cover;filter:saturate(.85) contrast(1.03)}
+.B2 .photo:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#0b0b0c 0%,rgba(11,11,12,.35) 34%,transparent 72%)}
+.B2 .bar{left:0;top:0;bottom:0;width:10px;background:var(--a-7492)}
+.B2 .no{left:84px;top:150px;font-size:64px;color:#d4553a}
+.B2 .title{left:80px;top:238px;font-size:70px;max-width:10ch}
+.B2 .facts{left:84px;top:398px;font-size:17px}
+.B2 .quote{left:84px;top:448px;font-size:23px;max-width:21ch}
+.B2 .foot{left:84px;bottom:66px;font-size:15px;color:var(--dim)}
+
+/* ============ C · 年度数据片 ============ */
+.C1 .band{inset:0;display:flex;filter:grayscale(.85) brightness(.30)}
+.C1 .band i{flex:1;background-size:cover;background-position:center}
+.C1 .veil{inset:0;background:linear-gradient(180deg,rgba(10,10,11,.72),rgba(10,10,11,.55) 40%,rgba(10,10,11,.94))}
+.C1 .big{left:76px;top:186px;font-size:300px;color:var(--ink)}
+.C1 .bigunit{left:610px;top:326px;font-size:20px;line-height:2.1}
+.C1 .rule{left:80px;top:520px;background:rgba(255,255,255,.5)}
+.C1 .sub{left:80px;top:552px;font-size:22px;color:#c8c6c2;letter-spacing:.06em}
+.C1 .season{right:80px;top:74px;font-size:18px}
+
+.C2 .base{inset:0;background:#0a0a0b}
+.C2 .ghost{left:44px;top:150px;font-size:340px;color:var(--a-7492);opacity:.2;line-height:.8}
+.C2 .photo{left:404px;top:96px;width:342px;height:456px;background:url('../../data/covers/7492.jpg') center 22%/cover;box-shadow:0 30px 70px rgba(0,0,0,.7)}
+.C2 .title{left:790px;top:200px;font-size:56px;max-width:7.6ch}
+.C2 .facts{left:794px;top:378px;font-size:17px}
+.C2 .quote{left:794px;top:428px;font-size:22px;max-width:17ch}
+.C2 .scale{left:790px;right:80px;bottom:110px;height:1px;background:#35353a}
+.C2 .scale i{position:absolute;top:-5px;width:1px;height:11px;background:#35353a}
+.C2 .scale i.on{background:var(--a-7492);box-shadow:none}
+.C2 .progress{left:790px;bottom:74px;font-size:15px;color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>三个方向对照 · 推荐视频视觉（真素材 / 真字体 / 1280×720）</h1>
+  <p class="lead">
+    每格都是**真实渲染尺寸的舞台**（1280×720，等比缩放到面板宽），用的是同一批真封面与**本机已实测命中的真字重字体**。<br>
+    共同前提：<b>零圆角 / 零发光 / 零玻璃 / 零胶囊 / 零描边空心数字 / 零英文等宽小标</b>；<b>常驻 chrome 全砍</b>（品牌条、进度胶囊、音乐条都不再出现在片子里）；<b>单色系 + 每部一个从封面实测提取的强调色</b>。
+    取色实测：少女与战车 <b>#4a8a62</b> · 巴哈姆特之怒 <b>#9a2616</b> · 葬送的芙莉莲 <b>#fad7a8</b> · 败犬女主 <b>#0075b8</b>。
+  </p>
+
+  <!-- ============ A ============ -->
+  <section class="dir">
+    <h2>A · 黑白编辑式（Editorial Mono）</h2>
+    <p>用色最省（强调色只占 ~5%：一条细线、一个编号）。靠<em>满幅图像 + 巨大字 + 大留白</em>撑高级感；图像做去饱和处理当"底"，让标题成为唯一主体。偷自 <em>A24 的 cinematic editorial 系统</em>（单色、巨字、细线、零圆角零阴影）与电影字卡的"一张卡只讲一件事"。</p>
+    <div class="row">
+      <div>
+        <div class="panel"><div class="stage A1">
+          <div class="abs photo"></div><div class="abs veil"></div>
+          <div class="abs count t-num">01 <span>/ 04</span></div>
+          <div class="abs rule dotline"></div>
+          <div class="abs meta t-meta">2012 · 12 集 · 番剧</div>
+          <div class="abs title t-display">少女与战车</div>
+          <div class="abs quote t-body">「 趣味性十足的一部番剧 」</div>
+        </div></div>
+        <p class="cap"><b>开屏</b>：封面铺满并压到 26% 黑，标题 124px 中文真实字重；只有一条 64px 强调细线 + 全片唯一编号。</p>
+      </div>
+      <div>
+        <div class="panel"><div class="stage A2">
+          <div class="abs photo"></div><div class="abs edge"></div>
+          <div class="abs no t-num">03</div>
+          <div class="abs title t-display">巴哈姆特之怒 GENESIS</div>
+          <div class="abs facts t-meta">2014 · 12 集 · 奇幻 · 战斗</div>
+          <div class="abs quote t-body">这里是人、神、魔等种族共同生活的神秘世界，密斯塔尔希亚。过去，黑银之翼的巴哈姆特曾几乎令这个世界毁灭。</div>
+          <div class="abs foot t-num">本片单 03 / 04</div>
+        </div></div>
+        <p class="cap"><b>单媒体</b>：封面**出血到左边缘**（62% 宽），右侧 38% 纯留白放信息；编号用 Mona-Sans 88px 着色，正文全灰。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ B ============ -->
+  <section class="dir">
+    <h2>B · 每部一色（動くポスター）</h2>
+    <p>用色最多（每部 <em>25–45%</em> 画面是它自己的颜色，从封面实测提取）。构图像"海报贴纸"：大面积色块 + 出血封面 + 底部一条胶片边。<em>每部看起来是它自己的一张海报</em>，而不是同一模板套图——偷自 Netflix 的"统一系统 + 每部定制 key art"，颜色靠<em>分级产生</em>（Promare 的 gradient 处理）而不是叠发光。</p>
+    <div class="row">
+      <div>
+        <div class="panel"><div class="stage B1">
+          <div class="abs base"></div>
+          <div class="abs block"></div><div class="abs blockline"></div>
+          <div class="abs poster"></div>
+          <div class="abs title t-display">少女与战车</div>
+          <div class="abs facts t-meta">2012 · 12 集 · 战车道</div>
+          <div class="abs band"><i style="background-image:url('../../data/covers/7492.jpg')"></i><i style="background-image:url('../../data/covers/2849.jpg')"></i><i style="background-image:url('../../data/covers/2507.jpg')"></i><i style="background-image:url('../../data/covers/5609.jpg')"></i></div>
+        </div></div>
+        <p class="cap"><b>开屏</b>：右侧 46% 是这部的主色块（压低明度），海报压在色块左缘形成层次；底部 64px 胶片边列出其余几部。</p>
+      </div>
+      <div>
+        <div class="panel"><div class="stage B2">
+          <div class="abs base"></div><div class="abs photo"></div><div class="abs bar"></div>
+          <div class="abs no t-num">03</div>
+          <div class="abs title t-display">巴哈姆特之怒 GENESIS</div>
+          <div class="abs facts t-meta">2014 · 12 集 · 奇幻 · 战斗</div>
+          <div class="abs quote t-body">这里是人、神、魔等种族共同生活的神秘世界，密斯塔尔希亚。</div>
+          <div class="abs foot t-num">本片单 03 / 04</div>
+        </div></div>
+        <p class="cap"><b>单媒体</b>：整块背景被这部的颜色接管（暗红 12% 明度），封面出血到右边缘，左侧留一条 10px 强调竖条。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ C ============ -->
+  <section class="dir">
+    <h2>C · 年度数据片（Stats-driven）</h2>
+    <p>把<em>真实数字</em>当主角（本次 4 部 / 全库 36 部精选 / 722 集 / 8 个片段 / 2000–2026），封面退成低饱和背景带。用色集中在<em>数字与刻度</em>上。偷自 Spotify Wrapped 的"数据即设计主体"与"每年重做 art direction"，而不是在旧模板上叠装饰。</p>
+    <div class="row">
+      <div>
+        <div class="panel"><div class="stage C1">
+          <div class="abs band"><i style="background-image:url('../../data/covers/5609.jpg')"></i><i style="background-image:url('../../data/covers/7492.jpg')"></i><i style="background-image:url('../../data/covers/2849.jpg')"></i><i style="background-image:url('../../data/covers/2507.jpg')"></i></div>
+          <div class="abs veil"></div>
+          <div class="abs big t-num">722</div>
+          <div class="abs bigunit t-meta">集<br>本次片单累计</div>
+          <div class="abs rule dotline"></div>
+          <div class="abs sub">2000 – 2026 · 4 部 · 8 个片段</div>
+          <div class="abs season t-meta">2026 秋</div>
+        </div></div>
+        <p class="cap"><b>开屏</b>：300px 数字当唯一主体，封面只作为低饱和背景带（brightness .30），没有封面主角。</p>
+      </div>
+      <div>
+        <div class="panel"><div class="stage C2">
+          <div class="abs base"></div>
+          <div class="abs ghost t-num">03</div>
+          <div class="abs photo"></div>
+          <div class="abs title t-display">巴哈姆特之怒 GENESIS</div>
+          <div class="abs facts t-meta">2014 · 12 集 · 奇幻 · 战斗</div>
+          <div class="abs quote t-body">这里是人、神、魔等种族共同生活的神秘世界。</div>
+          <div class="abs scale"><i style="left:0"></i><i style="left:33%"></i><i class="on" style="left:66%"></i><i style="left:100%"></i></div>
+          <div class="abs progress t-num">03 / 04 · 本片单进度</div>
+        </div></div>
+        <p class="cap"><b>单媒体</b>：巨大编号当底纹（该部颜色 20% 透明），底部**刻度线**取代进度条——进度是设计过的信息，不是软件控件。</p>
+      </div>
+    </div>
+  </section>
+
+  <p class="lead" style="margin-top:6px">
+    <b>三者的取舍</b>：A 最稳、最像"作品"，但每部之间的差异只有颜色与封面（同质化风险靠排版撑）；B 每部辨识度最高、最像海报，但主色若撞得难看（比如暖米色封面上放白字）需要在渲染时做一次明度/对比度校验；C 数字最有"年度感"、最适合你这种"精选片单"的语境，但它需要接受"封面不再是主角"。
+  </p>
+</div>
+
+<script>
+function fit(){
+  document.querySelectorAll('.panel').forEach((panel)=>{
+    const stage = panel.querySelector('.stage');
+    const k = panel.clientWidth / 1280;
+    stage.style.transform = `scale(${k})`;
+  });
+}
+new ResizeObserver(fit).observe(document.body);
+fit();
+window.__fit = fit;
+</script>
+</body>
+</html>

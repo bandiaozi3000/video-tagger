@@ -4,7 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.videotagger.entity.MediaFormat;
 import com.videotagger.entity.MediaSubcategory;
+import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.CollectionMapper;
+import com.videotagger.mapper.EpisodeMapper;
+import com.videotagger.mapper.ExternalWorkMapper;
 import com.videotagger.mapper.MediaFormatMapper;
 import com.videotagger.mapper.MediaSubcategoryMapper;
 import com.videotagger.mapper.TagMapper;
@@ -37,6 +40,9 @@ class RecommendServiceTest {
     MediaFormatMapper formatMapper;
     CoverService coverService;
     CollectionMapper collectionMapper;
+    ExternalWorkMapper externalWorkMapper;
+    EpisodeMapper episodeMapper;
+    ClipMapper clipMapper;
     RecommendService service;
 
     @BeforeEach
@@ -47,10 +53,16 @@ class RecommendServiceTest {
         formatMapper = mock(MediaFormatMapper.class);
         coverService = mock(CoverService.class);
         collectionMapper = mock(CollectionMapper.class);
+        // 银幕式模板新增的三个依赖（番剧元数据 / 剧集 / 片段行）：本测试不关心，给空 mock
+        externalWorkMapper = mock(ExternalWorkMapper.class);
+        episodeMapper = mock(EpisodeMapper.class);
+        clipMapper = mock(ClipMapper.class);
         service = new RecommendService(mediaService, tagMapper, subMapper, formatMapper,
-                coverService, collectionMapper, new ObjectMapper());
+                coverService, collectionMapper, externalWorkMapper, episodeMapper, clipMapper, new ObjectMapper());
         when(tagMapper.countByMedia(anyLong())).thenReturn(List.of());
         when(coverService.base64ForCoverPath(org.mockito.ArgumentMatchers.any())).thenReturn("AAA");
+        when(externalWorkMapper.listByMedia(anyLong())).thenReturn(List.of());
+        when(episodeMapper.countByMedia(anyLong())).thenReturn(0L);
     }
 
     private MediaDetail media(long id, String title, Integer year) {
