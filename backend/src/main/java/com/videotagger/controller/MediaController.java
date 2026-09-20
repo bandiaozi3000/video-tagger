@@ -6,6 +6,7 @@ import com.videotagger.service.MediaDetail;
 import com.videotagger.service.MediaRequest;
 import com.videotagger.service.MediaMatchCandidate;
 import com.videotagger.service.MediaService;
+import com.videotagger.service.MediaExportRow;
 import com.videotagger.service.MediaSummary;
 import com.videotagger.service.CoverService;
 import com.videotagger.service.EpisodeDetail;
@@ -38,6 +39,7 @@ public class MediaController {
     private final CoverService coverService;
     private final AniListSyncService aniListSyncService;
     private final com.videotagger.service.HighlightProjectService highlightProjectService;
+    private final com.videotagger.service.RelatedMediaService relatedMediaService;
 
     // 外部同步（AniList）默认禁用（D9）；videotagger.sync.enabled=true 时启用，代码保留
     @org.springframework.beans.factory.annotation.Value("${videotagger.sync.enabled:false}")
@@ -45,18 +47,39 @@ public class MediaController {
 
     public MediaController(MediaService mediaService, EpisodeService episodeService, CoverService coverService,
                            AniListSyncService aniListSyncService) {
-        this(mediaService, episodeService, coverService, aniListSyncService, null);
+        this(mediaService, episodeService, coverService, aniListSyncService, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public MediaController(MediaService mediaService, EpisodeService episodeService, CoverService coverService,
                            AniListSyncService aniListSyncService,
-                           com.videotagger.service.HighlightProjectService highlightProjectService) {
+                           com.videotagger.service.HighlightProjectService highlightProjectService,
+                                  com.videotagger.service.RelatedMediaService relatedMediaService) {
         this.mediaService = mediaService;
         this.episodeService = episodeService;
         this.coverService = coverService;
         this.aniListSyncService = aniListSyncService;
         this.highlightProjectService = highlightProjectService;
+        this.relatedMediaService = relatedMediaService;
+    }
+
+    /**
+     * 清单导出（编辑器「📋 导出清单」）：候选走当前筛选、已选走 ids，返回带**集数与标签**的行，上限 500。
+     *
+     * 与 `GET /api/media` 的区别：不分页、多两列（episodeCount/tags）、列少很多（封面/状态/评分不参与导出）。
+     */
+    @GetMapping("/list-export")
+    public List<MediaExportRow> listExport(@RequestParam(required = false) String status,
+                                          @RequestParam(required = false) String format,
+                                          @RequestParam(required = false) Long subcategoryId,
+                                          @RequestParam(required = false) Integer confirmed,
+                                          @RequestParam(required = false) Long collectionId,
+                                          @RequestParam(required = false) Integer year,
+                                          @RequestParam(required = false) String source,
+                                          @RequestParam(required = false) Long tagId,
+                                          @RequestParam(required = false) String q,
+                                          @RequestParam(required = false) List<Long> ids) {
+        return mediaService.listExport(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, q, ids);
     }
 
     @GetMapping
@@ -75,6 +98,16 @@ public class MediaController {
                                    @RequestParam(required = false) String q,
                                    @RequestParam(required = false) List<Long> ids) {
         return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, order, year, source, tagId, q, ids);
+    }
+
+    /**
+     * 同系列条目（跨媒体借片段的来源）：本地存在且有片段的视频类关联条目。
+     *
+     * 白名单见 ；0 片段的条目不返回（借不到）。
+     */
+    @GetMapping("/{id}/related")
+    public List<com.videotagger.service.RelatedMedia> related(@PathVariable Long id) {
+        return relatedMediaService.videoRelated(id);
     }
 
     @GetMapping("/recent")

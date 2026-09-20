@@ -80,18 +80,18 @@ public class RecommendVideoService {
     }
 
     public Path render(List<Long> ids, String resolution) {
-        return render(ids, null, null, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null);
+        return render(ids, null, null, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null, null, null, null, null, null);
     }
 
     /** 渲染推荐媒体为视频（无 BGM）。 */
     public Path render(List<Long> ids, String title, String format, String resolution) {
-        return render(ids, title, format, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null);
+        return render(ids, title, format, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null, null, null, null, null, null);
     }
 
     /** 渲染推荐媒体为视频（单曲 BGM，兼容旧签名）。 */
     public Path render(List<Long> ids, String title, String format, String resolution, String bgmPath) {
         return render(ids, title, format, resolution,
-                bgmPath == null || bgmPath.isBlank() ? null : List.of(bgmPath), null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null);
+                bgmPath == null || bgmPath.isBlank() ? null : List.of(bgmPath), null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null, null, null, null, null, null);
     }
 
     /**
@@ -120,11 +120,13 @@ public class RecommendVideoService {
                        String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
                        Integer bgmScale,
                        Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
-                       Map<String, Boolean> detailShow) {
+                       Map<String, Boolean> detailShow, Integer seed, Integer clipVolume, String bgmRange,
+                       String stingPath, Integer stingVolume) {
         return render(ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle,
                 subtitle, coverSize, openingIds, intro, durations, endingTitle, endingText, bgColor,
                 bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort,
-                openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, null, null);
+                openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, null, null, seed, clipVolume, bgmRange,
+                stingPath, stingVolume);
     }
 
     public Path render(List<Long> ids, String title, String format, String resolution, List<String> bgmPaths,
@@ -137,7 +139,8 @@ public class RecommendVideoService {
                        Integer bgmScale,
                        Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
                        Map<String, Boolean> detailShow, String preset,
-                       Map<Long, RecommendMediaClips> requestedClips) {
+                       Map<Long, RecommendMediaClips> requestedClips, Integer seed, Integer clipVolume, String bgmRange,
+                       String stingPath, Integer stingVolume) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
@@ -159,7 +162,8 @@ public class RecommendVideoService {
                 if (clipSourceService == null) {
                     throw new IllegalStateException("未启用片段素材准备（clipSourceService 缺失）");
                 }
-                RecommendClipSourceService.PreparedClips result = clipSourceService.prepare(requestedClips, work);
+                RecommendClipSourceService.PreparedClips result = clipSourceService.prepare(requestedClips, work,
+                        RecommendService.fpsOf(groupStyle));
                 if (result.hasMissing()) {
                     throw new IllegalArgumentException("片段素材不可用: " + result.missing().stream()
                             .map(m -> "#" + m.clipId() + "(" + m.reason() + ")").toList());
@@ -170,7 +174,7 @@ public class RecommendVideoService {
                     openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
                     bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed,
                     endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset, preparedClips,
-                    subtitle, coverSize);
+                    subtitle, coverSize, seed, clipVolume, bgmRange, stingPath, stingVolume);
         } catch (IOException e) {
             throw new IllegalStateException("渲染准备失败: " + e.getMessage(), e);
         } finally {
@@ -192,11 +196,19 @@ public class RecommendVideoService {
                                     Integer openingSpeed, Integer endingScrollSpeed, Integer bgmScale, Integer bgmX,
                                     Integer bgmY, String brandTitle, Integer perScreen, Map<String, Boolean> detailShow, String preset,
                                     Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips,
-                                    String subtitle, String coverSize) throws IOException {
+                                    String subtitle, String coverSize, Integer seed, Integer clipVolume, String bgmRange,
+                                    String stingSource, Integer stingVolume) throws IOException {
         Path remotion = resolveRemotionDir();
         if (remotion == null) {
             throw new IllegalStateException("未找到 Remotion 工程（期望 <remotion-dir>/scripts/render-recommend.ts，"
                     + "当前配置 " + remotionDir + "）");
+        }
+
+        // 转场音乐（片名卡专用）：与 BGM 同型——拷进工作目录，传给渲染侧一个相对路径
+        String stingRel = null;
+        if (stingSource != null && !stingSource.isBlank()) {
+            stingRel = "sting-0" + audioExtension(stingSource);
+            Files.copy(Paths.get(stingSource), work.resolve(stingRel), StandardCopyOption.REPLACE_EXISTING);
         }
 
         // BGM：把上传的临时文件复制进工作目录，并给出与曲目一一对应的相对路径（素材服务按相对路径取用）
@@ -224,9 +236,11 @@ public class RecommendVideoService {
         String inputJson = recommendService.buildRenderInput(ids, title, audioTracks, subtitle, coverSize, groupBy,
                 groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
                 bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale,
-                bgmX, bgmY, brandTitle, perScreen, detailShow, preset, preparedClips, "embed", 30, wh[0], wh[1],
+                bgmX, bgmY, brandTitle, perScreen, detailShow, preset, preparedClips, "embed",
+                RecommendService.fpsOf(groupStyle), wh[0], wh[1],
                 bgmRelPaths,
-                rel -> mediaProbe.durationSeconds(work.resolve(rel).toAbsolutePath().toString()));
+                rel -> mediaProbe.durationSeconds(work.resolve(rel).toAbsolutePath().toString()),
+                seed, clipVolume, bgmRange, stingRel, stingVolume);
         Path inputFile = work.resolve("render-input.json");
         Files.writeString(inputFile, inputJson, StandardCharsets.UTF_8);
         Path rendered = work.resolve("rendered." + fmt);

@@ -23,6 +23,41 @@ export function useEnterCinema(delayFrames: number): number {
  * 位移/推镜/擦除用 `interpolate` —— 无 CSS 过渡、无关键帧、无定时器。
  */
 
+/**
+ * 推荐语 / 备注的**引语块**：主色引语竖线 + 正文。
+ *
+ * 用户 2026-09-20：「片名卡备注展示不太友好，调整下样式，符合页面布局且能让人注意到」
+ * —— 旧写法是 `maxWidth: '16ch'`：CJK 下 `ch` 只有约半字宽，等于把备注挤成**一行 6~7 个字**的碎块；
+ * 而且没有引语标记、也没接「备注」开关（片名卡是唯一一处不认开关的）。
+ *
+ * 现在：宽度按 `字号 × 17.5 字` 换算成 px（一行 17 个汉字上下）、主色竖线把它标成「引语」、
+ * 暗底上提亮到 `#f0eeea`、`WebkitLineClamp` 钳行数（长备注不会一路拖到画面底部）。
+ */
+export function NoteQuote({ text, accent, width, height, size = 0.026, maxLines = 3, color = '#f0eeea', maxWidth, style }: {
+  text: string;
+  accent: string;
+  width: number;
+  height: number;
+  /** 字号（画幅高比例）。 */
+  size?: number;
+  maxLines?: number;
+  /** 正文颜色：片段屏备注用它提亮比展带更白一档（2026-09-20）。 */
+  color?: string;
+  /** 文字列最大宽度（px）。不传就按字号推（展带旧行为）。 */
+  maxWidth?: number;
+  style?: React.CSSProperties;
+}) {
+  if (!text.trim()) return null;
+  return (
+    <div style={{ ...style, display: 'flex', gap: Math.round(width * 0.012), maxWidth: maxWidth ?? Math.round(height * size * 17.5) }}>
+      <span style={{ flex: 'none', width: Math.max(2, Math.round(height * 0.0035)), background: accent, opacity: 0.9 }} />
+      <div style={{ fontFamily: CINEMA_FONT.body, fontSize: Math.round(height * size), lineHeight: 1.6, color, display: '-webkit-box', WebkitLineClamp: maxLines, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+        {text.trim()}
+      </div>
+    </div>
+  );
+}
+
 /** 强调细线：全片唯一允许的"装饰"，用该部主色。 */
 export function Rule({ color, width, height }: { color: string; width: number; height: number }) {
   return <div style={{ width: Math.round(width * CINEMA_LAYOUT.ruleLength), height: Math.max(2, Math.round(height * 0.004)), background: color }} />;
@@ -144,6 +179,8 @@ export function BigTitle({ text, size, color, maxWidth, from }: { text: string; 
         WebkitLineClamp: 2,
         WebkitBoxOrient: 'vertical',
         overflow: 'hidden',
+        // 换行要均衡：否则中文标题会出现「蓝兰岛漂流 / 记」这种单字孤独行（用户 2026-09-20 的截图）
+        textWrap: 'balance',
       }}
     >
       {text}

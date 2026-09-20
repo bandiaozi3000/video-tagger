@@ -5,8 +5,11 @@
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { api, type CandidateFilter, type ClipBrief, type EditorConfig, type MediaBrief, type MediaClips, type MediaFormatBrief } from './api';
-import { defaultFilter, fileToBase64, fileToDataUri, loadGroupOpen, parsePayload, saveGroupOpen } from './state';
+import { api, type CandidateFilter, type ClipBrief, type EditorConfig, type MediaBrief, type MediaClips, type MediaExportRow, type MediaFormatBrief } from './api';
+import { buildListText, DEFAULT_TOGGLES, type ExportToggles } from './export-list';
+import { attachWithSource, dropAllMissing, withoutClip } from './clip-refs';
+import { endingPlayback, endingRowsPerPage, LIST_MAX } from '../src/cinema/ending';
+import { defaultFilter, fileToBase64, fileToDataUri, loadGroupOpen, parsePayload, rollSeed, saveGroupOpen } from './state';
 import { THEME_PRESETS } from '../src/theme';
 
 type Patch = (patch: Partial<EditorConfig>) => void;
@@ -137,7 +140,18 @@ function Range({ value, onChange, min, max, step = 1, suffix }: {
  * 只留常改的两项（形态、主题）+ 主操作；状态详情、导出设置/变体/任务全部改成按需弹层。
  * 副标题文案、状态胶囊（分辨率/素材就绪/自动暂存）都下沉到弹层或异常态（缺素材才常驻变红）。
  */
-export function Toolbar({ config, patch, onExport, onExportAll, variantCount, onOpenTasks, onOpenTemplates, onOpenVariants, onOpenSearch, busy, meta }: {
+/** BGM 播放范围的三段（与 `src/bgm.ts` 的 `BgmRangeSegment` 对齐）。 */
+const BGM_SEGMENTS = [["opening", "开场"], ["cards", "片名卡"], ["ending", "结尾"]] as const;
+
+/** 勾/取消一个段：全不勾 → `none`（显式“不播”，不默默回“全程”）。 */
+export function toggleBgmSegment(current: string, key: string, on: boolean): string {
+  const picked = current === 'all' ? [] : current.split(',').filter(Boolean);
+  const next = on ? [...picked, key] : picked.filter((value) => value !== key);
+  const ordered = ['opening', 'cards', 'ending'].filter((value) => next.includes(value));
+  return ordered.length === 0 ? 'none' : ordered.join(',');
+}
+
+export function Toolbar({ config, patch, onExport, onExportAll, variantCount, onOpenTasks, onOpenTemplates, onOpenVariants, onOpenSearch, onReloadMaterials, busy, meta }: {
   config: EditorConfig;
   patch: Patch;
   onExport: () => void;
@@ -148,6 +162,8 @@ export function Toolbar({ config, patch, onExport, onExportAll, variantCount, on
   /** 跳到右栏「导出变体」组（参数搜索/弹层共用）。 */
   onOpenVariants: () => void;
   onOpenSearch: () => void;
+  /** A：手动重新读取素材信息（重建会话）。 */
+  onReloadMaterials: () => void;
   busy: boolean;
   meta: { seconds: number | null; frames: number | null; missingCount: number; savedAt: string | null };
 }) {
@@ -226,7 +242,12 @@ export function Toolbar({ config, patch, onExport, onExportAll, variantCount, on
           <div className="vt-pop-kv"><span className="vt-dot live" />草稿<span className="sp" /><b>{meta.savedAt ? `自动暂存 ${meta.savedAt}` : '自动暂存'}</b></div>
           <div className="vt-pop-kv"><span className="vt-dot" />预估时长<span className="sp" /><b>{meta.frames !== null ? `${formatClock(meta.seconds)} · ${meta.frames} 帧` : '—'}</b></div>
           <div className="vt-pop-kv"><span className="vt-dot" />输出<span className="sp" /><b>{config.resolution} · {config.format}</b></div>
-          <p className="vt-pop-note">正常状态不占地方：只有「素材缺失」会常驻在工具条上变红。</p>
+          <button type="button" className="btn-mini" style={{ marginTop: 8 }}
+                  title="库里改了标题/年份/标签/封面后，点这里重新读取（导出本来就是最新的，只有预览需要它）"
+                  onClick={() => { onReloadMaterials(); setPop(null); }}>↻ 重新读取素材</button>
+          <p className="vt-pop-note">{meta.missingCount > 0
+            ? '在右侧面板的「素材缺失」里逐条处理（去补 / 移除 / 一键清理）—— 之前那里只是一行字、没法操作。'
+            : '正常状态不占地方：只有「素材缺失」会常驻在工具条上变红。'}</p>
         </Pop>
       ) : null}
 
@@ -274,7 +295,6 @@ const PARAM_INDEX: { label: string; group: string }[] = [
   { label: '开局封面大小', group: '页面展示与交互' }, { label: '开场加载速度', group: '页面展示与交互' },
   { label: '结尾滚动速度', group: '页面展示与交互' },
   { label: '显示时长（开场/序言/章节/资料卡/结尾）', group: '时长与显示' }, { label: '详情显示开关', group: '时长与显示' },
-  { label: '开场代表秀', group: '开场代表秀' }, { label: '自定义开场封面', group: '开场代表秀' },
   { label: '导出变体', group: '导出变体' },
   { label: '添加音频 / BGM 曲目', group: '背景音乐（BGM）' }, { label: '音乐条缩放', group: '背景音乐（BGM）' },
   { label: '音乐条位置 X / Y', group: '背景音乐（BGM）' },
@@ -341,16 +361,64 @@ export function ClipPicker({ mediaId, title, config, onClips }: {
   onClips: (clips: MediaClips) => void;
 }) {
   const [clips, setClips] = React.useState<ClipBrief[] | null>(null);
+  /** 来源页签：本部 / 同系列（跨媒体借片段，设计规格 §7）。 */
+  const [sourceTab, setSourceTab] = React.useState<number | 'own'>('own');
+  const [related, setRelated] = React.useState<import('./api').RelatedMedia[] | null>(null);
   React.useEffect(() => {
     let cancelled = false;
     api.clips(mediaId).then((list) => !cancelled && setClips(list)).catch(() => !cancelled && setClips([]));
+    api.relatedMedia(mediaId).then((list) => !cancelled && setRelated(list)).catch(() => !cancelled && setRelated([]));
     return () => { cancelled = true; };
   }, [mediaId]);
 
+  /** 同系列条目各自的片段（切到那个页签才取，避免一次拉一堆）。 */
+  const [relatedClips, setRelatedClips] = React.useState<Record<number, ClipBrief[]>>({});
+  React.useEffect(() => {
+    if (sourceTab === 'own') return;
+    let cancelled = false;
+    if (relatedClips[sourceTab]) return;
+    api.clips(sourceTab).then((list) => !cancelled && setRelatedClips((current) => ({ ...current, [sourceTab]: list })))
+      .catch(() => !cancelled && setRelatedClips((current) => ({ ...current, [sourceTab]: [] })));
+    return () => { cancelled = true; };
+  }, [sourceTab, relatedClips]);
+
   const current: MediaClips = config.mediaClips[String(mediaId)] ?? { order: [] };
   const badge = current.badge ?? {};
+  const sources: Record<string, number> = current.sources ?? {};
 
-  const setOrder = (order: number[]) => onClips({ order, badge: current.badge });
+  /** 写顺序时**带上 sources**（不然一改顺序就把借来的片段当成本体）。 */
+  const setOrder = (order: number[], nextSources: Record<string, number> = sources) =>
+    onClips({ order, badge: current.badge, sources: nextSources });
+
+  /** 加/减一个片段（借来的要同时记下来源 mediaId）。 */
+  const toggleClip = (clipId: number, sourceMediaId: number | null) => {
+    const picked = current.order.includes(clipId);
+    const order = picked ? current.order.filter((id) => id !== clipId) : [...current.order, clipId];
+    const nextSources = { ...sources };
+    if (picked || sourceMediaId === null) delete nextSources[String(clipId)];
+    else nextSources[String(clipId)] = sourceMediaId;
+    setOrder(order, nextSources);
+  };
+
+  /** 片段标题：借来的片段不在本部的 clips 里，要从来源列表里找。 */
+  const titleOfClip = (clipId: number): string => {
+    const own = clips?.find((clip) => clip.id === clipId);
+    if (own) return own.title || `片段 #${clipId}`;
+    for (const list of Object.values(relatedClips)) {
+      const hit = list.find((clip) => clip.id === clipId);
+      if (hit) return hit.title || `片段 #${clipId}`;
+    }
+    return `#${clipId}`;
+  };
+
+  /** 来源短名（角标用）：同系列标题去掉书名号里的空格后缀，直接取 title。 */
+  const sourceNameOf = (clipId: number): string | null => {
+    const sourceMediaId = sources[String(clipId)];
+    if (sourceMediaId === undefined) return null;
+    if (sourceMediaId === mediaId) return null;
+    return related?.find((item) => item.mediaId === sourceMediaId)?.title ?? `#${sourceMediaId}`;
+  };
+
   const swap = (index: number, delta: number) => {
     const order = [...current.order];
     const target = index + delta;
@@ -360,46 +428,81 @@ export function ClipPicker({ mediaId, title, config, onClips }: {
   };
 
   if (clips === null) return <p className="vt-hint">读取片段…</p>;
-  if (clips.length === 0) return <p className="vt-hint">「{title}」没有片段</p>;
+
+  /** 当前页签要列的片段。 */
+  const listed = sourceTab === 'own' ? clips : relatedClips[sourceTab];
 
   return (
     <div className="vt-clip-picker">
-      <div className="vt-clip-candidates">
-        {clips.map((clip) => {
-          const picked = current.order.includes(clip.id);
-          return (
-            <label key={clip.id} className="vt-clip-item">
-              <input type="checkbox" checked={picked} onChange={() =>
-                setOrder(picked ? current.order.filter((id) => id !== clip.id) : [...current.order, clip.id])} />
-              <span>{clip.title || `片段 #${clip.id}`}</span>
-              <span className="vt-hint">{clip.timestampSec ?? '?'}s</span>
-            </label>
-          );
-        })}
-      </div>
+      {/* 来源切换：本部 / 同系列（本地有片段的视频类关联条目） */}
+      {related !== null && related.length > 0 ? (
+        <div className="vt-clip-sources">
+          <span className="vt-hint">来源</span>
+          <button type="button" className={cls('btn-mini', sourceTab === 'own' && 'on')}
+                  onClick={() => setSourceTab('own')}>本部 {clips.length}</button>
+          {Array.from(new Set(related.map((item) => item.relationType))).map((type) => (
+            <span key={type} className="vt-clip-source-group">
+              <span className="vt-hint">{type}</span>
+              {related.filter((item) => item.relationType === type).map((item) => (
+                <button key={item.mediaId} type="button" className={cls('btn-mini', sourceTab === item.mediaId && 'on')}
+                        title={`${item.title}${item.year ? ` (${item.year})` : ''} · ${item.clipCount} 个片段`}
+                        onClick={() => setSourceTab(item.mediaId)}>
+                  {item.title} {item.clipCount}
+                </button>
+              ))}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {listed === null || listed === undefined ? (
+        <p className="vt-hint">读取片段…</p>
+      ) : listed.length === 0 ? (
+        <p className="vt-hint">{sourceTab === 'own' ? `「${title}」没有片段` : '这个条目没有片段'}</p>
+      ) : (
+        <div className="vt-clip-candidates">
+          {listed.map((clip) => {
+            const picked = current.order.includes(clip.id);
+            return (
+              <label key={clip.id} className="vt-clip-item">
+                <input type="checkbox" checked={picked}
+                       onChange={() => toggleClip(clip.id, sourceTab === 'own' ? null : sourceTab)} />
+                <span>{clip.title || `片段 #${clip.id}`}</span>
+                {sourceTab === 'own' ? null : <span className="vt-clip-from">来源</span>}
+                <span className="vt-hint">{clip.timestampSec ?? '?'}s</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
       {current.order.length > 0 ? (
         <div className="vt-clip-order">
           <div className="vt-hint">播放顺序（{current.order.length}）</div>
-          {current.order.map((clipId, index) => (
-            <div key={clipId} className="vt-clip-order-row">
-              <span>{index + 1}. {clips.find((clip) => clip.id === clipId)?.title ?? `#${clipId}`}</span>
-              <span>
-                <button type="button" className="btn-mini" onClick={() => swap(index, -1)}>↑</button>
-                <button type="button" className="btn-mini" onClick={() => swap(index, 1)}>↓</button>
-              </span>
-            </div>
-          ))}
+          {current.order.map((clipId, index) => {
+            const sourceName = sourceNameOf(clipId);
+            return (
+              <div key={clipId} className="vt-clip-order-row">
+                <span>
+                  {index + 1}. {titleOfClip(clipId)}
+                  {sourceName ? <em className="vt-clip-from-tag">来源：{sourceName}</em> : null}
+                </span>
+                <span>
+                  <button type="button" className="btn-mini" onClick={() => swap(index, -1)}>↑</button>
+                  <button type="button" className="btn-mini" onClick={() => swap(index, 1)}>↓</button>
+                </span>
+              </div>
+            );
+          })}
           <div className="vt-clip-badges">
             <span className="vt-hint">字幕条</span>
             {([['mediaTitle', '媒体名'], ['clipTitle', '片段名'], ['index', '序号'], ['note', '备注']] as const).map(([key, label]) => (
               <label key={key} className="vt-inline">
                 <input type="checkbox" checked={Boolean(badge[key])} onChange={(event) =>
-                  onClips({ order: current.order, badge: { ...badge, [key]: event.target.checked } })} />
+                  onClips({ order: current.order, badge: { ...badge, [key]: event.target.checked }, sources })} />
                 {label}
               </label>
             ))}
             <input className="vt-badge-custom" placeholder="自定义文案" value={badge.custom ?? ''}
-                   onChange={(event) => onClips({ order: current.order, badge: { ...badge, custom: event.target.value } })} />
+                   onChange={(event) => onClips({ order: current.order, badge: { ...badge, custom: event.target.value }, sources })} />
           </div>
         </div>
       ) : null}
@@ -797,7 +900,162 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
 }
 
 /** 媒体篮子：筛选 + 分页 + 勾选 + 已选顺序 + 片段挂载。 */
-export function BasketPane({ config, patch, filter, onFilter, onSelect, highlightMediaId }: {
+/**
+ * 编辑器里的「结尾时间账」提示（用户 2026-09-20：「防止播放不全」）。
+ *
+ * 复用 Remotion 侧同一套纯函数（`endingPlayback`），所以预览与成片的判断不会两套口径。
+ * 只算「名单」：固定头（标题/文案/统计）是常驻的，不参与计时。
+ */
+function endingHint(config: EditorConfig): string | null {
+  const rows = Math.min(config.ids.length, LIST_MAX);
+  if (rows === 0 || config.detailShow.endingList === false) return null;
+  const paging = config.detailShow.endingPaging === true;
+  const plan = endingPlayback({
+    durationSeconds: config.endingSec,
+    rows,
+    paging,
+    rowsPerPage: endingRowsPerPage({
+      hasTitle: config.endingTitle.trim() !== '',
+      hasText: config.endingText.trim() !== '',
+      hasStats: config.detailShow.endingStats === true,
+    }),
+    speed: config.endingScrollSpeed,
+  });
+  const mode = paging
+    ? `${plan.pages} 页 · 每页 ${plan.pageSeconds.toFixed(1)}s`
+    : `滚动 ${plan.scrollSpeed.toFixed(2)} 屏/秒`;
+  return `结尾名单：${rows} 部 → ${mode}${plan.warning ? '　⚠ 偏紧，建议把「结尾时长」调大' : ''}`;
+}
+
+/** 候选卡与开场秀芯片共用的拖拽源（HTML5 dnd 在 dragover 里读不到 dataTransfer，所以用 ref 记）。 */
+function movedOpening(order: number[], index: number, delta: number): number[] {
+  const next = index + delta;
+  if (next < 0 || next >= order.length) return order;
+  const ids = [...order];
+  [ids[index], ids[next]] = [ids[next], ids[index]];
+  return ids;
+}
+
+/**
+ * 「📋 导出清单」对话框（2026-09-20 用户）：候选/已选 → 可勾选元素 + 按年份分组 → 预览/复制/下载。
+ *
+ * 文本生成在 `export-list.ts`（纯函数 + 单测）；这里只管取数、勾选与导出动作。
+ */
+function ExportListDialog({ config, filter, onClose }: {
+  config: EditorConfig;
+  filter: CandidateFilter;
+  onClose: () => void;
+}) {
+  const [scope, setScope] = React.useState<'candidate' | 'selected'>('candidate');
+  const [toggles, setToggles] = React.useState<ExportToggles>(DEFAULT_TOGGLES);
+  const [rows, setRows] = React.useState<MediaExportRow[]>([]);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [toast, setToast] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    const request = scope === 'candidate'
+      ? api.listExport(filter)
+      : api.listExport({ ...defaultFilter(), q: '' }, config.ids);
+    request
+      .then((list) => {
+        if (cancelled) return;
+        // 已选：按**推荐顺序**排（后端按年份/ID 排，不是用户排的那一版）
+        setRows(scope === 'selected'
+          ? config.ids.map((id) => list.find((row) => row.id === id)).filter((row): row is MediaExportRow => Boolean(row))
+          : list);
+      })
+      .catch((e: unknown) => { if (!cancelled) setError(e instanceof Error ? e.message : '取数失败'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [scope, config.ids.join(','), JSON.stringify(filter)]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const text = React.useMemo(
+    () => buildListText(rows, toggles, scope === 'candidate' ? `${config.title || '候选清单'}（候选）` : config.title || '推荐清单'),
+    [rows, toggles, scope, config.title],
+  );
+
+  const flash = (message: string) => {
+    setToast(message);
+    window.setTimeout(() => setToast((value) => (value === message ? null : value)), 2000);
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      flash(`已复制 ${rows.length} 部`);
+    } catch {
+      // 剪贴板 API 在非 https / 无权限时会抛：退回选中 textarea 让用户 Ctrl+C
+      textareaRef.current?.select();
+      flash('自动复制被拒：已全选，按 Ctrl+C');
+    }
+  };
+
+  const download = () => {
+    const name = (config.title || '推荐清单').replace(/[\\/:*?"<>|]/g, '_');
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${name}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+    flash('已下载 .txt');
+  };
+
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const element = (key: keyof ExportToggles, label: string, disabled = false) => (
+    <label className={cls('vt-inline', disabled && 'off')}>
+      <input type="checkbox" checked={toggles[key]} disabled={disabled}
+             onChange={(event) => setToggles({ ...toggles, [key]: event.target.checked })} />{label}
+    </label>
+  );
+
+  return (
+    <div className="vt-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="vt-panel vt-export-panel" onMouseDown={(event) => event.stopPropagation()}>
+        <h3>📋 导出清单</h3>
+        <div className="vt-export-row">
+          <span className="vt-export-label">清单</span>
+          <label className="vt-inline"><input type="radio" checked={scope === 'candidate'} onChange={() => setScope('candidate')} />候选（当前筛选）</label>
+          <label className="vt-inline"><input type="radio" checked={scope === 'selected'} onChange={() => setScope('selected')} />已选（推荐顺序）</label>
+          <span className="sp" />
+          <span className="vt-hint">{loading ? '读取中…' : `${rows.length} 部`}</span>
+        </div>
+        <div className="vt-export-row">
+          <span className="vt-export-label">元素</span>
+          {element('index', '序号')}
+          {element('title', '标题')}
+          {element('year', '年份', toggles.groupByYear)}
+          {element('episode', '集数')}
+          {element('tags', '标签')}
+          {element('subcategory', '分类')}
+          {element('source', '来源')}
+          {element('clips', '片段数')}
+        </div>
+        <div className="vt-export-row">
+          <span className="vt-export-label">版式</span>
+          {element('header', '标题行')}
+          {element('groupByYear', '按年份分组')}
+        </div>
+        {error ? <p className="vt-export-error">取数失败：{error}</p> : null}
+        <textarea ref={textareaRef} className="vt-export-text" readOnly value={text} spellCheck={false} />
+        <div className="vt-export-actions">
+          <span className="vt-hint">{toast ?? '可直接粘贴给别人'}</span>
+          <span className="sp" />
+          <button type="button" className="btn-mini" disabled={rows.length === 0} onClick={() => void copy()}>复制文本</button>
+          <button type="button" className="btn-mini" disabled={rows.length === 0} onClick={download}>下载 .txt</button>
+          <button type="button" className="btn-mini" onClick={onClose}>关闭</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function BasketPane({ config, patch, filter, onFilter, onSelect, highlightMediaId, mediaBriefs }: {
   config: EditorConfig;
   patch: Patch;
   /** 候选筛选（提升到编辑器层：可随模板保存、套用时重算候选）。 */
@@ -807,6 +1065,8 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   onSelect: (selection: import('./timeline').Selection) => void;
   /** 右侧当前媒体 id（高亮对应卡片，保持两栏同步）；不传则不高亮。 */
   highlightMediaId?: number;
+  /** 已选媒体的标题索引：开场代表秀的芯片要显示“哪几部”，而它们可能不在当前候选页里。 */
+  mediaBriefs: MediaBrief[];
 }) {
   const [list, setList] = React.useState<MediaBrief[]>([]);
   const [total, setTotal] = React.useState(0);
@@ -817,6 +1077,7 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   const [popOpen, setPopOpen] = React.useState(false);
   const [popDim, setPopDim] = React.useState<FilterDim | null>(null);
   const [bulkOpen, setBulkOpen] = React.useState(false);
+  const [exportOpen, setExportOpen] = React.useState(false);
   const [expandChips, setExpandChips] = React.useState(false);
   const [outsideSelected, setOutsideSelected] = React.useState(0);
   const [recomputing, setRecomputing] = React.useState(false);
@@ -922,6 +1183,18 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   /** 拖拽载荷：被拖的媒体 id（HTML5 DnD 在编辑器内部只传 id，不需要序列化对象）。 */
   const draggedId = React.useRef<number | null>(null);
 
+  /**
+   * 标题查询（用户 2026-09-20：「推荐顺序后续不显示名称了，都是 #id」）。
+   *
+   * 根因：旧代码只查 `list`（**候选页/当前筛选**的结果）；已选媒体只要不在当前筛选或当前页里
+   * （左栏那行“N 部不在当前筛选内”就是这个情况）就退成 `#id`。
+   * `mediaBriefs` 来自会话输入，覆盖**全部已选媒体** → 先查它。
+   */
+  const titleOf = (id: number): string =>
+    mediaBriefs.find((value) => value.id === id)?.title
+    ?? list.find((value) => value.id === id)?.title
+    ?? `#${id}`;
+
   const onDropTo = (zone: 'list' | 'opening') => (event: React.DragEvent) => {
     event.preventDefault();
     setDropZone(null);
@@ -929,8 +1202,10 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
     draggedId.current = null;
     if (!id) return;
     if (zone === 'opening') {
+      // 拖入的可能是**还没加入推荐**的候选 → 一并加入，否则 plan 会把它过滤掉（静默无效）
+      // 有内容 = 用这个顺序；一个都不放 = 按推荐顺序（用户 2026-09-20）
       patch({
-        openingCustom: true,
+        ids: config.ids.includes(id) ? config.ids : [...config.ids, id],
         openingIds: config.openingIds.includes(id) ? config.openingIds : [...config.openingIds, id],
       });
       return;
@@ -1023,7 +1298,12 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
           </button>
         ) : null}
         {outsideSelected > 0 ? <span className="vt-tabs-note">{outsideSelected} 部不在当前筛选内</span> : null}
+        <span className="sp" />
+        <button type="button" className="btn-mini" title="导出候选/已选清单文本（可复制或下载）"
+                onClick={() => setExportOpen(true)}>📋 导出清单</button>
       </div>
+
+      {exportOpen ? <ExportListDialog config={config} filter={filter} onClose={() => setExportOpen(false)} /> : null}
 
       {tab === 'candidates' ? (
         <>
@@ -1078,7 +1358,8 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
 
             <div className="vt-media-grid">
         {list.map((item) => {
-          const cover = item.coverPath || item.fallbackCoverPath || item.externalCoverUrl;
+          // 媒体封面统一取值链（用户 2026-09-20 定稿）：Bangumi 外链 → 显式封面 → 片段帧兜底
+          const cover = item.externalCoverUrl || item.coverPath || item.fallbackCoverPath;
           const clipCount = config.mediaClips[String(item.id)]?.order.length ?? 0;
           return (
             <div key={item.id} className={cls('vt-media-card', selected.has(item.id) && 'selected', picked === item.id && 'picked')} draggable
@@ -1094,6 +1375,16 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
                 <button type="button" className={cls('vt-clip-badge', clipCount > 0 && 'has')} title="挂载片段"
                         onClick={(event) => { event.stopPropagation(); openClips(item); }}>
                   {clipCount > 0 ? `✂ ${clipCount}` : '＋ 片段'}
+                </button>
+                {/* 开场秀：拖卡也可以（旧交互保留），但拖拽不发现 → 再给一个按钮（用户 2026-09-20） */}
+                <button type="button"
+                        className={cls('vt-open-badge', config.openingIds.includes(item.id) && 'has')}
+                        disabled={config.openingIds.includes(item.id)}
+                        title={config.openingIds.includes(item.id)
+                          ? '已在开场秀（第一个 = 开场主推，可在左侧名单里排序/移出）'
+                          : '加入开场秀（追加到名单末尾）'}
+                        onClick={(event) => { event.stopPropagation(); patch({ openingIds: [...config.openingIds, item.id] }); }}>
+                  {config.openingIds.includes(item.id) ? '🎬 开场秀 ✓' : '🎬 开场秀'}
                 </button>
               </div>
               <div className="vt-media-title" title={item.title}>{item.title}</div>
@@ -1126,7 +1417,58 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
             onDragLeave={() => setDropZone(null)}
             onDrop={onDropTo('opening')}
           >
-            🎬 拖到这里 = 加入开场代表秀（{config.openingIds.length}）
+            🎬 拖到这里 = 加入开场秀（{config.openingIds.length}）
+            {/* 🎲 重排：只重摇**摆位**种子（Hero 不动）—— 用户 2026-09-20 选 A：“真随机但 Hero 不变不被遮挡” */}
+            <button type="button" className="vt-roll-btn" title="重摇中景摆位（Hero 不变；预览与成片用同一个种子）"
+                    onClick={() => patch({ seed: rollSeed() })}>🎲 换个摆位</button>
+            {/*
+             * 2026-09-20（用户）：开场秀就是**一份可排序的名单**，第一个 = 主推 Hero。
+             * 旧版只给一个数字、排序藏在右侧面板里，看不出选的是哪几部、也看不出谁在打头阵。
+             */}
+            {config.openingIds.length > 0 ? (
+              <ol className="vt-opening-order">
+                {config.openingIds.map((id, index) => {
+                  const title = titleOf(id);
+                  return (
+                    <li
+                      key={id}
+                      draggable
+                      className={cls(index === 0 && 'hero')}
+                      title={index === 0 ? '第 1 个 = 开场主推（最大那张）· 可拖拽排序' : '可拖拽排序'}
+                      onDragStart={(event) => {
+                        draggedId.current = id;
+                        event.dataTransfer.setData('text/vt-media', String(id));
+                      }}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        const from = draggedId.current;
+                        if (from === null || from === id || !config.openingIds.includes(from)) return;
+                        const order = config.openingIds.filter((value) => value !== from);
+                        const at = order.indexOf(id);
+                        order.splice(at < 0 ? order.length : at, 0, from);
+                        draggedId.current = from;
+                        patch({ openingIds: order });
+                      }}
+                    >
+                      <span className="idx">{index + 1}</span>
+                      <span className="vt-opening-title">{title}</span>
+                      <span className="vt-selected-btns">
+                        <button type="button" className="btn-mini" title="上移"
+                                onClick={() => patch({ openingIds: movedOpening(config.openingIds, index, -1) })}>↑</button>
+                        <button type="button" className="btn-mini" title="下移"
+                                onClick={() => patch({ openingIds: movedOpening(config.openingIds, index, 1) })}>↓</button>
+                        <button type="button" className="btn-mini" title="移出开场秀"
+                                onClick={() => patch({ openingIds: config.openingIds.filter((value) => value !== id) })}>✕</button>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : (
+              <span className="vt-opening-none">
+                一个都没放 → **按推荐顺序**自动取（当前 {config.ids.length} 部）
+              </span>
+            )}
           </div>
 
           <div className={cls('vt-selected', dropZone === 'list' && 'over')}
@@ -1154,8 +1496,11 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
                     patch({ ids });
                   }}>
                 <span className="idx">{index + 1}</span>
-                <span className="vt-selected-title">{item?.title ?? `#${id}`}</span>
+                <span className="vt-selected-title">{titleOf(id)}</span>
                 <span className="vt-selected-btns">
+                  <button type="button" className="btn-mini" title="加入开场秀（第一个 = 开场主推）"
+                          disabled={config.openingIds.includes(id)}
+                          onClick={() => patch({ openingIds: [...config.openingIds, id] })}>🎬</button>
                   <button type="button" className="btn-mini" onClick={() => move(index, -1)}>↑</button>
                   <button type="button" className="btn-mini" onClick={() => move(index, 1)}>↓</button>
                   <button type="button" className="btn-mini" onClick={() => toggle(id)}>✕</button>
@@ -1194,11 +1539,17 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
 }
 
 /** Inspector：参数面板（阶段 2：接受选中对象；阶段 3 按对象轴重排）。 */
-export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, selection, rendered, variants, onVariants, focusGroup, onSelect, onOpenSearch }: {
+export function InspectorPane({ config, patch, mediaBriefs, missing, selection, rendered, variants, onVariants, focusGroup, onSelect, onOpenSearch }: {
   config: EditorConfig;
   patch: Patch;
   mediaBriefs: MediaBrief[];
-  missingByMedia: Record<number, string>;
+  /**
+   * 素材缺失清单（会话里后端判定的）。
+   *
+   * 2026-09-20 用户：「媒体片段删除后，推荐还占着，提示素材缺失，但是没有入口修复。要么补要么删无法操作」
+   * → 原来这里只收到一个「每媒体一条」的 reason map（丢信息、显 `#id`），现在直接拿完整清单，每条都给「补/删」两个入口。
+   */
+  missing: import('./api').MissingClip[];
   selection: import('./timeline').Selection;
   rendered: { input: import('../src/types').MultiMediaPocInput } | null;
   variants: import('./api').Variant[];
@@ -1210,12 +1561,21 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
   onOpenSearch: () => void;
 }) {
   const bgmInput = React.useRef<HTMLInputElement>(null);
+  const stingInput = React.useRef<HTMLInputElement>(null);
   const bgInput = React.useRef<HTMLInputElement>(null);
   /**
    * 分组开关：默认只开「当前对象」那组（和「素材缺失」）；用户点过的开关**记在本机**（localStorage），
    * 切对象/切 tab/刷新后保持 —— 但不进草稿与模板（那是内容，不是视图偏好）。
    */
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() => ({ object: true, missing: true, ...loadGroupOpen() }));
+  // 素材缺失是**错误态**：一旦出现就自动展开（localStorage 里可能记着它是折叠的）
+  const missingAutoOpened = React.useRef(false);
+  React.useEffect(() => {
+    if (missing.length === 0) { missingAutoOpened.current = false; return; }
+    if (missingAutoOpened.current) return;
+    missingAutoOpened.current = true;
+    setOpenGroups((current) => ({ ...current, missing: true }));
+  }, [missing.length]);
   const groupOpen = (id: string) => openGroups[id] ?? false;
   const toggleGroup = (id: string) => setOpenGroups((current) => {
     const next = { ...current, [id]: !(current[id] ?? false) };
@@ -1240,6 +1600,12 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
       tracks.push({ name: file.name, base64: await fileToBase64(file) });
     }
     patch({ bgmTracks: tracks });
+  };
+
+  const addSting = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    patch({ stingTracks: [{ name: file.name, base64: await fileToBase64(file) }] });
   };
 
   const addBg = async (files: FileList | null) => {
@@ -1305,6 +1671,50 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
             </div>
           ) : null}
           <div className="vt-scroll flush">
+      {/* 素材缺失**置顶**：它是错误态，不该埋在面板最下面（用户："太不明显了"） */}
+      {missing.length > 0 ? (
+        <Group id="missing" kicker="Missing" title={`素材缺失 ${missing.length} 项`} open={groupOpen('missing')} onToggle={toggleGroup}>
+          {/* 每一条都带「去补片段 / 移除这一条」；底部给一个「清理全部失效」 */}
+          <ul className="vt-missing-list">
+            {missing.map((item) => {
+              const title = mediaBriefs.find((value) => value.id === item.mediaId)?.title ?? `#${item.mediaId}`;
+              // 会话输入里这部媒体的**现存片段数**：0 就说明「去补」无门（素材库里已经一个不剩）
+              const available = rendered?.input.media.find((value) => value.mediaId === item.mediaId)?.clips.length ?? 0;
+              return (
+                <li key={`${item.mediaId}-${item.clipId}`}>
+                  <span className="vt-missing-text">
+                    <b>{title}</b>　{item.title || `片段 #${item.clipId}`}
+                    <small>
+                      {item.suggestedSourceTitle
+                        ? `这个片段属于同系列《${item.suggestedSourceTitle}》—— 一键改成「借片段」即可`
+                        : `${item.reason}${available === 0 ? '　·　库里已无片段，只能移除' : ''}`}
+                    </small>
+                  </span>
+                  <span className="vt-selected-btns">
+                    {item.suggestedSourceMediaId ? (
+                      <button type="button" className="btn-mini" style={{ color: '#ffd166', borderColor: 'rgba(255,209,102,.5)' }}
+                              title={`把片段 ${item.clipId} 改挂到《${item.suggestedSourceTitle}》（只写 sources，不删片段）`}
+                              onClick={() => patch({ mediaClips: attachWithSource(config.mediaClips, item.mediaId, item.clipId, item.suggestedSourceMediaId!) })}>
+                        ↩ 挂到同系列
+                      </button>
+                    ) : (
+                      <button type="button" className="btn-mini" disabled={available === 0}
+                              title={available === 0 ? '这部媒体在素材库里已经没有任何片段了' : '切到这部媒体，在「对象轴 → 片段」里换一个片段'}
+                              onClick={() => onSelect({ kind: 'media', mediaId: item.mediaId, title })}>去补</button>
+                    )}
+                    <button type="button" className="btn-mini" title="从推荐里拿掉这个片段（只改草稿，不动素材库）"
+                            onClick={() => patch({ mediaClips: withoutClip(config.mediaClips, item.mediaId, item.clipId) })}>移除</button>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <button type="button" className="btn-mini" onClick={() => patch({ mediaClips: dropAllMissing(config.mediaClips, missing) })}>
+            清理全部失效（{missing.length}）
+          </button>
+        </Group>
+        ) : null}
+
       <Group id="object" kicker="Object" title={selection.kind === 'global' ? '全局参数' : selectionHeader(selection, selectedMedia, selectedClip)}
              open={groupOpen('object')} onToggle={toggleGroup} forceOpen={focusGroup}>
         {selectedMedia ? (
@@ -1315,15 +1725,6 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
                 <button type="button" className="btn-mini" onClick={() => moveMedia(config, patch, selectedMedia.mediaId, -1)}>↑ 上移</button>
                 <button type="button" className="btn-mini" onClick={() => moveMedia(config, patch, selectedMedia.mediaId, 1)}>↓ 下移</button>
               </span>
-            </Field>
-            <Field label="开场代表秀" hl>
-              <input type="checkbox" checked={config.openingIds.includes(selectedMedia.mediaId)} onChange={() =>
-                patch({
-                  openingCustom: true,
-                  openingIds: config.openingIds.includes(selectedMedia.mediaId)
-                    ? config.openingIds.filter((id) => id !== selectedMedia.mediaId)
-                    : [...config.openingIds, selectedMedia.mediaId],
-                })} />
             </Field>
             <ClipPicker mediaId={selectedMedia.mediaId} title={selectedMedia.title} config={config} onClips={updateSelectedClips} />
             {selectedClip ? (
@@ -1389,13 +1790,13 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
       </Group>
 
       <Group id="timing" kicker="Timing" title="时长与显示" open={groupOpen('timing')} onToggle={toggleGroup} forceOpen={focusGroup}>
-        <Field label="显示时长（秒）" hint="开场 / 序言 / 章节 / 资料卡 / 结尾">
+        <Field label="显示时长（秒）" hint="开场 / 序言 / 章节 / 资料卡 / 片名卡 / 结尾">
           <span className="vt-durations">
-            {([['openingSec', '开场'], ['introSec', '序言'], ['groupSec', '章节'], ['detailSec', '资料'], ['endingSec', '结尾']] as const)
-              .map(([key, label]) => (
+            {([['openingSec', '开场', 2, 20], ['introSec', '序言', 1, 10], ['groupSec', '章节', 1, 10], ['detailSec', '资料', 3, 15], ['titleSec', '片名卡', 1, 5], ['endingSec', '结尾', 1, 10]] as const)
+              .map(([key, label, min, max]) => (
                 <label key={key} className="vt-duration">
                   <span>{label}</span>
-                  <input type="number" min={1} max={20} value={config[key]}
+                  <input type="number" min={min} max={max} value={config[key]}
                          onChange={(event) => patch({ [key]: Number(event.target.value) } as Partial<EditorConfig>)} />
                 </label>
               ))}
@@ -1411,26 +1812,25 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
               onChange={(event) => patch({ detailShow: { ...config.detailShow, tag: event.target.checked } })} />标签</label>
           </span>
         </Field>
-      </Group>
-
-      <Group id="opening" kicker="Opening" title="开场代表秀" open={groupOpen('opening')} onToggle={toggleGroup} forceOpen={focusGroup}>
-        <Field label="自定义开场封面">
-          <input type="checkbox" checked={config.openingCustom}
-                 onChange={(event) => patch({ openingCustom: event.target.checked })} />
+        {/* 结尾（落款）左侧：2026-09-20 用户「显示序号 名称 年份即可，或者做成可配置」→ 默认名单+序号+年份，统计可选 */}
+        <Field label="结尾名单" hint="落款幕左侧">
+          <span className="vt-inline-group">
+            <label className="vt-inline"><input type="checkbox" checked={config.detailShow.endingWall !== false}
+              onChange={(event) => patch({ detailShow: { ...config.detailShow, endingWall: event.target.checked } })} />封面墙</label>
+            <label className="vt-inline"><input type="checkbox" checked={config.detailShow.endingList !== false}
+              onChange={(event) => patch({ detailShow: { ...config.detailShow, endingList: event.target.checked } })} />名单</label>
+            <label className="vt-inline"><input type="checkbox" checked={config.detailShow.endingIndex !== false}
+              onChange={(event) => patch({ detailShow: { ...config.detailShow, endingIndex: event.target.checked } })} />序号</label>
+            <label className="vt-inline"><input type="checkbox" checked={config.detailShow.endingYear !== false}
+              onChange={(event) => patch({ detailShow: { ...config.detailShow, endingYear: event.target.checked } })} />年份</label>
+            <label className="vt-inline"><input type="checkbox" checked={config.detailShow.endingPaging === true}
+              onChange={(event) => patch({ detailShow: { ...config.detailShow, endingPaging: event.target.checked } })} />翻页</label>
+            <label className="vt-inline"><input type="checkbox" checked={config.detailShow.endingStats === true}
+              onChange={(event) => patch({ detailShow: { ...config.detailShow, endingStats: event.target.checked } })} />统计行</label>
+            {/* 时间账：名单/翻页会不会来不及播完（用户 2026-09-20：「防止播放不全」） */}
+            {endingHint(config) ? <span className="vt-ending-hint">{endingHint(config)}</span> : null}
+          </span>
         </Field>
-        <div className="vt-opening-list">
-          {config.ids.map((id) => {
-            const brief = mediaBriefs.find((item) => item.id === id);
-            const checked = config.openingIds.includes(id);
-            return (
-              <label key={id} className="vt-inline">
-                <input type="checkbox" checked={checked} disabled={!config.openingCustom} onChange={() =>
-                  patch({ openingIds: checked ? config.openingIds.filter((value) => value !== id) : [...config.openingIds, id] })} />
-                {brief?.title ?? `#${id}`}
-              </label>
-            );
-          })}
-        </div>
       </Group>
 
       <Group id="variants" kicker="Variants" title={`导出变体（${variants.length}）`} open={groupOpen('variants')} onToggle={toggleGroup} forceOpen={focusGroup}>
@@ -1441,6 +1841,18 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
         <button type="button" className="btn-mini" onClick={() => bgmInput.current?.click()}>🎵 添加音频</button>
         <input ref={bgmInput} type="file" accept="audio/*" multiple hidden
                onChange={(event) => { void addBgm(event.target.files); event.target.value = ''; }} />
+        <Field label="转场音乐">
+          <button type="button" className="btn-mini" onClick={() => stingInput.current?.click()}>🎵 选过渡音乐</button>
+          <input ref={stingInput} type="file" accept="audio/*" hidden
+                 onChange={(event) => { void addSting(event.target.files); event.target.value = ''; }} />
+          {config.stingTracks.length > 0 ? (
+            <button type="button" className="btn-mini" onClick={() => patch({ stingTracks: [] })}>移除</button>
+          ) : null}
+        </Field>
+        {config.stingTracks.length > 0 ? (
+          <Field label="转场音音量"><Range value={config.stingVolume} min={0} max={100} step={5} suffix="%"
+                 onChange={(value) => patch({ stingVolume: value })} /></Field>
+        ) : null}
         <ul className="vt-bgm-list">
           {config.bgmTracks.map((track, index) => (
             <li key={`${track.name}-${index}`}>
@@ -1450,6 +1862,36 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
             </li>
           ))}
         </ul>
+        {/* 片段原声：一个旋钮覆盖「静音」(0) 与「调小」(1~99)（用户 2026-09-20） */}
+        <Field label="片段原声音量"><Range value={config.clipVolume} min={0} max={100} step={5} suffix="%"
+               onChange={(value) => patch({ clipVolume: value })} />
+          <button type="button" className="btn-mini" onClick={() => patch({ clipVolume: config.clipVolume === 0 ? 100 : 0 })}>
+            {config.clipVolume === 0 ? '恢复原声' : '全静音'}
+          </button>
+        </Field>
+        {/* BGM 播放范围（用户 2026-09-20：先要「只在开头和结尾」，再要「片名卡也顺带播」）
+            → 多选集合：`all` / `none` / `opening,cards,ending` 的任意子集 */}
+        <Field label="BGM 播放范围">
+          <div className="vt-inline-group">
+            <label className="vt-inline">
+              <input type="checkbox" checked={config.bgmRange === 'all'}
+                     onChange={(event) => patch({ bgmRange: event.target.checked ? 'all' : 'opening,cards,ending' })} />
+              全程
+            </label>
+            {config.bgmRange === 'all' ? null : (
+              <>
+                {BGM_SEGMENTS.map(([key, label]) => (
+                  <label key={key} className="vt-inline">
+                    <input type="checkbox" checked={config.bgmRange.split(',').includes(key)}
+                           onChange={(event) => patch({ bgmRange: toggleBgmSegment(config.bgmRange, key, event.target.checked) })} />
+                    {label}
+                  </label>
+                ))}
+                {config.bgmRange === 'none' ? <span className="vt-hint">一段都没勾 → 全片不放 BGM</span> : null}
+              </>
+            )}
+          </div>
+        </Field>
         <Field label="音乐条缩放"><Range value={config.bgmScale} min={50} max={200} step={5} suffix="%"
                onChange={(value) => patch({ bgmScale: value })} /></Field>
         <Field label="音乐条位置 X"><Range value={config.bgmX} min={0} max={100}
@@ -1487,15 +1929,7 @@ export function InspectorPane({ config, patch, mediaBriefs, missingByMedia, sele
                onChange={(value) => patch({ bgBrightness: value })} /></Field>
       </Group>
 
-      {Object.keys(missingByMedia).length > 0 ? (
-        <Group id="missing" kicker="Missing" title={`素材缺失 ${Object.keys(missingByMedia).length} 项`} open={groupOpen('missing')} onToggle={toggleGroup}>
-          <ul className="vt-missing-list">
-            {Object.entries(missingByMedia).map(([mediaId, reason]) => (
-              <li key={mediaId}>#{mediaId}：{reason}</li>
-            ))}
-          </ul>
-        </Group>
-        ) : null}
+
           </div>
         </div>
       </div>

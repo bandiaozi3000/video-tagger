@@ -17,11 +17,17 @@ import { resolveParams } from '../params';
  */
 
 export const CINEMA_FONT = {
-  /** 展示字体：真字重黑体（本机实测命中；旧版用的宋体没有 900 字重，会被浏览器合成伪粗 → 廉价感来源）。 */
-  display: '"阿里巴巴普惠体 2 115 Black","阿里巴巴普惠体 2 105 Heavy","阿里巴巴普惠体 2 85 Bold","PingFang SC",sans-serif',
-  /** 数字/西文：现代几何无衬线。 */
-  num: '"Mona-Sans","阿里巴巴普惠体 2 65 Medium","PingFang SC",sans-serif',
-  body: '"阿里巴巴普惠体 2 55 Regular","PingFang SC","Microsoft YaHei",sans-serif',
+  /**
+   * 展示字体：项目自带 ttf（`public/fonts`，由 `fonts.tsx` 用 FontFace 注入）+ 系统真名兜底。
+   *
+   * 2026-09-20 实测修正：旧写法 `阿里巴巴普惠体 2 115 Black` 在 Windows 上**从未命中**
+   * （字体真名是 `阿里巴巴普惠体 2.0`），标题一直退化成系统默认 sans 的 Regular 字重。
+   */
+  display: '"VTPuhuiBlack","阿里巴巴普惠体 2.0","PingFang SC",sans-serif',
+  /** 数字/西文：项目自带 Mona Sans（可变字体）；旧写法 `Mona-Sans` 同样没命中（真名带空格）。 */
+  num: '"VTMonaSans","Mona Sans","阿里巴巴普惠体 2.0","PingFang SC",sans-serif',
+  /** 正文：不内嵌（8MB 的 Regular 不值得进包），走系统真名 + 浏览器兜底。 */
+  body: '"阿里巴巴普惠体 2.0","PingFang SC","Microsoft YaHei",sans-serif',
 };
 
 export const CINEMA_COLOR = {
@@ -153,14 +159,18 @@ export function buildCinemaPlan(input: MultiMediaPocInput): CinemaPlan {
   };
 
   const openingFrames = secondsToFrames(params.durations.opening, fps);
-  // 开屏 = 速览段 + 定格段（用户 2026-09-19 换思路：先让观众**快速扫一遍清单**建立印象，再定格主题）。
-  // 速览段要容得下四个动作：整版铺开（每张错峰 2 帧）→ 轻微后退 → 数字升起 → 高光扫过一遍。
-  // `durations.opening` 在这里是**上限**：比 scan+settle 大时不补空（宁可短，不拉长节奏）。
-  const scanMedias = scanList(media);
-  const scanFrames = Math.max(secondsToFrames(2.4, fps), Math.min(secondsToFrames(4.5, fps), Math.round(openingFrames * 0.6)));
-  const settleFrames = Math.max(secondsToFrames(2.5, fps), Math.min(secondsToFrames(5, fps), openingFrames - scanFrames));
+  // 开屏 = 速览段（掠影 + 落位）+ 定格段。
+  // 时长**由用户设置说了算**（用户 2026-09-20 拍板）：掠影占 55%，其余留给定格段。
+  // 旧版把这里夹成 scan≤4.5s / settle≤5s（=开场永远 9.5s 封顶），设置 ≥9.5s 就完全失效。
+  // 场景短于自然拍点时由 `Scan` 自己等比压缩拍点，不再在这里夹紧。
+  const scanMedias = scanList(media, params.openingIds);
+  const scanFrames = Math.max(1, Math.round(openingFrames * 0.55));
+  const settleFrames = Math.max(1, openingFrames - scanFrames);
   const detailFrames = secondsToFrames(params.durations.detail, fps);
-  const titleFrames = Math.max(secondsToFrames(1.0, fps), Math.min(secondsToFrames(2.0, fps), Math.round(detailFrames * 0.25)));
+  // 片名卡：**独立时长**（`durations.title`，1-5s，默认 2）。
+  // 2026-09-20 之前它是 `clamp(detail × 0.25, 1s, 2s)` → 拖片名卡实际改的是「资料卡」时长，
+  // 而且被 2s 封顶，用户反馈「2S 提不上去」。现在拖它只改它自己。
+  const titleFrames = Math.max(1, secondsToFrames(params.durations.title, fps));
 
   push({ type: 'SCAN', mediaIds: scanMedias.map((item) => item.mediaId) }, scanFrames);
   push({ type: 'SETTLE' }, settleFrames);
@@ -185,8 +195,9 @@ export function buildCinemaPlan(input: MultiMediaPocInput): CinemaPlan {
   const episodes = media.reduce((sum, item) => sum + (item.episodeCount ?? 0), 0);
   const clips = media.reduce((sum, item) => sum + item.clips.length, 0);
   const years = media.map((item) => item.year).filter((year): year is number => typeof year === 'number');
-  // 原声区间：有音轨的片段幕（BGM 在这些帧里压低）
-  const audioWindows = scenes
+  // 原声区间：有音轨的片段幕（BGM 在这些帧里压低）。
+  // 2026-09-20：用户把片段原声静音（clipVolume = 0）时**不应再压 BGM** —— 否则 BGM 白压一档、听感像「中途变小声」。
+  const audioWindows = params.clipVolume <= 0 ? [] : scenes
     .filter((scene) => {
       if (scene.type !== 'CLIP' || scene.mediaId === undefined) return false;
       const clip = mediaIndex.get(scene.mediaId)?.clips.find((item) => item.clipId === scene.clipId);
@@ -217,13 +228,18 @@ export function buildCinemaPlan(input: MultiMediaPocInput): CinemaPlan {
 }
 
 /**
- * 速览用哪些媒体：**整份清单**（上限 36 张——再多也读不出印象了）。
+ * 速览用哪些媒体：**开场代表秀（`openingIds`）优先**，其余按清单顺序补齐，上限 36 张（再多也读不出印象）。
  *
- * 与之前的“闪回”不同：速览不挑媒体、不逐个停留，而要**一屏全部铺开**，
- * 因为“大致印象”来自数量、色彩分布与密度，而不是顺序。
+ * 前 5 张会落到开场那几张**大卡**上（`Scan` 的 hero + 4 张飘落卡），所以“开场封面选取”改这里才生效；
+ * 旧版直接 `media.slice(0,36)`，用户在「开场代表秀」里勾了什么都会被忽略（用户 2026-09-20 报的 bug）。
  */
-export function scanList(media: PocMedia[]): PocMedia[] {
-  return media.slice(0, 36);
+export function scanList(media: PocMedia[], openingIds: number[] = []): PocMedia[] {
+  const picked: PocMedia[] = [];
+  for (const id of openingIds) {
+    const item = media.find((candidate) => candidate.mediaId === id && !picked.includes(candidate));
+    if (item) picked.push(item);
+  }
+  return [...picked, ...media.filter((item) => !picked.includes(item))].slice(0, 36);
 }
 
 /** 该场景所属媒体（场景阶段用；SCAN/SETTLE/ENDING 无媒体）。 */
@@ -231,15 +247,17 @@ export function mediaOfCinemaScene(plan: CinemaPlan, scene: CinemaScene): PocMed
   return scene.mediaId === undefined ? null : plan.mediaIndex.get(scene.mediaId) ?? null;
 }
 
-/** 片单卡/落款用的数字文案（缺数据就不显示，不编造）。 */
+/**
+ * 片单卡/落款用的数字文案。
+ *
+ * 用户 2026-09-20 定稿：开场那行只留「部数 · 年份」——集数（与片段数）不再出现：
+ * 观众要的是「这期推了哪些、什么年份」，不是统计表。每部的集数仍在资料卡 `Facts` 里（那里保留）。
+ */
 export function cinemaStatLines(plan: CinemaPlan): string[] {
   const { stats } = plan;
-  const years = stats.yearFrom && stats.yearTo
-    ? (stats.yearFrom === stats.yearTo ? `${stats.yearFrom}` : `${stats.yearFrom} – ${stats.yearTo}`)
-    : '';
   return [
-    stats.episodes > 0 ? `${stats.episodes} 集` : '',
-    stats.clips > 0 ? `${stats.clips} 个片段` : '',
-    years,
+    stats.yearFrom && stats.yearTo
+      ? (stats.yearFrom === stats.yearTo ? `${stats.yearFrom}` : `${stats.yearFrom} – ${stats.yearTo}`)
+      : '',
   ].filter(Boolean);
 }

@@ -56,22 +56,38 @@ function Get-DockerCommand {
     }
 }
 
+# Windows PowerShell 5.1 的坑：`$ErrorActionPreference = 'Stop'` 时，**原生命令往 stderr 写会变成终止性异常**。
+# 后果实测（2026-09-20）：Docker Desktop 引擎重启的那几分钟里，`docker info` 的 stderr 直接抛出，
+# 整个监工写下 "Watcher stopped unexpectedly" 后**永久退出**（当天日志里发生了两次）。
+# 所以所有 docker 调用都走这个包装：错误降级为退出码，让循环能继续轮询。
+function Invoke-DockerQuiet {
+    param([string[]]$DockerArgs)
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = @(& $dockerCommand @DockerArgs 2>$null)
+        return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
 function Get-MySqlContainerState {
     if ($null -eq $dockerCommand) {
         return 'docker-cli-missing'
     }
 
-    $null = & $dockerCommand info --format '{{.ServerVersion}}' 2>$null
-    if ($LASTEXITCODE -ne 0) {
+    if ((Invoke-DockerQuiet @('info', '--format', '{{.ServerVersion}}')).ExitCode -ne 0) {
         return 'docker-unavailable'
     }
 
-    $inspect = @(& $dockerCommand inspect --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}no-health{{end}}' $ContainerName 2>$null)
-    if ($LASTEXITCODE -ne 0 -or $inspect.Count -eq 0) {
+    $inspect = Invoke-DockerQuiet @('inspect', '--format', '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}no-health{{end}}', $ContainerName)
+    if ($inspect.ExitCode -ne 0 -or $inspect.Output.Count -eq 0) {
         return 'container-missing'
     }
 
-    $parts = ($inspect[0].ToString().Trim() -split '\|', 2)
+    $parts = ($inspect.Output[0].ToString().Trim() -split '\|', 2)
     if ($parts.Count -lt 2) {
         return 'container-unknown'
     }
@@ -128,13 +144,11 @@ mysqldump --user=root --single-transaction --routines --events --triggers --hex-
 "@
 
         Write-BackupLog INFO ("Starting MySQL backup: {0}" -f $fileName)
-        $null = & $dockerCommand exec $ContainerName sh -c $dumpCommand 2>$null
-        if ($LASTEXITCODE -ne 0) {
+        if ((Invoke-DockerQuiet @('exec', $ContainerName, 'sh', '-c', $dumpCommand)).ExitCode -ne 0) {
             throw 'mysqldump failed inside vt-mysql'
         }
 
-        $null = & $dockerCommand cp ("{0}:{1}" -f $ContainerName, $remoteFile) $tempProjectFile 2>$null
-        if ($LASTEXITCODE -ne 0) {
+        if ((Invoke-DockerQuiet @('cp', ("{0}:{1}" -f $ContainerName, $remoteFile), $tempProjectFile)).ExitCode -ne 0) {
             throw 'docker cp failed while collecting the dump'
         }
 
@@ -161,7 +175,7 @@ mysqldump --user=root --single-transaction --routines --events --triggers --hex-
         Remove-Item -LiteralPath $tempProjectFile -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $tempCDriveFile -Force -ErrorAction SilentlyContinue
         if ($null -ne $dockerCommand) {
-            $null = & $dockerCommand exec $ContainerName rm -f $remoteFile 2>$null
+            $null = Invoke-DockerQuiet @('exec', $ContainerName, 'rm', '-f', $remoteFile)
         }
     }
 }

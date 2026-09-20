@@ -5,7 +5,10 @@ import { assetUrl } from '../asset-url';
 import { pad2 } from '../scenes/parts';
 import type { RenderParams } from '../params';
 import type { PocClip, PocMedia } from '../types';
-import { BigNumber, BigTitle, CinemaEntrance, Facts, LowerThird, Rule, useEnterCinema } from './parts';
+import { BigNumber, BigTitle, CinemaEntrance, Facts, LowerThird, NoteQuote, Rule, useEnterCinema } from './parts';
+import { clipDurationLabel, clipSourceLine } from './time';
+import { cinemaLayoutCached, heroCardCount } from './slots';
+import { endingListRow, endingListRows, endingListSpeedPaused, endingPageSlice, endingPages, endingRowsPerPage, endingScrollBase, endingShow, endingStatLines, ENDING_START_PAUSE_SEC, WALL_SPEED_FACTORS } from './ending';
 import { CINEMA_COLOR, CINEMA_FONT, CINEMA_LAYOUT, cinemaStatLines, readableOn, withAlpha, type CinemaPlan, type CinemaScene } from './plan';
 
 /**
@@ -46,8 +49,14 @@ export function Scan({ scene, plan, assetBaseUrl }: SceneProps) {
   const safe = Math.round(width * CINEMA_LAYOUT.safeX);
   const fps = plan.fps;
 
-  // 主推（`openingIds` 取到的前 5 部）：第 1 张落最大的位置，其余先掠过
-  const heroes = list.slice(0, 5);
+  // 主推（开场代表秀）：勾了代表秀就全上，没勾就按片单顺序；张数由**时长**与布局上限决定（用户 2026-09-20 选 B）
+  const wantedHeroes = plan.params.openingIds.length > 0
+    ? plan.params.openingIds.filter((id) => list.some((item) => item.mediaId === id)).length
+    : list.length;
+  const heroCount = Math.min(heroCardCount(durationInFrames / fps, wantedHeroes), list.length);
+  const heroes = list.slice(0, Math.max(1, heroCount));
+  // 摆位：Hero 固定不动，其余由草稿里的 seed 驱动（确定性随机 + 拒绝采样避开 Hero，见 slots.ts）
+  const layout = cinemaLayoutCached(heroes.length, plan.params.seed);
   const hero = heroes[0];
   const raiders = heroes.slice(1);
   const farList = list.length > heroes.length ? list.slice(heroes.length) : list;
@@ -83,30 +92,49 @@ export function Scan({ scene, plan, assetBaseUrl }: SceneProps) {
         {/* 远景层：整面墙反向漂移 + 恒定模糊，只做氛围与纵深（不抢主体） */}
         <FarWall list={farList} plan={plan} assetBaseUrl={assetBaseUrl} width={width} height={height} frame={frame} fps={fps} />
 
-        {/* 标题层：**在卡片之下**——掠过的封面会遮住它一瞬，这是刻意的遮挡交互 */}
-        <div style={{ position: 'absolute', left: safe, bottom: Math.round(height * 0.11), zIndex: 5 }}>
+        {/*
+         * 标题层：**在卡片之上**（zIndex 25 > 卡片 12~20）。
+         * 用户 2026-09-20 定稿：掠影期间的遮挡可以留，但**定格后标题必须干净可读**。
+         * 「幽灵卡」在透视容器之外（zIndex 30），掠过时仍会盖住它一瞬 → 那个互动保留。
+         */}
+        {/* 标题块：2026-09-20 用户提“开头标题偏靠下” → bottom 0.11 → 0.19（约上移 8% 画面高，压暗层跟着走） */}
+        <div style={{ position: 'absolute', left: safe, bottom: Math.round(height * 0.19), zIndex: 25 }}>
+          {/* 角落压暗（不是玻璃/发光）：白字压在高亮封面上会糊，用它把标题区单独压出来 */}
           <div
             style={{
+              position: 'absolute',
+              left: -safe,
+              right: -Math.round(width * 0.22),
+              top: -Math.round(height * 0.06),
+              bottom: -Math.round(height * 0.045),
+              background: 'radial-gradient(88% 132% at 0% 88%, rgba(5,6,9,.92) 0%, rgba(5,6,9,.62) 46%, rgba(5,6,9,0) 82%)',
+              pointerEvents: 'none',
+            }}
+          />
+          <div
+            style={{
+              position: 'relative',
               ...riseIn(titleIn, Math.round(height * 0.06)),
               fontFamily: CINEMA_FONT.display,
-              fontSize: Math.round(height * 0.088),
+              fontWeight: 900,
+              fontSize: Math.round(height * 0.104),
               lineHeight: 1,
-              color: CINEMA_COLOR.ink,
-              textShadow: '0 8px 34px rgba(0,0,0,.75)',
+              color: '#fff',
+              textShadow: '0 2px 8px rgba(0,0,0,.85), 0 10px 38px rgba(0,0,0,.7)',
               whiteSpace: 'nowrap',
             }}
           >
             {plan.params.title || '本次片单'}
           </div>
-          <div style={{ ...riseIn(statIn, Math.round(height * 0.03)), marginTop: Math.round(height * 0.022), display: 'flex', alignItems: 'center', gap: Math.round(height * 0.024) }}>
+          <div style={{ position: 'relative', ...riseIn(statIn, Math.round(height * 0.03)), marginTop: Math.round(height * 0.026), display: 'flex', alignItems: 'center', gap: Math.round(height * 0.024) }}>
             <Rule color={accent} width={width} height={height} />
-            <div style={{ fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.025), letterSpacing: Math.round(height * 0.005), color: 'rgba(255,255,255,.88)', textShadow: '0 2px 12px rgba(0,0,0,.7)' }}>
+            <div style={{ fontFamily: CINEMA_FONT.num, fontWeight: 600, fontSize: Math.round(height * 0.027), letterSpacing: Math.round(height * 0.004), color: 'rgba(255,255,255,.94)', textShadow: '0 2px 12px rgba(0,0,0,.85)' }}>
               {[`${plan.stats.titles} 部`, ...cinemaStatLines(plan)].join('　·　')}
             </div>
           </div>
         </div>
 
-        {/* 掠影 + 落位的中景卡片 */}
+        {/* 掠影 + 落位的中景卡片（第 6 张起是小卡陪衬，见 `slots.ts`） */}
         {raiders.map((item, index) => (
           <RaidCard
             key={item.mediaId}
@@ -119,10 +147,10 @@ export function Scan({ scene, plan, assetBaseUrl }: SceneProps) {
             fps={fps}
             index={index}
             arriveAt={index * raidStep}
-            slot={SLOTS[index + 1] ?? SLOTS[SLOTS.length - 1]}
+            slot={layout[index + 1]}
           />
         ))}
-        {/* 主推：先贴脸冲入点着画面，落最大的位置 */}
+        {/* 主推：先贴脸冲入点着画面，落最大的位置；**最后画（在最上）** —— 09-19 审定版的层叠关系，别动 */}
         {hero ? (
           <RaidCard
             item={hero}
@@ -134,7 +162,7 @@ export function Scan({ scene, plan, assetBaseUrl }: SceneProps) {
             fps={fps}
             index={0}
             arriveAt={0}
-            slot={SLOTS[0]}
+            slot={layout[0]}
             hero
           />
         ) : null}
@@ -174,16 +202,7 @@ export function Scan({ scene, plan, assetBaseUrl }: SceneProps) {
   );
 }
 
-/** 五张卡片的落位（画幅比例）：尺度差 + 重叠 + 出血——刻意不是网格。 */
-const SLOTS: { x: number; y: number; s: number; rot: number }[] = [
-  { x: 0.3, y: 0.52, s: 1.0, rot: -3 },
-  { x: 0.56, y: 0.34, s: 0.74, rot: 2.5 },
-  { x: 0.71, y: 0.62, s: 0.6, rot: -2 },
-  { x: 0.86, y: 0.3, s: 0.5, rot: 4 },
-  { x: 0.95, y: 0.65, s: 0.44, rot: -5 },
-];
-
-/** 确定性颗粒：SVG feTurbulence（不需要随机数；逐帧平移背景即可"呼吸"）。 */
+/** 确定性颗粒：SVG feTurbulence（不需要随机数；逐帧平移背景即可“呼吸”）。 */
 const GRAIN = `url("data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"/></filter><rect width="160" height="160" filter="url(#n)" opacity="0.55"/></svg>',
 )}")`;
@@ -371,8 +390,10 @@ export function Settle({ scene, plan, assetBaseUrl }: SceneProps) {
   const statIn = useEnterCinema(Math.round(fps * 0.35));
 
   // 栅栏几何
-  const stripW = Math.round(width * 0.115);
+  // 条宽按封面比例（3:4）而不是固定 0.115w：定格段的封面要**完整**——
+  // 固定 0.115w 时条是 0.487 比例，3:4 的封面会被 `object-fit: cover` 横向裁掉 35%（用户 2026-09-20 报「有几张只显示部分」）。
   const stripH = Math.round(height * 0.42);
+  const stripW = Math.round(stripH * 0.75);
   const gap = Math.round(width * 0.012);
   const pitch = stripW + gap;
   const seam = Math.round(height * 0.5);
@@ -390,7 +411,8 @@ export function Settle({ scene, plan, assetBaseUrl }: SceneProps) {
     const from = top ? -1 : 1;
     const dist = Math.abs(x + stripW / 2 - width / 2) / (width / 2);
     const spot = Math.max(0, 1 - dist) ** 2;
-    const shade = 0.46 + (0.5 + spot * 0.5) * drop;
+    // 2026-09-20：整体亮度封顶（旧公式中段能到 1.46 → 最亮的封面正好贴在字旁边，"背景太亮"就是它）
+    const shade = 0.42 + (0.36 + spot * 0.28) * drop;
     return (
       <div key={`${top ? 't' : 'b'}-${item.mediaId}-${i}`} style={{ position: 'absolute', left: x, top: top ? topY : bottomY, width: stripW, height: stripH, transform: `translateY(${(1 - drop) * from * -stripH * 0.85}px)`, opacity: drop }}>
         <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', outline: `1px solid rgba(255,255,255,${(0.08 + spot * 0.16).toFixed(3)})` }}>
@@ -404,10 +426,23 @@ export function Settle({ scene, plan, assetBaseUrl }: SceneProps) {
           <div style={{ position: 'absolute', left: 8, [top ? 'top' : 'bottom']: 8, fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.017), color: 'rgba(255,255,255,.7)' }}>
             {String(index + 1).padStart(2, '0')}
           </div>
-          <div style={{ position: 'absolute', left: 8, right: 8, [top ? 'bottom' : 'bottom']: 10, fontFamily: CINEMA_FONT.body, fontSize: Math.round(height * 0.019), lineHeight: 1.25, color: '#fff', textShadow: '0 2px 10px rgba(0,0,0,.9)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', opacity: Math.min(1, spot * 1.6) }}>
+          {/* 封面标题放在**远端**（旧代码三元写成了 `top ? 'bottom' : 'bottom'`，上排的标题全贴在缝边上 → 缝口又亮又乱） */}
+          <div style={{ position: 'absolute', left: 8, right: 8, [top ? 'top' : 'bottom']: Math.round(height * 0.013), fontFamily: CINEMA_FONT.body, fontSize: Math.round(height * 0.019), lineHeight: 1.25, color: '#fff', textShadow: '0 2px 10px rgba(0,0,0,.9)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', opacity: Math.min(1, spot * 1.6) }}>
             {item.title}
           </div>
         </div>
+        {/* 靠缝一端渐隐：让墙面"让位"给文字带，而不是把最亮的封面怼在字旁边 */}
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            [top ? 'bottom' : 'top']: 0,
+            height: '60%',
+            background: `linear-gradient(${top ? '180deg' : '0deg'}, rgba(5,7,10,0) 0%, rgba(5,7,10,.55) 55%, rgba(5,7,10,.92) 100%)`,
+            pointerEvents: 'none',
+          }}
+        />
       </div>
     );
   };
@@ -426,22 +461,34 @@ export function Settle({ scene, plan, assetBaseUrl }: SceneProps) {
         return strip(item, ((i % list.length) + list.length) % list.length, i, false);
       })}
 
-      {/* 中间的缝：压暗 + 主题/副标题/引言/统计 */}
-      <div style={{ position: 'absolute', left: 0, right: 0, top: seam - Math.round(height * 0.085), height: Math.round(height * 0.17), background: 'linear-gradient(180deg, rgba(8,9,11,0) 0%, rgba(8,9,11,.9) 34%, rgba(8,9,11,.95) 62%, rgba(8,9,11,0) 100%)' }} />
-      <div style={{ position: 'absolute', left: safe, right: safe, top: seam - Math.round(height * 0.028) }}>
+      {/*
+       * 中央"展带"（2026-09-20 重做）：不再是模糊的软渐变，而是**不透明核心 + 羽化边**的宽幅暗带，
+       * 文字坐在带上——展签/字幕带的语言，不用玻璃与发光。
+       */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          top: seam - Math.round(height * 0.15),
+          height: Math.round(height * 0.3),
+          background: 'linear-gradient(180deg, rgba(5,6,9,0) 0%, rgba(5,6,9,.72) 18%, rgba(5,6,9,.96) 36%, rgba(5,6,9,.96) 64%, rgba(5,6,9,.72) 82%, rgba(5,6,9,0) 100%)',
+        }}
+      />
+      <div style={{ position: 'absolute', left: safe, right: safe, top: seam - Math.round(height * 0.056) }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: Math.round(width * 0.022), flexWrap: 'wrap' }}>
-          <div style={{ ...riseIn(subIn, height * 0.04), fontFamily: CINEMA_FONT.display, fontSize: Math.round(height * 0.072), lineHeight: 1, color: CINEMA_COLOR.ink, textShadow: '0 6px 30px rgba(0,0,0,.8)', whiteSpace: 'nowrap' }}>
+          <div style={{ ...riseIn(subIn, height * 0.04), fontFamily: CINEMA_FONT.display, fontWeight: 900, fontSize: Math.round(height * 0.088), lineHeight: 1, color: '#fff', textShadow: '0 2px 10px rgba(0,0,0,.9), 0 12px 44px rgba(0,0,0,.75)', whiteSpace: 'nowrap' }}>
             {showTitle || !params.subtitle.trim() ? params.title || `${list.length} 部推荐` : params.subtitle}
           </div>
-          <div style={{ ...riseIn(statIn, height * 0.02), display: 'flex', alignItems: 'center', gap: Math.round(height * 0.02) }}>
+          <div style={{ ...riseIn(statIn, height * 0.02), display: 'flex', alignItems: 'center', gap: Math.round(height * 0.02), paddingBottom: Math.round(height * 0.008) }}>
             <Rule color={accent} width={width} height={height} />
-            <div style={{ fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.022), letterSpacing: Math.round(height * 0.005), color: 'rgba(255,255,255,.8)', textShadow: '0 2px 10px rgba(0,0,0,.8)' }}>
+            <div style={{ fontFamily: CINEMA_FONT.num, fontWeight: 600, fontSize: Math.round(height * 0.026), letterSpacing: Math.round(height * 0.004), color: 'rgba(255,255,255,.94)', textShadow: '0 2px 10px rgba(0,0,0,.85)' }}>
               {[`${plan.stats.titles} 部`, ...cinemaStatLines(plan)].join('　·　')}
             </div>
           </div>
         </div>
         {intro ? (
-          <div style={{ ...riseIn(subIn, height * 0.02), marginTop: Math.round(height * 0.018), maxWidth: '44ch', fontFamily: CINEMA_FONT.body, fontSize: Math.round(height * 0.026), lineHeight: 1.55, color: '#dedcd8', textShadow: '0 3px 18px rgba(0,0,0,.9)', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          <div style={{ ...riseIn(subIn, height * 0.02), marginTop: Math.round(height * 0.022), maxWidth: '44ch', fontFamily: CINEMA_FONT.body, fontSize: Math.round(height * 0.028), lineHeight: 1.55, color: '#e8e6e2', textShadow: '0 3px 18px rgba(0,0,0,.95)', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
             {intro}
           </div>
         ) : null}
@@ -458,12 +505,19 @@ export function Settle({ scene, plan, assetBaseUrl }: SceneProps) {
  */
 export function TitleCard({ scene, plan, assetBaseUrl }: SceneProps) {
   const { width, height } = useVideoConfig();
+  const params = plan.params;
   const media = scene.mediaId === undefined ? null : plan.mediaIndex.get(scene.mediaId) ?? null;
   if (!media) return null;
   const accent = scene.accent ?? plan.accentOf(media);
   const safe = Math.round(width * CINEMA_LAYOUT.safeX);
   const card = CARD_GEOM(width, height);
   const textLeft = card.x + card.w + Math.round(width * 0.045);
+  const frame = useCurrentFrame();
+  // 备注出场（2026-09-20 用户要求与片段屏一致）：标题/事实行先站好，备注再从下往上进。
+  // 片名卡最短 1.0s，所以起点卡在 0.55s、走完 1.0s——再晚就会吞掉整段。
+  const noteDelay = Math.round(plan.fps * 0.55);
+  const noteRaw = interpolate(frame, [noteDelay, noteDelay + Math.round(plan.fps * 0.45)], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const noteIn = 1 - Math.pow(1 - noteRaw, 3);
 
   return (
     <CinemaEntrance prevAccent={scene.prevAccent}>
@@ -496,7 +550,8 @@ export function TitleCard({ scene, plan, assetBaseUrl }: SceneProps) {
         <div style={{ position: 'absolute', left: textLeft, right: safe, top: card.y + Math.round(height * 0.02) }}>
           <BigNumber text={pad2(scene.order ?? 1)} size={Math.round(height * CINEMA_LAYOUT.numRatio)} color={accent} from={0} opacity={0.95} />
           <div style={{ marginTop: Math.round(height * 0.02) }}>
-            <BigTitle text={media.title} size={Math.round(height * CINEMA_LAYOUT.titleRatio * 0.86)} color={CINEMA_COLOR.ink} maxWidth="10ch" from={Math.round(plan.fps * 0.12)} />
+            {/* maxWidth 用字号换算（CJK 下 1 字 ≈ 1em）：原来写 '10ch' 只有约 5 个汉字宽 → 「蓝兰岛漂流记」会被断成两行 */}
+            <BigTitle text={media.title} size={Math.round(height * CINEMA_LAYOUT.titleRatio * 0.86)} color={CINEMA_COLOR.ink} maxWidth={String(Math.round(height * CINEMA_LAYOUT.titleRatio * 0.86 * 9))} from={Math.round(plan.fps * 0.12)} />
           </div>
           <div style={{ marginTop: Math.round(height * 0.038) }}>
             <Rule color={accent} width={width} height={height} />
@@ -504,10 +559,16 @@ export function TitleCard({ scene, plan, assetBaseUrl }: SceneProps) {
           <div style={{ marginTop: Math.round(height * 0.032) }}>
             <Facts media={media} size={Math.round(height * CINEMA_LAYOUT.metaRatio)} color={CINEMA_COLOR.muted} />
           </div>
-          {media.description?.trim() ? (
-            <div style={{ marginTop: Math.round(height * 0.032), maxWidth: '16ch', fontFamily: CINEMA_FONT.body, fontSize: Math.round(height * 0.028), lineHeight: 1.6, color: '#d8d6d2' }}>
-              {media.description.trim()}
-            </div>
+          {/* 备注（= 用户手写的推荐语）：接「备注」开关 + 引语块样式（渲染在 parts.tsx 的 NoteQuote）
+              + 与片段屏同语言的出场动画（淡入 + 上浮） */}
+          {params.detailShow.note ? (
+            <NoteQuote text={media.description ?? ''} accent={accent} width={width} height={height}
+                       size={0.029} maxLines={3} color="#ffffff"
+                       style={{
+                         marginTop: Math.round(height * 0.032),
+                         opacity: noteIn.toFixed(3),
+                         transform: `translateY(${((1 - noteIn) * Math.round(height * 0.018)).toFixed(1)}px)`,
+                       }} />
           ) : null}
         </div>
 
@@ -554,16 +615,13 @@ export function CoverShot({ scene, plan, assetBaseUrl }: SceneProps) {
         <div style={{ position: 'absolute', left: textLeft, right: Math.round(width * CINEMA_LAYOUT.safeX), top: Math.round(height * 0.26) }}>
           <BigNumber text={pad2(scene.order ?? 1)} size={Math.round(height * 0.062)} color={accent} from={0} opacity={0.95} />
           <div style={{ marginTop: Math.round(height * 0.028) }}>
-            <BigTitle text={media.title} size={Math.round(height * CINEMA_LAYOUT.coverTitleRatio)} color={CINEMA_COLOR.ink} maxWidth="9ch" from={Math.round(plan.fps * 0.1)} />
+            <BigTitle text={media.title} size={Math.round(height * CINEMA_LAYOUT.coverTitleRatio)} color={CINEMA_COLOR.ink} maxWidth={String(Math.round(height * CINEMA_LAYOUT.coverTitleRatio * 8))} from={Math.round(plan.fps * 0.1)} />
           </div>
           <div style={{ marginTop: Math.round(height * 0.038) }}>
             <Facts media={media} size={Math.round(height * CINEMA_LAYOUT.metaRatio * 0.94)} color={CINEMA_COLOR.muted} />
           </div>
-          {quote ? (
-            <div style={{ marginTop: Math.round(height * 0.046), maxWidth: '19ch', fontFamily: CINEMA_FONT.body, fontSize: Math.round(height * 0.031), lineHeight: 1.6, color: '#c9c7c3', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-              {quote}
-            </div>
-          ) : null}
+          <NoteQuote text={quote} accent={accent} width={width} height={height}
+                     size={0.028} maxLines={4} style={{ marginTop: Math.round(height * 0.046) }} />
         </div>
         <div style={{ position: 'absolute', left: textLeft, bottom: Math.round(height * 0.11) }}>
           <div style={{ fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.019), letterSpacing: Math.round(height * 0.004), color: CINEMA_COLOR.dim }}>
@@ -618,6 +676,11 @@ export function ClipShot({ scene, plan, assetBaseUrl }: SceneProps) {
   const tw = interpolate(ease, [0, 1], [card.w, info.thumb.w]);
   const th = interpolate(ease, [0, 1], [card.h, info.thumb.h]);
   const infoText = interpolate(morph, [0.5, 0.88], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  // 备注：等信息卡落定后再进（按帧计——morph 只有 0.7s，跟它同步会让整块一起堆上来）
+  const noteDelay = Math.round(plan.fps * 0.85);
+  const noteRaw = interpolate(frame, [noteDelay, noteDelay + Math.round(plan.fps * 0.45)], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const noteIn = 1 - Math.pow(1 - noteRaw, 3);
+  const noteText = (clip.note?.trim() || media.description?.trim() || '').trim();
   // 极慢的单向推镜（不是往复缩放）
   const push = interpolate(frame, [0, Math.max(1, durationInFrames - 1)], [1.0, 1.02], { extrapolateRight: 'clamp' });
 
@@ -646,7 +709,7 @@ export function ClipShot({ scene, plan, assetBaseUrl }: SceneProps) {
           <OffthreadVideo src={src} muted style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(38px) brightness(.34) saturate(1.1)' }} />
         </div>
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <OffthreadVideo src={src} muted={!clip.hasAudio} style={{ width: '100%', height: '100%', objectFit: 'contain', transform: `scale(${push.toFixed(4)})` }} />
+          <OffthreadVideo src={src} muted={!clip.hasAudio || params.clipVolume <= 0} volume={params.clipVolume / 100} style={{ width: '100%', height: '100%', objectFit: 'contain', transform: `scale(${push.toFixed(4)})` }} />
         </div>
       </div>
 
@@ -677,10 +740,13 @@ export function ClipShot({ scene, plan, assetBaseUrl }: SceneProps) {
 
       {/* 上带：集号 | 标签 · 片段计数 */}
       <div style={{ position: 'absolute', left: safe, top: Math.round(height * 0.11), opacity: ease, fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.021), letterSpacing: Math.round(height * 0.005), color: 'rgba(255,255,255,.85)' }}>
+        {/* 只报集号（2026-09-20 用户拍板：集标题**一律不显示**）。
+            库里那些标题是抓来的网页标题/多段式长题，截断也不好看；集标题在其他模板仍会显示（`episodeTitle` 照旧下发）。 */}
         {clip.episodeNo ? `EP.${pad2(clip.episodeNo)}` : '片段'}
-        {clip.episodeTitle ? `　${clip.episodeTitle}` : ''}
       </div>
       <div style={{ position: 'absolute', right: safe, top: Math.round(height * 0.11), opacity: ease, textAlign: 'right', fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.019), letterSpacing: Math.round(height * 0.004), color: 'rgba(255,255,255,.8)' }}>
+        {/* 跨媒体借来的片段才标来源（设计规格 §6）：不标的话观众会想“这条为什么不是这部番” */}
+        {clip.sourceTitle ? `来源：${clip.sourceTitle}　·　` : ''}
         {clip.tag?.trim() ? `${clip.tag.trim()}　·　` : ''}片段 {pad2(index + 1)} / {pad2(media.clips.length)}
       </div>
 
@@ -695,13 +761,29 @@ export function ClipShot({ scene, plan, assetBaseUrl }: SceneProps) {
         <div style={{ marginTop: Math.round(height * 0.012), display: 'flex', alignItems: 'center', gap: Math.round(height * 0.012) }}>
           <span style={{ width: Math.round(width * 0.014), height: 2, background: accent, flex: 'none' }} />
           <span style={{ fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.017), letterSpacing: Math.round(height * 0.004), color: 'rgba(255,255,255,.72)' }}>
-            {[clip.episodeNo ? `EP.${pad2(clip.episodeNo)}` : '', `${(clip.durationMs / 1000).toFixed(1)}s`].filter(Boolean).join('　·　')}
+            {/* 出处（2026-09-20 用户要求）：上带左侧已经报了集号，这里改成「几分几秒」。
+                后端只下发起点，止点用片段自己的时长推（= 起点 + 本片长度）。 */}
+            {[clipSourceLine(clip), clipDurationLabel(clip.durationMs)].filter(Boolean).join('　·　')}
           </span>
         </div>
-        {params.detailShow.note && (clip.note?.trim() || media.description?.trim()) ? (
-          <div style={{ marginTop: Math.round(height * 0.014), fontFamily: CINEMA_FONT.body, fontSize: Math.round(height * 0.023), lineHeight: 1.45, color: '#f0eeea', textShadow: '0 3px 16px rgba(0,0,0,.9)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-            {clip.note?.trim() || media.description?.trim()}
-          </div>
+        {params.detailShow.note && noteText ? (
+          /* 备注：主色引线（NoteQuote，展带同款）+ 出场动画——信息卡落定后再从下往上进。
+             不发光不加玻璃，只靠引线、字号与动效把它从「一行小字」提到「这句要读」。 */
+          <NoteQuote
+            text={noteText}
+            accent={accent}
+            width={width}
+            height={height}
+            size={0.029}
+            maxLines={2}
+            color="#ffffff"
+            maxWidth={Math.round(width * 0.42)}
+            style={{
+              marginTop: Math.round(height * 0.016),
+              opacity: noteIn.toFixed(3),
+              transform: `translateY(${((1 - noteIn) * Math.round(height * 0.018)).toFixed(1)}px)`,
+            }}
+          />
         ) : null}
       </div>
 
@@ -728,53 +810,167 @@ function INFO_GEOM(width: number, height: number) {
 
 
 /** ⑥ 落款：真实数字 + 曲名（有 BGM 才出现）+ 低饱和封面墙。常驻 chrome 全砍后，这是唯一的"信息位"。 */
+/** 结尾右侧的滚动墙：4 列 3:4 封面纵向无缝滚动，各列速度差 ±15%（视差）。纯图不带字。 */
+function ScrollWall({ media, assetBaseUrl, width, height, frame, fps, speed, opacity }: {
+  media: PocMedia[];
+  assetBaseUrl: string;
+  width: number;
+  height: number;
+  frame: number;
+  fps: number;
+  /** `params.endingScrollSpeed`（与章节模板同源，50 = 基准 0.12 屏高/秒）。 */
+  speed: number;
+  opacity: number;
+}) {
+  if (media.length === 0) return null;
+  const wallW = width * 0.36;
+  const columnCount = WALL_SPEED_FACTORS.length;
+  const columnW = wallW / columnCount;
+  const tileH = columnW * (4 / 3);                       // 3:4 封面 → 完整不裁
+  const perColumn = Math.max(3, Math.ceil((height * 1.7) / tileH));
+  // 速度映射：50 → 0.12 屏高/秒（用户 2026-09-20 选的基准），钳在 0.04~0.3
+  const base = Math.min(0.3, Math.max(0.04, 0.12 * ((speed > 0 ? speed : 50) / 50)));
+  return (
+    <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: wallW, display: 'flex', overflow: 'hidden', opacity, filter: 'grayscale(.55) brightness(.5) saturate(.9)' }}>
+      {Array.from({ length: columnCount }, (_, columnIndex) => {
+        // 第 i 列负责 media[i], media[i+4], … 不够就循环续（4 部也能铺满 4 列）
+        const sequence: PocMedia[] = [];
+        for (let i = 0; i < perColumn; i++) sequence.push(media[(columnIndex + i * columnCount) % media.length]);
+        const sequenceHeight = sequence.length * tileH;
+        const drift = (frame / fps) * base * height * WALL_SPEED_FACTORS[columnIndex];
+        const offset = -(drift % sequenceHeight);
+        return (
+          <div key={columnIndex} style={{ position: 'relative', width: columnW, height: '100%', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', left: 0, top: 0, width: '100%', transform: `translateY(${offset.toFixed(2)}px)` }}>
+              {/* 复制一份接在尾部 → 无缝循环 */}
+              {[...sequence, ...sequence].map((item, index) => (
+                item.coverAssetPath
+                  ? <Img key={`${item.mediaId}-${index}`} src={assetUrl(item.coverAssetPath, assetBaseUrl)} style={{ width: '100%', height: tileH, objectFit: 'cover', display: 'block' }} />
+                  : <div key={`${item.mediaId}-${index}`} style={{ width: '100%', height: tileH }} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function CinemaEnding({ scene, plan, assetBaseUrl }: SceneProps) {
-  const { width, height } = useVideoConfig();
+  const frame = useCurrentFrame();
+  const { width, height, fps, durationInFrames } = useVideoConfig();
   const params = plan.params;
+  const show = endingShow(params);
   const accent = plan.media.length > 0 ? plan.accentOf(plan.media[0]) : CINEMA_COLOR.ink;
   const safe = Math.round(width * CINEMA_LAYOUT.safeX);
-  const lines = cinemaStatLines(plan);
   const bgm = params.bgmTracks.map((track) => track.name).filter(Boolean);
-  const wallW = width * 0.34;
+  const stats = endingStatLines(plan);
+  // 入场：不用 hook（名单行数会随编辑变化，hook 写在循环里会触发 React #310）
+  const enter = (atSeconds: number): React.CSSProperties => {
+    const at = Math.round(fps * atSeconds);
+    const progress = interpolate(frame, [at, at + Math.round(fps * 0.5)], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+    return { opacity: progress, transform: `translateY(${((1 - progress) * Math.round(height * 0.012)).toFixed(1)}px)` };
+  };
+  // 收尾：末 1.2s **淡出到全黑**（用户 2026-09-20：“结尾结束得有点突兀，带个黑场转场平滑点”）。
+  // 原来只把画面压到 0.55 就直接切黑→看感上是“硬停”；现在盖一层真黑幕，最后一帧落在全黑。
+  const fadeFrames = Math.round(fps * 1.2);
+  const outro = interpolate(frame, [Math.max(0, durationInFrames - fadeFrames), Math.max(1, durationInFrames - 1)], [1, 0.55], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const blackOut = interpolate(frame, [Math.max(0, durationInFrames - fadeFrames), Math.max(1, durationInFrames - 1)], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const ruleProgress = interpolate(frame, [Math.round(fps * 0.7), Math.round(fps * 1.15)], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  // 名单配速：**只有清单滚**（用户 2026-09-20：「感谢观看统计这些固定内容别滚动，滚动的只有清单」）
+  // 视窗会把出画的行裁掉，所以配速只需让整份名单走完：travel = 名单块高
+  const listRows = endingListRows(plan.media);
+  // 配速/翻页：两者共用「先停 ENDING_START_PAUSE_SEC 秒」的入场礼节
+  const listSpeed = endingListSpeedPaused({ speed: params.endingScrollSpeed, durationSeconds: durationInFrames / fps, rows: listRows.length });
+  const rowsPerPage = endingRowsPerPage({ hasTitle: params.endingTitle.trim() !== '', hasText: params.endingText.trim() !== '', hasStats: show.stats && stats.length > 0 });
+  const pages = endingPages(listRows, rowsPerPage);
+  const page = endingPageSlice({ durationSeconds: durationInFrames / fps, pageCount: pages.length });
+  const elapsed = frame / fps - ENDING_START_PAUSE_SEC;
+  const pageIndex = Math.min(pages.length - 1, Math.max(0, Math.floor(elapsed / page.slice)));
+  const pageLocal = elapsed - pageIndex * page.slice;
+  // 翻页：每页淡入 0.25s、淡出 0.25s（最后一页不淡出，交给结尾的压暗）
+  const pageOpacity = show.paging
+    ? (pageIndex === pages.length - 1
+      ? interpolate(pageLocal, [0, 0.25], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
+      : interpolate(pageLocal, [0, 0.25, Math.max(0.3, page.slice - 0.25), page.slice], [0, 1, 1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }))
+    : 1;
+  const listScroll = Math.max(0, listSpeed * height * elapsed);
 
   return (
     <CinemaEntrance prevAccent={scene.prevAccent}>
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: CINEMA_COLOR.canvas }}>
-        <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: wallW, display: 'flex', filter: 'grayscale(.55) brightness(.52)' }}>
-          {plan.media.slice(0, 4).map((item) => (
-            item.coverAssetPath ? <Img key={item.mediaId} src={assetUrl(item.coverAssetPath, assetBaseUrl)} style={{ flex: 1, height: '100%', objectFit: 'cover' }} /> : <div key={item.mediaId} style={{ flex: 1 }} />
-          ))}
+        {show.wall ? <ScrollWall media={plan.media} assetBaseUrl={assetBaseUrl} width={width} height={height} frame={frame} fps={fps} speed={params.endingScrollSpeed} opacity={outro} /> : null}
+        {/* 中缝：把封面推进暗处，左侧文字区永远干净 */}
+        {show.wall ? <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: width * 0.36, background: `linear-gradient(90deg, ${CINEMA_COLOR.canvas} 0%, rgba(11,11,12,.35) 40%, transparent 100%)`, pointerEvents: 'none' }} /> : null}
+        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(120% 100% at 22% 40%, transparent 30%, rgba(6,6,8,.55) 100%)', pointerEvents: 'none', opacity: outro }} />
+
+        {/** 左栏：**固定头（标题/文案/短线/统计）+ 名单视窗**，只有视窗里的名单在滚 */ }
+        {/** 左栏：**固定头 + 名单视窗**；关掉封面墙时不再往右扩到底，而是收在 0.56w（否则名单的年份会被拉到画面最右、中间空一大片） */}
+        <div style={{ position: 'absolute', left: safe, right: Math.round(width * (show.wall ? 0.4 : 0.38)), maxWidth: Math.round(width * 0.56), top: Math.round(height * 0.21), bottom: Math.round(height * 0.17), display: 'flex', flexDirection: 'column', opacity: outro }}>
+          <div style={{ flex: 'none' }}>
+            {params.endingTitle.trim() ? (
+              <div style={{ ...enter(0.2), fontFamily: CINEMA_FONT.num, fontWeight: 700, fontSize: Math.round(height * 0.072), letterSpacing: Math.round(height * -0.0014), color: CINEMA_COLOR.ink, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                {params.endingTitle.trim()}
+              </div>
+            ) : null}
+            {params.endingText.trim() ? (
+              <div style={{ ...enter(0.5), marginTop: Math.round(height * 0.022), fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.026), letterSpacing: Math.round(height * 0.005), color: CINEMA_COLOR.muted }}>
+                {params.endingText.trim()}
+              </div>
+            ) : null}
+            <div style={{ marginTop: Math.round(height * 0.04), transformOrigin: '0% 50%', transform: `scaleX(${ruleProgress.toFixed(4)})` }}>
+              <Rule color={accent} width={width} height={height} />
+            </div>
+
+            {/* 统计行（默认关，`detailShow.endingStats` 打开才显示）—— 固定不动 */}
+            {show.stats && stats.length > 0 ? (
+              <div style={{ ...enter(1.0), marginTop: Math.round(height * 0.04), fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.024), color: CINEMA_COLOR.muted }}>
+                {stats.join(' · ')}
+              </div>
+            ) : null}
+          </div>
+
+          {/* 分组标签：片尾职员表的「CAST / STAFF」位（用户 2026-09-20：「参考其他设计」） */}
+          {show.list && listRows.length > 0 ? (
+            <div style={{ flex: 'none', marginTop: Math.round(height * 0.045), fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.016), letterSpacing: Math.round(height * 0.0032), color: CINEMA_COLOR.dim }}>
+              收录
+            </div>
+          ) : null}
+
+          {/* 名单视窗：单列、出画裁掉；**只有这里面的名单在动**（滚动 → 平移；翻页 → 整页淡入淡出） */}
+          {show.list && listRows.length > 0 ? (
+            <div style={{ flex: '1 1 auto', position: 'relative', overflow: 'hidden', marginTop: Math.round(height * 0.022) }}>
+              <ol style={{ listStyle: 'none', margin: 0, padding: 0, position: 'absolute', left: 0, right: 0, top: 0, opacity: pageOpacity, transform: `translateY(${(show.paging ? 0 : -listScroll).toFixed(2)}px)` }}>
+                {(show.paging ? pages[pageIndex] : listRows).map((item, rowIndex) => {
+                  // 翻页模式的序号要接着上一页继续（第 2 页从 16 开始），不能每页从 1 重来
+                  const order = show.paging ? pageIndex * rowsPerPage + rowIndex + 1 : rowIndex + 1;
+                  const row = endingListRow(item, order, show);
+                  return (
+                    <li key={item.mediaId}
+                        style={{ display: 'flex', gap: Math.round(width * 0.009), alignItems: 'baseline', fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.021), lineHeight: 1.75, color: '#e8e6e2' }}>
+                      {/* 层级靠**明度**而不是字号：序号/年份暗、名称亮（第一版三者同色同号 → 一片均匀小字） */}
+                      <span style={{ flex: 'none', minWidth: Math.round(height * 0.03), textAlign: 'right', color: CINEMA_COLOR.dim }}>{row.index}</span>
+                      <span style={{ flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.title}</span>
+                      {/* 年份**紧跟名称**（不再右对齐拉到 0.56w 外，中间空一大片） */}
+                      {row.year ? <span style={{ flex: 'none', color: CINEMA_COLOR.dim }}>· {row.year}</span> : null}
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          ) : null}
         </div>
-        <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: wallW, background: `linear-gradient(90deg, ${CINEMA_COLOR.canvas} 0%, rgba(11,11,12,.35) 40%, transparent 100%)` }} />
-        <div style={{ position: 'absolute', left: safe, top: Math.round(height * 0.3) }}>
-          <div style={{ fontFamily: CINEMA_FONT.num, fontWeight: 700, fontSize: Math.round(height * 0.072), letterSpacing: Math.round(height * -0.0014), color: CINEMA_COLOR.ink, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden', maxWidth: '18ch' }}>
-            {params.endingTitle.trim() || `${lines.length > 0 ? `${plan.stats.titles} 部` : '完'}`}
-          </div>
-          <div style={{ marginTop: Math.round(height * 0.03), fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.026), letterSpacing: Math.round(height * 0.005), color: CINEMA_COLOR.muted }}>
-            {params.endingText.trim() || '谢谢观看 · 期待下季'}
-          </div>
-          <div style={{ marginTop: Math.round(height * 0.05) }}>
-            <Rule color={accent} width={width} height={height} />
-          </div>
-        </div>
+
         {bgm.length > 0 ? (
-          <div style={{ position: 'absolute', left: safe, bottom: Math.round(height * 0.11), fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.019), letterSpacing: Math.round(height * 0.004), color: CINEMA_COLOR.dim }}>
+          <div style={{ position: 'absolute', left: safe, bottom: Math.round(height * 0.11), fontFamily: CINEMA_FONT.num, fontSize: Math.round(height * 0.019), letterSpacing: Math.round(height * 0.004), color: CINEMA_COLOR.dim, opacity: outro }}>
             BGM　{bgm.join(' / ')}
           </div>
         ) : null}
+
+        {/* 黑场转场：盖在所有内容之上（（含封面墙与 chromium 装饰），最后一帧全黑） */}
+        <div style={{ position: 'absolute', inset: 0, background: '#000', opacity: blackOut.toFixed(3), pointerEvents: 'none' }} />
       </div>
     </CinemaEntrance>
   );
 }
-
-/** 主推（钩子用）：`openingIds[0]` 优先，其次第一部有封面的。 */
-function heroMedia(plan: CinemaPlan): PocMedia | null {
-  const ids = plan.params.openingIds;
-  if (ids.length > 0) {
-    const found = plan.mediaIndex.get(ids[0]);
-    if (found) return found;
-  }
-  return plan.media.find((item) => item.coverAssetPath) ?? plan.media[0] ?? null;
-}
-
 export type { RenderParams };

@@ -44,7 +44,7 @@ export function RecommendComposition({ input }: { input: MultiMediaPocInput }) {
           key={sceneKey(scene, index)}
           from={scene.fromFrame}
           durationInFrames={scene.durationInFrames}
-          premountFor={scene.type === 'MEDIA_CLIP' ? 30 : 15}
+          premountFor={scene.type === 'MEDIA_CLIP' ? 90 : 15}
           name={scene.type}
         >
           <SceneView scene={scene} input={input} params={params} theme={theme} assetBaseUrl={assetBaseUrl} plan={plan} />

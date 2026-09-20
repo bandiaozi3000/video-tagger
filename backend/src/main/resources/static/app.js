@@ -699,7 +699,11 @@ function renderClipDetailHead(clip, ep, media) {
                 const resp = await fetch(`/api/clips/${clip.id}/material/play-source`);
                 if (!resp.ok) throw new Error('无可用本地文件源');
                 const blob = await resp.blob();
-                openLocalVideoPlayer(blob, clip);
+                openLocalVideoPlayer(blob, clip, {
+                    mode: 'update',
+                    clipId: clip.id,
+                    onSaved: () => renderClipDetail(clip.id)
+                });
             } catch (e) { showToast(e.message || '本地回顾不可用', 3500); }
         };
     }
@@ -835,8 +839,13 @@ async function handleClipPrepare(clip, panelEl) {
     }
 }
 
-/** v0.24 M3：本地回顾播放——blob 弹窗播放素材源，并 seek 到片段起点（本地精确回顾）。 */
-function openLocalVideoPlayer(blob, clip) {
+/** v0.24 M3：本地回顾播放——blob 弹窗播放素材源，并 seek 到片段起点（本地精确回顾）。
+ *  v0.30：弹窗内可直接剪——标起点/终点取当前播放位置 + 标签/备注。
+ *  ctx = {mode:'update', clipId, onSaved?} → 更新**本片段**（后端把弹窗内坐标换算回原视频坐标）+ 存为片段封面
+ *      | {mode:'create', episodeId, onSaved?} → 落成新片段 + 存为集封面；无 ctx 则不给剪辑行。 */
+function openLocalVideoPlayer(blob, clip, ctx) {
+    const isUpdate = !!(ctx && ctx.mode === 'update' && ctx.clipId);
+    const cutCtx = isUpdate || (ctx && ctx.episodeId) ? ctx : null;
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay player-overlay';
     overlay.style.zIndex = '1000';
@@ -852,6 +861,15 @@ function openLocalVideoPlayer(blob, clip) {
                 </div>
             </div>
             <div class="player-stage"><video controls autoplay playsinline></video></div>
+            ${cutCtx ? `<div class="player-cut">
+                <button type="button" class="btn-mini" data-cut-start title="用当前播放位置作为起点">⟦ 起点</button>
+                <button type="button" class="btn-mini" data-cut-end title="用当前播放位置作为终点（可留空=单点）">终点 ⟧</button>
+                <span class="player-cut-range"></span>
+                <input class="player-cut-tag" placeholder="标签（必填）" maxlength="100" autocomplete="off">
+                <input class="player-cut-note" placeholder="备注（可选）" maxlength="2000" autocomplete="off">
+                <button type="button" class="btn-primary" data-cut-save>💾 ${isUpdate ? '更新本片段' : '保存片段'}</button>
+                <button type="button" class="btn-mini" data-cut-cover title="把当前暂停画面存为封面">🖼 ${isUpdate ? '存为封面' : '存为集封面'}</button>
+            </div>` : ''}
             <div class="player-bar">
                 <button type="button" class="btn-mini" data-cap-frame>📷 存当前帧</button>
                 <span class="player-status"></span>
@@ -908,6 +926,95 @@ function openLocalVideoPlayer(blob, clip) {
             statusEl.textContent = `已保存 ${fmtStamp(video.currentTime)} 帧`;
         } catch (e) { statusEl.textContent = '截图失败（请稍候再试）'; }
     };
+    // 剪辑行：起点/终点取当前播放位置 → 保存（update=更新本片段 / create=落成新片段）
+    if (cutCtx) {
+        const row = overlay.querySelector('.player-cut');
+        const rangeEl = row.querySelector('.player-cut-range');
+        const tagEl = row.querySelector('.player-cut-tag');
+        const noteEl = row.querySelector('.player-cut-note');
+        const saveBtn = row.querySelector('[data-cut-save]');
+        const coverBtn = row.querySelector('[data-cut-cover]');
+        let markStart = null, markEnd = null;
+        if (isUpdate) {   // 预填本片段现有标签/备注
+            tagEl.value = clip.tag || '';
+            noteEl.value = clip.note || '';
+        }
+        const fmtMs = ms => ms == null ? '—' : fmtStamp(ms / 1000);
+        const renderMarks = () => {
+            rangeEl.textContent = markStart == null ? '未标记起点'
+                : `${fmtMs(markStart)} → ${markEnd == null ? '（未标终点）' : fmtMs(markEnd)}`;
+            rangeEl.classList.toggle('set', markStart != null);
+        };
+        row.querySelector('[data-cut-start]').onclick = () => {
+            markStart = Math.round(video.currentTime * 1000);
+            if (markEnd != null && markEnd <= markStart) markEnd = null;
+            renderMarks();
+        };
+        row.querySelector('[data-cut-end]').onclick = () => {
+            markEnd = Math.round(video.currentTime * 1000);
+            renderMarks();
+        };
+        saveBtn.onclick = async () => {
+            if (markStart == null) { statusEl.textContent = '先播到起点，点「⟦ 起点」'; return; }
+            const tag = tagEl.value.trim();
+            if (!tag) { statusEl.textContent = '标签必填'; tagEl.focus(); return; }
+            saveBtn.disabled = true;
+            statusEl.textContent = isUpdate ? '更新本片段中…' : '保存片段中…';
+            try {
+                const resp = isUpdate
+                    ? await fetch(`/api/clips/${cutCtx.clipId}/playback-range`, {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ startMs: markStart, endMs: markEnd, tag, note: noteEl.value.trim() })
+                    })
+                    : await fetch(`/api/episodes/${cutCtx.episodeId}/clips`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ startMs: markStart, endMs: markEnd, tag, note: noteEl.value.trim() })
+                    });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
+                // update 分支返回的是原视频坐标（已换算），直接展示
+                const saved = isUpdate && data.startMs != null ? data : null;
+                const rangeText = saved
+                    ? `${fmtMs(saved.startMs)}${saved.endMs == null ? '' : ' → ' + fmtMs(saved.endMs)}（原视频）`
+                    : `${fmtMs(markStart)}${markEnd == null ? '' : ' → ' + fmtMs(markEnd)}`;
+                statusEl.textContent = isUpdate ? `✓ 已更新本片段：${rangeText}` : `✓ 已保存片段 #${data.id}：${rangeText}`;
+                showToast(isUpdate ? '✓ 本片段已更新' : '✓ 片段已保存');
+                markStart = null; markEnd = null;
+                if (!isUpdate) { tagEl.value = ''; noteEl.value = ''; }
+                renderMarks();
+                if (typeof cutCtx.onSaved === 'function') cutCtx.onSaved();
+            } catch (e) {
+                statusEl.textContent = (isUpdate ? '更新失败：' : '保存失败：') + e.message;
+            } finally { saveBtn.disabled = false; }
+        };
+        if (coverBtn) coverBtn.onclick = async () => {
+            video.pause();
+            await ensureFrame(video.currentTime);
+            statusEl.textContent = '封面保存中…';
+            try {
+                const canvas = drawToCanvas();
+                let resp;
+                if (isUpdate) {
+                    // 片段封面：接口收 base64 data URL（同时写缩略图 + 详情大图）
+                    resp = await fetch(`/api/clips/${cutCtx.clipId}/cover`, {
+                        method: 'POST', headers: { 'Content-Type': 'text/plain' },
+                        body: canvas.toDataURL('image/png')
+                    });
+                } else {
+                    // 集封面：接口收 multipart 文件
+                    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+                    const form = new FormData();
+                    form.append('file', blob, `episode-${cutCtx.episodeId}.png`);
+                    resp = await fetch(`/api/episodes/${cutCtx.episodeId}/cover`, { method: 'POST', body: form });
+                }
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                statusEl.textContent = `✓ 已把 ${fmtStamp(video.currentTime)} 这一帧存为${isUpdate ? '封面' : '集封面'}`;
+                showToast(isUpdate ? '✓ 封面已更新' : '✓ 集封面已更新');
+                if (typeof cutCtx.onSaved === 'function') cutCtx.onSaved();
+            } catch (e) { statusEl.textContent = '封面保存失败：' + e.message; }
+        };
+        renderMarks();
+    }
     overlay.querySelector('.modal-close').onclick = () => {
         URL.revokeObjectURL(url);
         video.pause();
@@ -1748,8 +1855,9 @@ function appendSearchCard(container, r, opts) {
 function appendMediaCard(container, r) {
     const card = document.createElement('div');
     card.className = 'card card-clip';
-    const thumb = r.coverPath
-        ? `<div class="cc-thumb"><img src="${r.coverPath}" alt="" loading="lazy" onerror="this.parentElement.classList.add('broken')"></div>`
+    const mediaCover = mediaCoverSrc(r);
+    const thumb = mediaCover
+        ? `<div class="cc-thumb"><img src="${esc(mediaCover)}" alt="" loading="lazy" ${mediaCoverAttrs(r)}></div>`
         : '';
     const noteHtml = r.note ? `<div class="card-note">${hl(r.note, currentQuery)}</div>` : '';
     card.innerHTML = `${thumb}
@@ -1762,7 +1870,7 @@ function appendMediaCard(container, r) {
     card.querySelector('.card-title').innerHTML = hl(r.title || '(未命名)', currentQuery);
     card.querySelector('.card-tag').textContent = `媒体 · 匹配 ${Math.round((r.score || 0) * 100) / 100}`;
     const thumbEl = card.querySelector('.cc-thumb');
-    if (thumbEl) bindHoverPreview(thumbEl, r.coverPath); // 媒体悬浮看封面大图
+    if (thumbEl) bindHoverPreview(thumbEl, mediaCover); // 媒体悬浮看封面大图
     card.addEventListener('click', () => openMediaDetail(r.mediaId));
     container.appendChild(card);
 }
@@ -2019,6 +2127,28 @@ function esc(s) {
     const div = document.createElement('div');
     div.textContent = s == null ? '' : String(s);
     return div.innerHTML;
+}
+
+/**
+ * 媒体封面取值链（用户 2026-09-20 定稿）：**Bangumi 外链 → 显式封面 → 代表片段帧兑底**。
+ *
+ * 所有"媒体封面"展示位（卡片/列表行/搜索卡/回收站/详情/工作台）都走这里，
+ * 别再各写各的顺序 —— 之前列表写成 `coverPath || fallbackCoverPath || externalCoverUrl`，
+ * 片段帧排在 Bangumi 前面，于是"片段有封面后媒体列表就显示片段封面"。
+ */
+function mediaCoverSources(m) {
+    return [m && m.externalCoverUrl, m && m.coverPath, m && m.fallbackCoverPath].filter(Boolean);
+}
+
+function mediaCoverSrc(m) {
+    return mediaCoverSources(m)[0] || '';
+}
+
+/** <img> 的降级属性：外链挂了 → 换本地封面 → 再挂换片段帧 → 都没有则移除元素。 */
+function mediaCoverAttrs(m) {
+    const chain = mediaCoverSources(m);
+    if (chain.length < 2) return `onerror="this.remove()"`;
+    return `data-cover-chain="${esc(chain.join('|'))}" onerror="var c=this.dataset.coverChain.split('|');var i=+(this.dataset.i||0)+1;if(i<c.length){this.dataset.i=i;this.src=c[i];}else{this.remove();}"`;
 }
 
 /** 全字段高亮：escape 后把当前查询词包裹 <mark class="hl">（大小写不敏感，按空白分词）。 */
@@ -2717,8 +2847,9 @@ function renderMediaGrid(list, container = mediaGridEl, mode = 'media') {
         mediaById.set(a.id, a);
         const card = document.createElement('div');
         card.className = 'media-card' + (mediaBatchMode ? ' batch-mode' : '') + (mediaSelected.has(a.id) ? ' selected' : '');
-        const cover = (a.coverPath || a.fallbackCoverPath || a.externalCoverUrl)
-            ? `<img src="${esc(a.coverPath || a.fallbackCoverPath || a.externalCoverUrl)}" alt="" onerror="this.style.display='none'">`
+        const coverSrc = mediaCoverSrc(a);
+        const cover = coverSrc
+            ? `<img src="${esc(coverSrc)}" alt="" ${mediaCoverAttrs(a)}>`
             : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
         const fmtBadge = a.mediaFormat
             ? `<span class="media-format-badge fmt-${esc(a.mediaFormat)}">${esc(formatName(a.mediaFormat))}</span>`
@@ -2799,8 +2930,9 @@ function renderMediaRow(list, container, mode = 'media') {
         mediaById.set(a.id, a);
         const row = document.createElement('div');
         row.className = 'media-row' + (mediaBatchMode && mediaSelected.has(a.id) ? ' selected' : '');
-        const cover = (a.coverPath || a.fallbackCoverPath || a.externalCoverUrl)
-            ? `<img src="${esc(a.coverPath || a.fallbackCoverPath || a.externalCoverUrl)}" alt="" loading="lazy" onerror="this.style.display='none'">`
+        const coverSrc = mediaCoverSrc(a);
+        const cover = coverSrc
+            ? `<img src="${esc(coverSrc)}" alt="" loading="lazy" ${mediaCoverAttrs(a)}>`
             : `<span class="cover-placeholder">${esc(a.title).slice(0, 1)}</span>`;
         const fmtBadge = a.mediaFormat
             ? `<span class="media-format-badge fmt-${esc(a.mediaFormat)}">${esc(formatName(a.mediaFormat))}</span>`
@@ -2979,8 +3111,9 @@ function renderTrashList(list) {
     for (const m of list) {
         const card = document.createElement('div');
         card.className = 'media-card trash-card';
-        const cover = m.coverPath
-            ? `<img src="${m.coverPath}" alt="" onerror="this.style.display='none'">`
+        const coverSrc = mediaCoverSrc(m);
+        const cover = coverSrc
+            ? `<img src="${esc(coverSrc)}" alt="" ${mediaCoverAttrs(m)}>`
             : `<span class="cover-placeholder">${esc(m.title).slice(0, 1)}</span>`;
         card.innerHTML = `
             <div class="media-cover">${cover}</div>
@@ -3145,13 +3278,10 @@ async function renderMediaDetail(d, eps) {
         const overflow = values.length - limit;
         return `<div class="ext-row ${isFirst ? 'first' : ''}"><span class="ext-label">${esc(label)}</span><div class="chips"><span class="chips-shown">${shown}</span>${overflow > 0 ? `<button class="more-btn" data-overflow="${overflow}">更多 (+${overflow})</button><span class="chips-full" style="display:none">${rest}</span>` : ''}</div></div>`;
     };
-    // 封面：Bangumi 外链优先（用户指定）；外链加载失败（如 bgm.tv 超时）自动降级本地 coverPath，再失败才移除
-    const coverSrc = d.externalCoverUrl || d.coverPath || d.fallbackCoverPath;
-    const coverBackup = (d.coverPath || d.fallbackCoverPath || '') === coverSrc ? '' : (d.coverPath || d.fallbackCoverPath || '');
+    // 封面：统一取值链（Bangumi 外链优先，失败自动降级本地封面/片段帧）
+    const coverSrc = mediaCoverSrc(d);
     const cover = coverSrc
-        ? `<img src="${esc(coverSrc)}" alt=""${coverBackup
-            ? ` onerror="if(this.dataset.fb){this.remove()}else{this.dataset.fb=1;this.src='${esc(coverBackup)}';}"`
-            : ` onerror="this.remove()"`}>`
+        ? `<img src="${esc(coverSrc)}" alt="" ${mediaCoverAttrs(d)}>`
         : `<span class="cover-placeholder large">${esc(d.title).slice(0, 1)}</span>`;
     const desc = w.description || '';
     const btn = (id, label, cls) => `<button type="button" id="${id}" class="btn-mini ${cls}">${label}</button>`;
@@ -3984,7 +4114,7 @@ async function refreshAllEpLamps() {
             const m = eps[el.dataset.ep];
             if (!m) { el.classList.remove('on', 'run', 'off'); el.title = '未知'; return; }
             el.classList.remove('on', 'run', 'off');
-            if (m.state === 'available') { el.classList.add('on'); el.title = '本地源就绪（可回顾/剪辑）'; }
+            if (m.state === 'available') { el.classList.add('on'); el.title = m.via === 'animeko-cache' ? '本地源就绪（Animeko 整集缓存，可回顾/剪辑）' : '本地源就绪（可回顾/剪辑）'; }
             else if (m.state === 'failed') { el.classList.add('off'); el.title = '下载失败：' + (m.failReason || ''); }
             else { el.classList.add('off'); el.title = '无本地源（可 BT 下载）'; }
         });
@@ -6952,6 +7082,10 @@ document.getElementById('ep-detail-review')?.addEventListener('click', async () 
             timestampSec: 0,
             endSec: null,
             tag: ''
+        }, {
+            mode: 'create',
+            episodeId: currentEpisode.id,
+            onSaved: () => openEpisodeDetail(currentEpisode.id)
         });
     } catch (e) { showToast('本地回顾不可用：' + e.message, 3500); }
     finally { btn.textContent = orig; }

@@ -12,6 +12,14 @@ import { themeOfPreset, type TemplateStyle } from './theme';
  * `normalizeDurations`），两侧不得对同一参数给出两套语义。
  */
 
+/**
+ * BGM 播放范围（2026-09-20 用户：先要「只在开头和结尾」，再要「片名卡也顺带播」→ **多选集合**）。
+ *
+ * 取值：`all`（默认，铺满全片）/ `none`（不播）/ `opening,cards,ending` 的任意子集（逗号分隔）。
+ * 解析与白名单在 `bgm.ts` 的 `parseBgmRange`（单一事实来源）。
+ */
+export type BgmRange = string;
+
 export interface BgmTrack {
   name: string;
   /** 单曲时长（秒）。由 Java 探测后传入——BGM 条的时间轴与 ducking 都按它算。 */
@@ -26,17 +34,36 @@ export interface Durations {
   group: number;
   detail: number;
   ending: number;
+  /** 片名卡时长（秒）——**独立可调**（2026-09-20 用户：原来从详情推、封顶 2s，怎么拖都到不了）。 */
+  title: number;
 }
 
 export interface DetailShow {
   status: boolean;
   note: boolean;
   tag: boolean;
+  /** 结尾（落款）的开关（2026-09-20 用户：「显示序号 名称 年份即可，或者做成可配置」
+   *  + 「把封面页当做可选项」）。 */
+  endingWall?: boolean;
+  /** 结尾名单：true = 翻页（动漫 ED 职员表那样一页一页换），false = 连续滚动。 */
+  endingPaging?: boolean;
+  endingList?: boolean;
+  endingIndex?: boolean;
+  endingYear?: boolean;
+  endingStats?: boolean;
 }
 
 export interface RenderParams {
   // —— 文案 ——
   title: string;
+  /**
+   * 片段原声音量（0~100，0 = 全静音）。
+   *
+   * 用户 2026-09-20：「BGM 新增设置，可以全静音片段原声 以及 当前默认设置（即涉及到片段音量调小）」
+   * → 一个旋钮同时覆盖「静音」(0) 与「调小」(1~99)；默认 100 = 维持现状。
+   * 静音时 Remotion 侧也不再压 BGM（见 `cinema/plan.ts` 的 audioWindows）。
+   */
+  clipVolume: number;
   brandTitle: string;
   subtitle: string;
   intro: string;
@@ -64,12 +91,19 @@ export interface RenderParams {
   bgmX: number;
   /** 0-100，模板里是百分比坐标（Java 默认 8）。 */
   bgmY: number;
+  /** 转场音乐（片名卡专用，甲方案）：素材相对路径，空 = 不放。 */
+  stingPath: string;
+  /** 转场音乐音量（0-100，用户 2026-09-20 定 60）。 */
+  stingVolume: number;
+
   /** BGM 基准增益（0-1）。 */
   bgmGain: number;
   /** 片段原声出现时 BGM 压低到的增益（0-1）。 */
   bgmDuckTo: number;
   /** ducking / 曲间交叉淡化时长（秒）。 */
   bgmFadeSec: number;
+  /** BGM 播放范围（见 `BgmRange`：all / none / 逗号集合）。 */
+  bgmRange: BgmRange;
 
   // —— 动效档位（0-100 线格式，帧模型下映射为动画帧数 / spring 手感）——
   openingSpeed: number;
@@ -82,6 +116,13 @@ export interface RenderParams {
   fps: number;
   width: number;
   height: number;
+  /**
+   * 中景卡摆位的随机种子（编辑器「🎲 重排」写入草稿，随请求体一起到后端）。
+   *
+   * 为什么是种子而不是每帧 Math.random：Remotion 逐帧**并行**渲染，帧内随机会让同一帧
+   * 在不同 chunk 里摆不同位置（拼接处跳位）、预览与成片也不一致。种子在渲染前定死，帧内只读它。
+   */
+  seed: number;
 
   // —— 分组与选择 ——
   /** `year` / `subcategory` / `collection` / 空（不分屏）。 */
@@ -106,7 +147,7 @@ export const DEFAULT_PARAMS: RenderParams = {
   endingText: '',
 
   coverSize: 50,
-  detailShow: { status: true, note: true, tag: true },
+  detailShow: { status: true, note: true, tag: true, endingWall: true, endingPaging: false, endingList: true, endingIndex: true, endingYear: true, endingStats: false },
 
   bgColor: '',
   bgImages: [],
@@ -119,18 +160,24 @@ export const DEFAULT_PARAMS: RenderParams = {
   bgmScale: 100,
   bgmX: 1,
   bgmY: 8,
+  stingPath: '',
+  stingVolume: 60,
   bgmGain: 0.45,
   bgmDuckTo: 0.16,
   bgmFadeSec: 0.6,
+  bgmRange: 'all',
 
   openingSpeed: 50,
   endingScrollSpeed: 50,
 
-  durations: { opening: 10, intro: 5, group: 5, detail: 10, ending: 5 },
+  durations: { opening: 10, intro: 5, group: 5, detail: 10, ending: 5, title: 2 },
 
   fps: 30,
   width: 1280,
   height: 720,
+  clipVolume: 100,
+  /** 摆位随机种子（编辑器「🎲 重排」写入；同一份草稿预览与成片一致）。0 = 固定布局。 */
+  seed: 0,
 
   groupBy: '',
   groupSort: 'date-desc',
@@ -184,6 +231,13 @@ export function resolveParams(raw?: Partial<RenderParams>, fallbackText?: { titl
       status: typeof show.status === 'boolean' ? show.status : true,
       note: typeof show.note === 'boolean' ? show.note : true,
       tag: typeof show.tag === 'boolean' ? show.tag : true,
+      // 结尾名单：默认开（用户点名要「序号 名称 年份」），统计行默认关（用户：「左侧文字不用太多」）
+      endingWall: typeof show.endingWall === 'boolean' ? show.endingWall : true,
+      endingPaging: show.endingPaging === true,
+      endingList: typeof show.endingList === 'boolean' ? show.endingList : true,
+      endingIndex: typeof show.endingIndex === 'boolean' ? show.endingIndex : true,
+      endingYear: typeof show.endingYear === 'boolean' ? show.endingYear : true,
+      endingStats: typeof show.endingStats === 'boolean' ? show.endingStats : false,
     },
 
     bgColor: str(p.bgColor),
@@ -205,25 +259,31 @@ export function resolveParams(raw?: Partial<RenderParams>, fallbackText?: { titl
     bgmScale: clamp(p.bgmScale, 50, 200, 100),
     bgmX: clamp(p.bgmX, 0, 100, 1),
     bgmY: clamp(p.bgmY, 0, 100, 8),
+    stingPath: typeof p.stingPath === 'string' ? p.stingPath : '',
+    stingVolume: clamp(p.stingVolume ?? 60, 0, 100, 60),
     bgmGain: clamp(p.bgmGain ?? 0.45, 0, 1, 0.45),
     bgmDuckTo: clamp(p.bgmDuckTo ?? 0.16, 0, 1, 0.16),
     bgmFadeSec: clamp(p.bgmFadeSec ?? 0.6, 0, 3, 0.6),
+    bgmRange: typeof p.bgmRange === 'string' && p.bgmRange.trim() !== '' ? p.bgmRange.trim().toLowerCase() : 'all',
 
     openingSpeed: clamp(p.openingSpeed, 0, 100, 50),
     endingScrollSpeed: clamp(p.endingScrollSpeed, 0, 100, 50),
 
-    // Java normalizeDurations：opening 2-20 / intro 1-10 / group 1-10 / detail 3-15 / ending 1-10
+    // Java normalizeDurations：opening 2-20 / intro 1-10 / group 1-10 / detail 3-15 / ending 1-10 / title 1-5
     durations: {
       opening: clamp(d.opening, 2, 20, 10),
       intro: clamp(d.intro, 1, 10, 5),
       group: clamp(d.group, 1, 10, 5),
       detail: clamp(d.detail, 3, 15, 10),
       ending: clamp(d.ending, 1, 10, 5),
+      title: clamp(d.title, 1, 5, 2),
     },
 
+    clipVolume: clamp(p.clipVolume ?? 100, 0, 100, 100),
     fps: clamp(p.fps, 1, 120, 30),
     width: clamp(p.width, 2, 7680, 1280),
     height: clamp(p.height, 2, 4320, 720),
+    seed: Number.isFinite(p.seed) ? Math.trunc(p.seed as number) : 0,
 
     groupBy: str(p.groupBy),
     groupSort: str(p.groupSort) || 'date-desc',

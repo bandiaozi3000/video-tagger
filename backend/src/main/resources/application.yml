@@ -110,6 +110,11 @@ videotagger:
   export-dir: ${EXPORT_DIR:${VT_DATA_DIR:data}/exports}
   video-assets:
     root-dir: ${VIDEO_ASSET_ROOT_DIR:${VT_DATA_DIR:data}/video-assets}
+  backup:
+    # 后端启动时拉起 scripts/backup-mysql-watch.ps1（等 vt-mysql 健康 → 立即备份一次 → 之后每 60 分钟）。
+    # 脚本自带全局互斥，与 install-backup-watcher.ps1 装的计划任务不会重复备份；关掉：BACKUP_WATCHER_ENABLED=false
+    enabled: ${BACKUP_WATCHER_ENABLED:true}
+    script: ${BACKUP_WATCHER_SCRIPT:scripts/backup-mysql-watch.ps1}
   clip-export:
     video-dir: ${VIDEO_LIBRARY_DIR:${VT_DATA_DIR:data}/videos}
     video-output-dir: ${CLIP_VIDEO_OUTPUT_DIR:${VT_DATA_DIR:data}/clip-videos}

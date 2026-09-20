@@ -32,7 +32,7 @@ const input: MultiMediaPocInput = {
     tags: [],
     clips: [],
   })),
-  params: { durations: { opening: 2, intro: 1, group: 1, detail: 1, ending: 1 }, bgmTracks: [] },
+  params: { durations: { opening: 2, intro: 1, group: 1, detail: 1, ending: 1, title: 2 }, bgmTracks: [] },
 };
 
 function ffmpegPath(): string {

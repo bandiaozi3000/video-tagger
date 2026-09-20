@@ -5,7 +5,7 @@ describe('resolveParams', () => {
   it('缺省时与 Java 默认值一致', () => {
     const p = resolveParams(undefined, undefined);
     expect(p.coverSize).toBe(50);
-    expect(p.durations).toEqual({ opening: 10, intro: 5, group: 5, detail: 10, ending: 5 });
+    expect(p.durations).toEqual({ opening: 10, intro: 5, group: 5, detail: 10, ending: 5, title: 2 });
     expect(p.fps).toBe(30);
     expect(p.width).toBe(1280);
     expect(p.height).toBe(720);

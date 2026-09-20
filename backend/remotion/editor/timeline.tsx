@@ -15,6 +15,7 @@ import { RecommendComposition } from '../src/RecommendComposition';
 import { CinemaComposition } from '../src/cinema';
 import { sceneLabel } from '../src/scene-plan';
 import type { MultiMediaPocInput, Scene, ScenePlan } from '../src/types';
+import { clampSeconds, countByKey, durationKeyOfScene, DURATION_LABEL, type DurationKey } from './durations';
 
 /** 缩略图渲染上限（段数）——超过就只用段色 + 文字。 */
 const THUMB_LIMIT = 12;
@@ -28,6 +29,52 @@ export interface Selection {
   sceneIndex?: number;
   /** 候选库里点中的媒体标题；该媒体还没加入推荐时，右栏靠它显示名字。 */
   title?: string;
+}
+
+/** 拖拽改时长（时间轴把手 / 胶片条时长牌共用一套手势）。 */
+export type DurationChange = (key: DurationKey, seconds: number) => void;
+
+/**
+ * 统一手势：`pointerdown` 在把手/时长牌上起手（并捕获指针）→ 横向位移 × 每秒像素 = 秒数。
+ *
+ * 两个细节：
+ *   · 把手的 `click` 一律 `stopPropagation()`，否则拖完会顺带触发底色块的"跳段 + 选中"；
+ *   · `perPx` 由调用方给（时间轴 = 总秒/轨宽，胶片条 = 5s/卡宽），因为两边**宽度语义不同**。
+ */
+function useDurationDrag(onChange: DurationChange) {
+  const dragRef = React.useRef<{ key: DurationKey; x: number; seconds: number; perPx: number } | null>(null);
+  const [dragging, setDragging] = React.useState<DurationKey | null>(null);
+
+  const startDrag = (event: React.PointerEvent<HTMLElement>, key: DurationKey, seconds: number, perPx: number) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // 指针已在别处释放：继续拖也能用，忽略
+    }
+    dragRef.current = { key, x: event.clientX, seconds, perPx };
+    setDragging(key);
+  };
+
+  const moveDrag = (event: React.PointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    onChange(drag.key, clampSeconds(drag.key, drag.seconds + (event.clientX - drag.x) * drag.perPx));
+  };
+
+  const endDrag = (event: React.PointerEvent<HTMLElement>) => {
+    if (!dragRef.current) return;
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // 同上
+    }
+    dragRef.current = null;
+    setDragging(null);
+  };
+
+  return { startDrag, moveDrag, endDrag, dragging };
 }
 
 const COLORS: Record<Scene['type'], string> = {
@@ -85,9 +132,22 @@ function labelOf(plan: ScenePlan, scene: Scene, mediaCount: number): string {
   if (plan.style === 'cinema') {
     const name = CINEMA_LABELS[(scene as { type: string }).type] ?? '—';
     const media = scene.mediaId === undefined ? undefined : plan.mediaIndex.get(scene.mediaId);
-    return media ? `${media.title} · ${name}` : name;
+    const borrowed = sourceTitleOf(plan, scene);
+    return media ? `${media.title} · ${name}${borrowed ? ` · 来源 ${borrowed}` : ''}` : name;
   }
-  return scene.type === 'MEDIA_CLIP' ? '片段' : sceneLabel(plan, scene, mediaCount);
+  const base = scene.type === 'MEDIA_CLIP' ? '片段' : sceneLabel(plan, scene, mediaCount);
+  const borrowed = sourceTitleOf(plan, scene);
+  return borrowed ? `${base} · 来源 ${borrowed}` : base;
+}
+
+/**
+ * 跨媒体借来的片段才有来源标题（设计规格 §6）——胶片条卡上要标出来，
+ * 否则用户会以为“这条怎么不是这部番的”。
+ */
+function sourceTitleOf(plan: ScenePlan, scene: Scene): string | null {
+  if (scene.clipId === undefined || scene.mediaId === undefined) return null;
+  const clip = plan.mediaIndex.get(scene.mediaId)?.clips.find((item) => item.clipId === scene.clipId);
+  return clip?.sourceTitle ?? null;
 }
 
 /** 段级素材缺失原因：片段段看 clipId，媒体段看 mediaId（银幕式与前两者同字段）。 */
@@ -100,7 +160,7 @@ const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.fl
 
 /* ============================ 时间轴（32px 条） ============================ */
 
-export function Timeline({ plan, frame, selection, missingByClip, missingByMedia, mediaCount, onSeek, onSelect }: {
+export function Timeline({ plan, frame, selection, missingByClip, missingByMedia, mediaCount, onSeek, onSelect, onDurationChange }: {
   plan: ScenePlan;
   frame: number;
   selection: Selection;
@@ -109,12 +169,35 @@ export function Timeline({ plan, frame, selection, missingByClip, missingByMedia
   mediaCount: number;
   onSeek: (frame: number) => void;
   onSelect: (selection: Selection) => void;
+  /** 拖动类别边界 = 改该类秒数（总长跟着变）。 */
+  onDurationChange: DurationChange;
 }) {
   const [open, setOpen] = React.useState(false);
+  const trackRef = React.useRef<HTMLDivElement>(null);
+  const { startDrag, moveDrag, endDrag, dragging } = useDurationDrag(onDurationChange);
   const total = Math.max(1, plan.durationInFrames);
   const activeIndex = plan.scenes.findIndex((scene) => frame >= scene.fromFrame && frame < scene.fromFrame + scene.durationInFrames);
   const activeScene = plan.scenes[activeIndex];
   const totalSec = plan.durationInFrames / plan.fps;
+  const counts = countByKey(plan.scenes);
+
+  /**
+   * 类别边界（只有**左右不同类型**且左侧可调的地方才给把手）：
+   * 同类段之间拖拽没有意义（改的是同一个数），片段段拖不动（素材长度）。
+   */
+  const boundaries: { index: number; leftPct: number; key: DurationKey }[] = [];
+  let acc = 0;
+  plan.scenes.forEach((scene, index) => {
+    acc += scene.durationInFrames;
+    const key = durationKeyOfScene(scene);
+    const nextKey = plan.scenes[index + 1] ? durationKeyOfScene(plan.scenes[index + 1]) : null;
+    if (key && nextKey && key !== nextKey) boundaries.push({ index, leftPct: (acc / total) * 100, key });
+  });
+
+  const handleDown = (event: React.PointerEvent<HTMLElement>, key: DurationKey) => {
+    const trackWidth = trackRef.current?.clientWidth ?? 1;
+    startDrag(event, key, plan.params.durations[key], totalSec / Math.max(1, trackWidth));
+  };
 
   const seekByRatio = (event: React.MouseEvent<HTMLDivElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
@@ -138,7 +221,7 @@ export function Timeline({ plan, frame, selection, missingByClip, missingByMedia
             const missing = missingOf(scene, missingByClip, missingByMedia);
             return (
               <span
-                key={`${index}-${scene.fromFrame}`}
+                key={index}
                 className={`vt-tl-seg${selection.sceneIndex === index ? ' selected' : ''}${index === activeIndex ? ' active' : ''}${missing ? ' missing' : ''}`}
                 style={{ flexGrow: scene.durationInFrames, background: colorOfScene(scene) }}
                 title={missing ? `${labelOf(plan, scene, mediaCount)}｜素材缺失：${missing}` : labelOf(plan, scene, mediaCount)}
@@ -158,12 +241,12 @@ export function Timeline({ plan, frame, selection, missingByClip, missingByMedia
           <div className="vt-tl-ruler">
             {[0, 0.25, 0.5, 0.75, 1].map((ratio) => <span key={ratio}>{clock(totalSec * ratio)}</span>)}
           </div>
-          <div className="vt-tl-track">
+          <div className="vt-tl-track" ref={trackRef}>
             {plan.scenes.map((scene, index) => {
               const missing = missingOf(scene, missingByClip, missingByMedia);
               return (
                 <div
-                  key={`${index}-${scene.fromFrame}`}
+                  key={index}
                   className={`vt-tl-cell${selection.sceneIndex === index ? ' selected' : ''}${index === activeIndex ? ' active' : ''}${missing ? ' missing' : ''}`}
                   style={{ flexGrow: scene.durationInFrames, background: colorOfScene(scene) }}
                   title={missing ? `素材缺失：${missing}` : labelOf(plan, scene, mediaCount)}
@@ -174,9 +257,27 @@ export function Timeline({ plan, frame, selection, missingByClip, missingByMedia
                 </div>
               );
             })}
+            {boundaries.map((boundary) => (
+              <div
+                key={`handle-${boundary.index}`}
+                className={`vt-tl-handle${dragging === boundary.key ? ' dragging' : ''}`}
+                style={{ left: `${boundary.leftPct.toFixed(3)}%` }}
+                title={`左右拖动调整「${DURATION_LABEL[boundary.key]}」时长（本轮共 ${counts[boundary.key]} 段一起变）`}
+                onPointerDown={(event) => handleDown(event, boundary.key)}
+                onPointerMove={moveDrag}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+                onClick={(event) => { event.stopPropagation(); }}
+              >
+                <span className="vt-tl-handle-label">
+                  {DURATION_LABEL[boundary.key]} {plan.params.durations[boundary.key]}s
+                  {counts[boundary.key] > 1 ? ` ×${counts[boundary.key]}` : ''}
+                </span>
+              </div>
+            ))}
           </div>
           <div className="vt-tl-foot">
-            <span className="vt-hint">点段跳转并选中 · 点空白按时长定位 · 段级操作在右栏</span>
+            <span className="vt-hint">点段跳转并选中 · 点空白按时长定位 · 拖边界改时长（总长跟着变）</span>
           </div>
         </div>
       ) : null}
@@ -211,7 +312,7 @@ function ThumbTrigger({ index, root, onVisible }: {
   return <span ref={ref} className="vt-thumb-trigger" />;
 }
 
-export function Filmstrip({ input, plan, frame, selection, missingByClip, missingByMedia, onSeek, onSelect }: {
+export function Filmstrip({ input, plan, frame, selection, missingByClip, missingByMedia, onSeek, onSelect, onDurationChange, onDropClip }: {
   input: MultiMediaPocInput;
   plan: ScenePlan;
   frame: number;
@@ -220,8 +321,19 @@ export function Filmstrip({ input, plan, frame, selection, missingByClip, missin
   missingByMedia: Record<number, string>;
   onSeek: (frame: number) => void;
   onSelect: (selection: Selection) => void;
+  /** 拖每张卡上的时长牌 = 改该卡所属类别的秒数（总长跟着变）。 */
+  onDurationChange: DurationChange;
+  /**
+   * 缺素材的卡片上直接「移除」该片段（用户 2026-09-20：「能在时间轴上面的片段卡上直接移除吗」）。
+   * 只改草稿的 `mediaClips`，不动素材库。
+   */
+  onDropClip: (mediaId: number, clipId: number) => void;
 }) {
   const scrollerRef = React.useRef<HTMLDivElement>(null);
+  const { startDrag, moveDrag, endDrag, dragging } = useDurationDrag(onDurationChange);
+  const counts = countByKey(plan.scenes);
+  /** 卡的宽度不随时长变（用户 2026-09-20 定），所以拖拽用固定手感：**拖过一个卡宽 = 5s**。 */
+  const perPxOf = (element: HTMLElement): number => 5 / Math.max(40, element.parentElement?.getBoundingClientRect().width ?? element.getBoundingClientRect().width);
   const activeIndex = plan.scenes.findIndex((scene) => frame >= scene.fromFrame && frame < scene.fromFrame + scene.durationInFrames);
   const mediaCount = input.media.length;
 
@@ -269,9 +381,10 @@ export function Filmstrip({ input, plan, frame, selection, missingByClip, missin
       {plan.scenes.map((scene, index) => {
         const missing = missingOf(scene, missingByClip, missingByMedia);
         const ready = readyThumbs.includes(index);
+        const durationKey = durationKeyOfScene(scene);
         return (
           <button
-            key={`${index}-${scene.fromFrame}`}
+            key={index}
             type="button"
             className={`vt-film-card${selection.sceneIndex === index ? ' selected' : ''}${index === activeIndex ? ' active' : ''}${missing ? ' missing' : ''}`}
             title={missing ? `素材缺失：${missing}` : `${labelOf(plan, scene, mediaCount)} · ${Math.round(scene.durationInFrames / plan.fps)}s`}
@@ -294,11 +407,51 @@ export function Filmstrip({ input, plan, frame, selection, missingByClip, missin
               )}
               <ThumbTrigger index={index} root={scrollerRef} onVisible={registerVisible} />
               {missing ? <i className="vt-film-warn" title={`素材缺失：${missing}`}>⚠</i> : null}
+              {/*
+               * 卡片上的「移除」——**片段卡都能自由移除**（用户 2026-09-20：「这些卡片支持自由移除吗」），
+               * 不仅是缺素材的：选错片段时不用先去右栏找媒体。
+               *
+               * 两种形态：缺素材 → 红底常驻（错误态，不靠悬停）；正常 → 悬停才现的灰色 ✕（否则 24 张卡全是红点，吵）。
+               * **片名卡/封面镜头不给**：那是「媒体级」，移除等于把这部移出推荐，量级不同且易误点（左栏「推荐顺序」里已能做）。
+               */}
+              {scene.clipId !== undefined && scene.mediaId !== undefined ? (
+                <span
+                  className={missing ? 'vt-film-drop' : 'vt-film-drop quiet'}
+                  role="button"
+                  tabIndex={0}
+                  title={missing
+                    ? `从推荐里移除这个片段（素材库不动）：${missing}`
+                    : '从推荐里移除这个片段（素材库不动）'}
+                  onClick={(event) => { event.stopPropagation(); onDropClip(scene.mediaId!, scene.clipId!); }}
+                  onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.stopPropagation(); onDropClip(scene.mediaId!, scene.clipId!); } }}
+                >
+                  ✕{missing ? ' 移除' : ''}
+                </span>
+              ) : null}
             </span>
             <span className="vt-film-meta">
               <b>{labelOf(plan, scene, mediaCount)}</b>
               <small>#{index + 1} · {Math.round(scene.durationInFrames / plan.fps)}s</small>
             </span>
+            {/* 时长牌：卡宽不随时长变（用户定），所以拖拽用"扫过一个卡宽 = 5s"的手感。
+                片段段没有牌（时长由素材决定），取而代之是把提示写进 title。 */}
+            {durationKey ? (
+              <span
+                className={`vt-film-dur${dragging === durationKey ? ' dragging' : ''}`}
+                title={`左右拖动调整「${DURATION_LABEL[durationKey]}」时长（本轮共 ${counts[durationKey]} 段一起变）`}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                  startDrag(event, durationKey, plan.params.durations[durationKey], perPxOf(event.currentTarget));
+                }}
+                onPointerMove={moveDrag}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+                onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
+              >
+                {plan.params.durations[durationKey]}s
+                {counts[durationKey] > 1 ? ` ×${counts[durationKey]}` : ''}
+              </span>
+            ) : null}
           </button>
         );
       })}

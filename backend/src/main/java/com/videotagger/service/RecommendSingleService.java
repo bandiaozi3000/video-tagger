@@ -116,14 +116,16 @@ public class RecommendSingleService {
         return Math.max(0, item.getOutSec() - item.getInSec());
     }
 
+    /** 单集推荐预览的封面：与全应用统一——**Bangumi 外链 → 显式封面 → 片段帧**（用户 2026-09-20 定稿）。 */
     private String firstCover(MediaDetail media, Iterable<Clip> clips) {
+        if (media.externalCoverUrl() != null && !media.externalCoverUrl().isBlank()) return media.externalCoverUrl();
         if (media.coverPath() != null && !media.coverPath().isBlank()) return media.coverPath();
         if (media.fallbackCoverPath() != null && !media.fallbackCoverPath().isBlank()) return media.fallbackCoverPath();
         for (Clip clip : clips) {
             if (clip.getDetailCoverPath() != null && !clip.getDetailCoverPath().isBlank()) return clip.getDetailCoverPath();
             if (clip.getCoverPath() != null && !clip.getCoverPath().isBlank()) return clip.getCoverPath();
         }
-        return media.externalCoverUrl();
+        return null;
     }
 
     private String description(long mediaId) {

@@ -23,16 +23,16 @@ const base: MultiMediaPocInput = {
     tags: [],
     clips: [],
   })),
-  params: { durations: { opening: 4, intro: 3, group: 3, detail: 4, ending: 3 }, bgmTracks: [] },
+  params: { durations: { opening: 4, intro: 3, group: 3, detail: 4, ending: 3, title: 2 }, bgmTracks: [] },
 };
 
 type Variant = 'same-duration' | 'longer' | 'shorter';
 
 function variantOf(kind: Variant): MultiMediaPocInput {
-  const durations = { opening: 4, intro: 3, group: 3, detail: 4, ending: 3 };
+  const durations = { opening: 4, intro: 3, group: 3, detail: 4, ending: 3, title: 2 };
   if (kind === 'same-duration') return { ...base, title: 'T2', params: { ...base.params, durations } };
-  if (kind === 'longer') return { ...base, params: { ...base.params, durations: { ...durations, detail: 8 } } };
-  return { ...base, params: { ...base.params, durations: { ...durations, detail: 3 } } };
+  if (kind === 'longer') return { ...base, params: { ...base.params, durations: { ...durations, detail: 8, title: 2 } } };
+  return { ...base, params: { ...base.params, durations: { ...durations, detail: 3, title: 2 } } };
 }
 
 declare global {

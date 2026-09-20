@@ -31,8 +31,9 @@ export function defaultConfig(): EditorConfig {
     introSec: 5,
     groupSec: 5,
     detailSec: 10,
+    titleSec: 2,
     endingSec: 5,
-    detailShow: { status: true, note: true, tag: true },
+    detailShow: { status: true, note: true, tag: true, endingWall: true, endingPaging: false, endingList: true, endingIndex: true, endingYear: true, endingStats: false },
     bgColor: '',
     bgImages: [],
     bgRotationSec: 8,
@@ -40,11 +41,15 @@ export function defaultConfig(): EditorConfig {
     bgBlur: 0,
     bgBrightness: 50,
     bgmTracks: [],
+    stingTracks: [],
+    stingVolume: 60,
     bgmScale: 100,
     bgmX: 1,
     bgmY: 8,
+    bgmRange: 'all',
     openingIds: [],
-    openingCustom: false,
+    clipVolume: 100,
+    seed: rollSeed(),
     preset: 'starlit',
     format: 'MP4',
     resolution: '720P',
@@ -97,8 +102,11 @@ export function saveGroupOpen(groups: Record<string, boolean>): void {
 }
 
 /**
- * 会话同步签名：只有这些字段变化才需要重新问后端（媒体集 / 片段挂载 / 分组名 / BGM 素材）。
+ * 会话同步签名：只有这些字段变化才需要重新问后端（媒体集 / 片段挂载 / 分组名 / BGM 素材 / 转场音素材）。
  * 其余参数走 {@link applyLocalParams} 本地补丁。
+ *
+ * 2026-09-20 补上 `sting`：转场音的**素材**是后端落到会话目录再回传相对路径的，
+ * 不进签名就会出现“选了转场音但预览里永远不生效”（导出走的是另一条路，所以成片反而正常）。
  */
 export function sessionSignature(config: EditorConfig): string {
   return JSON.stringify({
@@ -106,12 +114,19 @@ export function sessionSignature(config: EditorConfig): string {
     clips: config.mediaClips,
     groupBy: config.groupBy,
     bgm: config.bgmTracks.map((t) => `${t.name}:${t.base64?.length ?? 0}`),
+    sting: config.stingTracks.map((t) => `${t.name}:${t.base64?.length ?? 0}`),
   });
+}
+
+/**🎲 重排：换一个摆位种子（必须整数，hash 里按位运算）。 */
+export function rollSeed(): number {
+  return Math.floor(Math.random() * 0x7fffffff);
 }
 
 /** 纯参数补丁：字段名与 `RenderParams` 对齐，钳位交给 Remotion 侧 `resolveParams`。 */
 export function applyLocalParams(input: MultiMediaPocInput, config: EditorConfig, mediaCount?: number): MultiMediaPocInput {
-  const openingIds = config.openingCustom ? config.openingIds : [];
+  // 开场秀：有内容就用这个顺序（第一个 = Hero）；一个都没放 → 按推荐顺序（plan 会用片单顺序）
+  const openingIds = config.openingIds;
   // `openingIds` 里可能有已不在媒体集里的残留 id → 过滤，避免开场显影空转
   const validOpening = mediaCount === undefined
     ? openingIds
@@ -139,6 +154,10 @@ export function applyLocalParams(input: MultiMediaPocInput, config: EditorConfig
       bgmScale: config.bgmScale,
       bgmX: config.bgmX,
       bgmY: config.bgmY,
+      bgmRange: config.bgmRange,
+      stingVolume: config.stingVolume,
+      clipVolume: config.clipVolume,
+      seed: config.seed,
       openingSpeed: config.openingSpeed,
       endingScrollSpeed: config.endingScrollSpeed,
       durations: {
@@ -147,6 +166,7 @@ export function applyLocalParams(input: MultiMediaPocInput, config: EditorConfig
         group: config.groupSec,
         detail: config.detailSec,
         ending: config.endingSec,
+        title: config.titleSec,
       },
       groupBy: config.groupBy,
       groupSort: config.groupSort,
@@ -171,7 +191,8 @@ export function buildPayload(config: EditorConfig, filter: CandidateFilter, vari
   return {
     version: 2,
     // 草稿/模板不带 BGM（base64 体积大；与旧行为一致）
-    config: { ...config, bgmTracks: [] },
+    // 草稿/模板不带 BGM 与转场音（base64 体积大）
+    config: { ...config, bgmTracks: [], stingTracks: [] },
     filter,
     variants,
   };

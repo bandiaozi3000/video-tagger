@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -77,7 +78,13 @@ public class RecommendController {
                                          Integer bgmX, Integer bgmY,
                                          String brandTitle, Integer perScreen, String coverMode,
                                          Map<String, Boolean> detailShow, String preset,
-                                         Map<Long, RecommendMediaClips> mediaClips) {
+                                         Map<Long, RecommendMediaClips> mediaClips,
+                                         Integer seed,
+                                         Integer clipVolume,
+                                         String bgmRange,
+                                         Integer titleSec,
+                                         List<RecommendService.BgmTrack> stingTracks,
+                                         Integer stingVolume) {
     }
 
     /**
@@ -117,26 +124,38 @@ public class RecommendController {
      */
     private Map<String, Object> sessionResponse(RecommendSessionService.Session session,
                                                 RecommendExportRequest body) throws IOException {
+        // 时间轴帧率随模板形态：银幕式 24（片段素材原生帧率，不再补帧），其余 30
+        int fps = RecommendService.fpsOf(body.groupStyle());
         Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips = Map.of();
         List<RecommendClipSourceService.MissingClip> missing = List.of();
         if (body.mediaClips() != null && !body.mediaClips().isEmpty()) {
-            RecommendClipSourceService.PreparedClips prepared = clipSourceService.prepare(body.mediaClips(), session.dir());
+            RecommendClipSourceService.PreparedClips prepared = clipSourceService.prepare(body.mediaClips(), session.dir(), fps);
             preparedClips = prepared.byMedia();
             missing = prepared.missing() == null ? List.of() : prepared.missing();
         }
         List<String> bgmRels = sessionService.materializeBgm(session, body.bgmTracks(), body.bgmName(), body.bgmBase64());
         List<RecommendService.BgmTrack> tracks = RecommendSessionService.namedTracks(body.bgmTracks(), body.bgmName(), body.bgmBase64());
+        // 转场音乐：与 BGM 同一套落盘（就是个 0/1 元素的曲目列表），拿第 0 条的相对路径
+        List<String> stingRels = body.stingTracks() == null || body.stingTracks().isEmpty()
+                ? List.of()
+                : sessionService.materializeBgm(session, body.stingTracks(), null, null);
+        String stingRel = stingRels.isEmpty() ? null : stingRels.get(0);
         RecommendService.Durations dur = recommendService.normalizeDurations(
-                body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec());
+                body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec(), body.titleSec());
         int[] wh = RecommendVideoService.pixelsOf(body.resolution());
         String inputJson = recommendService.buildRenderInput(body.ids(), body.title(), tracks,
                 body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.intro(),
                 dur, body.endingTitle(), body.endingText(), body.bgColor(), body.bgImages(), body.bgRotationSec(),
                 body.bgOpacity(), body.bgBlur(), body.bgBrightness(), body.prologueTitle(), body.groupSort(),
                 body.openingSpeed(), body.endingScrollSpeed(), body.bgmScale(), body.bgmX(), body.bgmY(),
-                body.brandTitle(), body.perScreen(), body.detailShow(), body.preset(), preparedClips, "url", 30, wh[0], wh[1],
+                body.brandTitle(), body.perScreen(), body.detailShow(), body.preset(), preparedClips, "url", fps, wh[0], wh[1],
                 bgmRels,
-                rel -> recommendVideoService.probeDurationSeconds(session.dir().resolve(rel).toAbsolutePath().toString()));
+                rel -> recommendVideoService.probeDurationSeconds(session.dir().resolve(rel).toAbsolutePath().toString()),
+                body.seed(),
+                body.clipVolume(),
+                body.bgmRange(),
+                stingRel,
+                body.stingVolume());
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("token", session.token());
         Map<String, Object> input = objectMapper.readValue(inputJson, new TypeReference<Map<String, Object>>() { });
@@ -148,6 +167,16 @@ public class RecommendController {
         resp.put("input", input);
         resp.put("missing", missing);
         return resp;
+    }
+
+    /**
+     * 素材信息指纹（A+B 的 B）：编辑器切回窗口时调一次，与会话里的指纹比对，变了就重建会话。
+     *
+     * 只读三张表、不读封面不解视频 → 可以放心在 focus 里频繁调。
+     */
+    @GetMapping("/meta-fingerprint")
+    public Map<String, Object> metaFingerprint(@RequestParam(name = "ids", required = false) List<Long> ids) {
+        return Map.of("fingerprint", recommendService.metaFingerprint(ids == null ? List.of() : ids));
     }
 
     /** 导出视频：异步创建后台任务（RUNNING）立即返回 taskId；进度/产物由任务列表管理。 */
@@ -168,8 +197,18 @@ public class RecommendController {
             Files.write(f, Base64.getDecoder().decode(body.bgmBase64()));
             bgmPaths.add(f.toString());
         }
+        // 转场音乐：导出端与 BGM 一样写临时文件，再由渲染侧拷进工作目录
+        String stingPath = null;
+        if (body.stingTracks() != null && !body.stingTracks().isEmpty()) {
+            RecommendService.BgmTrack sting = body.stingTracks().get(0);
+            if (sting != null && sting.base64() != null && !sting.base64().isBlank()) {
+                Path f = Files.createTempFile("vt-sting-", RecommendSessionService.audioExtension(sting.name()));
+                Files.write(f, Base64.getDecoder().decode(sting.base64()));
+                stingPath = f.toString();
+            }
+        }
         RecommendService.Durations dur = recommendService.normalizeDurations(
-                body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec());
+                body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec(), body.titleSec());
         VideoExportTaskService.VideoExportTask t = exportTaskService.create(
                 body.ids(), body.title(), fmt, body.resolution(), bgmPaths, bgmTracks,
                 body.groupBy(), body.groupStyle(), body.subtitle(), body.coverSize(),
@@ -177,7 +216,8 @@ public class RecommendController {
                 body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(),
                 body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(),
                 body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(),
-                body.detailShow(), body.preset(), body.mediaClips());
+                body.detailShow(), body.preset(), body.mediaClips(), body.seed(), body.clipVolume(), body.bgmRange(),
+                stingPath, body.stingVolume());
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("taskId", t.id());
         resp.put("status", t.status());

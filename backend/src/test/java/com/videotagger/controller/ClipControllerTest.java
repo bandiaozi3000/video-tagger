@@ -2,6 +2,7 @@ package com.videotagger.controller;
 
 import com.videotagger.entity.Clip;
 import com.videotagger.service.ClipService;
+import com.videotagger.service.ReviewClipService;
 import com.videotagger.service.SaveClipResult;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -31,6 +32,9 @@ class ClipControllerTest {
 
     @MockBean
     ClipService clipService;
+
+    @MockBean
+    ReviewClipService reviewClipService;
 
     @Test
     void saveReturnsId() throws Exception {

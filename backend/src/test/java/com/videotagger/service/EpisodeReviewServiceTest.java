@@ -136,6 +136,34 @@ class EpisodeReviewServiceTest {
     }
 
     @Test
+    @DisplayName("灯状态批量：只有 Animeko 缓存在场的那集入选（无桥/无条目不算）")
+    void cachedEpisodesForLights() throws Exception {
+        dataRoot = Files.createTempDirectory("ep-review-lights");
+        Path datastore = Files.createDirectories(dataRoot.resolve("datastore"));
+        Path downloads = Files.createDirectories(dataRoot.resolve("media-downloads").resolve("web-m3u"));
+        String mediaId = "ccc.集C-03";
+        Files.writeString(datastore.resolve("mediaCacheMetadataV2"),
+                "[{\"origin\":{\"mediaId\":\"" + mediaId + "\"},\"metadata\":{\"episodeId\":\"888\",\"subjectId\":\"1\"},\"engine\":\"web-m3u\"}]");
+        Files.createFile(downloads.resolve(mediaId + ".mp4"));
+        ExternalEpisode bridge = new ExternalEpisode();
+        bridge.setExternalWorkId(2L);
+        bridge.setProviderEpisodeId("888");
+        when(extEpMapper.listByLocalEpisode(1414L)).thenReturn(List.of(bridge));
+        ExternalWork work = new ExternalWork();
+        work.setProvider("BANGUMI");
+        when(extWorkMapper.selectById(2L)).thenReturn(work);
+        when(extEpMapper.listByLocalEpisode(1413L)).thenReturn(List.of());   // 无桥=无缓存
+        Path fakeDb = dataRoot.resolve("ani_room_database_main.db");
+        Files.writeString(fakeDb, "x");
+
+        var cached = service("C:/no/assets", fakeDb.toString()).cachedEpisodes(List.of(1413L, 1414L));
+
+        assertEquals(1, cached.size());
+        assertEquals(true, cached.contains(1414L));
+        assertEquals(false, cached.contains(1413L));
+    }
+
+    @Test
     @DisplayName("双缺 → UNAVAILABLE 不抛错")
     void bothMissing() throws Exception {
         when(episodeMapper.selectById(1L)).thenReturn(ep(1L));

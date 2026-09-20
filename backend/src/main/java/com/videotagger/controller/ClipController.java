@@ -2,6 +2,7 @@ package com.videotagger.controller;
 
 import com.videotagger.entity.Clip;
 import com.videotagger.service.ClipService;
+import com.videotagger.service.ReviewClipService;
 import com.videotagger.service.SaveClipRequest;
 import com.videotagger.service.SaveClipResult;
 import jakarta.validation.Valid;
@@ -23,9 +24,11 @@ import java.util.List;
 public class ClipController {
 
     private final ClipService clipService;
+    private final ReviewClipService reviewClipService;
 
-    public ClipController(ClipService clipService) {
+    public ClipController(ClipService clipService, ReviewClipService reviewClipService) {
         this.clipService = clipService;
+        this.reviewClipService = reviewClipService;
     }
 
     @PostMapping
@@ -58,6 +61,12 @@ public class ClipController {
                        @RequestParam(defaultValue = "false") boolean appendTag,
                        @Valid @RequestBody SaveClipRequest req) {
         return clipService.update(id, req, appendTag);
+    }
+
+    /** 本地回顾弹窗（片段详情）保存：区间按弹窗内文件坐标传，后端换算回原视频坐标并更新本片段。 */
+    @PutMapping("/{id}/playback-range")
+    public Clip updatePlaybackRange(@PathVariable Long id, @RequestBody ReviewClipService.RangeRequest req) {
+        return reviewClipService.updateRange(id, req);
     }
 
     /** M2：设置片段封面（body = base64 data URL，截图兜底/手动换封面用）。 */

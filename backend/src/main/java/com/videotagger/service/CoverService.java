@@ -43,6 +43,8 @@ public class CoverService {
     private static final Logger log = LoggerFactory.getLogger(CoverService.class);
     private static final long MAX_BYTES = 10L * 1024 * 1024;
     private static final Set<String> IMAGE_EXT = Set.of("jpg", "png", "webp");
+    /** 外部（Bangumi）封面缓存子目录：`covers/ext/{mediaId}.{ext}`，与用户自己的封面分开。 */
+    private static final String EXT_DIR = "ext";
 
     private final MediaMapper mediaMapper;
     private final Path coverDir;
@@ -76,6 +78,40 @@ public class CoverService {
 
     /** 从 URL 下载封面并落盘，返回 /covers/** 相对路径。 */
     public String saveFromUrl(Long mediaId, String imageUrl) {
+        Downloaded image = download(imageUrl);
+        return persist(mediaId, image.bytes(), image.ext());
+    }
+
+    /**
+     * Bangumi（`external_work.cover_url`）封面**缓存**：落到 `covers/ext/{mediaId}.{ext}`，返回 `/covers/ext/...`。
+     *
+     * 与 {@link #saveFromUrl} 的区别：**不写 DB**（`media.cover_path` 不动）——
+     * 用途只是“这部没本地封面时，推荐视频借一张外部封面显示”，不是替用户补封面（用户 2026-09-20 拍板）。
+     * 已缓存直接复用（幂等，不会每次预览都联网）；无 URL / 下载失败 → null（调用方退到占位块）。
+     */
+    public String ensureExternalCover(Long mediaId, String imageUrl) {
+        if (mediaId == null || imageUrl == null || imageUrl.isBlank()) {
+            return null;
+        }
+        Path dir = coverDir.resolve(EXT_DIR);
+        for (String ext : IMAGE_EXT) {
+            Path cached = dir.resolve(mediaId + "." + ext);
+            if (Files.isRegularFile(cached)) {
+                return "/covers/" + EXT_DIR + "/" + cached.getFileName();
+            }
+        }
+        try {
+            Downloaded image = download(imageUrl);
+            write(dir, mediaId + "." + image.ext(), image.bytes());
+            return "/covers/" + EXT_DIR + "/" + mediaId + "." + image.ext();
+        } catch (Exception e) {
+            log.warn("媒体 {} 外部封面缓存失败（不影响渲染，退占位块）: {}", mediaId, e.getMessage());
+            return null;
+        }
+    }
+
+    /** 下载外部图片（带超时与大小上限）。 */
+    private Downloaded download(String imageUrl) {
         if (imageUrl == null || imageUrl.isBlank()) {
             throw new IllegalArgumentException("image url 为空");
         }
@@ -96,14 +132,17 @@ public class CoverService {
             if (body.length > MAX_BYTES) {
                 throw new IllegalStateException("图片过大: " + body.length);
             }
-            String contentType = resp.headers().firstValue("Content-Type").orElse("");
-            return persist(mediaId, body, extFor(contentType));
+            return new Downloaded(body, extFor(resp.headers().firstValue("Content-Type").orElse("")));
         } catch (IOException e) {
             throw new IllegalStateException("下载失败: " + e.getMessage(), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("下载被中断", e);
         }
+    }
+
+    /** 下载结果（字节 + 由 Content-Type 判定的扩展名）。 */
+    private record Downloaded(byte[] bytes, String ext) {
     }
 
     /** Web UI 手动上传的字节落盘（番剧封面）。 */

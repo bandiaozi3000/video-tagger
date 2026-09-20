@@ -47,12 +47,20 @@ public class RecommendClipSourceService {
     private final Path assetRoot;
     /** 推荐时间轴帧率：片段素材的帧率与它不一致时不能直通（否则播放时帧节奏不匀 = "晃"）。 */
     private final double targetFps;
+    /** 同系列解析（借片段时校验「来源与本体有视频类关联」）；测试可传 null → 不校验。 */
+    private final RelatedMediaService relatedMediaService;
+    private final com.videotagger.mapper.MediaMapper mediaMapper;
+    /** 悬空引用修复建议要查「片段归属哪个媒体」（episode → media）。 */
+    private final com.videotagger.mapper.EpisodeMapper episodeMapper;
 
     public RecommendClipSourceService(ClipMapper clipMapper, LocalVideoResolver videoResolver,
                                       ClipExportProperties properties, VideoAssetMapper assetMapper,
                                       MediaProbe mediaProbe,
                                       @Value("${videotagger.video-assets.root-dir:${VT_DATA_DIR:data}/video-assets}") String assetRoot,
-                                      @Value("${videotagger.render.fps:30}") double targetFps) {
+                                      @Value("${videotagger.render.fps:30}") double targetFps,
+                                      RelatedMediaService relatedMediaService,
+                                      com.videotagger.mapper.MediaMapper mediaMapper,
+                                      com.videotagger.mapper.EpisodeMapper episodeMapper) {
         this.clipMapper = clipMapper;
         this.videoResolver = videoResolver;
         this.properties = properties;
@@ -60,13 +68,24 @@ public class RecommendClipSourceService {
         this.mediaProbe = mediaProbe;
         this.assetRoot = Path.of(assetRoot).toAbsolutePath().normalize();
         this.targetFps = targetFps > 0 ? targetFps : 30;
+        this.relatedMediaService = relatedMediaService;
+        this.mediaMapper = mediaMapper;
+        this.episodeMapper = episodeMapper;
     }
 
     public PreparedClips prepare(Map<Long, RecommendMediaClips> requested, Path workDir) {
+        return prepare(requested, workDir, targetFps);
+    }
+
+    /**
+     * 同 {@link #prepare(Map, Path)}，但按**模板形态**给时间轴帧率（用户 2026-09-20：银幕式走 24）。
+     * 现由调用方传 `RecommendService.fpsOf(groupStyle)`；两参版本保留给测试与旧调用。
+     */
+    public PreparedClips prepare(Map<Long, RecommendMediaClips> requested, Path workDir, double timelineFps) {
         Map<Long, List<PreparedClip>> prepared = new LinkedHashMap<>();
         List<MissingClip> missing = new ArrayList<>();
         if (requested == null || requested.isEmpty()) return new PreparedClips(prepared, missing);
-        Map<Long, Clip> clips = loadClips(requested);
+        LoadedClips loaded = loadClips(requested);
         Map<Long, Path> outputs = new HashMap<>();
         for (Map.Entry<Long, RecommendMediaClips> mediaEntry : requested.entrySet()) {
             Long mediaId = mediaEntry.getKey();
@@ -74,19 +93,24 @@ public class RecommendClipSourceService {
             if (mediaId == null || selection == null || selection.order() == null) continue;
             List<PreparedClip> mediaPrepared = new ArrayList<>();
             for (Long clipId : selection.order()) {
-                Clip clip = clips.get(clipId);
+                Clip clip = loaded.clips().get(clipId);
+                Long sourceMediaId = selection.sourceOf(clipId);
                 String label = clip == null ? "片段 #" + clipId : displayName(clip);
                 try {
-                    if (clip == null) throw new IllegalArgumentException("片段不存在或不属于所选媒体");
+                    if (clip == null) throw new IllegalArgumentException(
+                            loaded.reasons().getOrDefault(clipId, "片段不存在或不属于所选媒体"));
                     Path output = outputs.computeIfAbsent(clipId, id -> workDir.resolve("media").resolve("clip-" + id + ".mp4"));
                     if (!Files.isRegularFile(output)) {
-                        prepareOne(clip, output);
+                        prepareOne(clip, output, timelineFps);
                     }
+                    // 借来的片段带上来源标题（供视图与编辑器角标）；本体片段两个字段为 null
+                    String sourceTitle = sourceMediaId == null ? null : relatedTitles(mediaId).get(sourceMediaId);
                     mediaPrepared.add(new PreparedClip(clip.getId(), clip.getTitle(), clip.getNote(),
                             clip.getTimestampSec(), clip.getEndSec(), relativePath(workDir, output),
-                            selection.badge()));
+                            selection.badge(), sourceMediaId, sourceTitle));
                 } catch (RuntimeException | IOException | InterruptedException e) {
-                    missing.add(new MissingClip(mediaId, clipId, label, message(e)));
+                    MissingClip hint = loaded.suggest().get(clipId);
+                    missing.add(hint == null ? new MissingClip(mediaId, clipId, label, message(e)) : hint);
                 }
             }
             if (!mediaPrepared.isEmpty()) prepared.put(mediaId, mediaPrepared);
@@ -95,10 +119,10 @@ public class RecommendClipSourceService {
     }
 
     /** 单个片段：物化产物直用 / 产物重编码 / 源视频重编码。 */
-    private void prepareOne(Clip clip, Path output) throws IOException, InterruptedException {
+    private void prepareOne(Clip clip, Path output, double timelineFps) throws IOException, InterruptedException {
         Artifact artifact = reusableArtifact(clip);
         if (artifact != null) {
-            if (playable(artifact)) {
+            if (playable(artifact, timelineFps)) {
                 Files.createDirectories(output.getParent());
                 Files.copy(artifact.file(), output, StandardCopyOption.REPLACE_EXISTING);
                 log.info("片段 {} 复用物化产物（零重编码）: {}", clip.getId(), artifact.file().getFileName());
@@ -149,16 +173,20 @@ public class RecommendClipSourceService {
      * 帧率那条是 2026-09-19 补的：以前只看编解码，于是 23.976fps 的素材被零重编码直通，
      * 进 30fps 时间轴后帧节奏不匀（源帧重复/跳过混排），观感就是“片段一直在晃”。
      * 探测不到帧率（探针不可用）时按可复用来处理，避免在探测失败时把全部片段都转一遍。
+     *
+     * 更正（2026-09-20）：当时以为“重编码成时间轴帧率”能消掉顿挫，**其实不能** ——
+     * 24fps 内容重新封成 30fps 只能靠重复帧（帧间差实测每 5 帧一个 ≈0），顿挫一分不少。
+     * 真正的解是让时间轴跟着素材走（银幕式 → 24），因此这里的比对帧率也随模板形态变。
      */
-    private boolean playable(Artifact artifact) {
+    private boolean playable(Artifact artifact, double timelineFps) {
         if (!codecsPlayable(artifact)) return false;
         double fps = mediaProbe.fps(artifact.file().toString());
         if (fps <= 0) {
             log.warn("片段物化产物帧率探测失败，按可复用处理: {}", artifact.file().getFileName());
             return true;
         }
-        if (Math.abs(fps - targetFps) > 0.05) {
-            log.info("片段物化产物帧率 {} ≠ 时间轴 {}，改为重编码（CFR）: {}", fps, targetFps, artifact.file().getFileName());
+        if (Math.abs(fps - timelineFps) > 0.05) {
+            log.info("片段物化产物帧率 {} ≠ 时间轴 {}，改为重编码（CFR）: {}", fps, timelineFps, artifact.file().getFileName());
             return false;
         }
         return true;
@@ -236,18 +264,103 @@ public class RecommendClipSourceService {
         }
     }
 
-    private Map<Long, Clip> loadClips(Map<Long, RecommendMediaClips> requested) {
+    /**
+     * 取片段（含**跨媒体借片段**）。
+     *
+     * 借片段的判定：本体 `listByMedia` 里没这个 clipId，但 `sources[clipId]` 指了另一个媒体。
+     * 校验三段，**原因分开报**（设计规格 §5.2）：
+     *   ① 库里压根没这个片段 → `片段不存在`
+     *   ② 没给 sources 且不属本体 → `片段不存在或不属于所选媒体`（保留旧文案，旧草稿行为不变）
+     *   ③ 给了 sources，但来源与本体**没有视频类关联** → `片段 #N 与《本体》没有视频类关联`
+     */
+    private LoadedClips loadClips(Map<Long, RecommendMediaClips> requested) {
         Map<Long, Clip> result = new HashMap<>();
+        Map<Long, String> reasons = new HashMap<>();
+        Map<Long, MissingClip> suggest = new HashMap<>();   // 悬空引用的修复建议
+        Map<Long, Map<Long, String>> relatedCache = new HashMap<>();   // 本体媒体 → (来源媒体 → 标题)
         for (Map.Entry<Long, RecommendMediaClips> entry : requested.entrySet()) {
             Long mediaId = entry.getKey();
             if (mediaId == null || entry.getValue() == null || entry.getValue().order() == null) continue;
             Map<Long, Clip> owned = new HashMap<>();
             for (Clip clip : clipMapper.listByMedia(mediaId)) owned.put(clip.getId(), clip);
             for (Long clipId : entry.getValue().order()) {
-                if (clipId != null) result.put(clipId, owned.get(clipId));
+                if (clipId == null) continue;
+                Clip clip = owned.get(clipId);
+                if (clip != null) {
+                    result.put(clipId, clip);
+                    continue;
+                }
+                Long sourceMediaId = entry.getValue().sourceOf(clipId);
+                if (sourceMediaId == null) {
+                    result.put(clipId, null);
+                    reasons.put(clipId, "片段不存在或不属于所选媒体");
+                    // 旧草稿的跨媒体悬空引用：片段其实在库里，只是属于**本部同系列**的条目（如 OVA）
+                    // → 给出「该挂到哪」的建议，编辑器就能一键修好（2026-09-20 用户实测踩到）。
+                    suggest.put(clipId, suggestionFor(mediaId, clipId));
+                    continue;
+                }
+                Map<Long, String> related = relatedCache.computeIfAbsent(mediaId, this::relatedTitles);
+                if (!related.containsKey(sourceMediaId)) {
+                    result.put(clipId, null);
+                    reasons.put(clipId, "片段 #" + clipId + " 与《" + titleOf(mediaId) + "》没有视频类关联");
+                    continue;
+                }
+                Clip borrowed = clipMapper.listByMedia(sourceMediaId).stream()
+                        .filter((candidate) -> clipId.equals(candidate.getId())).findFirst().orElse(null);
+                result.put(clipId, borrowed);
+                if (borrowed == null) reasons.put(clipId, "片段不存在");
             }
         }
-        return result;
+        return new LoadedClips(result, reasons, suggest);
+    }
+
+    /**
+     * 悬空引用的修复建议：片段存在，且其归属媒体在「本部的同系列」里 → 指出该挂到哪个条目。
+     * 不是这种情况返回 null（例如片段真被删了、或属于毫不相干的另一部）。
+     */
+    private MissingClip suggestionFor(Long ownerMediaId, Long clipId) {
+        try {
+            Clip clip = clipMapper.selectById(clipId);
+            if (clip == null || clip.getEpisodeId() == null || episodeMapper == null) return null;
+            com.videotagger.entity.Episode episode = episodeMapper.selectById(clip.getEpisodeId());
+            if (episode == null || episode.getMediaId() == null) return null;
+            Long realOwner = episode.getMediaId();
+            if (realOwner.equals(ownerMediaId)) return null;               // 属于本部 → 不是跨媒体问题
+            Map<Long, String> related = relatedTitles(ownerMediaId);
+            String title = related.get(realOwner);
+            if (title == null) return null;                               // 不在同系列 → 不给建议
+            return new MissingClip(ownerMediaId, clipId, clip.getTitle(), "片段属于同系列条目", realOwner, title);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** 本体可借的来源（同系列、本地有片段的条目）→ mediaId 到标题（供来源角标）。 */
+    private Map<Long, String> relatedTitles(Long mediaId) {
+        Map<Long, String> map = new LinkedHashMap<>();
+        if (relatedMediaService != null) {
+            for (RelatedMedia related : relatedMediaService.videoRelated(mediaId)) {
+                map.putIfAbsent(related.mediaId(), related.title());
+            }
+        }
+        map.putIfAbsent(mediaId, titleOf(mediaId));   // 本体也算（防御：sources 指回本体）
+        return map;
+    }
+
+    private String titleOf(Long mediaId) {
+        try {
+            if (mediaMapper != null) {
+                com.videotagger.entity.Media media = mediaMapper.selectById(mediaId);
+                if (media != null && media.getTitle() != null && !media.getTitle().isBlank()) return media.getTitle().trim();
+            }
+        } catch (RuntimeException ignored) {
+            // 取不到标题不影响主流程
+        }
+        return "#" + mediaId;
+    }
+
+    /** 片段 + 失败原因（原因要分文案，所以不能只返回 null）+ 悬空引用的修复建议。 */
+    private record LoadedClips(Map<Long, Clip> clips, Map<Long, String> reasons, Map<Long, MissingClip> suggest) {
     }
 
     private static long startMs(Clip clip) {
@@ -283,7 +396,29 @@ public class RecommendClipSourceService {
     }
 
     public record PreparedClip(Long id, String title, String note, Double startSec, Double endSec,
-                               String path, RecommendMediaClips.Badge badge) { }
+                               String path, RecommendMediaClips.Badge badge,
+                               /** 借来的片段才有：来源媒体 id / 标题（本体片段为 null）。 */
+                               Long sourceMediaId, String sourceTitle) {
 
-    public record MissingClip(Long mediaId, Long clipId, String title, String reason) { }
+        /** 兼容旧构造（本体片段）。 */
+        public PreparedClip(Long id, String title, String note, Double startSec, Double endSec,
+                            String path, RecommendMediaClips.Badge badge) {
+            this(id, title, note, startSec, endSec, path, badge, null, null);
+        }
+    }
+
+    /**
+     * 缺素材的一条。
+     *
+     * 2026-09-20 加 `suggestedSourceMediaId/Title`：**旧草稿里的跨媒体悬空引用**
+     * （片段属于同系列的 OVA，但草稿没写 sources）→ 后端能认出该挂到哪，编辑器就能给一键修复。
+     */
+    public record MissingClip(Long mediaId, Long clipId, String title, String reason,
+                              Long suggestedSourceMediaId, String suggestedSourceTitle) {
+
+        /** 兼容旧构造（没有修复建议）。 */
+        public MissingClip(Long mediaId, Long clipId, String title, String reason) {
+            this(mediaId, clipId, title, reason, null, null);
+        }
+    }
 }

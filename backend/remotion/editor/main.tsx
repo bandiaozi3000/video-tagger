@@ -27,6 +27,8 @@ import {
 } from './state';
 import { BasketPane, BgmOverlay, InspectorPane, ParamPalette, TemplatePanel, Toolbar } from './panes';
 import { Filmstrip, Timeline, selectionOfScene, type Selection } from './timeline';
+import { DURATION_FIELD, type DurationKey } from './durations';
+import { withoutClip } from './clip-refs';
 import { buildScenePlan } from '../src/scene-plan';
 import type { ScenePlan } from '../src/types';
 import './editor.css';
@@ -75,6 +77,21 @@ function App() {
     });
   }, []);
 
+  /**
+   * 拖拽改时长（时间轴把手 / 胶片条时长牌共用）。
+   *
+   * 写入的是**类级**字段（`openingSec` …）→ `applyLocalParams` 映到 `durations` → plan 本地重排 →
+   * 段块/总长/Player 立刻跟着变（不走网络）。语义：**只改这一类，总长跟着变**（用户 2026-09-20 定）。
+   */
+  /** 缺素材卡上的「移除」= 从草稿的 mediaClips 里拿掉该片段（与右栏「移除」同一套逻辑）。 */
+  const dropClip = React.useCallback((mediaId: number, clipId: number) => {
+    patch({ mediaClips: withoutClip(config.mediaClips, mediaId, clipId) });
+  }, [config.mediaClips, patch]);
+
+  const changeDuration = React.useCallback((key: DurationKey, seconds: number) => {
+    patch({ [DURATION_FIELD[key]]: seconds } as Partial<EditorConfig>);
+  }, [patch]);
+
   const notify = (message: string) => {
     setToast(message);
     window.setTimeout(() => setToast((value) => (value === message ? null : value)), 2600);
@@ -117,7 +134,44 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [config, filter, variants]);
 
+
+  /**
+   * B：切回窗口时比一次素材指纹（节流 20s），不一样就重建会话。
+   *
+   * 为什么要指纹而不是直接重建：重建会话要重新读 24 部资料 + 探测片段帧率，
+   * 每次 focus 都跑会闪 busy；指纹只读三张表，代价可忽略。
+   */
+  React.useEffect(() => {
+    const check = async () => {
+      if (config.ids.length === 0) return;
+      if (Date.now() - lastCheckRef.current < 20000) return;
+      lastCheckRef.current = Date.now();
+      try {
+        const { fingerprint } = await api.metaFingerprint(config.ids);
+        if (lastFingerprintRef.current && fingerprint !== lastFingerprintRef.current) {
+          notify('素材信息有更新，已重新读取');
+          setReloadTick((value) => value + 1);
+        }
+      } catch {
+        /* 检查失败不影响编辑 */
+      }
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') void check(); };
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+    // 只依赖媒体集：换批媒体时重新挂监听没有意义
+  }, [config.ids.join(','), notify]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   // —— 会话同步（仅素材/媒体集/分组/BGM 变化触发；参数变化走本地补丁）——
+  // A+B：手动「重新读取素材」与自动检测都用这个 tick 触发重建（加进会话 effect 的依赖）
+  const [reloadTick, setReloadTick] = React.useState(0);
+  /** 上次会话里的素材指纹（B 用来判断“库里改过资料没有”）。 */
+  const lastFingerprintRef = React.useRef<string | null>(null);
+  const lastCheckRef = React.useRef(0);
   const signature = sessionSignature(config);
   const idsKey = config.ids.join(',');
   React.useEffect(() => {
@@ -136,6 +190,7 @@ function App() {
             : await api.createSession(config);
           if (cancelled) return;
           tokenRef.current = response.token;
+          lastFingerprintRef.current = (response.input as { metaFingerprint?: string } | null)?.metaFingerprint ?? null;
           setRemoteInput(response.input);
           setMissing(response.missing || []);
         } catch (error) {
@@ -148,7 +203,7 @@ function App() {
     }, 120);
     return () => { cancelled = true; window.clearTimeout(timer); };
     // 依赖签名：参数改动不重建会话
-  }, [signature, idsKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [signature, idsKey, reloadTick]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // 卸载时回收会话（离开视图/关页）
   React.useEffect(() => () => {
@@ -352,15 +407,10 @@ function App() {
     year: media.year ?? null,
   }));
 
-  const inspectorMissing = React.useMemo(() => {
-    const map: Record<number, string> = {};
-    for (const [clipId, reason] of Object.entries(missingByClip)) map[Number(clipId)] = reason;
-    return map;
-  }, [missingByClip]);
-
   return (
     <div className={immersive ? 'vt-workspace flash' : 'vt-workspace'}>
       <Toolbar config={config} patch={patch} busy={busy} variantCount={variants.length}
+               onReloadMaterials={() => setReloadTick((value) => value + 1)}
                onExport={() => void onExport()} onExportAll={() => void onExportAll()}
                onOpenTasks={() => setTasksOpen(true)} onOpenTemplates={() => setTemplatesOpen(true)}
                onOpenVariants={() => { setSelection({ kind: 'global' }); setFocusGroup('导出变体'); }}
@@ -374,6 +424,7 @@ function App() {
 
       <div className={immersive ? 'vt-body stage-only' : 'vt-body'}>
         <BasketPane config={config} patch={patch} filter={filter} onFilter={setFilter} onSelect={setSelection}
+                    mediaBriefs={mediaBriefs}
                     highlightMediaId={selection.kind === 'media' || selection.kind === 'clip' ? selection.mediaId : undefined} />
 
         <section className="panel vt-col">
@@ -468,6 +519,8 @@ function App() {
                   setSelection(next);
                   if (rangeScene !== null && next.sceneIndex !== undefined) setRangeScene(next.sceneIndex);
                 }}
+                onDurationChange={changeDuration}
+                onDropClip={dropClip}
               />
             ) : null}
 
@@ -485,12 +538,13 @@ function App() {
                   // 「只看本段」开着时，选中别的段就跟着换范围（否则游标跑到范围外，行为很迷惑）
                   if (rangeScene !== null && next.sceneIndex !== undefined) setRangeScene(next.sceneIndex);
                 }}
+                onDurationChange={changeDuration}
               />
             ) : null}
           </div>
         </section>
 
-        <InspectorPane config={config} patch={patch} mediaBriefs={mediaBriefs} missingByMedia={inspectorMissing}
+        <InspectorPane config={config} patch={patch} mediaBriefs={mediaBriefs} missing={missing}
                        selection={selection} rendered={rendered} focusGroup={focusGroup}
                        onSelect={setSelection} onOpenSearch={() => setPaletteOpen(true)}
                        variants={variants} onVariants={setVariants} />

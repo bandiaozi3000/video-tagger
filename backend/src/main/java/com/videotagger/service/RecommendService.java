@@ -28,6 +28,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 推荐番剧 → 自包含渐变环流 HTML。
@@ -48,7 +51,7 @@ public class RecommendService {
     }
 
     /** 显示时长（秒）：开局定格 / 序言 / 章节转场 / 每部详情 / 结尾。 */
-    public record Durations(int opening, int intro, int group, int detail, int ending) {
+    public record Durations(int opening, int intro, int group, int detail, int ending, int title) {
     }
 
     private final MediaService mediaService;
@@ -88,17 +91,18 @@ public class RecommendService {
     }
 
     /** 显示时长归一化：空/越界 → 默认（开局 10 / 序言 5 / 章节 5 / 详情 10 / 结尾 5）。 */
-    public Durations normalizeDurations(Integer opening, Integer intro, Integer group, Integer detail, Integer ending) {
+    public Durations normalizeDurations(Integer opening, Integer intro, Integer group, Integer detail, Integer ending, Integer title) {
         return new Durations(
                 clamp(opening, 2, 20, 10),
                 clamp(intro, 1, 10, 5),
                 clamp(group, 1, 10, 5),
                 clamp(detail, 3, 15, 10),
-                clamp(ending, 1, 10, 5));
+                clamp(ending, 1, 10, 5),
+                clamp(title, 1, 5, 2));
     }
 
     private Durations normalizeDurations(Durations d) {
-        return d == null ? new Durations(10, 5, 5, 10, 5) : d;
+        return d == null ? new Durations(10, 5, 5, 10, 5, 2) : d;
     }
 
     private static int clamp(Integer v, int min, int max, int dft) {
@@ -127,6 +131,66 @@ public class RecommendService {
     }
 
     /**
+     * 时间轴帧率（用户 2026-09-20 拍板）：
+     *
+     * <ul>
+     *   <li><b>银幕式 → 24</b>：番剧片段素材实测清一色 23.976fps，24fps 时间轴下每帧都落在素材真帧上，
+     *       <b>不再需要每 5 帧补一张停住的重复帧</b>（那正是“片段画面在抖”的根因），素材还可零重编码直通。</li>
+     *   <li><b>其余模板 → 30</b>：旧版行为一字不变。</li>
+     * </ul>
+     *
+     * 注意：一个输出文件只能有一个帧率，“片段 24 + 其余 30”在编码层面不存在；
+     * 24 vs 23.976 的 0.1% 差异 = 约每 42 秒才补 1 帧，肉眼不可见。
+     */
+    public static int fpsOf(String groupStyle) {
+        return "cinema".equals(styleOf(groupStyle)) ? 24 : 30;
+    }
+
+    /**
+     * 素材信息指纹：只覆盖**影响观看的展示字段**（标题/年份/格式/分类/来源/封面链/简介/标签/集数）。
+     *
+     * 用途：编辑器在切回窗口时比一次，变了就重建会话（用户 2026-09-20 的 A+B）。
+     * **刻意不含**：片段素材路径、会话工作目录、强调色（那些由会话自己生成，与“库里资料有无更新”无关）。
+     * 只读 media / external_work / media_tag 三张表，**不读封面文件也不探测视频** —— 要能在 focus 里频繁调用。
+     */
+    public String metaFingerprint(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return "-";
+        StringBuilder raw = new StringBuilder();
+        for (Long id : ids) {
+            if (id == null) continue;
+            MediaDetail d;
+            try {
+                d = mediaService.get(id);
+            } catch (RuntimeException e) {
+                raw.append(id).append("\u0001missing");
+                continue;
+            }
+            if (d == null) {
+                raw.append(id).append("\u0001missing");
+                continue;
+            }
+            raw.append(d.id()).append('\u0001').append(d.title()).append('\u0001').append(d.originalTitle())
+                    .append('\u0001').append(d.aliases()).append('\u0001').append(d.year()).append('\u0001')
+                    .append(d.season()).append('\u0001').append(d.mediaFormat()).append('\u0001')
+                    .append(d.subcategory()).append('\u0001').append(d.note()).append('\u0001')
+                    .append(d.status()).append('\u0001').append(d.rating()).append('\u0001')
+                    .append(d.coverPath()).append('\u0001').append(d.fallbackCoverPath()).append('\u0001')
+                    .append(d.externalCoverUrl()).append('\u0001').append(d.episodeCount()).append('\u0001')
+                    .append(d.clipCount()).append('\u0001').append(d.source());
+            for (com.videotagger.entity.Tag tag : d.tags() == null ? List.<com.videotagger.entity.Tag>of() : d.tags()) {
+                raw.append('\u0002').append(tag.getName());
+            }
+        }
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(raw.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest).substring(0, 16);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            return Integer.toHexString(raw.toString().hashCode());
+        }
+    }
+
+    /**
      * 组装 Remotion 渲染输入（生产链路：Java → Node renderer）。
      *
      * 与已退役的 {@code buildHtml} 的区别：输出的是给 Remotion 的 JSON（不注入 HTML），
@@ -147,7 +211,9 @@ public class RecommendService {
                                   Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips,
                                   String coverMode, int fps, int width, int height,
                                   List<String> bgmAssetPaths,
-                                  java.util.function.ToDoubleFunction<String> probeSeconds) {
+                                  java.util.function.ToDoubleFunction<String> probeSeconds,
+                                  Integer seed,
+                                  Integer clipVolume, String bgmRange, String stingPath, Integer stingVolume) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
@@ -160,18 +226,21 @@ public class RecommendService {
         root.put("intro", intro == null ? "" : intro.trim());
 
         List<Map<String, Object>> mediaViews = new ArrayList<>();
-        int order = 0;
+        // 先把媒体取出来（顺带**并发预热 Bangumi 封面**：几十张串行下载会让首次预览/渲染卡十几秒）
+        List<MediaDetail> details = new ArrayList<>();
         for (Long id : ids) {
-            MediaDetail d;
             try {
-                d = mediaService.get(id);
+                details.add(mediaService.get(id));
             } catch (RuntimeException e) {
                 log.warn("Remotion 输入跳过不存在的媒体 {}: {}", id, e.getMessage());
-                continue;
             }
+        }
+        warmExternalCovers(details);
+        int order = 0;
+        for (MediaDetail d : details) {
             order++;
             List<RecommendClipSourceService.PreparedClip> clips =
-                    preparedClips == null ? null : preparedClips.get(id);
+                    preparedClips == null ? null : preparedClips.get(d.id());
             Map<String, Object> view = new LinkedHashMap<>();
             view.put("mediaId", d.id());
             view.put("order", order);
@@ -180,11 +249,14 @@ public class RecommendService {
             if (d.originalTitle() != null && !d.originalTitle().isBlank()) view.put("originalTitle", d.originalTitle());
             if (d.year() != null) view.put("year", d.year());
             if (d.season() != null) view.put("season", d.season());
-            // 封面：渲染用 embed（data URI，无头环境自足）；浏览器预览用 url（/covers/x.jpg，宿主直接托管）
-            String cover = resolveCoverDataUrl(d, coverMode == null || coverMode.isBlank() ? "embed" : coverMode);
+            // 封面：**统一优先 Bangumi**（`external_work.cover_url` → 本地缓存 `covers/ext/`），本地封面退成兜底
+            // （用户 2026-09-20 拍板；缓存只读，不写 `media.cover_path`）
+            String bangumiCover = coverService.ensureExternalCover(d.id(), d.externalCoverUrl());
+            String cover = resolveCover(d, bangumiCover, coverMode == null || coverMode.isBlank() ? "embed" : coverMode);
             if (cover != null && !cover.isBlank()) view.put("coverAssetPath", cover);
-            // 每部一色：从封面本地文件算主色（读不到 → 不填，渲染侧退到确定性兜底色）
-            String accent = coverService.accentColorForPath(d.coverPath());
+            // 每部一色：从**实际用到的**封面本地文件算主色（读不到 → 不填，渲染侧退到确定性兜底色）
+            String accent = coverService.accentColorForPath(
+                    bangumiCover != null && !bangumiCover.isBlank() ? bangumiCover : d.coverPath());
             if (accent != null) view.put("accentColor", accent);
             view.put("description", d.note() == null ? "" : d.note().trim());
             List<String> tagNames = new ArrayList<>();
@@ -230,6 +302,8 @@ public class RecommendService {
                 for (RecommendClipSourceService.PreparedClip clip : clips) {
                     Map<String, Object> cv = new LinkedHashMap<>();
                     cv.put("clipId", clip.id());
+                    // 跨媒体借来的片段才带来源标题（设计规格 §5.3）
+                    if (clip.sourceMediaId() != null && clip.sourceTitle() != null) cv.put("sourceTitle", clip.sourceTitle());
                     cv.put("title", clip.title() == null || clip.title().isBlank() ? "未命名片段" : clip.title());
                     if (clip.note() != null && !clip.note().isBlank()) cv.put("note", clip.note());
                     Clip row = clipRows.get(clip.id());
@@ -238,8 +312,8 @@ public class RecommendService {
                     if (episode != null) {
                         if (episode.getEpisodeNo() != null) cv.put("episodeNo", episode.getEpisodeNo());
                         // 集标题常是抓来的网页标题（“...-番剧-全集-高清在线观看-bilibili-哔哩哔哩”），只在短且干净时带上
-                        String episodeTitle = episode.getTitle() == null ? "" : episode.getTitle().trim();
-                        if (!episodeTitle.isBlank() && episodeTitle.length() <= 24) cv.put("episodeTitle", episodeTitle);
+                        String episodeTitle = cleanEpisodeTitle(episode.getTitle());
+                        if (!episodeTitle.isBlank()) cv.put("episodeTitle", episodeTitle);
                     }
                     cv.put("assetPath", clip.path());
                     if (clip.startSec() != null) cv.put("sourceStartMs", Math.round(clip.startSec() * 1000));
@@ -256,6 +330,9 @@ public class RecommendService {
             throw new IllegalArgumentException("没有可用媒体（全部不存在或已删除）");
         }
         root.put("media", mediaViews);
+        // 素材信息指纹（2026-09-20 用户 A+B）：编辑器靠它判断“库里改过资料”，切回窗口时自动重建会话。
+        // 放在根上而不是 params 里——它是元信息，不是渲染参数。
+        root.put("metaFingerprint", metaFingerprint(ids));
 
         Map<String, Object> p = new LinkedHashMap<>();
         p.put("title", title == null ? "" : title.trim());
@@ -270,6 +347,14 @@ public class RecommendService {
         show.put("status", detailShow == null || detailShow.get("status") == null || detailShow.get("status"));
         show.put("note", detailShow == null || detailShow.get("note") == null || detailShow.get("note"));
         show.put("tag", detailShow == null || detailShow.get("tag") == null || detailShow.get("tag"));
+        // 结尾（落款）左侧开关（2026-09-20）：**必须一起透传**，否则编辑器里勾了、成片却不生效
+        // （预览走本地补丁、导出走后端组装，两边不一致是这类开关最容易踩的坑）。
+        show.put("endingWall", detailShow == null || detailShow.get("endingWall") == null || detailShow.get("endingWall"));
+        show.put("endingPaging", detailShow != null && Boolean.TRUE.equals(detailShow.get("endingPaging")));
+        show.put("endingList", detailShow == null || detailShow.get("endingList") == null || detailShow.get("endingList"));
+        show.put("endingIndex", detailShow == null || detailShow.get("endingIndex") == null || detailShow.get("endingIndex"));
+        show.put("endingYear", detailShow == null || detailShow.get("endingYear") == null || detailShow.get("endingYear"));
+        show.put("endingStats", detailShow != null && Boolean.TRUE.equals(detailShow.get("endingStats")));
         p.put("detailShow", show);
         p.put("bgColor", bgColor == null ? "" : bgColor.trim());
         p.put("bgImages", bgImages == null ? List.of() : bgImages);
@@ -307,6 +392,15 @@ public class RecommendService {
         durs.put("detail", dur.detail());
         durs.put("ending", dur.ending());
         p.put("durations", durs);
+        // 中景摆位随机种子（编辑器「🎲 重排」写入草稿 → 请求体 → 这里 → Remotion 的 params.seed）。
+        // 存种子而不是每帧 Math.random：Remotion 逐帧并行渲染，帧内随机会让同一帧在不同 chunk 里摆不同位置。
+        p.put("seed", seed == null ? 0 : seed);
+        // 片段原声音量（0 = 全静音；用户 2026-09-20）：静音时 Remotion 侧也不再压 BGM
+        p.put("clipVolume", clipVolume == null ? 100 : Math.min(100, Math.max(0, clipVolume)));
+        p.put("bgmRange", normalizeBgmRange(bgmRange));
+        // 转场音乐（甲：片名卡专用；响的时候在 Remotion 侧把 BGM 压低）
+        p.put("stingPath", stingPath == null ? "" : stingPath);
+        p.put("stingVolume", stingVolume == null ? 60 : Math.min(100, Math.max(0, stingVolume)));
         p.put("fps", fps);
         p.put("width", width);
         p.put("height", height);
@@ -323,6 +417,45 @@ public class RecommendService {
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("生成 Remotion 渲染输入失败: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * BGM 播放范围白名单：`all`（默认，铺满全片）/ `none` / `opening,cards,ending` 的任意子集。
+     *
+     * 2026-09-20 从单值升级为集合（用户先要「只在开头和结尾」，再要「片名卡也顺带播」）。
+     * 归一化：小写、去重、固定顺序（opening → cards → ending）、未知项丢弃；空/脏值 → `all`（不会突然静音）。
+     */
+    static String normalizeBgmRange(String range) {
+        if (range == null) return "all";
+        String text = range.trim().toLowerCase();
+        if (text.isEmpty() || "all".equals(text)) return "all";
+        if ("none".equals(text)) return "none";
+        List<String> picked = new ArrayList<>();
+        for (String segment : List.of("opening", "cards", "ending")) {
+            if (List.of(text.split(",")).stream().map(String::trim).anyMatch(segment::equals)) picked.add(segment);
+        }
+        return picked.isEmpty() ? "all" : String.join(",", picked);
+    }
+
+    /** 集标题长度上限（超过就截断，不再整条丢）。 */
+    static final int EPISODE_TITLE_MAX = 24;
+
+    /**
+     * 集标题落盘前的清洗：HTML 实体反转义 → 压缩空白 → 截断加省略号。
+     *
+     * 2026-09-20 前这里是「超过 24 字**整条丢弃**」，本意是过滤抓来的网页标题
+     * （`…-番剧-全集-高清在线观看-bilibili-哔哩哔哩`）；实测库里 **136/2087 条**因此完全不显示集标题，
+     * 用户报「集标题有时候显示有时候不显示」——排查后发现丢的大多是**多段式真标题**（`①…／②…／③…`），
+     * 而带站点尾巴的只有 3 条。现在只截断不丢：尾巴照样被 24 字裁掉，真标题也能看到开头。
+     */
+    static String cleanEpisodeTitle(String raw) {
+        if (raw == null) return "";
+        // & 的处理必须放最后（否则 `&amp;quot;` 会被错解成 `"`）
+        String text = raw.replace("&quot;", "\"").replace("&#39;", "'").replace("&apos;", "'")
+                .replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+                .replaceAll("[\\s\\u3000]+", " ")
+                .trim();
+        return text.length() <= EPISODE_TITLE_MAX ? text : text.substring(0, EPISODE_TITLE_MAX) + "…";
     }
 
     /** 片段时长（毫秒）：已知起止 → 直接算；开放时长 → 探测已准备素材。 */
@@ -394,16 +527,50 @@ public class RecommendService {
     }
 
     /** 封面地址：url 模式 → 相对 /covers/ 路径（预览同源直连、零内嵌）；embed 模式 → base64 data URI（离线自包含）。 */
-    private String resolveCoverDataUrl(MediaDetail d, String coverMode) {
+    /**
+     * 封面解析（推荐视频专用）。
+     *
+     * 优先级（用户 2026-09-20：「封面统一用 Bangumi」）：
+     *   1. **Bangumi 封面缓存**（{@code bangumiCover}，`covers/ext/`；为 null 才往下走）；
+     *   2. 本地封面 `media.cover_path`；
+     *   3. 预览（url）额外允许片段帧兜底 `/clip-images/...`（embed 读不到：`base64ForCoverPath` 只认 `/covers/`）。
+     */
+    private String resolveCover(MediaDetail d, String bangumiCover, String coverMode) {
         if ("url".equals(coverMode)) {
-            String path = d.coverPath();
-            return (path == null || path.isBlank()) ? d.fallbackCoverPath() : path;
+            if (bangumiCover != null && !bangumiCover.isBlank()) return bangumiCover;
+            if (d.coverPath() != null && !d.coverPath().isBlank()) return d.coverPath();
+            return d.fallbackCoverPath();
         }
-        String data = coverService.base64ForCoverPath(d.coverPath());
-        if (data != null) {
-            return data;
+        String data = coverService.base64ForCoverPath(bangumiCover);
+        if (data == null) {
+            data = coverService.base64ForCoverPath(d.coverPath());
         }
-        return coverService.base64ForCoverPath(d.fallbackCoverPath());
+        if (data == null) {
+            data = coverService.base64ForCoverPath(d.fallbackCoverPath());
+        }
+        return data;
+    }
+
+    /** Bangumi 封面预热：并发拉进 `covers/ext/`（已缓存瞬间返回；单张失败不影响其它）。 */
+    private void warmExternalCovers(List<MediaDetail> details) {
+        List<Callable<Void>> tasks = new ArrayList<>();
+        for (MediaDetail detail : details) {
+            String url = detail.externalCoverUrl();
+            if (url == null || url.isBlank()) continue;
+            tasks.add(() -> {
+                coverService.ensureExternalCover(detail.id(), url);
+                return null;
+            });
+        }
+        if (tasks.isEmpty()) return;
+        ExecutorService pool = Executors.newFixedThreadPool(Math.min(6, tasks.size()));
+        try {
+            pool.invokeAll(tasks);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            pool.shutdown();
+        }
     }
 
     /** 子分类路径：按 subcategoryId 递归父节点拼「父 / 子」，深度上限防环；失败回退名字快照。 */

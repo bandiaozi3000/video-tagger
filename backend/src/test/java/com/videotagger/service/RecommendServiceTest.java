@@ -83,11 +83,11 @@ class RecommendServiceTest {
                                List<RecommendService.BgmTrack> bgmTracks, List<String> bgmPaths,
                                Map<Long, List<RecommendClipSourceService.PreparedClip>> clips, String preset) {
         return service.buildRenderInput(ids, "标题", bgmTracks, "副标题", "50", groupBy, style,
-                List.of(), "序言", service.normalizeDurations(null, null, null, null, null),
+                List.of(), "序言", service.normalizeDurations(null, null, null, null, null, null),
                 "结尾标题", "结尾文案", "", List.of(), 8, 100, 0, 50,
                 "序言标题", "date-desc", 50, 50, 100, 1, 8, "品牌", 1, null, preset,
                 clips == null ? Map.of() : clips, "embed", 30, 1280, 720, bgmPaths,
-                rel -> rel.startsWith("bgm-") ? 42.5 : 3.5);
+                rel -> rel.startsWith("bgm-") ? 42.5 : 3.5, 20260920, 100, null, null, 60);
     }
 
     /** 主题预设写入参数区；未指定 → 基线 `starlit`。 */
@@ -202,11 +202,92 @@ class RecommendServiceTest {
 
     @Test
     void 显示时长归一化到默认区间() {
-        RecommendService.Durations d = service.normalizeDurations(999, 0, null, 1, 99);
+        RecommendService.Durations d = service.normalizeDurations(999, 0, null, 1, 99, 99);
         assertEquals(20, d.opening());
         assertEquals(1, d.intro());
         assertEquals(5, d.group());
         assertEquals(3, d.detail());
         assertEquals(10, d.ending());
+        assertEquals(5, d.title(), "片名卡 1-5s，超上限回落到 5");
     }
+
+    @Test
+    void timelineFpsFollowsTemplateStyle() {
+        // 2026-09-20 用户拍板：银幕式 24fps（片段素材原生帧率，不再每 5 帧补一帧），其余模板保持 30 不变。
+        assertEquals(24, RecommendService.fpsOf("cinema"));
+        assertEquals(30, RecommendService.fpsOf("chapter"));
+        assertEquals(30, RecommendService.fpsOf("clip"));
+        assertEquals(30, RecommendService.fpsOf(null));
+    }
+
+    /** 跨媒体借片段：视图里带 sourceTitle（设计规格 §5.3）。 */
+    @Test
+    void 借来的片段在视图里带来源标题() throws Exception {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", 2024));
+        Map<Long, List<RecommendClipSourceService.PreparedClip>> clips = Map.of(1L, List.of(
+                new RecommendClipSourceService.PreparedClip(11L, "OVA 那一段", null, 10.0, 14.0,
+                        "media/clip-11.mp4", null, 6648L, "草莓棉花糖 OVA 第2期")));
+        JsonNode clip = parse(renderInput(List.of(1L), null, null, null, null, clips)).get("media").get(0).get("clips").get(0);
+        assertEquals("草莓棉花糖 OVA 第2期", clip.get("sourceTitle").asText());
+    }
+
+    /** 本体片段**不能**出现 sourceTitle，否则渲染侧会给不存在的来源画一行字。 */
+    @Test
+    void 本体片段不带来源标题() throws Exception {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", 2024));
+        Map<Long, List<RecommendClipSourceService.PreparedClip>> clips = Map.of(1L, List.of(
+                new RecommendClipSourceService.PreparedClip(11L, "爆发瞬间", null, 10.0, 14.0, "media/clip-11.mp4", null)));
+        JsonNode clip = parse(renderInput(List.of(1L), null, null, null, null, clips)).get("media").get(0).get("clips").get(0);
+        assertFalse(clip.has("sourceTitle"));
+    }
+
+
+    /** A+B 的指纹：同一批资料 → 同一个值；库里改过资料 → 值必须变。 */
+    @Test
+    void 指纹随资料变化() {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", 2024));
+        when(mediaService.get(2L)).thenReturn(media(2L, "B", 2020));
+        String before = service.metaFingerprint(List.of(1L, 2L));
+
+        assertEquals(before, service.metaFingerprint(List.of(1L, 2L)), "同一批资料必须稳定");
+        assertFalse(before.equals(service.metaFingerprint(List.of(1L))), "换了媒体集要变");
+
+        when(mediaService.get(2L)).thenReturn(media(2L, "B 改了名", 2020));
+        assertFalse(before.equals(service.metaFingerprint(List.of(1L, 2L))), "改名后必须变");
+    }
+
+    @Test
+    void 指纹在空集与缺失媒体时不炸() {
+        assertEquals("-", service.metaFingerprint(List.of()));
+        when(mediaService.get(9L)).thenReturn(null);
+        assertTrue(service.metaFingerprint(List.of(9L)).length() > 0);
+    }
+
+
+    /** 集标题：超 24 字不再整条丢（用户报「有时候显示有时候不显示」），改成截断 + 反转义。 */
+    @Test
+    void 集标题只截断不丢() {
+        assertEquals("战车道，开始了！", RecommendService.cleanEpisodeTitle("  战车道，开始了！ "));
+        assertEquals(RecommendService.EPISODE_TITLE_MAX + 1,
+                RecommendService.cleanEpisodeTitle("①心跳！全是美少女的游泳大赛／②肉弹！全是兄贵的肌肉大赛／③陶器！全部打碎").length());
+        assertTrue(RecommendService.cleanEpisodeTitle("①心跳！全是美少女的游泳大赛／②肉弹！全是兄贵的肌肉大赛").endsWith("…"));
+        assertEquals("所谓的\"当做男生来抚养长大\"的模式", RecommendService.cleanEpisodeTitle("所谓的&quot;当做男生来抚养长大&quot;的模式"));
+        assertEquals("", RecommendService.cleanEpisodeTitle(null));
+    }
+
+
+    /** BGM 播放范围：只认白名单，垃圾值回落到 all（旧行为）。 */
+    @Test
+    void BGM播放范围走白名单() {
+        assertEquals("all", RecommendService.normalizeBgmRange(null));
+        assertEquals("all", RecommendService.normalizeBgmRange(""));
+        assertEquals("opening", RecommendService.normalizeBgmRange("opening"));
+        assertEquals("none", RecommendService.normalizeBgmRange("none"));
+        // 集合：去重 + 固定顺序 + 丢未知项
+        assertEquals("opening,cards,ending", RecommendService.normalizeBgmRange("ending, cards ,opening,cards"));
+        assertEquals("cards,ending", RecommendService.normalizeBgmRange("cards,nonsense,ending"));
+        assertEquals("all", RecommendService.normalizeBgmRange("nonsense"));
+    }
+
 }
+

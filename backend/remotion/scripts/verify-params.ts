@@ -126,7 +126,7 @@ async function main(): Promise<void> {
     params: {
       ...DEFAULT_PARAMS,
       ...raw.params,
-      durations: { opening: 4, intro: 3, group: 3, detail: 4, ending: 3 },
+      durations: { opening: 4, intro: 3, group: 3, detail: 4, ending: 3, title: 2 },
       openingIds: [],
       bgmTracks: [],
     },
@@ -191,11 +191,11 @@ async function main(): Promise<void> {
   // —— 2. 计划级（ScenePlan 断言）——
   const planCheck = (extra: Partial<RenderParams>, select: (plan: ScenePlan) => unknown): unknown => select(buildScenePlan(withParams(extra)));
   const planCases: { key: string; desc: string; ok: boolean }[] = [
-    { key: 'durations.opening', desc: '开场时长', ok: planCheck({ durations: { opening: 12, intro: 3, group: 3, detail: 4, ending: 3 } }, (p) => p.durationInFrames) !== planCheck({}, (p) => p.durationInFrames) },
-    { key: 'durations.intro', desc: '序言时长', ok: planCheck({ durations: { opening: 4, intro: 9, group: 3, detail: 4, ending: 3 } }, (p) => p.durationInFrames) !== planCheck({}, (p) => p.durationInFrames) },
-    { key: 'durations.group', desc: '章节页时长', ok: planCheck({ groupBy: 'year', durations: { opening: 4, intro: 3, group: 9, detail: 4, ending: 3 } }, (p) => p.durationInFrames) !== planCheck({ groupBy: 'year' }, (p) => p.durationInFrames) },
-    { key: 'durations.detail', desc: '资料卡时长', ok: planCheck({ durations: { opening: 4, intro: 3, group: 3, detail: 14, ending: 3 } }, (p) => p.durationInFrames) !== planCheck({}, (p) => p.durationInFrames) },
-    { key: 'durations.ending', desc: '结尾时长', ok: planCheck({ durations: { opening: 4, intro: 3, group: 3, detail: 4, ending: 9 } }, (p) => p.durationInFrames) !== planCheck({}, (p) => p.durationInFrames) },
+    { key: 'durations.opening', desc: '开场时长', ok: planCheck({ durations: { opening: 12, intro: 3, group: 3, detail: 4, ending: 3, title: 2 } }, (p) => p.durationInFrames) !== planCheck({}, (p) => p.durationInFrames) },
+    { key: 'durations.intro', desc: '序言时长', ok: planCheck({ durations: { opening: 4, intro: 9, group: 3, detail: 4, ending: 3, title: 2 } }, (p) => p.durationInFrames) !== planCheck({}, (p) => p.durationInFrames) },
+    { key: 'durations.group', desc: '章节页时长', ok: planCheck({ groupBy: 'year', durations: { opening: 4, intro: 3, group: 9, detail: 4, ending: 3, title: 2 } }, (p) => p.durationInFrames) !== planCheck({ groupBy: 'year' }, (p) => p.durationInFrames) },
+    { key: 'durations.detail', desc: '资料卡时长', ok: planCheck({ durations: { opening: 4, intro: 3, group: 3, detail: 14, ending: 3, title: 2 } }, (p) => p.durationInFrames) !== planCheck({}, (p) => p.durationInFrames) },
+    { key: 'durations.ending', desc: '结尾时长', ok: planCheck({ durations: { opening: 4, intro: 3, group: 3, detail: 4, ending: 9, title: 2 } }, (p) => p.durationInFrames) !== planCheck({}, (p) => p.durationInFrames) },
     { key: 'fps', desc: '帧率', ok: planCheck({ fps: 60 }, (p) => p.fps) !== planCheck({}, (p) => p.fps) },
     { key: 'width', desc: '画幅宽', ok: planCheck({ width: 1920 }, (p) => p.width) !== planCheck({}, (p) => p.width) },
     { key: 'height', desc: '画幅高', ok: planCheck({ height: 1080 }, (p) => p.height) !== planCheck({}, (p) => p.height) },

@@ -77,15 +77,15 @@ class RecommendControllerTest {
         Mockito.when(sessionService.materializeBgm(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(List.of());
         Mockito.when(recommendService.normalizeDurations(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                        Mockito.any()))
-                .thenReturn(new RecommendService.Durations(10, 5, 5, 10, 5));
+                        Mockito.any(), Mockito.any()))
+                .thenReturn(new RecommendService.Durations(10, 5, 5, 10, 5, 2));
         Mockito.when(recommendService.buildRenderInput(
                 Mockito.anyList(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.anyInt(), Mockito.anyInt(), Mockito.anyInt(), Mockito.any(), Mockito.any()))
+                Mockito.any(), Mockito.anyInt(), Mockito.anyInt(), Mockito.anyInt(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn("{\"template\":\"MULTI_MEDIA_RECOMMEND\",\"media\":[]}");
 
         mvc.perform(post("/api/recommend/session")
@@ -136,7 +136,7 @@ class RecommendControllerTest {
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any()))
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(task);
 
         mvc.perform(post("/api/recommend/video")
@@ -152,6 +152,6 @@ class RecommendControllerTest {
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any(), Mockito.any());
+                Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
     }
 }

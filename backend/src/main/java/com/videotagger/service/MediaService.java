@@ -102,6 +102,13 @@ public class MediaService {
     }
 
     /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/来源/媒体标签/q 标题模糊筛选；ids 精确圈选（仅显示已勾选用）；offset 分页。 */
+    /** 清单导出（候选按当前筛选 / 已选按 ids）：与 list 同一套条件，但不分页（上限 500 在 SQL 里）。 */
+    public List<MediaExportRow> listExport(String status, String format, Long subcategoryId, Integer confirmed,
+                                           Long collectionId, Integer year, String source, Long tagId, String q,
+                                           List<Long> ids) {
+        return mediaMapper.listExportRows(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, q, ids);
+    }
+
     public List<MediaSummary> list(int limit, int offset, String status, String format, Long subcategoryId,
                                    Integer confirmed, Long collectionId, String sort, String order, Integer year,
                                    String source, Long tagId, String q, List<Long> ids) {

@@ -217,7 +217,8 @@ export function ClipScene({ media, clip, params, theme, assetBaseUrl }: {
         >
           <OffthreadVideo
             src={assetUrl(clip.assetPath, assetBaseUrl)}
-            muted={!clip.hasAudio}
+            muted={!clip.hasAudio || params.clipVolume <= 0}
+            volume={params.clipVolume / 100}
             style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
           />
           <div
@@ -253,6 +254,8 @@ export function ClipScene({ media, clip, params, theme, assetBaseUrl }: {
         </div>
         <div style={{ marginTop: Math.round(height * 0.016), fontFamily: theme.font.mono, fontSize: size.chip, letterSpacing: 2, color: theme.colors.faint }}>
           REAL CLIP · {clip.episodeTitle || clip.episodeNo ? `第 ${clip.episodeNo ?? '?'} 集` : '精彩片段'} · {(clip.durationMs / 1000).toFixed(1)}s
+          {/* 跨媒体借来的片段才标来源（与银幕式同语义，设计规格 §6） */}
+          {clip.sourceTitle ? ` · 来源：${clip.sourceTitle}` : ''}
         </div>
       </div>
       <OutlineNumber

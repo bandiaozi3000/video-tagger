@@ -93,7 +93,7 @@ describe('buildScenePlan', () => {
   });
 
   it('时长 = 各场景之和，且片段时长来自素材', () => {
-    const plan = buildScenePlan(input({ params: { durations: { opening: 2, intro: 1, group: 1, detail: 3, ending: 1 } } }));
+    const plan = buildScenePlan(input({ params: { durations: { opening: 2, intro: 1, group: 1, detail: 3, ending: 1, title: 2 } } }));
     const sum = plan.scenes.reduce((acc, s) => acc + s.durationInFrames, 0);
     expect(plan.durationInFrames).toBe(sum);
     // 2s 开场 + 3s 资料卡 + 两个 4s 片段 + 3s 资料卡 + 1s 结尾（30fps）

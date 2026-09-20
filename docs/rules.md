@@ -127,3 +127,28 @@
   5. 重建 `desktop/resources/`（jre/node/chrome/ffmpeg，现均缺失，`pack.bat` 会直接报错）+ 重新打包。
 - **已知按设计不做**：向量检索（Milvus 摘除，纯关键词 LIKE 兜底，见 `design/2026-08-14-desktop-port.md`）。
 - **同步位置**：本条同时写入项目根 `AGENTS.md` §1「桌面轨道冻结」；AGENTS.md §2 的「双库演进」改为"已冻结"。
+
+### 14. 验证副本：别拿 `mysqldump --databases` 的 dump 直灌别的库名（2026-09-20 踩过，真库被覆盖过一次）
+
+- **坑**：`mysqldump --databases video_tagger` 产出的备份里**第 24 行就是 `USE \`video_tagger\`;`**（`data/backup/*.sql` 全是这种）。把它 `mysql <目标库> < dump.sql` 灌进"验证副本"时，`USE` 会**把会话切回真库** → 整份 dump（含 `DROP TABLE`）落在**真库**上，真库被回退到备份时刻。
+- **正确做法（任选其一）**：
+  - `docker exec vt-mysql sh -c "mysqldump -uroot -p*** video_tagger" | docker exec -i vt-mysql mysql -uroot -p*** <目标库>`（**不加 `--databases`**，不带 `USE`）；
+  - 或导入时用客户端过滤：`mysql --one-database <目标库> < dump.sql`；
+  - 或先 `sed '/^USE /d; /^CREATE DATABASE/d'` 再灌。
+- **回滚手段（binlog 没关就有救）**：`binlog_format=ROW` + 未过期 → 用一次性容器跑 `mysqlbinlog` 取「出问题那段之前」的事件回放（镜像用 `mysql:8.0-debian`，官方 `mysql:8.0/8.4` **不带** mysqlbinlog）：
+  `docker run --rm -e TZ=Asia/Shanghai -v video-tagger_mysql_data:/var/lib/mysql:ro mysql:8.0-debian sh -c "mysqlbinlog --database=video_tagger --start-datetime='...' --stop-datetime='...' /var/lib/mysql/binlog.0000NN > /out/seg.sql"`。
+  **必须显式传 `TZ`**：不传时容器按 UTC 解释 `--start/stop-datetime`，过滤结果为空（看着像"这段时间没写入"，会误判）。
+- **动手前先确认副本真的是副本**：导入后立刻 `select count(*)` 对比真库（本次就是靠 `clips` 9 → 10 才发现）。
+- **验证实例三条命令**（把风险关在副本里）：`--spring.profiles.active=mysql` + `--spring.datasource.url=.../<副本库>` + `VT_DATA_DIR=<副本目录>`（后者顺带隔离 `video-assets`/封面等文件写入）。
+
+### 15. 推荐片段可以「跨媒体借」：`mediaClips.sources` 契约（2026-09-20）
+
+- **语义**：`mediaClips[媒体Id] = { order: [clipId…], badge, sources?: { clipId: 来源媒体Id } }`。
+  - `sources` **可选**：缺省 / 不含该 clipId = **本体片段** → 旧草稿、旧模板、旧预设行为与升级前完全一致，**无需迁移**。
+  - 只用它来表达「推荐位是《A》，片段来自同系列《A OVA》」这种场景（Bangumi 上是两个条目 → 库里两个 media）。
+- **允许的来源**：`RelatedMediaService.VIDEO_RELATION_TYPES` 白名单（主线故事/前传/续集/番外篇/剧场版/角色出演/同一世界观）里、**本地存在且有片段**的条目；**故意不含「其他」**这种 catch-all（否则广播剧/角色歌/CD 全会被列出来）。改白名单只改这一个常量。
+- **解析链**：`external_relation`（不是解析 `relations_json`）→ `related_external_id` 反查本地 `external_work.media_id` → `GET /api/media/{id}/related` 给编辑器用。
+- **渲染侧为什么不用改全局索引**：借来的片段被放进**卡片媒体的 `clips` 数组**（视图里多一个 `sourceTitle` 字段），于是 `plan.ts` / `scene-plan.ts` 的 `media.clips.find(...)` 天然命中。**别把来源媒体塞进 `ids`** —— 它不该出现在片单里。
+- **移除要连带**：`withoutClip()`（`editor/clip-refs.ts`）在删片段时**同步删 `sources[clipId]`**，否则留下悬空键。
+- **校验三条文案分开**（`RecommendClipSourceService.loadClips`）：库里没有 → `片段不存在`；无 sources 且不属本体 → `片段不存在或不属于所选媒体`；来源无视频类关联 → `片段 #N 与《本体》没有视频类关联`。
+- 规格与计划：`docs/superpowers/specs/2026-09-20-cross-media-clip-source-design.md`、`docs/superpowers/plans/2026-09-20-cross-media-clip-source-plan.md`。

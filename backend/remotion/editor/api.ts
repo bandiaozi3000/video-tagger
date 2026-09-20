@@ -17,6 +17,20 @@ export interface ClipBadge {
 export interface MediaClips {
   order: number[];
   badge?: ClipBadge | null;
+  /**
+   * 跨媒体借片段的来源（clipId → 来源 mediaId），可选：
+   * 缺省 = 本体片段（旧草稿行为不变）。设计规格 §4。
+   */
+  sources?: Record<string, number>;
+}
+
+/** 同系列条目（跨媒体借片段的候选来源）。 */
+export interface RelatedMedia {
+  mediaId: number;
+  title: string;
+  year?: number | null;
+  relationType: string;
+  clipCount: number;
 }
 
 export interface BgmTrackInput {
@@ -46,8 +60,10 @@ export interface EditorConfig {
   introSec: number;
   groupSec: number;
   detailSec: number;
+  /** 片名卡时长（秒，1-5，默认 2）——独立可调，拖片名卡只改它（2026-09-20）。 */
+  titleSec: number;
   endingSec: number;
-  detailShow: { status: boolean; note: boolean; tag: boolean };
+  detailShow: { status: boolean; note: boolean; tag: boolean; endingWall?: boolean; endingPaging?: boolean; endingList?: boolean; endingIndex?: boolean; endingYear?: boolean; endingStats?: boolean };
   bgColor: string;
   bgImages: string[];
   bgRotationSec: number;
@@ -55,11 +71,20 @@ export interface EditorConfig {
   bgBlur: number;
   bgBrightness: number;
   bgmTracks: BgmTrackInput[];
+  /** 转场音乐（片名卡专用，0 或 1 条）——与 BGM 独立的一层（2026-09-20 方案「甲」）。 */
+  stingTracks: BgmTrackInput[];
+  /** 转场音乐音量（0-100，默认 60）。 */
+  stingVolume: number;
   bgmScale: number;
   bgmX: number;
   bgmY: number;
+  /** BGM 播放范围：全程 / 仅开场 / 仅结尾 / 开场+结尾（2026-09-20）。 */
+  bgmRange: string;
   openingIds: number[];
-  openingCustom: boolean;
+  /** 片段原声音量（0 = 全静音；默认 100 保持现状）。 */
+  clipVolume: number;
+  /** 中景摆位随机种子（🎲 重排 写入；同一份草稿预览与成片一致）。 */
+  seed: number;
   /** 视觉主题预设 id（theme.ts 的 THEME_PRESETS）。 */
   preset: string;
   format: string;
@@ -72,6 +97,12 @@ export interface MissingClip {
   clipId: number;
   title: string;
   reason: string;
+  /**
+   * 旧草稿的跨媒体悬空引用：片段其实在同系列的 OVA 那边。
+   * 后端认出后给出建议，编辑器就能一键把它改成「借片段」而不是删掉。
+   */
+  suggestedSourceMediaId?: number | null;
+  suggestedSourceTitle?: string | null;
 }
 
 export interface SessionResponse {
@@ -90,6 +121,20 @@ export interface MediaBrief {
   mediaFormat?: string | null;
   source?: string | null;
   collectionCount?: number | null;
+}
+
+/** 清单导出的一行（后端 /api/media/list-export）。 */
+export interface MediaExportRow {
+  id: number;
+  title: string;
+  year?: number | null;
+  subcategory?: string | null;
+  mediaFormat?: string | null;
+  source?: string | null;
+  episodeCount?: number | null;
+  clipCount?: number | null;
+  /** 逗号分隔的标签串。 */
+  tags?: string | null;
 }
 
 export interface ClipBrief {
@@ -226,6 +271,12 @@ export const api = {
     if (query.ids && query.ids.length > 0) params.set('ids', query.ids.join(','));
     return json<MediaBrief[]>(`/api/media?${params.toString()}`);
   },
+  /** 清单导出：候选走当前筛选，已选走 ids（与媒体列表同一套筛选参数）。 */
+  listExport: (filter: CandidateFilter, ids?: number[]) => {
+    const params = filterParams(filter);
+    if (ids && ids.length > 0) params.set('ids', ids.join(','));
+    return json<MediaExportRow[]>(`/api/media/list-export${params.toString() ? '?' + params.toString() : ''}`);
+  },
   mediaCount: (filter: CandidateFilter) => {
     const params = filterParams(filter);
     return json<number>(`/api/media/count${params.toString() ? '?' + params.toString() : ''}`);
@@ -241,6 +292,8 @@ export const api = {
     return (page.items || []).map((tag) => ({ id: tag.id, name: tag.name }));
   },
   clips: (mediaId: number) => json<ClipBrief[]>(`/api/clips/media/${mediaId}`),
+  /** 同系列条目（本地有片段的视频类关联条目）→ 跨媒体借片段的来源列表。 */
+  relatedMedia: (mediaId: number) => json<RelatedMedia[]>(`/api/media/${mediaId}/related`),
 
   draft: () => json<{ config: string | null; updatedAt: number | null }>('/api/recommend/draft'),
   templates: () => json<TemplateSummary[]>('/api/recommend/templates'),
@@ -253,6 +306,9 @@ export const api = {
     body: JSON.stringify({ config }),
   }),
 
+  /** 素材信息指纹（A+B 的 B）：编辑器切回窗口时比对，变了就重建会话。 */
+  metaFingerprint: (ids: number[]) =>
+    json<{ fingerprint: string }>(`/api/recommend/meta-fingerprint?ids=${ids.join(",")}`),
   exportVideo: (config: EditorConfig) => postJson<{ taskId: number; status: string }>('/api/recommend/video', config),
   tasks: () => json<ExportTask[]>('/api/recommend/video/tasks'),
   deleteTask: (id: number) => fetch(`/api/recommend/video/tasks/${id}`, { method: 'DELETE' }).then(() => undefined),

@@ -5,6 +5,7 @@ import com.videotagger.service.EpisodeDetail;
 import com.videotagger.service.EpisodeReviewService;
 import com.videotagger.service.EpisodeService;
 import com.videotagger.service.EpisodeUpdateRequest;
+import com.videotagger.service.ReviewClipService;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -32,16 +33,25 @@ public class EpisodeController {
 
     private final EpisodeService episodeService;
     private final EpisodeReviewService reviewService;
+    private final ReviewClipService reviewClipService;
 
-    public EpisodeController(EpisodeService episodeService, EpisodeReviewService reviewService) {
+    public EpisodeController(EpisodeService episodeService, EpisodeReviewService reviewService,
+                             ReviewClipService reviewClipService) {
         this.episodeService = episodeService;
         this.reviewService = reviewService;
+        this.reviewClipService = reviewClipService;
     }
 
     /** 集详情页：解析封面 + 集级标签 + 片段数。 */
     @GetMapping("/{id}")
     public EpisodeDetail get(@PathVariable Long id) {
         return episodeService.detail(id);
+    }
+
+    /** 本地回顾弹窗「保存片段」：按弹窗内标记的区间，把该集本地源的一段落成新片段。 */
+    @PostMapping("/{id}/clips")
+    public Clip createClip(@PathVariable Long id, @RequestBody ReviewClipService.CreateRequest req) {
+        return reviewClipService.create(id, req);
     }
 
     /** v0.24 集级本地回顾：返回该集可播放的本地源文件（整集，不裁剪）；无可用源返回 409。 */

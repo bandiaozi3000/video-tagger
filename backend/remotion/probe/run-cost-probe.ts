@@ -29,7 +29,7 @@ const input: MultiMediaPocInput = {
     tags: ['a', 'b'],
     clips: [],
   })),
-  params: { durations: { opening: 4, intro: 3, group: 3, detail: 4, ending: 3 }, bgmTracks: [] },
+  params: { durations: { opening: 4, intro: 3, group: 3, detail: 4, ending: 3, title: 2 }, bgmTracks: [] },
 };
 
 const ms = (from: number) => Math.round(performance.now() - from);

@@ -1,0 +1,77 @@
+import { describe, expect, it } from 'vitest';
+import { buildListText, DEFAULT_TOGGLES, type ExportRow, type ExportToggles } from './export-list';
+
+const rows: ExportRow[] = [
+  { id: 1, title: '铃铛猫娘 夏季特别篇2000', year: 2000, episodeCount: 4, tags: '日常,搞笑', subcategory: '番剧', source: 'bangumi', clipCount: 2 },
+  { id: 2, title: '全金属狂潮 校园篇', year: 2003, episodeCount: 12, tags: '搞笑', subcategory: '番剧', source: 'bangumi', clipCount: 0 },
+  { id: 3, title: '某部没年份的', episodeCount: null, tags: null },
+];
+
+const toggles = (patch: Partial<ExportToggles> = {}): ExportToggles => ({ ...DEFAULT_TOGGLES, header: false, ...patch });
+
+describe('清单文本：元素可勾选', () => {
+  it('默认勾选 = 序号 标题 年份 集数 标签', () => {
+    expect(buildListText([rows[0], rows[1]], toggles())).toBe([
+      '1. 铃铛猫娘 夏季特别篇2000  2000 年 · 4 集 · 日常、搞笑',
+      '2. 全金属狂潮 校园篇  2003 年 · 12 集 · 搞笑',
+    ].join('\n') + '\n');
+  });
+
+  it('关掉年份/集数/标签后不留多余的「·」', () => {
+    expect(buildListText([rows[0]], toggles({ year: false, episode: false, tags: false })))
+      .toBe('1. 铃铛猫娘 夏季特别篇2000\n');
+  });
+
+  it('关掉序号后从标题开头', () => {
+    expect(buildListText([rows[1]], toggles({ index: false, year: false, episode: false, tags: false })))
+      .toBe('全金属狂潮 校园篇\n');
+  });
+
+  it('分类/来源/片段数可选（默认关）', () => {
+    expect(buildListText([rows[0]], toggles({ year: false, tags: false, subcategory: true, source: true, clips: true })))
+      .toBe('1. 铃铛猫娘 夏季特别篇2000  4 集 · 番剧 · 2 个片段 · bangumi\n');
+  });
+
+  it('标题行带片单名与总数', () => {
+    const text = buildListText([rows[1]], toggles({ header: true, year: false, episode: false, tags: false }), '小众搞笑番推荐');
+    expect(text.split('\n')[0]).toBe('小众搞笑番推荐 · 共 1 部');
+    expect(text).toContain('1. 全金属狂潮 校园篇');
+  });
+});
+
+describe('清单文本：按年份分组', () => {
+  const text = buildListText(rows, toggles({ groupByYear: true }));
+
+  it('组标题带【年份】，年份倒序，行内不再重复年份', () => {
+    expect(text).toBe([
+      '【2003】',
+      '1. 全金属狂潮 校园篇  12 集 · 搞笑',
+      '',
+      '【2000】',
+      '2. 铃铛猫娘 夏季特别篇2000  4 集 · 日常、搞笑',
+      '',
+      '【年份未知】',
+      '3. 某部没年份的',
+    ].join('\n') + '\n');
+  });
+
+  it('序号跨组连续（不是每组从 1 重来）', () => {
+    const numbers = text.split('\n').filter((line) => /^\d+\./.test(line)).map((line) => line.split('.')[0]);
+    expect(numbers).toEqual(['1', '2', '3']);
+  });
+
+  it('没年份的归到「年份未知」且排最后', () => {
+    expect(text.trimEnd().endsWith('3. 某部没年份的')).toBe(true);
+  });
+});
+
+describe('清单文本：边界', () => {
+  it('空清单只输出标题行', () => {
+    expect(buildListText([], toggles({ header: true }), '空片单')).toBe('空片单 · 共 0 部\n');
+  });
+
+  it('标题里的逗号不会被当成标签分隔（标签来自后端 GROUP_CONCAT）', () => {
+    expect(buildListText([{ id: 9, title: '标题,带逗号', tags: 'a,b' }], toggles({ year: false, episode: false })))
+      .toBe('1. 标题,带逗号  a、b\n');
+  });
+});

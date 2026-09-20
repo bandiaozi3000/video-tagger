@@ -20,11 +20,12 @@ class CoverServiceTest {
     @TempDir
     Path tmp;
 
+    MediaMapper mediaMapper = mock(MediaMapper.class);
     CoverService coverService;
 
     @BeforeEach
     void setUp() {
-        coverService = new CoverService(mock(MediaMapper.class), tmp.toString());
+        coverService = new CoverService(mediaMapper, tmp.toString());
     }
 
     @Test
@@ -82,5 +83,75 @@ class CoverServiceTest {
         static byte[] decode(String s) {
             return java.util.Base64.getDecoder().decode(s);
         }
+    }
+
+    // ---------- Bangumi 封面缓存（用户 2026-09-20：「封面统一用 Bangumi」）----------
+
+    @Test
+    void ensureExternalCoverDownloadsCachesAndStaysIdempotent() throws IOException {
+        byte[] body = "bangumi-cover-bytes".getBytes(StandardCharsets.UTF_8);
+        java.util.concurrent.atomic.AtomicInteger hits = new java.util.concurrent.atomic.AtomicInteger();
+        com.sun.net.httpserver.HttpServer server = coverServer(hits, 200, "image/jpeg", body);
+        try {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/338.jpg";
+
+            String first = coverService.ensureExternalCover(7130L, url);
+            String second = coverService.ensureExternalCover(7130L, url);
+
+            assertEquals("/covers/ext/7130.jpg", first);
+            assertEquals(first, second, "第二次必须直接命中缓存");
+            assertEquals(1, hits.get(), "缓存命中后不得再联网");
+            // 缓存出来的封面必须能被 embed 路径读成 data URI（成片渲染靠这条）
+            assertTrue(coverService.base64ForCoverPath(first).startsWith("data:image/jpeg;base64,"));
+            // **不写 DB**：属于只读缓存，不能替用户改 media.cover_path
+            org.mockito.Mockito.verify(mediaMapper, org.mockito.Mockito.never()).updateById(org.mockito.ArgumentMatchers.any(com.videotagger.entity.Media.class));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void ensureExternalCoverUsesExtensionFromContentType() throws IOException {
+        com.sun.net.httpserver.HttpServer server = coverServer(new java.util.concurrent.atomic.AtomicInteger(), 200, "image/png", new byte[] {1, 2, 3});
+        try {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/x";
+            assertEquals("/covers/ext/42.png", coverService.ensureExternalCover(42L, url));
+            assertTrue(coverService.base64ForCoverPath("/covers/ext/42.png").startsWith("data:image/png;base64,"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void ensureExternalCoverNullOrBlankOrFailureReturnsNull() throws IOException {
+        assertNull(coverService.ensureExternalCover(1L, null));
+        assertNull(coverService.ensureExternalCover(1L, "  "));
+        com.sun.net.httpserver.HttpServer server = coverServer(new java.util.concurrent.atomic.AtomicInteger(), 404, "text/plain", new byte[0]);
+        try {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/missing";
+            assertNull(coverService.ensureExternalCover(2L, url), "下载失败要静默退占位块，不能把渲染打断");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /** 本地假 Bangumi：返回固定字节，并统计被打了几次。 */
+    private static com.sun.net.httpserver.HttpServer coverServer(java.util.concurrent.atomic.AtomicInteger hits, int status, String contentType, byte[] body) throws IOException {
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            hits.incrementAndGet();
+            if (status != 200) {
+                exchange.sendResponseHeaders(status, -1);
+                exchange.close();
+                return;
+            }
+            exchange.getResponseHeaders().add("Content-Type", contentType);
+            exchange.sendResponseHeaders(200, body.length);
+            try (var out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        server.start();
+        return server;
     }
 }

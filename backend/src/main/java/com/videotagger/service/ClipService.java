@@ -449,8 +449,8 @@ public class ClipService {
         return ep;
     }
 
-    /** 片段标签写入词库关联：无则建 tag 词条，有则复用；随后向上并集同步到所属集与媒体。 */
-    private void linkClipTags(long clipId, String tagText, long now) {
+    /** 片段标签写入词库关联：无则建 tag 词条，有则复用；随后向上并集同步到所属集与媒体。（同包复用：见 ReviewClipService） */
+    void linkClipTags(long clipId, String tagText, long now) {
         for (String token : tagText.trim().split("\\s+")) {
             if (token.isEmpty()) {
                 continue;

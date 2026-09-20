@@ -17,6 +17,11 @@ export interface PocClip {
   title: string;
   /** 片段备注，由 `detailShow.note` 控制显示。 */
   note?: string;
+  /**
+   * 跨媒体借来的片段才有：来源媒体标题（如「草莓棉花糖 OVA 第2期」）。
+   * 本体片段不带这个字段（设计规格 §6）。
+   */
+  sourceTitle?: string;
   /** 片段标签（用户写的短标签，如「可爱小猫」「高甜」）——片段屏的主文案。 */
   tag?: string;  assetPath: string;
   durationMs: number;

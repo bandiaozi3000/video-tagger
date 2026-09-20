@@ -16,8 +16,11 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Set;
 
 /**
  * v0.24 集级本地回顾源解析：给定集，返回一个可流式播放的本地文件（不裁剪）。
@@ -55,7 +58,13 @@ public class EpisodeReviewService {
         this.videoAssetService = videoAssetService;
     }
 
-    public record ReviewSource(String channel, String state, String filePath, String message) {
+    /** assetId：C1 命中的本地资产（可据此建片段）；refUrl：C2 的稳定引用（animeko://，可据此建片段）；均无 → 只能播不能存。 */
+    public record ReviewSource(String channel, String state, String filePath, String message,
+                               Long assetId, String refUrl) {
+    }
+
+    /** Bangumi 绑定：subject（作品）+ provider episode（集）。 */
+    private record BangumiRef(String subjectId, String providerEpisodeId) {
     }
 
     /** 删除结果（state=删除后该集预计的求值状态）。 */
@@ -92,48 +101,78 @@ public class EpisodeReviewService {
         Episode ep = episodeMapper.selectById(episodeId);
         if (ep == null) throw new NoSuchElementException("episode not found: " + episodeId);
         // 1) C1：该集绑定的本地 asset（LOCAL_ORIGINAL 优先，文件在场）
-        String c1 = localAssetFile(episodeId);
+        VideoAsset c1 = localAsset(episodeId);
         if (c1 != null) {
-            return new ReviewSource("C1", "PRESENT", c1, "本地集资产: " + c1);
+            String file = assetFilePath(c1);
+            if (file != null) {
+                return new ReviewSource("C1", "PRESENT", file, "本地集资产: " + file, c1.getId(), null);
+            }
         }
         // 2) C2：Animeko 整集缓存
-        String bangumiEp = resolveBangumiEpisodeId(episodeId);
-        if (bangumiEp != null) {
-            AnimekoCacheLocator.LocateResult r = animekoLocator.locate(bangumiEp);
+        BangumiRef ref = resolveBangumiRef(episodeId);
+        if (ref != null) {
+            AnimekoCacheLocator.LocateResult r = animekoLocator.locate(ref.providerEpisodeId());
             if ("PRESENT".equals(r.state()) && r.filePath() != null) {
-                return new ReviewSource("C2", "PRESENT", r.filePath(), r.message());
+                return new ReviewSource("C2", "PRESENT", r.filePath(), r.message(), null, refUrl(ref));
             }
         }
         return new ReviewSource(null, "UNAVAILABLE", null,
-                "该集无本地源（无本地资产、无 Animeko 整集缓存）；可先在 Animeko 显式缓存该集");
+                "该集无本地源（无本地资产、无 Animeko 整集缓存）；可先在 Animeko 显式缓存该集", null, null);
     }
 
-    private String localAssetFile(long episodeId) {
+    /**
+     * 灯状态用（批量）：这些集里哪些的 **C2 Animeko 整集缓存**在场。C1 由调用方按资产批量判定。
+     * registry 只有 ~10KB，逐集 locate 足够；若将来变大，升级路径 = 一次性解析后匹配。
+     */
+    public Set<Long> cachedEpisodes(Collection<Long> localEpisodeIds) {
+        Set<Long> out = new LinkedHashSet<>();
+        if (localEpisodeIds == null || localEpisodeIds.isEmpty()) return out;
+        for (Long id : localEpisodeIds) {
+            if (id == null) continue;
+            BangumiRef ref = resolveBangumiRef(id);
+            if (ref == null || ref.providerEpisodeId() == null) continue;
+            AnimekoCacheLocator.LocateResult r = animekoLocator.locate(ref.providerEpisodeId());
+            if ("PRESENT".equals(r.state()) && r.filePath() != null) out.add(id);
+        }
+        return out;
+    }
+
+    /** 该集可用的本地原始源资产（跳过 GENERATED_CLIP 片段产物，且文件必须真的在场）。 */
+    private VideoAsset localAsset(long episodeId) {
         try {
             List<VideoAsset> assets = assetMapper.listByEpisode(episodeId);
-            // 只认本地原始源资产（整集）；GENERATED_CLIP 是该集片段产物，不是整集源
             for (VideoAsset a : assets) {
                 if ("GENERATED_CLIP".equals(a.getAssetType())) continue;
                 if (a.getAvailabilityState() == null || !"AVAILABLE".equals(a.getAvailabilityState())) continue;
                 if (a.getStoragePath() == null) continue;
-                Path p = assetRoot.resolve(a.getStoragePath()).normalize();
-                if (!p.startsWith(assetRoot) || !Files.isRegularFile(p)) continue;
-                return p.toString();
+                if (assetFilePath(a) != null) return a;
             }
         } catch (Exception ignored) {
         }
         return null;
     }
 
-    private String resolveBangumiEpisodeId(long localEpisodeId) {
+    /** 资产存储路径 → 绝对路径；越界或文件不在返回 null。 */
+    private String assetFilePath(VideoAsset a) {
+        Path p = assetRoot.resolve(a.getStoragePath()).normalize();
+        if (!p.startsWith(assetRoot) || !Files.isRegularFile(p)) return null;
+        return p.toString();
+    }
+
+    /** C2 片段的稳定引用（与 AnimekoTagService 现场打标同形）；无 subject 绑定时为 null。 */
+    private String refUrl(BangumiRef ref) {
+        return ref.subjectId() == null ? null
+                : "animeko://bangumi/" + ref.subjectId() + "/ep/" + ref.providerEpisodeId();
+    }
+
+    private BangumiRef resolveBangumiRef(long localEpisodeId) {
         try {
             List<ExternalEpisode> bridges = externalEpisodeMapper.listByLocalEpisode(localEpisodeId);
             for (ExternalEpisode bridge : bridges) {
-                if (bridge.getExternalWorkId() == null) continue;
+                if (bridge.getExternalWorkId() == null || bridge.getProviderEpisodeId() == null) continue;
                 ExternalWork work = externalWorkMapper.selectById(bridge.getExternalWorkId());
-                if (work != null && PROVIDER_BANGUMI.equals(work.getProvider())
-                        && bridge.getProviderEpisodeId() != null) {
-                    return bridge.getProviderEpisodeId();
+                if (work != null && PROVIDER_BANGUMI.equals(work.getProvider())) {
+                    return new BangumiRef(work.getExternalId(), bridge.getProviderEpisodeId());
                 }
             }
         } catch (Exception ignored) {

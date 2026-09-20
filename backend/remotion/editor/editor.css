@@ -774,3 +774,253 @@ body:has(#view-recommend:not([hidden])) .site-footer { display: none; }
 /* 未加入推荐的候选：右栏只给只读提示 + 一个加入入口 */
 .vt-outside { padding: 14px 14px 4px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .vt-outside p { margin: 0; font-size: 12px; color: var(--text-faint); line-height: 1.7; }
+
+/* ---------- 拖拽改时长（2026-09-20）：时间轴类边界把手 + 胶片条时长牌 ---------- */
+
+/* 时间轴：类别边界上的竖向把手（只有左右不同类型、且左侧可调的地方才有） */
+.vt-tl-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  margin-left: -7px;
+  z-index: 3;
+  cursor: ew-resize;
+  touch-action: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.vt-tl-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .55);
+  transition: background .12s ease;
+}
+
+.vt-tl-handle:hover::before,
+.vt-tl-handle.dragging::before {
+  background: var(--cyan);
+  box-shadow: 0 0 10px rgba(53, 214, 242, .6);
+}
+
+/* 把手上方的秒数气泡：平时只显示一个短标签，悬停/拖拽时高亮 */
+.vt-tl-handle-label {
+  position: absolute;
+  top: -2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 15px;
+  white-space: nowrap;
+  color: #e8f6ff;
+  background: rgba(6, 12, 18, .82);
+  border: 1px solid var(--border);
+  opacity: .75;
+  pointer-events: none;
+}
+
+.vt-tl-handle:hover .vt-tl-handle-label,
+.vt-tl-handle.dragging .vt-tl-handle-label {
+  opacity: 1;
+  border-color: var(--cyan);
+}
+
+/* 胶片条：卡片底部的时长牌（卡宽不随时长变，拖拽手感 = 拖过一个卡宽 5s） */
+.vt-film-dur {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 16px;
+  color: #dff3ff;
+  background: rgba(53, 214, 242, .12);
+  border: 1px solid rgba(53, 214, 242, .35);
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.vt-film-dur:hover,
+.vt-film-dur.dragging {
+  background: rgba(53, 214, 242, .22);
+  border-color: var(--cyan);
+}
+
+
+/* ---------- 开场秀名单：可排序，第 1 个 = 主推 Hero（2026-09-20） ---------- */
+.vt-opening-order {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+}
+
+.vt-opening-order li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 209, 102, .28);
+  background: rgba(255, 209, 102, .06);
+  color: #ffe6a8;
+  font-size: 12px;
+  line-height: 18px;
+  cursor: grab;
+}
+
+.vt-opening-order li.hero { border-color: rgba(255, 209, 102, .8); background: rgba(255, 209, 102, .16); }
+.vt-opening-order li:hover { background: rgba(255, 209, 102, .18); }
+
+.vt-opening-order li .idx {
+  flex: none;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(255, 209, 102, .85);
+  color: rgba(0, 0, 0, .72);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.vt-opening-order li.hero .idx { background: #ffd166; font-weight: 700; }
+
+.vt-opening-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vt-opening-none { display: block; margin-top: 8px; font-size: 11.5px; color: var(--text-dim); }
+
+/* 开场秀按钮（候选卡右上角）：拖拽之外的第二条路径（2026-09-20 用户要求） */
+.vt-open-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  z-index: 2;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 7px;
+  border: 1px solid var(--border-strong);
+  background: rgba(4, 4, 12, .78);
+  color: var(--text-dim);
+  font-size: 10.5px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .12s;
+}
+
+.vt-media-card:hover .vt-open-badge { opacity: 1; }
+.vt-open-badge.has { opacity: 1; color: #ffd166; border-color: rgba(255, 209, 102, .45); cursor: default; }
+
+/* 推荐顺序行里的 🎬：已加入开场秀就置灰（移出请在开场秀名单里点 ✕） */
+.vt-selected-btns .btn-mini:disabled { opacity: .35; cursor: default; }
+
+/* 🎲 换个摆位（2026-09-20：真随机但 Hero 固定） */
+.vt-roll-btn {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, .05);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.vt-roll-btn:hover { color: #fff; border-color: rgba(255, 255, 255, .5); background: rgba(255, 255, 255, .12); }
+
+/* ---------- 📋 导出清单（2026-09-20）---------- */
+.vt-export-panel { width: min(680px, 94vw); max-height: 86vh; display: flex; flex-direction: column; gap: 10px; }
+.vt-export-panel h3 { margin: 0 0 2px; font-size: 15px; }
+
+.vt-export-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12.5px; }
+.vt-export-label { flex: none; width: 30px; color: var(--text-faint); }
+.vt-inline.off { opacity: .4; }
+
+.vt-export-text {
+  min-height: 260px;
+  flex: 1 1 auto;
+  resize: vertical;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, .32);
+  color: #e8e6e2;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.vt-export-actions { display: flex; align-items: center; gap: 8px; }
+.vt-export-error { margin: 0; font-size: 12px; color: #ff9e9e; }
+
+/* 素材缺失列表：每条「媒体名 + 片段名 + 原因」+ 补/删按钮（2026-09-20） */
+.vt-missing-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.vt-missing-list li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.vt-missing-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.vt-missing-text b { color: #ffd166; font-weight: 600; }
+.vt-missing-text small { color: var(--text-faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 缺素材的片段卡上的「✕ 移除」：直接可点，不靠悬停（用户：右栏那个列表太不明显） */
+.vt-film-drop {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  z-index: 3;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(248, 113, 113, .92);
+  color: #1b0d0d;
+  font-size: 11px;
+  line-height: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .5);
+}
+
+.vt-film-drop:hover { background: #fca5a5; }
+
+/* 正常片段卡：悬停才现的灰色 ✕（缺素材那张仍是红底常驻） */
+.vt-film-drop.quiet {
+  background: rgba(10, 10, 16, .86);
+  color: #e8e6e2;
+  border: 1px solid var(--border-strong);
+  opacity: 0;
+  transition: opacity .12s;
+}
+
+.vt-film-card:hover .vt-film-drop.quiet { opacity: 1; }
+.vt-film-drop.quiet:hover { background: rgba(248, 113, 113, .92); color: #1b0d0d; border-color: transparent; }
+
+/* ---------- 跨媒体借片段：来源页签与角标（2026-09-20）---------- */
+.vt-clip-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; }
+.vt-clip-source-group { display: inline-flex; align-items: center; gap: 4px; }
+.vt-clip-sources .btn-mini.on { color: #fff; border-color: var(--cyan); background: rgba(53, 214, 242, .14); }
+.vt-clip-from { font-size: 10.5px; color: #ffd166; border: 1px solid rgba(255, 209, 102, .45); border-radius: 999px; padding: 0 5px; }
+
+.vt-clip-from-tag {
+  margin-left: 6px;
+  font-style: normal;
+  font-size: 10.5px;
+  color: #ffd166;
+  border: 1px solid rgba(255, 209, 102, .45);
+  border-radius: 999px;
+  padding: 0 5px;
+}

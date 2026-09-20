@@ -4,6 +4,7 @@ import org.apache.ibatis.annotations.Mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.videotagger.entity.Media;
+import com.videotagger.service.MediaExportRow;
 import com.videotagger.service.MediaSummary;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -187,6 +188,51 @@ public interface MediaMapper extends BaseMapper<Media> {
                                         @Param("source") String source, @Param("q") String q,
                                         @Param("sort") String sort, @Param("order") String order);
 
+    /**
+     * 清单导出：候选（当前筛选，同一套条件）/ 已选（ids）→ 含集数与标签的轻量投影。
+     *
+     * 集数取 Bangumi 的 episode_count，探测不到时回落到本地 episode 行数；标签是 media ∪ episode ∪ clip
+     * 三级标签名的逗号串（与媒体详情页看到的标签同一套来源）。上限 500 行（一次导出足够，也防手滑全库）。
+     * ⚠️ 列顺序必须与 MediaExportRow 的字段顺序一致。
+     */
+    @Select("<script>"
+            + "SELECT a.id, a.title, a.year, a.subcategory, a.media_format AS mediaFormat, "
+            + "(SELECT ew.provider FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS source, "
+            + "COALESCE((SELECT ew2.episode_count FROM external_work ew2 WHERE ew2.media_id = a.id AND ew2.episode_count IS NOT NULL ORDER BY ew2.id LIMIT 1), "
+            + "  (SELECT COUNT(*) FROM episode e WHERE e.media_id = a.id)) AS episodeCount, "
+            + "  (SELECT COUNT(*) FROM clips c JOIN episode e ON e.id = c.episode_id WHERE e.media_id = a.id) AS clipCount, "
+            + "  (SELECT GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ',') FROM tag t JOIN ("
+            + "    SELECT tag_id AS tid FROM media_tag WHERE media_id = a.id "
+            + "    UNION ALL SELECT et.tag_id FROM episode_tag et JOIN episode e2 ON e2.id = et.episode_id WHERE e2.media_id = a.id "
+            + "    UNION ALL SELECT ct.tag_id FROM clip_tag ct JOIN clips c2 ON c2.id = ct.clip_id JOIN episode e3 ON e3.id = c2.episode_id WHERE e3.media_id = a.id"
+            + "  ) r ON r.tid = t.id) AS tags "
+            + "FROM media a "
+            + "<where>"
+            + "<if test='true'> AND a.deleted_at IS NULL</if>"
+            + "<if test='status != null'> AND a.status = #{status}</if>"
+            + "<if test='format != null'> AND a.media_format = #{format}</if>"
+            + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
+            + "WITH RECURSIVE cte AS ("
+            + "SELECT id FROM media_subcategory WHERE id = #{subcategoryId} "
+            + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
+            + ") SELECT id FROM cte)</if>"
+            + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
+            + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
+            + "<if test='year != null'> AND a.year = #{year}</if>"
+            + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
+            + "<if test='tagId != null'> AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
+            + "<if test='ids != null and !ids.isEmpty()'> AND a.id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></if>"
+            + "</where>"
+            + "GROUP BY a.id ORDER BY (a.year IS NULL), a.year DESC, a.id DESC LIMIT 500"
+            + "</script>")
+    List<MediaExportRow> listExportRows(@Param("status") String status, @Param("format") String format,
+                                       @Param("subcategoryId") Long subcategoryId,
+                                       @Param("confirmed") Integer confirmed, @Param("collectionId") Long collectionId,
+                                       @Param("year") Integer year, @Param("source") String source,
+                                       @Param("tagId") Long tagId, @Param("q") String q,
+                                       @Param("ids") List<Long> ids);
+
     /** 媒体列表筛选：状态/格式/子分类/待确认/年份 组合，sort=latest 按最近标记倒序。 */
     @Select("<script>"
             + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, (SELECT ew.provider FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS source,"
@@ -223,6 +269,8 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "</choose>"
             + " LIMIT #{limit} OFFSET #{offset}"
             + "</script>")
+
+
     List<MediaSummary> listFiltered(@Param("status") String status, @Param("format") String format,
                                     @Param("subcategoryId") Long subcategoryId,
                                     @Param("confirmed") Integer confirmed, @Param("collectionId") Long collectionId,

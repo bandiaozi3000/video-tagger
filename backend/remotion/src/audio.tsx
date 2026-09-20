@@ -1,7 +1,7 @@
 import React from 'react';
 import { Audio, Sequence } from 'remotion';
 import { assetUrl } from './asset-url';
-import { bgmGainAt, bgmTimeline } from './bgm';
+import { bgmSlotGainAt, bgmTimeline, stingGainAt, stingTimeline } from './bgm';
 import type { RenderParams } from './params';
 import type { ScenePlan } from './types';
 
@@ -14,8 +14,7 @@ import type { ScenePlan } from './types';
  *
  * 由此 Java 侧不再需要 BGM concat / `amix` 混流 / 无音轨回退。
  */
-export function BgmAudio({ params, plan, assetBaseUrl }: { params: RenderParams; plan: ScenePlan; assetBaseUrl: string }) {
-  const slots = bgmTimeline(params, plan).filter((slot) => slot.assetPath);
+export function BgmAudio({ params, plan, assetBaseUrl }: { params: RenderParams; plan: ScenePlan; assetBaseUrl: string }) {  const slots = bgmTimeline(params, plan).filter((slot) => slot.assetPath);
   if (slots.length === 0) return null;
   return (
     <>
@@ -28,12 +27,38 @@ export function BgmAudio({ params, plan, assetBaseUrl }: { params: RenderParams;
             <Audio
               src={assetUrl(slot.assetPath!, assetBaseUrl)}
               loop
+              // 结尾段从曲子后半段起放（用户选「乙」）；缺省 0 = 从头
+              startFrom={slot.startFromSec}
               // volume 回调拿到的是**本 Sequence 内**的帧，故需加回起始偏移换算成全局帧
-              volume={(localFrame) => bgmGainAt(slot.fromFrame + localFrame, params, plan)}
+              volume={(localFrame) => bgmSlotGainAt(slot.fromFrame + localFrame, slot, params, plan)}
             />
           </Sequence>
         );
       })}
+    </>
+  );
+}
+
+/**
+ * 转场音乐（片名卡专用，用户 2026-09-20 方案「甲」）。
+ *
+ * 与 BGM 是**两层**：BGM 范围选什么都不影响它；它响的时候会把 BGM 压低（`bgmGainAt` 里统一的 ducking）。
+ * 不 `loop` —— 转场音重复会很怪；长度超卡片就靠 Sequence 自动截断。
+ */
+export function StingAudio({ params, plan, assetBaseUrl }: { params: RenderParams; plan: ScenePlan; assetBaseUrl: string }) {
+  if (!params.stingPath) return null;
+  const slots = stingTimeline(params, plan);
+  if (slots.length === 0) return null;
+  return (
+    <>
+      {slots.map((slot, index) => (
+        <Sequence key={`sting-${index}`} from={slot.fromFrame} durationInFrames={slot.durationInFrames} name={`转场音 · 片名卡 ${index + 1}`}>
+          <Audio
+            src={assetUrl(params.stingPath, assetBaseUrl)}
+            volume={(localFrame) => stingGainAt(slot.fromFrame + localFrame, slot, params, plan)}
+          />
+        </Sequence>
+      ))}
     </>
   );
 }
