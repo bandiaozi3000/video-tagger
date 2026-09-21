@@ -749,31 +749,57 @@
     </div>
 </div>
 
-<!-- 从 Bangumi 同步（2026-09-21 简化版）：选条件 → 勾选 → 直接同步 -->
+<!-- 从 Bangumi 同步（2026-09-21 简化版 · 交互重设计：一个同步入口 + 选择与执行分离） -->
 <div id="bgm-sync-modal" class="modal-overlay" hidden>
     <div class="modal modal-wide">
         <h2>从 Bangumi 同步</h2>
-        <p class="bgm-tip">按年 / 季 / 月筛选，勾选后直接同步：本地已有则更新 Bangumi 资料（<b>不动本地字段</b>），本地没有则新建媒体与 Bangumi 资料。</p>
-        <div class="bgm-chips">
-            <span class="bgm-label">年份</span>
-            <button type="button" id="bgm-year-all" class="btn-mini">全选</button>
-            <button type="button" id="bgm-year-clear" class="btn-mini">清空</button>
+
+        <!-- 第一步：选范围 → 拉取。拉取按钮只在这里出现一次，不和数据列表混在一起 -->
+        <div class="bgm-step">
+            <span class="bgm-step-no">1</span>
+            <div class="bgm-step-body">
+                <div class="bgm-step-head">
+                    <span class="bgm-step-title">选范围</span>
+                    <span class="bgm-label">年份</span>
+                    <button type="button" id="bgm-year-all" class="btn-mini">全选</button>
+                    <button type="button" id="bgm-year-clear" class="btn-mini">清空</button>
+                    <span class="bgm-spacer"></span>
+                    <button type="button" id="bgm-sync-start" class="btn-primary">拉取候选</button>
+                </div>
+                <div id="bgm-year-grid" class="bgm-years"></div>
+                <div class="bgm-chips">
+                    <span class="bgm-label">季度</span>
+                    <div id="bgm-season-grid" class="bgm-chips"></div>
+                    <span class="bgm-label">月份</span>
+                    <div id="bgm-month-grid" class="bgm-chips"></div>
+                </div>
+                <div id="bgm-sync-hint" class="bgm-plan"></div>
+                <div id="bgm-sync-progress" class="sync-progress" hidden><div class="sync-progress-fill"></div></div>
+            </div>
         </div>
-        <div id="bgm-year-grid" class="bgm-years"></div>
-        <div class="bgm-chips">
-            <span class="bgm-label">季度</span>
-            <div id="bgm-season-grid" class="bgm-chips"></div>
-            <span class="bgm-label">月份</span>
-            <div id="bgm-month-grid" class="bgm-chips"></div>
+
+        <!-- 第二步：挑作品。这里全是「选择工具」，不触发同步；唯一同步入口在底部 -->
+        <div class="bgm-step" id="bgm-pick-step" hidden>
+            <span class="bgm-step-no">2</span>
+            <div class="bgm-step-body">
+                <div class="bgm-step-head">
+                    <span class="bgm-step-title">挑作品</span>
+                    <span id="bgm-sync-total" class="bgm-label"></span>
+                    <span id="bgm-sync-selected" class="bgm-label"></span>
+                    <button type="button" id="bgm-pick-all" class="btn-mini">全选</button>
+                    <button type="button" id="bgm-pick-tv" class="btn-mini">只选 TV</button>
+                    <button type="button" id="bgm-pick-none" class="btn-mini">清空</button>
+                </div>
+                <div id="bgm-sync-preview" class="bgm-preview"></div>
+                <div id="bgm-sync-list" class="bgm-list" hidden></div>
+            </div>
         </div>
-        <div id="bgm-sync-hint" class="bgm-plan"></div>
-        <div id="bgm-sync-progress" class="sync-progress" hidden><div class="sync-progress-fill"></div></div>
+
         <div id="bgm-sync-status" class="status"></div>
-        <div id="bgm-sync-list" class="bgm-list" hidden></div>
         <div class="modal-actions">
             <button id="bgm-sync-cancel" type="button">取消</button>
-            <button id="bgm-sync-all" type="button">直接同步全部</button>
-            <button id="bgm-sync-start" type="button" class="btn-primary">拉取候选</button>
+            <span class="bgm-spacer"></span>
+            <button id="bgm-sync-commit" type="button" class="btn-primary" disabled>未勾选作品</button>
         </div>
     </div>
 </div>
@@ -1084,7 +1110,7 @@
 </div>
 <button type="button" id="back-nav" title="去底部" aria-label="去底部">↓</button>
 <script src="app.js?v=20260921-sync-simple-fix"></script>
-<script src="bgm-sync.js?v=20260921-sync-simple2"></script>
+<script src="bgm-sync.js?v=20260921-sync-redesign2"></script>
 <script src="v023-video-sources.js?v=20260830-v023-1"></script>
 <script src="v023-player-workbench.js?v=20260901-v023-3"></script>
 <script src="v023-source-interactions.js?v=20260901-v023-5"></script>

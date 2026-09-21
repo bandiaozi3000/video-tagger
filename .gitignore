@@ -71,3 +71,6 @@ backend/remotion/dist-editor/
 
 # Codex CLI 项目级目录（工具生成，不进版本库）
 .codex/
+
+# 临时文件（提交信息/探针输出等，2026-09-21 踩到过被 add -A 一起提交）
+.tmp-*
