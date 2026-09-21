@@ -1024,3 +1024,46 @@ body:has(#view-recommend:not([hidden])) .site-footer { display: none; }
   border-radius: 999px;
   padding: 0 5px;
 }
+
+/* 导出任务：耗时/百分比 + 进度条（2026-09-20） */
+.vt-task-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #8d93a6;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.vt-task-bar {
+  display: inline-block;
+  width: 120px;
+  height: 4px;
+  background: rgba(130, 160, 255, 0.18);
+  overflow: hidden;
+}
+.vt-task-bar i {
+  display: block;
+  height: 100%;
+  background: #7aa2ff;
+  transition: width 0.4s linear;
+}
+
+/* 导出任务：中断/取消态（2026-09-21 持久化之后新增的两个终态） */
+.vt-task-interrupted { color: #ffd166; }
+.vt-task-cancelled { color: #9aa0b4; }
+.vt-task-btns .btn-mini:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.vt-task-paused { color: #7ad3ff; }
+.vt-task-stage { margin-right: 8px; color: #b9c0d4; font-style: normal; }
+
+/* 局部重渲（2026-09-21）：块按钮一排 */
+.vt-task-chunks { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 4px 0 2px; width: 100%; }
+.vt-task-chunks em { margin-right: 4px; color: #8d93a6; font-style: normal; font-size: 11px; }
+.vt-task-chunks .btn-mini { min-width: 26px; padding: 1px 6px; }
+
+/* 统一确认弹窗（2026-09-21）：窄面板 + 保留换行 + 危险按钮 */
+.vt-panel-narrow { width: min(460px, 92vw); }
+.vt-confirm-msg { margin: 0 0 16px; white-space: pre-wrap; line-height: 1.65; color: #c9cfe0; font-size: 13px; }
+.vt-confirm-btns { display: flex; justify-content: flex-end; gap: 8px; }
+.vt-confirm-btns .btn-mini { padding: 5px 14px; }
+.vt-confirm-btns .vt-danger { background: rgba(251, 113, 133, .18); border-color: rgba(251, 113, 133, .5); color: #ffb3c1; }

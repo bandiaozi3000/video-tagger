@@ -152,3 +152,12 @@
 - **移除要连带**：`withoutClip()`（`editor/clip-refs.ts`）在删片段时**同步删 `sources[clipId]`**，否则留下悬空键。
 - **校验三条文案分开**（`RecommendClipSourceService.loadClips`）：库里没有 → `片段不存在`；无 sources 且不属本体 → `片段不存在或不属于所选媒体`；来源无视频类关联 → `片段 #N 与《本体》没有视频类关联`。
 - 规格与计划：`docs/superpowers/specs/2026-09-20-cross-media-clip-source-design.md`、`docs/superpowers/plans/2026-09-20-cross-media-clip-source-plan.md`。
+
+### 16. 「同步番剧」= 弹窗直连流程（2026-09-21 用户拍板简化，勿复活旧工作区）
+- **内容**：从 Bangumi 同步只有**一个弹窗**：年/季/月**多选** → 拉取候选 → 勾选 → 直接同步 → 显示条数。**不再有**独立审核工作区、后台任务表、逐项重试、跨会话草稿（V38 已把 `metadata_sync_task*` / `metadata_sync_draft` 三张表删掉）。
+- **筛选语义**：年 = 限定符（可多选）；季/月 = 可选细分（选了就只查细分，年作限定）；没选细分 = 整年。区间在**后端** `SyncRangePlanner` 归一：同季内相邻月合并、**超过 3 个月按自然季度切开** —— 因为 Bangumi `total` 硬上限 1000（按年会撞顶，按季不会），且**同一请求多段 `air_date` 会 AND 成 0 条**，所以必须逐段请求。
+- **匹配与动作**：`EXTERNAL_ID`→UPDATE、标题/别名**唯一精确**命中→LINK（都是"更新"）、`NONE`→CREATE、命中多个→**SKIP**（交人工，绝不自动关联）。
+- **「不动本地数据」的含义**：更新路径只写 `media_entry` / `external_work` / `external_episode` / `external_relation` + **只补缺失的** `episode`；`media` 的标题/年份/备注/评分/状态/标签/封面**一律不写**（新增时才建 media）。
+- **不做**：标题模糊匹配（实测「剥掉第N季/幕/期比基名」零增益，且误关联代价更大）；媒体详情里的单条刷新/换绑/关键词搜索保持原样。
+- **注意**：AniList / Omofuna 的同步**入口**虽已废弃，但它们的代码与 `media.source` 数据**在用**（`SearchService`/`RecommendService`/来源标签），不要顺手删。
+- **连带影响**：V38 把三张表删了，而**冻结的桌面轨道**里 `MigrationTool`（MySQL→SQLite 迁移工具）的清单还列着 `metadata_sync_task(_item)` / `metadata_sync_draft` —— 那是按 §13「保留不删、不维护」的老代码，跑它到这三张表会报表不存在；将来解冻桌面时一并处理，现在不要动。

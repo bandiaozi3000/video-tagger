@@ -246,3 +246,32 @@ export function fileToDataUri(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+/** 毫秒 → 可读时长（导出用：秒级足够，别塞毫秒）。 */
+export function formatElapsed(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '—';
+  const total = Math.round(ms / 1000);
+  if (total < 60) return `${total} 秒`;
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) return total % 60 === 0 ? `${minutes} 分` : `${minutes} 分 ${total % 60} 秒`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours} 小时 ${String(minutes % 60).padStart(2, '0')} 分`;
+}
+
+/**
+ * 任务进度文案（导出面板用）。
+ *
+ * ETA = 已用 × (1 - p) / p —— 渲染速度大致恒定（实测 4K ≈ 555ms/帧、1080p ≈ 158ms/帧），
+ * 所以线性外推够用；进度 < 2% 时先不说预计（早期百分比抖动会把估算带偏）。
+ */
+export function taskProgressLabel(
+  task: { status: string; progress?: number; createdAt: number; finishedAt?: number },
+  now: number,
+): string {
+  const elapsed = (task.status === 'RUNNING' ? now : task.finishedAt || now) - task.createdAt;
+  const pct = Math.max(0, Math.min(100, Math.round(task.progress ?? 0)));
+  if (task.status !== 'RUNNING') return `共 ${formatElapsed(elapsed)}`;
+  const parts = [`已用 ${formatElapsed(elapsed)}`, `${pct}%`];
+  if (pct >= 2 && pct < 100) parts.push(`预计还需 ${formatElapsed((elapsed * (100 - pct)) / pct)}`);
+  return parts.join(' · ');
+}

@@ -33,6 +33,8 @@ public class MediaProbe {
     private static final Pattern VIDEO_CODEC = Pattern.compile("Video:\\s*([A-Za-z0-9_]+)");
     private static final Pattern AUDIO_CODEC = Pattern.compile("Audio:\\s*([A-Za-z0-9_]+)");
     private static final Pattern FPS = Pattern.compile("([0-9]+(?:\\.[0-9]+)?)\\s*fps");
+    /** 从 ffmpeg 输出里抓 `1920x1080` 这类尺寸。 */
+    private static final Pattern SIZE = Pattern.compile("\\b(\\d{2,5})x(\\d{2,5})\\b");
 
     /** 编解码判定结果：`decided=false` 表示探测不出来（调用方应按"保守"处理）。 */
     public record Codecs(String video, String audio, boolean decided) {
@@ -110,6 +112,25 @@ public class MediaProbe {
     }
 
     /** 视频/音频编解码；探测失败 → `decided=false`。 */
+    /**
+     * 视频尺寸 [宽, 高]；探不出来返回 null。
+     *
+     * 2026-09-21 用途：片段与画幅同比（都是 16:9）时，片段幕那层模糊背景视频**完全看不见**，
+     * 却占约 40% 的片段帧耗时（实测 121 → 70 ms/帧）→ 渲染侧据此跳过它。
+     */
+    public int[] dimensions(String file) {
+        String output = run(List.of(ffmpegPath, "-hide_banner", "-i", file));
+        var matcher = SIZE.matcher(output);
+        while (matcher.find()) {
+            int w = Integer.parseInt(matcher.group(1));
+            int h = Integer.parseInt(matcher.group(2));
+            if (w >= 160 && h >= 90) {
+                return new int[]{w, h};
+            }
+        }
+        return null;
+    }
+
     public Codecs codecs(String file) {
         Path probe = ffprobe();
         if (probe != null) {

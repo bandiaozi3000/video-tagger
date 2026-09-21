@@ -7,6 +7,7 @@ import com.videotagger.entity.ExternalRelation;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import com.videotagger.service.LinkedPair;
 import com.videotagger.service.LinkedRelation;
 
 import java.util.List;
@@ -32,6 +33,21 @@ public interface ExternalRelationMapper extends BaseMapper<ExternalRelation> {
             + "JOIN media m ON m.id = w2.media_id AND m.deleted_at IS NULL "
             + "WHERE w.media_id = #{mediaId} ORDER BY r.id")
     List<LinkedRelation> listLinkedMedia(@Param("mediaId") long mediaId);
+
+    /**
+     * 一批媒体内部的「同系列两两关系」（导出清单去重用）。
+     * 只取两端的 media_id 都在给定 id 集合里的关系；白名单过滤在服务层做（与借片段共用一份常量）。
+     */
+    @Select("<script>"
+            + "SELECT DISTINCT w.media_id AS fromMediaId, w2.media_id AS toMediaId, r.relation_type AS relationType "
+            + "FROM external_work w "
+            + "JOIN external_relation r ON r.external_work_id = w.id "
+            + "JOIN external_work w2 ON w2.external_id = r.related_external_id AND w2.media_id IS NOT NULL "
+            + "AND (r.provider IS NULL OR w2.provider = r.provider) "
+            + "WHERE w.media_id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach> "
+            + "AND w2.media_id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach>"
+            + "</script>")
+    List<LinkedPair> listLinkedPairs(@Param("ids") List<Long> ids);
 
     @org.apache.ibatis.annotations.Delete("DELETE FROM external_relation WHERE external_work_id = #{workId}")
     void deleteByWork(@Param("workId") long workId);

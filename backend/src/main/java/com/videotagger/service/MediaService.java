@@ -28,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 @Service
@@ -106,7 +107,28 @@ public class MediaService {
     public List<MediaExportRow> listExport(String status, String format, Long subcategoryId, Integer confirmed,
                                            Long collectionId, Integer year, String source, Long tagId, String q,
                                            List<Long> ids) {
-        return mediaMapper.listExportRows(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, q, ids);
+        List<MediaExportRow> rows = mediaMapper.listExportRows(status, format, subcategoryId, confirmed, collectionId,
+                year, source, tagId, q, ids);
+        if (rows.isEmpty()) {
+            return rows;
+        }
+        // 同系列归组（导出清单「去重」用，2026-09-21）：只算「两端都在本清单里」的关联，
+        // 关系类型过借片段那份白名单（视/听/游戏类关联不算同系列）。
+        List<LinkedPair> pairs = externalRelationMapper.listLinkedPairs(rows.stream().map(MediaExportRow::id).toList());
+        List<LinkedPair> videoPairs = pairs.stream()
+                .filter(pair -> pair != null && pair.relationType() != null
+                        && RelatedMediaService.VIDEO_RELATION_TYPES.contains(pair.relationType().trim()))
+                .toList();
+        if (videoPairs.isEmpty()) {
+            return rows;
+        }
+        Map<Long, Long> baseOf = SeriesDedupe.baseOf(rows, videoPairs);
+        return rows.stream().map(row -> {
+            Long base = baseOf.get(row.id());
+            Long derivedFrom = base == null || base == row.id() ? null : base;
+            return derivedFrom == null ? row : new MediaExportRow(row.id(), row.title(), row.year(), row.subcategory(),
+                    row.mediaFormat(), row.source(), row.episodeCount(), row.clipCount(), row.tags(), derivedFrom);
+        }).toList();
     }
 
     public List<MediaSummary> list(int limit, int offset, String status, String format, Long subcategoryId,

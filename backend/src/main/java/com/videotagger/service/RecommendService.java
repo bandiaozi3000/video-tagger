@@ -315,6 +315,11 @@ public class RecommendService {
                         String episodeTitle = cleanEpisodeTitle(episode.getTitle());
                         if (!episodeTitle.isBlank()) cv.put("episodeTitle", episodeTitle);
                     }
+                    // 素材尺寸：渲染侧判断"与画幅同比 → 那层模糊背景视频完全看不见"（实测省 ~40% 片段帧耗时）
+                    if (clip.assetWidth() > 0 && clip.assetHeight() > 0) {
+                        cv.put("assetWidth", clip.assetWidth());
+                        cv.put("assetHeight", clip.assetHeight());
+                    }
                     cv.put("assetPath", clip.path());
                     if (clip.startSec() != null) cv.put("sourceStartMs", Math.round(clip.startSec() * 1000));
                     cv.put("durationMs", clipDurationMs(clip, probeSeconds));

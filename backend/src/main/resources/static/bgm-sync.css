@@ -1,0 +1,155 @@
+/**
+ * 「从 Bangumi 同步」弹窗样式（2026-09-21 简化版）。
+ *
+ * 为什么单独一个文件：旧的 `.sync-*` 样式是给**独立审核工作区**写的（大卡片、带简介与题材），
+ * 塞进弹窗里 254 条候选会变成一屏 1.5 行、按钮被挤到屏幕外（视觉验收截图实测）。
+ * 这里只作用于 `#bgm-sync-modal`，用紧凑行 + 内部滚动列表 + 常驻按钮，不动全局样式。
+ */
+
+#bgm-sync-modal .modal.modal-wide {
+    width: min(880px, 94vw);
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+#bgm-sync-modal .bgm-tip {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #a9b0c6;
+}
+
+#bgm-sync-modal .bgm-tip b { color: #ffd9e6; font-weight: 600; }
+
+/* 条件区：多选 chips，标签不换行（旧样式会把"季度/月份"挤成竖排） */
+#bgm-sync-modal .bgm-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+#bgm-sync-modal .bgm-label {
+    white-space: nowrap;
+    font-size: 12px;
+    color: #8d93a6;
+}
+
+#bgm-sync-modal .bgm-years {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    max-height: 92px;
+    overflow-y: auto;
+}
+
+#bgm-sync-modal .bgm-chip {
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: #c9cfe0;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+#bgm-sync-modal .bgm-chip:hover { border-color: var(--pink); color: #fff; }
+
+#bgm-sync-modal .bgm-chip.on {
+    background: linear-gradient(135deg, var(--pink), var(--violet));
+    border-color: transparent;
+    color: #fff;
+    font-weight: 600;
+}
+
+#bgm-sync-modal .bgm-plan {
+    font-size: 12px;
+    color: #8d93a6;
+    min-height: 16px;
+}
+
+/* 候选列表：内部滚动，按钮永远在视野里 */
+#bgm-sync-modal .bgm-list {
+    flex: 1;
+    min-height: 180px;
+    max-height: 46vh;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(0, 0, 0, .18);
+    padding: 4px;
+}
+
+#bgm-sync-modal .bgm-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 8px;
+    border-radius: 9px;
+    cursor: pointer;
+}
+
+#bgm-sync-modal .bgm-row:hover { background: rgba(255, 255, 255, .04); }
+
+#bgm-sync-modal .bgm-cover {
+    flex: none;
+    width: 40px;
+    height: 54px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--surface-3);
+    display: grid;
+    place-items: center;
+    font-size: 15px;
+    color: #8d93a6;
+}
+
+#bgm-sync-modal .bgm-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+#bgm-sync-modal .bgm-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+
+#bgm-sync-modal .bgm-title {
+    font-size: 13px;
+    color: #eef0f8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#bgm-sync-modal .bgm-sub,
+#bgm-sync-modal .bgm-meta {
+    font-size: 11px;
+    color: #8d93a6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#bgm-sync-modal .bgm-meta span + span::before { content: ' · '; color: #4a5068; }
+
+#bgm-sync-modal .bgm-badge {
+    flex: none;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+#bgm-sync-modal .bgm-badge.upd { background: var(--cyan-soft); color: #8fe3f7; }
+#bgm-sync-modal .bgm-badge.new { background: rgba(74, 222, 128, .16); color: #9ff0b8; }
+#bgm-sync-modal .bgm-badge.skip { background: rgba(251, 113, 133, .18); color: #ffb3c1; }
+#bgm-sync-modal .bgm-badge.fail { background: rgba(251, 113, 133, .3); color: #ff97a8; }
+
+#bgm-sync-modal .bgm-result { font-size: 11px; color: #9ff0b8; }
+#bgm-sync-modal .bgm-result.fail { color: #ff97a8; }
+
+#bgm-sync-modal .bgm-empty {
+    padding: 28px 12px;
+    text-align: center;
+    color: #8d93a6;
+    font-size: 13px;
+}
+
+#bgm-sync-modal .sync-progress { margin: 0; }

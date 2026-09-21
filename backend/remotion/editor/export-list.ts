@@ -20,6 +20,11 @@ export interface ExportRow {
   clipCount?: number | null;
   /** 逗号分隔（后端 GROUP_CONCAT 的结果）。 */
   tags?: string | null;
+  /**
+   * 同系列**本体**的 id（后端 `SeriesDedupe` 算好）：仅当本条是 OVA/第二季这类派生条目时非空。
+   * 去重开启时把这类条目从清单里去掉（只留本体）。
+   */
+  seriesBaseId?: number | null;
 }
 
 export interface ExportToggles {
@@ -34,6 +39,10 @@ export interface ExportToggles {
   /** 首行「XX片单 · 共 N 部」。 */
   header: boolean;
   groupByYear: boolean;
+  /** 去重：同系列只留本体，不显示 OVA / 第二季等派生条目。 */
+  dedupe: boolean;
+  /** 排序：默认按年份倒排（新→旧）；分组开启时按年分组自带倒序，此项不影响组内。 */
+  sortBy: 'none' | 'year-desc' | 'year-asc';
 }
 
 /** 默认勾选：用户点名的五个元素 + 标题行（其余关掉，避免一行太长）。 */
@@ -48,7 +57,35 @@ export const DEFAULT_TOGGLES: ExportToggles = {
   tags: true,
   header: true,
   groupByYear: false,
+  dedupe: false,
+  sortBy: 'year-desc',
 };
+
+/**
+ * 输出前的行处理：**先按年份排序，再去重**（用户 2026-09-21 要求）。
+ *
+ * 年份缺失的条目在两种排序下都排最后（`年份未知` 不该插在中间）。
+ * 排序是**稳定**的（同年保持传入顺序：候选=后端顺序，已选=推荐顺序），所以不开排序/同年时行为与升级前一致。
+ */
+export function prepareRows(rows: ExportRow[], toggles: ExportToggles): ExportRow[] {
+  const kept = toggles.dedupe ? rows.filter((row) => row.seriesBaseId == null) : rows.slice();
+  if (toggles.sortBy === 'none') {
+    return kept;
+  }
+  const direction = toggles.sortBy === 'year-desc' ? -1 : 1;
+  return kept
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      const yearA = a.row.year ?? null;
+      const yearB = b.row.year ?? null;
+      if (yearA === null && yearB === null) return a.index - b.index;
+      if (yearA === null) return 1;
+      if (yearB === null) return -1;
+      if (yearA !== yearB) return (yearA - yearB) * direction;
+      return a.index - b.index;
+    })
+    .map((item) => item.row);
+}
 
 /** 行内元素的最低门槛：标题都不显示就等于只输出序号，允许但没意义 —— 由 UI 兜住。 */
 export function rowMeta(row: ExportRow, toggles: ExportToggles): string[] {
@@ -67,10 +104,11 @@ export function rowMeta(row: ExportRow, toggles: ExportToggles): string[] {
 
 /** 生成清单文本（`rows` 顺序即输出顺序：候选=后端顺序，已选=推荐顺序）。 */
 export function buildListText(rows: ExportRow[], toggles: ExportToggles, headerText = ''): string {
+  const prepared = prepareRows(rows, toggles);
   const lines: string[] = [];
   if (toggles.header) {
     const title = headerText.trim() || '推荐清单';
-    lines.push(`${title} · 共 ${rows.length} 部`, '');
+    lines.push(`${title} · 共 ${prepared.length} 部`, '');
   }
   const line = (row: ExportRow, index: number): string => {
     const head: string[] = [];
@@ -80,13 +118,13 @@ export function buildListText(rows: ExportRow[], toggles: ExportToggles, headerT
     return [head.join(' '), meta.join(' · ')].filter(Boolean).join('  ');
   };
   if (!toggles.groupByYear) {
-    rows.forEach((row, index) => lines.push(line(row, index)));
+    prepared.forEach((row, index) => lines.push(line(row, index)));
     return joinLines(lines);
   }
   // 按年份分组（年份倒序，组内保持传入顺序）
   const groups = new Map<string, ExportRow[]>();
   const order: string[] = [];
-  for (const row of rows) {
+  for (const row of prepared) {
     const key = row.year ? String(row.year) : '年份未知';
     if (!groups.has(key)) {
       groups.set(key, []);

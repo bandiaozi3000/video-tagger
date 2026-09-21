@@ -121,8 +121,18 @@ public interface ClipMapper extends BaseMapper<Clip> {
             + "FROM clips GROUP BY site ORDER BY count DESC LIMIT #{limit}")
     List<SiteCount> countBySite(@Param("limit") int limit);
 
-    @Select("SELECT date(created_at / 1000, 'unixepoch') AS date, COUNT(*) AS count "
-            + "FROM clips WHERE created_at >= #{since} GROUP BY date ORDER BY date ASC")
+    /**
+     * 按天统计新增片段（统计页 7 天 / 30 天趋势）。
+     *
+     * **两边方言都要写**（照 {@code MediaMapper.listByTitleOrAlias} 的写法：同方法两条 @Select，各自 databaseId）：
+     * SQLite 的 `date(..., 'unixepoch')` 在 MySQL 上直接语法报错
+     * （2026-09-21 用户在 mysql profile 下报 `error ... near ', 'unixepoch')'`），MySQL 要 `DATE(FROM_UNIXTIME(...))`。
+     * `created_at` 是**毫秒**时间戳，所以先 /1000。
+     */
+    @Select(value = "SELECT date(created_at / 1000, 'unixepoch') AS date, COUNT(*) AS count "
+            + "FROM clips WHERE created_at >= #{since} GROUP BY date ORDER BY date ASC", databaseId = "sqlite")
+    @Select(value = "SELECT DATE(FROM_UNIXTIME(created_at / 1000)) AS date, COUNT(*) AS count "
+            + "FROM clips WHERE created_at >= #{since} GROUP BY date ORDER BY date ASC", databaseId = "mysql")
     List<TrendPoint> countTrend(@Param("since") long since);
 
     /** 标签改名/合并时定位含该词的片段（精确按空白分词替换，避免子串误伤）。 */

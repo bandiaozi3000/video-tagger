@@ -10,5 +10,13 @@ package com.videotagger.service;
  * ⚠️ 本 record 仍然按位映射：字段顺序必须与 {@code MediaMapper.listExportRows} 的 SELECT 列顺序一致。
  */
 public record MediaExportRow(Long id, String title, Integer year, String subcategory, String mediaFormat,
-                             String source, Long episodeCount, Long clipCount, String tags) {
+                             String source, Long episodeCount, Long clipCount, String tags,
+                             /** 同系列**本体**的 id；自己是本体或没归组则为 null（导出清单「去重」用）。 */
+                             Long seriesBaseId) {
+
+    /** 不带归组信息的构造（列表接口的 SQL 里 seriesBaseId 恒为 null）。 */
+    public MediaExportRow(Long id, String title, Integer year, String subcategory, String mediaFormat,
+                          String source, Long episodeCount, Long clipCount, String tags) {
+        this(id, title, year, subcategory, mediaFormat, source, episodeCount, clipCount, tags, null);
+    }
 }

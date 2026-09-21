@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildListText, DEFAULT_TOGGLES, type ExportRow, type ExportToggles } from './export-list';
+import { buildListText, DEFAULT_TOGGLES, prepareRows, type ExportRow, type ExportToggles } from './export-list';
 
 const rows: ExportRow[] = [
   { id: 1, title: '铃铛猫娘 夏季特别篇2000', year: 2000, episodeCount: 4, tags: '日常,搞笑', subcategory: '番剧', source: 'bangumi', clipCount: 2 },
@@ -7,7 +7,8 @@ const rows: ExportRow[] = [
   { id: 3, title: '某部没年份的', episodeCount: null, tags: null },
 ];
 
-const toggles = (patch: Partial<ExportToggles> = {}): ExportToggles => ({ ...DEFAULT_TOGGLES, header: false, ...patch });
+// 旧用例只关心元素/版式 → 固定 sortBy:none（排序/去重由文件末尾的新用例单独盯）
+const toggles = (patch: Partial<ExportToggles> = {}): ExportToggles => ({ ...DEFAULT_TOGGLES, header: false, sortBy: 'none', ...patch });
 
 describe('清单文本：元素可勾选', () => {
   it('默认勾选 = 序号 标题 年份 集数 标签', () => {
@@ -73,5 +74,43 @@ describe('清单文本：边界', () => {
   it('标题里的逗号不会被当成标签分隔（标签来自后端 GROUP_CONCAT）', () => {
     expect(buildListText([{ id: 9, title: '标题,带逗号', tags: 'a,b' }], toggles({ year: false, episode: false })))
       .toBe('1. 标题,带逗号  a、b\n');
+  });
+});
+
+// ---- 2026-09-21 新增：按年份排序（默认倒排）+ 同系列去重 ----
+describe('排序与去重', () => {
+  const rows: ExportRow[] = [
+    { id: 3, title: '草莓棉花糖 OVA 2卷', year: 2007, seriesBaseId: 1 },
+    { id: 1, title: '草莓棉花糖', year: 2005 },
+    { id: 2, title: '未知年份的片', year: null },
+    { id: 4, title: '现视研2', year: 2007 },
+  ];
+
+  it('默认按年份倒排（新→旧），缺年份排最后，同年保持原顺序（稳定）', () => {
+    const got = prepareRows(rows, { ...DEFAULT_TOGGLES }).map((row) => row.id);
+    expect(got).toEqual([3, 4, 1, 2]);
+  });
+
+  it('年份升序：缺年份仍排最后', () => {
+    const got = prepareRows(rows, { ...DEFAULT_TOGGLES, sortBy: 'year-asc' }).map((row) => row.id);
+    expect(got).toEqual([1, 3, 4, 2]);
+  });
+
+  it('不排序 = 维持传入顺序（推荐顺序/后端顺序）', () => {
+    const got = prepareRows(rows, { ...DEFAULT_TOGGLES, sortBy: 'none' }).map((row) => row.id);
+    expect(got).toEqual([3, 1, 2, 4]);
+  });
+
+  it('去重只留本体：seriesBaseId 非空的派生条目被去掉', () => {
+    const got = prepareRows(rows, { ...DEFAULT_TOGGLES, dedupe: true, sortBy: 'none' }).map((row) => row.id);
+    expect(got).toEqual([1, 2, 4]);
+  });
+
+  it('去重后行号连续，且标题行按去重后的数量计数', () => {
+    const text = buildListText(rows, { ...DEFAULT_TOGGLES, dedupe: true, sortBy: 'none' }, '我的片单');
+    expect(text).toContain('我的片单 · 共 3 部');
+    expect(text).toContain('1. 草莓棉花糖');
+    expect(text).toContain('3. 现视研2');
+    expect(text).not.toContain('OVA 2卷');
   });
 });

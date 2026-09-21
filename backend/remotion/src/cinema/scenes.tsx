@@ -1,5 +1,5 @@
 import React from 'react';
-import { Img, OffthreadVideo, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import { Img, OffthreadVideo, getRemotionEnvironment, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { riseIn } from '../animation';
 import { assetUrl } from '../asset-url';
 import { pad2 } from '../scenes/parts';
@@ -7,6 +7,7 @@ import type { RenderParams } from '../params';
 import type { PocClip, PocMedia } from '../types';
 import { BigNumber, BigTitle, CinemaEntrance, Facts, LowerThird, NoteQuote, Rule, useEnterCinema } from './parts';
 import { clipDurationLabel, clipSourceLine } from './time';
+import { needsBlurBackdrop } from './backdrop';
 import { cinemaLayoutCached, heroCardCount } from './slots';
 import { endingListRow, endingListRows, endingListSpeedPaused, endingPageSlice, endingPages, endingRowsPerPage, endingScrollBase, endingShow, endingStatLines, ENDING_START_PAUSE_SEC, WALL_SPEED_FACTORS } from './ending';
 import { CINEMA_COLOR, CINEMA_FONT, CINEMA_LAYOUT, cinemaStatLines, readableOn, withAlpha, type CinemaPlan, type CinemaScene } from './plan';
@@ -657,6 +658,20 @@ export function ClipShot({ scene, plan, assetBaseUrl }: SceneProps) {
   const src = assetUrl(clip.assetPath, assetBaseUrl);
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
+  // 预览里 <video> 拿到 moov + seek 完成前不画任何东西（截图就是“糊成一片、卡片正常”）。
+  // 两层各自记“出帧了没”：没出帧就不显示视频层，先露出上面那层封面模糊底图。
+  // 渲染（导出）链路 isPlayer=false → 恒定算就绪，不多这层非确定性。
+  const isPlayer = getRemotionEnvironment().isPlayer;
+  const [blurReady, setBlurReady] = React.useState(!isPlayer);
+  const [sharpReady, setSharpReady] = React.useState(!isPlayer);
+  const markBlurReady = React.useCallback(() => setBlurReady(true), []);
+  const markSharpReady = React.useCallback(() => setSharpReady(true), []);
+  // src 变了（会话重建 → 新 token）要重新等帧，否则会停在旧元素的“已就绪”上
+  React.useEffect(() => {
+    if (!isPlayer) return;
+    setBlurReady(false);
+    setSharpReady(false);
+  }, [src, isPlayer]);
   const safe = Math.round(width * CINEMA_LAYOUT.safeX);
 
   // 展开动画：卡片矩形 → 满屏
@@ -705,11 +720,28 @@ export function ClipShot({ scene, plan, assetBaseUrl }: SceneProps) {
 
       {/* 片段：从卡片矩形展开到满屏（同帧模糊铺底，原比例居中时两侧不空） */}
       <div style={{ position: 'absolute', inset: 0, clipPath: `inset(${insetTop}px ${insetRight}px ${insetBottom}px ${insetLeft}px)` }}>
-        <div style={{ position: 'absolute', inset: '-8%', overflow: 'hidden' }}>
-          <OffthreadVideo src={src} muted style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(38px) brightness(.34) saturate(1.1)' }} />
-        </div>
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <OffthreadVideo src={src} muted={!clip.hasAudio || params.clipVolume <= 0} volume={params.clipVolume / 100} style={{ width: '100%', height: '100%', objectFit: 'contain', transform: `scale(${push.toFixed(4)})` }} />
+        {/* 兜底底图（仅预览）：浏览器 <video> 没解出帧前是透明的，原本就只剩背景那层模糊、看起来像“糊成一片”。
+            这里先垫一层同款模糊的封面，视频出帧后再盖上去（导出/渲染链路 isPlayer=false，直接跳过这层）。 */}
+        {isPlayer ? (
+          <div style={{ position: 'absolute', inset: '-8%', overflow: 'hidden' }}>
+            {media.coverAssetPath ? (
+              <Img src={assetUrl(media.coverAssetPath, assetBaseUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(38px) brightness(.34) saturate(1.1)' }} />
+            ) : (
+              <div style={{ width: '100%', height: '100%', background: withAlpha(accent, 0.22) }} />
+            )}
+          </div>
+        ) : null}
+        {/* 模糊背景视频层：只在**看得见**时才渲 —— 片段与画幅同比（都是 16:9）时，
+            前景 `contain` 已经铺满，这层一个像素都看不见，却占片段帧 ~40% 耗时（实测 121 → 70 ms/帧）。
+            尺寸探不到 → 保守渲染（宁多花时间也别露黑边）。
+            注：它自己的 blurReady 只控制本层淡入，前景用的是独立的 sharpReady → 跳过本层不影响前景 ✓ */}
+        {needsBlurBackdrop(clip, width, height) ? (
+          <div style={{ position: 'absolute', inset: '-8%', overflow: 'hidden', opacity: blurReady ? 1 : 0, transition: isPlayer ? 'opacity 200ms linear' : undefined }}>
+            <OffthreadVideo src={src} muted onLoadedData={markBlurReady} onSeeked={markBlurReady} onCanPlay={markBlurReady} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(38px) brightness(.34) saturate(1.1)' }} />
+          </div>
+        ) : null}
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: sharpReady ? 1 : 0, transition: isPlayer ? 'opacity 200ms linear' : undefined }}>
+          <OffthreadVideo src={src} muted={!clip.hasAudio || params.clipVolume <= 0} volume={params.clipVolume / 100} onLoadedData={markSharpReady} onSeeked={markSharpReady} onCanPlay={markSharpReady} style={{ width: '100%', height: '100%', objectFit: 'contain', transform: `scale(${push.toFixed(4)})` }} />
         </div>
       </div>
 

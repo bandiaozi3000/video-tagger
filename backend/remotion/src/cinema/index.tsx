@@ -40,9 +40,9 @@ export function CinemaComposition({ input }: { input: MultiMediaPocInput }) {
           key={`${index}:${scene.type}:${scene.fromFrame}`}
           from={scene.fromFrame}
           durationInFrames={scene.durationInFrames}
-          // 片段幕提前 ~3s 挂载（用户 2026-09-20：预览里跳进片段偶尔“模糊且无声”，再点一下才好）。
-          // 机制推断：Player 里 OffthreadVideo 就是 <video>，跳转是即时 seek → 刚建的元素还在 load+seek，
-          // 只剩背景那层 blur 铺底。premountFor 让它提前挂载缓冲。代价：同时挂载的视频更多。
+          // 片段幕提前 ~3s 挂载（2026-09-20）。**注意**：它只对连续播放有用 —— 跳转（点片名卡）是即时 seek，
+          // 提前挂载没机会发生。跳转后的“只剩模糊底图”另有真因（产物 MP4 moov 在文件尾 + <video> 未出帧是透明的）：
+          // 后端在物化/预览会话里补 `-movflags +faststart`，前端在 ClipShot 里用 onLoadedData/onSeeked 卡一层封面模糊兜底。
           premountFor={scene.type === 'CLIP' ? 90 : 10}
           name={`CINEMA_${scene.type}`}
         >

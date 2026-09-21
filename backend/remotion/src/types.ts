@@ -24,6 +24,9 @@ export interface PocClip {
   sourceTitle?: string;
   /** 片段标签（用户写的短标签，如「可爱小猫」「高甜」）——片段屏的主文案。 */
   tag?: string;  assetPath: string;
+  /** 素材像素尺寸（后端探测；0/缺省 = 未知 → 保守渲染糊背景）。 */
+  assetWidth?: number;
+  assetHeight?: number;
   durationMs: number;
   sourceStartMs?: number;
   hasAudio: boolean;

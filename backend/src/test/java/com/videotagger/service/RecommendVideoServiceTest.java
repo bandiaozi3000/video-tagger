@@ -5,7 +5,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -52,4 +54,26 @@ class RecommendVideoServiceTest {
         // 大小写不敏感：MP4 / mp4 / WebM 均应归一化到 FORMATS 键
         assertThrows(IllegalArgumentException.class, () -> service.render(List.of(1L), null, "WebmXX", "1080P"));
     }
+
+    /** 渲染子进程的进度行解析（Java 侧不引入 JSON 依赖，纯正则）。 */
+    @Test
+    void 进度行解析() {
+        var line = "{\"progress\":0.4237,\"frames\":1234,\"encoded\":900,\"ms\":45678}";
+        assertEquals(java.util.OptionalInt.of(42), RecommendVideoService.parseProgressPercent(line));
+        assertEquals(java.util.OptionalInt.of(100), RecommendVideoService.parseProgressPercent("{\"progress\":1,\"frames\":10}"));
+        assertEquals(java.util.OptionalInt.of(0), RecommendVideoService.parseProgressPercent("{\"progress\":0.001}"));
+        // 越界 / 脏值 / 普通日志都不该被当成进度
+        assertEquals(java.util.OptionalInt.of(100), RecommendVideoService.parseProgressPercent("{\"progress\":1.5}"));
+        assertTrue(RecommendVideoService.parseProgressPercent("{\"progress\":\"x\"}").isEmpty());
+        assertTrue(RecommendVideoService.parseProgressPercent("Rendered 12/30").isEmpty());
+        assertTrue(RecommendVideoService.parseProgressPercent(null).isEmpty());
+        // 2026-09-20 实测回归：Remotion 进度条用回车刷新 -> 上报行被拼在行尾，不能要求整行是 JSON
+        assertEquals(java.util.OptionalInt.of(42),
+                RecommendVideoService.parseProgressPercent("Rendering 11/30 [==]" + (char) 13
+                        + "Rendering 12/30 {\"progress\":0.4237,\"frames\":12,\"ms\":1}"));
+        // 一行里有多条 -> 取最后一个（最新的）
+        assertEquals(java.util.OptionalInt.of(70),
+                RecommendVideoService.parseProgressPercent("{\"progress\":0.42} {\"progress\":0.7}"));
+    }
+
 }

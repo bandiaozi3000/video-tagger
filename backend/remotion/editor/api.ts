@@ -135,6 +135,8 @@ export interface MediaExportRow {
   clipCount?: number | null;
   /** 逗号分隔的标签串。 */
   tags?: string | null;
+  /** 同系列**本体** id（后端 `SeriesDedupe` 算好）：本条是 OVA/第二季等派生条目时非空，见导出清单「去重」。 */
+  seriesBaseId?: number | null;
 }
 
 export interface ClipBrief {
@@ -232,6 +234,15 @@ export interface ExportTask {
   format?: string | null;
   createdAt: number;
   finishedAt: number;
+  /** 渲染进度 0-100（渲染脚本每 ~4s 上报一次；老任务没有 → 0）。 */
+  progress: number;
+  /** 已完成 / 总块数（分块渲染；0/0 = 还没进分块阶段）。 */
+  chunksDone?: number;
+  chunksTotal?: number;
+  /** 实时状态文案（准备素材 3/11 / 渲染第 3/16 块 / 拼接收尾）。 */
+  stageText?: string | null;
+  /** 段边界帧 JSON（如 `[0,165,300,…]`）：局部重渲前的安全校验基准。 */
+  boundaryFrames?: string | null;
 }
 
 /** 统一的 JSON 请求（非 2xx → 抛带中文原因的错误）。 */
@@ -311,6 +322,14 @@ export const api = {
     json<{ fingerprint: string }>(`/api/recommend/meta-fingerprint?ids=${ids.join(",")}`),
   exportVideo: (config: EditorConfig) => postJson<{ taskId: number; status: string }>('/api/recommend/video', config),
   tasks: () => json<ExportTask[]>('/api/recommend/video/tasks'),
+  pauseTask: (id: number) =>
+    fetch(`/api/recommend/video/tasks/${id}/pause`, { method: 'POST' }).then(() => undefined),
+  resumeTask: (id: number) =>
+    fetch(`/api/recommend/video/tasks/${id}/resume`, { method: 'POST' }).then(() => undefined),
+  rerenderChunk: (id: number, chunk: number) =>
+    fetch(`/api/recommend/video/tasks/${id}/rerender?chunk=${chunk}`, { method: 'POST' }).then(() => undefined),
+  cancelTask: (id: number) =>
+    fetch(`/api/recommend/video/tasks/${id}/cancel`, { method: 'POST' }).then(() => undefined),
   deleteTask: (id: number) => fetch(`/api/recommend/video/tasks/${id}`, { method: 'DELETE' }).then(() => undefined),
   openTask: (id: number, folder: boolean) =>
     fetch(`/api/recommend/video/tasks/${id}/open${folder ? '?folder=true' : ''}`, { method: 'POST' }).then(() => undefined),

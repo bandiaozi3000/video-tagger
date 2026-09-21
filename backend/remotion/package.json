@@ -15,7 +15,8 @@
     "check:native": "node scripts/check-native.mjs",
     "build:editor": "vite build --config vite.editor.config.ts",
     "verify:player": "tsx probe/run-player-probe.ts",
-    "probe:cost": "tsx probe/run-cost-probe.ts"
+    "probe:cost": "tsx probe/run-cost-probe.ts",
+    "probe:fps": "tsx probe/run-fps-probe.ts"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.524",

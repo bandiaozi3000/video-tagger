@@ -14,6 +14,8 @@ import { Player, type PlayerRef } from '@remotion/player';
 import { RecommendComposition } from '../src/RecommendComposition';
 import { CinemaComposition } from '../src/cinema';
 import { buildCinemaPlan } from '../src/cinema/plan';
+import { canRerenderChunk } from './rerender';
+import { ConfirmHost, alertDialog, confirmDialog } from './confirm';
 import type { MultiMediaPocInput } from '../src/types';
 import { api, type CandidateFilter, type EditorConfig, type ExportTask, type MediaBrief, type Variant } from './api';
 import {
@@ -24,6 +26,7 @@ import {
   parsePayload,
   saveConfig,
   sessionSignature,
+  taskProgressLabel,
 } from './state';
 import { BasketPane, BgmOverlay, InspectorPane, ParamPalette, TemplatePanel, Toolbar } from './panes';
 import { Filmstrip, Timeline, selectionOfScene, type Selection } from './timeline';
@@ -224,6 +227,20 @@ function App() {
   }, [remoteInput, config]);
 
   /**
+   * 当前草稿的段边界帧（只银幕式有）：给任务面板做「只重渲某块」的安全校验用。
+   * 非银幕式/算不出来 → 空表 → 面板会拒绝局部重渲（宁可不做，也别拼错片）。
+   */
+  const currentBoundaries = React.useMemo(() => {
+    if (!remoteInput || remoteInput.media.length === 0 || config.groupStyle !== 'cinema') return [];
+    try {
+      const plan = buildCinemaPlan(applyLocalParams(remoteInput, config, config.ids.length));
+      return [0, ...plan.scenes.map((scene) => scene.fromFrame + scene.durationInFrames)];
+    } catch {
+      return [];
+    }
+  }, [remoteInput, config]);
+
+  /**
    * Player 的 `inputProps` 必须是**稳定引用**（v0.29 修复）。
    *
    * 父组件每帧都会重渲染（`frameupdate` → `setFrame`），若这里写 `{{ input: rendered.input }}` 字面量，
@@ -361,7 +378,7 @@ function App() {
   }, [missing]);
 
   const onExport = async () => {
-    if (!confirmMissing()) return;
+    if (!(await confirmMissing())) return;
     try {
       setBusy(true);
       const response = await api.exportVideo(config);
@@ -375,16 +392,20 @@ function App() {
   };
 
   /** 缺失素材的导出前确认（设计规格 §9：降级不阻断，但导出前要交代清楚）。 */
-  const confirmMissing = () => {
+  const confirmMissing = async () => {
     if (missing.length === 0) return true;
     const detail = missing.slice(0, 5).map((item) => `· ${item.title || '片段'}：${item.reason}`).join('\n');
     const more = missing.length > 5 ? `\n（其余 ${missing.length - 5} 项同理）` : '';
-    return window.confirm(`有 ${missing.length} 个片段素材不可用，导出会被后端拦截：\n${detail}${more}\n\n仍要提交吗？`);
+    return confirmDialog({
+      title: '素材不可用',
+      msg: `有 ${missing.length} 个片段素材不可用，导出会被后端拦截：\n${detail}${more}\n\n仍要提交吗？`,
+      okText: '仍要提交',
+    });
   };
 
   /** 导出全部变体（无变体 → 当单个当前配置）；变体 = 基础配置 + 具名覆盖，逐个提交（后端签名不变）。 */
   const onExportAll = async () => {
-    if (!confirmMissing()) return;
+    if (!(await confirmMissing())) return;
     const targets: Variant[] = variants.length > 0 ? variants : [{ id: 'base', name: '当前配置', overrides: {} }];
     try {
       setBusy(true);
@@ -558,7 +579,11 @@ function App() {
         />
       ) : null}
 
-      {tasksOpen ? <TaskPanel onClose={() => setTasksOpen(false)} notify={notify} /> : null}
+      <ConfirmHost />
+      {tasksOpen ? (
+        <TaskPanel onClose={() => setTasksOpen(false)} notify={notify}
+                   currentBoundaries={currentBoundaries} />
+      ) : null}
       {templatesOpen ? (
         <TemplatePanel
           onClose={() => setTemplatesOpen(false)}
@@ -578,7 +603,7 @@ function App() {
 }
 
 /** 导出任务面板：轮询任务列表（阶段 1 只做状态/打开目录/删除）。 */
-function TaskPanel({ onClose, notify }: { onClose: () => void; notify: (message: string) => void }) {
+function TaskPanel({ onClose, notify, currentBoundaries }: { onClose: () => void; notify: (message: string) => void; currentBoundaries: number[] }) {
   const [tasks, setTasks] = React.useState<ExportTask[]>([]);
 
   const refresh = React.useCallback(() => {
@@ -607,20 +632,76 @@ function TaskPanel({ onClose, notify }: { onClose: () => void; notify: (message:
             <li key={task.id}>
               <span className={`vt-task-status vt-task-${task.status.toLowerCase()}`}>{task.status}</span>
               <span className="vt-task-title">#{task.id} {task.title} · {task.mediaCount} 部 · {task.format}</span>
+              {/* 进度与耗时（2026-09-20）：RUNNING 显示块进度 + 百分比 + 预计还需，其余显示总时长 */}
+              <span className="vt-task-time">
+                {task.stageText ? <em className="vt-task-stage">{task.stageText}</em> : null}
+                {task.chunksTotal && task.chunksTotal > 0
+                  ? `已完成 ${task.chunksDone ?? 0}/${task.chunksTotal} 块 · `
+                  : ''}
+                {taskProgressLabel(task, Date.now())}
+                {task.status === 'RUNNING' ? (
+                  <span className="vt-task-bar"><i style={{ width: `${Math.max(0, Math.min(100, task.progress ?? 0))}%` }} /></span>
+                ) : null}
+              </span>
               <span className="vt-task-btns">
+                {task.status === 'RUNNING' ? (
+                  <button type="button" className="btn-mini" title="当前块渲完后停（已完成块保留）"
+                          onClick={() => void api.pauseTask(task.id).then(refresh)}>暂停</button>
+                ) : null}
+                {task.status === 'PAUSED' || task.status === 'INTERRUPTED' ? (
+                  <button type="button" className="btn-mini" title="从工作目录里已有的块之后接着渲"
+                          onClick={() => void api.resumeTask(task.id).then(refresh)}>继续</button>
+                ) : null}
+                {task.status === 'RUNNING' || task.status === 'PENDING' ? (
+                  <button type="button" className="btn-mini" title="杀掉渲染子进程并标记为已取消（工作目录保留）"
+                          onClick={() => void api.cancelTask(task.id).then(refresh)}>取消</button>
+                ) : null}
                 {task.status === 'DONE' && task.filePath ? (
                   <>
                     <button type="button" className="btn-mini" onClick={() => void api.openTask(task.id, true)}>打开目录</button>
                     <a className="btn-mini" href={`/exports/${task.filePath.split(/[\\/]/).pop()}`} download>下载</a>
                   </>
                 ) : null}
-                <button type="button" className="btn-mini" onClick={() => void api.deleteTask(task.id).then(refresh)}>✕</button>
+                <button type="button" className="btn-mini"
+                        title="删除任务记录、工作目录（含分块产物）与成品文件"
+                        disabled={task.status === 'RUNNING' || task.status === 'PENDING'}
+                        onClick={() => {
+                          void (async () => {
+                            if (task.filePath && !(await confirmDialog({
+                              title: `删除任务 #${task.id}`,
+                              msg: `会一并删掉：任务记录、分块工作目录、成品文件\n${task.filePath}`,
+                              okText: '连同产物删除',
+                            }))) return;
+                            await api.deleteTask(task.id);
+                            refresh();
+                          })();
+                        }}>删除（含产物）</button>
               </span>
+              {/* 局部重渲（2026-09-21）：先校当前草稿的段边界是否与快照一致，不一致只能整片重渲 */}
+              {task.chunksTotal && task.chunksTotal > 1 && task.status !== 'RUNNING' && task.status !== 'PENDING' ? (
+                <span className="vt-task-chunks">
+                  <em>重渲某块</em>
+                  {Array.from({ length: task.chunksTotal }, (_, index) => (
+                    <button key={index} type="button" className="btn-mini"
+                            title={`只重渲第 ${index + 1} 块并重新拼接，完成后覆盖原成品`}
+                            onClick={() => {
+                              const check = canRerenderChunk(task.boundaryFrames, currentBoundaries);
+                              if (!check.ok) {
+                                notify(`不能只重渲：${check.reason}`);
+                                return;
+                              }
+                              notify(`开始重渲第 ${index + 1} 块（完成后覆盖原成品）`);
+                              void api.rerenderChunk(task.id, index).then(refresh);
+                            }}>{index + 1}</button>
+                  ))}
+                </span>
+              ) : null}
               {task.status === 'ERROR' && task.message ? <span className="vt-task-msg">{task.message}</span> : null}
             </li>
           ))}
         </ul>
-        <p className="vt-hint">产物落在 <code>data/exports/</code>；导出为串行队列，渲染期间可以继续编辑。</p>
+        <p className="vt-hint">产物落在 <code>data/exports/</code>；导出为串行队列，渲染期间可以继续编辑。
+          中断的任务（后端重启/取消）会保留工作目录，重启后自动标记为 <code>INTERRUPTED</code>。</p>
         <button type="button" className="btn-mini" hidden onClick={() => notify('')} />
       </div>
     </div>

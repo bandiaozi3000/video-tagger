@@ -236,11 +236,48 @@ public class RecommendController {
         return exportTaskService.get(id);
     }
 
-    /** 删除任务记录（同步删除产物文件）。 */
+    /**
+     * 删除任务记录：**只删任务行 + 工作目录，不碰 data/exports 里的成品**（2026-09-21 用户拍板）。
+     * 运行中/排队中先取消再删。
+     */
     @DeleteMapping("/video/tasks/{id}")
     public ResponseEntity<Void> deleteTask(@PathVariable long id) {
         exportTaskService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+
+
+    /**
+     * 局部重渲某一块（用户 2026-09-21 拍板）：删该块产物 → 只重渲这一块 → 重新拼接 → **覆盖原成品**。
+     *
+     * 编辑器必须先做安全校验（当前草稿的段边界与任务快照一致）；不一致要整片重渲。
+     */
+    @PostMapping("/video/tasks/{id}/rerender")
+    public Map<String, Object> rerenderChunk(@PathVariable long id, @RequestParam int chunk) {
+        return Map.of("started", exportTaskService.rerenderChunk(id, chunk));
+    }
+
+    /** 暂停任务（块边界停；已完成块保留，可继续）。 */
+    @PostMapping("/video/tasks/{id}/pause")
+    public Map<String, Object> pauseTask(@PathVariable long id) {
+        return Map.of("paused", exportTaskService.pause(id));
+    }
+
+    /** 继续任务（PAUSED / INTERRUPTED）——从工作目录里已有的块之后接着渲。 */
+    @PostMapping("/video/tasks/{id}/resume")
+    public Map<String, Object> resumeTask(@PathVariable long id) {
+        return Map.of("resumed", exportTaskService.resume(id));
+    }
+
+    /**
+     * 取消任务（2026-09-21）：杀渲染子进程 + 状态写成 CANCELLED，**工作目录保留**（下期续渲入口）。
+     *
+     * @return true = 确实取消了；false = 任务已结束
+     */
+    @PostMapping("/video/tasks/{id}/cancel")
+    public Map<String, Object> cancelTask(@PathVariable long id) {
+        return Map.of("cancelled", exportTaskService.cancel(id));
     }
 
     /** 打开产物文件（folder=true → 打开所在文件夹并选中）。 */

@@ -102,12 +102,24 @@ public class RecommendClipSourceService {
                     Path output = outputs.computeIfAbsent(clipId, id -> workDir.resolve("media").resolve("clip-" + id + ".mp4"));
                     if (!Files.isRegularFile(output)) {
                         prepareOne(clip, output, timelineFps);
+                    } else if (!isFastStart(output)) {
+                        // 旧会话文件可能是“moov 在尾”（产物直拷时代留下的）→ 就地升级，
+                        // 否则浏览器 <video> 起播/跳转会先空一大截（2026-09-21 用户截图定位）。
+                        // 升级失败不影响观看（旧文件照用），所以只告警：多标签页同时 prepare 时会撞临时文件。
+                        try {
+                            remuxFastStart(output, output);
+                        } catch (Exception e) {
+                            log.warn("片段文件 faststart 升级失败（旧文件继续用）: {} - {}", output.getFileName(), e.getMessage());
+                        }
                     }
                     // 借来的片段带上来源标题（供视图与编辑器角标）；本体片段两个字段为 null
                     String sourceTitle = sourceMediaId == null ? null : relatedTitles(mediaId).get(sourceMediaId);
+                    // 尺寸探测：渲染侧据此跳过"与画幅同比时完全看不见"的那层模糊背景视频（实测省 ~40% 片段帧耗时）
+                    int[] size = mediaProbe == null ? null : mediaProbe.dimensions(output.toAbsolutePath().toString());
                     mediaPrepared.add(new PreparedClip(clip.getId(), clip.getTitle(), clip.getNote(),
                             clip.getTimestampSec(), clip.getEndSec(), relativePath(workDir, output),
-                            selection.badge(), sourceMediaId, sourceTitle));
+                            selection.badge(), sourceMediaId, sourceTitle,
+                            size == null ? 0 : size[0], size == null ? 0 : size[1]));
                 } catch (RuntimeException | IOException | InterruptedException e) {
                     MissingClip hint = loaded.suggest().get(clipId);
                     missing.add(hint == null ? new MissingClip(mediaId, clipId, label, message(e)) : hint);
@@ -124,8 +136,20 @@ public class RecommendClipSourceService {
         if (artifact != null) {
             if (playable(artifact, timelineFps)) {
                 Files.createDirectories(output.getParent());
-                Files.copy(artifact.file(), output, StandardCopyOption.REPLACE_EXISTING);
-                log.info("片段 {} 复用物化产物（零重编码）: {}", clip.getId(), artifact.file().getFileName());
+                if (isFastStart(artifact.file())) {
+                    Files.copy(artifact.file(), output, StandardCopyOption.REPLACE_EXISTING);
+                    log.info("片段 {} 复用物化产物（零重编码）: {}", clip.getId(), artifact.file().getFileName());
+                    return;
+                }
+                // 产物是 `-c copy` 剪出来的、moov 在文件尾：直拷进预览会话会让浏览器 <video> 迟迟解不出帧（只剩模糊底图）
+                // → 先用一次 `-c copy` remux 把 moov 挪到文件头（不重编码）；失败退回直拷，行为不劣于从前
+                try {
+                    remuxFastStart(artifact.file(), output);
+                    log.info("片段 {} 复用产物 + faststart remux: {}", clip.getId(), artifact.file().getFileName());
+                } catch (IOException | InterruptedException | RuntimeException e) {
+                    log.warn("片段 {} faststart remux 失败，退回直拷: {}", clip.getId(), e.getMessage());
+                    Files.copy(artifact.file(), output, StandardCopyOption.REPLACE_EXISTING);
+                }
                 return;
             }
             log.info("片段 {} 物化产物编解码不可直用，改为重编码: {}", clip.getId(), artifact.file().getFileName());
@@ -135,6 +159,77 @@ public class RecommendClipSourceService {
         validateRange(clip);
         Path source = videoResolver.resolve(clip.getVideoFp());
         export(clip, source, output, true);
+    }
+
+    /**
+     * `-c copy` 重写容器：把 moov 挪到文件头（faststart），不重编码。
+     *
+     * <p>为什么必须：浏览器 `<video>` 拿到 moov 前解不出任何一帧 —— 预览（Remotion Player）里
+     * 没帧的 <video> 是透明的，于是只剩背景那层模糊，用户看到的就是“糊成一片、字幕卡却正常”。
+     * 实测 2026-09-21：`media/clip-182.mp4` moov@4,012,076 / size 4,033,274；clip-189 同理。
+     */
+    private void remuxFastStart(Path input, Path output) throws IOException, InterruptedException {
+        Files.createDirectories(output.getParent());
+        Path temp = output.resolveSibling(output.getFileName() + ".faststart.part.mp4");
+        Files.deleteIfExists(temp);
+        List<String> command = List.of(properties.getFfmpegPath(), "-y", "-i", input.toString(),
+                "-c", "copy", "-movflags", "+faststart", "-f", "mp4", temp.toString());
+        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+        Thread drainer = new Thread(() -> {
+            try { process.getInputStream().transferTo(java.io.OutputStream.nullOutputStream()); }
+            catch (IOException ignored) { }
+        }, "recommend-clip-faststart");
+        drainer.setDaemon(true);
+        drainer.start();
+        if (!process.waitFor(properties.getTaskTimeoutSec(), java.util.concurrent.TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            deleteQuietly(temp);
+            throw new IllegalStateException("faststart remux 超时");
+        }
+        if (process.exitValue() != 0 || !Files.isRegularFile(temp) || Files.size(temp) < 1024) {
+            deleteQuietly(temp);
+            throw new IllegalStateException("faststart remux 失败，ffmpeg 退出码 " + process.exitValue());
+        }
+        try {
+            Files.move(temp, output, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(temp, output, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    /**
+     * 文件头里 `moov` 是否在 `mdat` 之前（= faststart）。
+     *
+     * <p>只走顶层 box 头（seek 而不是读整个文件），碰到 moov/mdat 立即判定；
+     * 读不了/结构异常一律当作“不是 faststart”（走一次 remux，宁可多花一点）。
+     */
+    static boolean isFastStart(Path file) {
+        try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file.toFile(), "r")) {
+            long pos = 0;
+            long len = raf.length();
+            byte[] head = new byte[8];
+            for (int guard = 0; guard < 64 && pos + 8 <= len; guard++) {
+                raf.seek(pos);
+                raf.readFully(head);
+                long size = ((head[0] & 0xffL) << 24) | ((head[1] & 0xffL) << 16) | ((head[2] & 0xffL) << 8) | (head[3] & 0xffL);
+                String type = new String(head, 4, 4, java.nio.charset.StandardCharsets.US_ASCII);
+                if ("moov".equals(type)) return true;
+                if ("mdat".equals(type)) return false;
+                if (size == 1) {
+                    byte[] ext = new byte[8];
+                    raf.seek(pos + 8);
+                    raf.readFully(ext);
+                    size = java.nio.ByteBuffer.wrap(ext).getLong();
+                } else if (size == 0) {
+                    size = len - pos;
+                }
+                if (size < 8) return false;
+                pos += size;
+            }
+        } catch (Exception e) {
+            log.warn("读文件头判断 faststart 失败（按需要 remux 处理）: {} - {}", file, e.getMessage());
+        }
+        return false;
     }
 
     /** 物化产物（文件 + 库里记的编解码）。 */
@@ -398,12 +493,20 @@ public class RecommendClipSourceService {
     public record PreparedClip(Long id, String title, String note, Double startSec, Double endSec,
                                String path, RecommendMediaClips.Badge badge,
                                /** 借来的片段才有：来源媒体 id / 标题（本体片段为 null）。 */
-                               Long sourceMediaId, String sourceTitle) {
+                               Long sourceMediaId, String sourceTitle,
+                               /** 素材像素尺寸（探不到为 0）：渲染侧判断"片段与画幅同比 → 那层糊背景看不见"。 */
+                               int assetWidth, int assetHeight) {
 
         /** 兼容旧构造（本体片段）。 */
         public PreparedClip(Long id, String title, String note, Double startSec, Double endSec,
                             String path, RecommendMediaClips.Badge badge) {
-            this(id, title, note, startSec, endSec, path, badge, null, null);
+            this(id, title, note, startSec, endSec, path, badge, null, null, 0, 0);
+        }
+
+        /** 兼容旧构造（跨媒体借来的片段；尺寸未知 → 0，渲染侧会保守处理）。 */
+        public PreparedClip(Long id, String title, String note, Double startSec, Double endSec,
+                            String path, RecommendMediaClips.Badge badge, Long sourceMediaId, String sourceTitle) {
+            this(id, title, note, startSec, endSec, path, badge, sourceMediaId, sourceTitle, 0, 0);
         }
     }
 

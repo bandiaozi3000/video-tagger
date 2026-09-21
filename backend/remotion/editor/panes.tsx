@@ -6,7 +6,11 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { api, type CandidateFilter, type ClipBrief, type EditorConfig, type MediaBrief, type MediaClips, type MediaExportRow, type MediaFormatBrief } from './api';
-import { buildListText, DEFAULT_TOGGLES, type ExportToggles } from './export-list';
+import { alertDialog, confirmDialog } from './confirm';
+import { buildListText, DEFAULT_TOGGLES, prepareRows, type ExportToggles } from './export-list';
+
+/** ExportToggles 里的布尔开关（sortBy 是枚举，不走 checkbox 助手）。 */
+type BooleanToggleKey = { [K in keyof ExportToggles]: ExportToggles[K] extends boolean ? K : never }[keyof ExportToggles];
 import { attachWithSource, dropAllMissing, withoutClip } from './clip-refs';
 import { endingPlayback, endingRowsPerPage, LIST_MAX } from '../src/cinema/ending';
 import { defaultFilter, fileToBase64, fileToDataUri, loadGroupOpen, parsePayload, rollSeed, saveGroupOpen } from './state';
@@ -661,7 +665,11 @@ export function TemplatePanel({ onClose, notify, payload, onApply }: {
       if (!parsed) {
         // 旧结构（v0.28 之前的模板）：不兼容就不读；顺手给一个清理入口
         // （当前默认 profile 跑 SQLite，而 SQLite 侧迁移按冻结条款不再维护 → 旧行靠这里清）
-        if (window.confirm(`模板「${detail.name}」是旧结构（v0.28 之前），不兼容。删除它吗？`)) {
+        if (await confirmDialog({
+          title: '旧结构模板',
+          msg: `模板「${detail.name}」是旧结构（v0.28 之前），不兼容。删除它吗？`,
+          okText: '删除',
+        })) {
           await api.deleteTemplate(id);
           refresh();
           notify('已删除旧结构模板');
@@ -977,6 +985,9 @@ function ExportListDialog({ config, filter, onClose }: {
     () => buildListText(rows, toggles, scope === 'candidate' ? `${config.title || '候选清单'}（候选）` : config.title || '推荐清单'),
     [rows, toggles, scope, config.title],
   );
+  // 去重提示：显示实际保留几部（去重只影响清单文本/预览，**不动已选媒体与视频**）
+  const shown = React.useMemo(() => prepareRows(rows, toggles).length, [rows, toggles]);
+  const deduped = toggles.dedupe && shown < rows.length;
 
   const flash = (message: string) => {
     setToast(message);
@@ -1007,7 +1018,8 @@ function ExportListDialog({ config, filter, onClose }: {
   };
 
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
-  const element = (key: keyof ExportToggles, label: string, disabled = false) => (
+  // 只用于**布尔**开关（sortBy 是枚举，单独写 select）
+  const element = (key: BooleanToggleKey, label: string, disabled = false) => (
     <label className={cls('vt-inline', disabled && 'off')}>
       <input type="checkbox" checked={toggles[key]} disabled={disabled}
              onChange={(event) => setToggles({ ...toggles, [key]: event.target.checked })} />{label}
@@ -1040,6 +1052,18 @@ function ExportListDialog({ config, filter, onClose }: {
           <span className="vt-export-label">版式</span>
           {element('header', '标题行')}
           {element('groupByYear', '按年份分组')}
+          {element('dedupe', '去重（只留本体）')}
+          <label className="vt-inline">
+            排序
+            <select value={toggles.sortBy}
+                    onChange={(event) => setToggles({ ...toggles, sortBy: event.target.value as ExportToggles['sortBy'] })}>
+              <option value="year-desc">年份 ↓（新→旧）</option>
+              <option value="year-asc">年份 ↑（旧→新）</option>
+              <option value="none">不排序</option>
+            </select>
+          </label>
+          {toggles.groupByYear && toggles.sortBy !== 'none' ? <span className="vt-hint">（分组时排序不生效）</span> : null}
+          {deduped ? <span className="vt-hint">去重后 {shown} 部（原 {rows.length} 部）</span> : null}
         </div>
         {error ? <p className="vt-export-error">取数失败：{error}</p> : null}
         <textarea ref={textareaRef} className="vt-export-text" readOnly value={text} spellCheck={false} />
@@ -1234,13 +1258,15 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
     setRecomputing(true);
     try {
       const hits = await api.mediaCount(filter);
-      if (hits > 20 && !window.confirm(
-        `将用当前筛选命中的 ${hits} 部替换已选的 ${config.ids.length} 部（手工挑选的会被移除），继续？`,
-      )) return;
+      if (hits > 20 && !(await confirmDialog({
+        title: '替换已选',
+        msg: `将用当前筛选命中的 ${hits} 部替换已选的 ${config.ids.length} 部（手工挑选的会被移除），继续？`,
+        okText: '替换',
+      }))) return;
       const all = await api.media({ limit: 500, offset: 0, filter });
       const ids = all.map((item) => item.id);
       patch({ ids, openingIds: config.openingIds.filter((id) => ids.includes(id)) });
-      if (hits > 500) window.alert(`命中 ${hits} 部，本次只取前 500 部。`);
+      if (hits > 500) await alertDialog(`命中 ${hits} 部，本次只取前 500 部。`);
     } catch {
       // 失败保持原勾选
     } finally {

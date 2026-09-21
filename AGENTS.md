@@ -41,6 +41,7 @@
 - 改动收尾 → 写当天 `docs/worklog/YYYY-MM-DD.md`；TODO 仅用户告知才更新。
 - 大版本 → `docs/superpowers/specs/` + `plans/` 主文档（单份持续同步）。
 - 双库演进：**已冻结**——只维护 MySQL Flyway VNN；SQLite 侧（`migration-sqlite/vNN.sql`、`sqlite-schema.sql` 基线、`SqliteSchemaMigrator` 版本断言）不再同步维护。解冻清单见 `docs/rules.md` §13。
+- **「同步番剧」= 弹窗直连（2026-09-21 简化，勿复活旧工作区）**：年/季/月多选 → 拉取候选 → 勾选 → 直接同步 → 报条数；旧的独立审核工作区 / 后台任务表 / 草稿已删（V38 删表），详见 `docs/rules.md` §16。更新路径**不动本地 media 字段**（标题/年份/备注/评分/状态/封面一律不写）。
 - 记忆同步：改规则 → 同步 `docs/rules.md` 清单（Pi 不读 `~/.claude/.../memory/`）。
 
 ## 3. 环境事实（本机）

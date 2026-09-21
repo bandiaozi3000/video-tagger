@@ -91,6 +91,21 @@ public class BangumiMetadataProvider implements MetadataProvider {
             throw new MetadataProviderException("年份无效", 422);
         }
         List<String> dates = dateRange(year, season);
+        return discoverByDates(dates, limit);
+    }
+
+    @Override
+    public List<MetadataRecord> discoverRange(String from, String to, int limit) throws MetadataProviderException {
+        if (from == null || to == null || !from.matches("\\d{4}-\\d{2}-\\d{2}") || !to.matches("\\d{4}-\\d{2}-\\d{2}")) {
+            throw new MetadataProviderException("日期区间无效（应为 YYYY-MM-DD）", 422);
+        }
+        if (from.compareTo(to) >= 0) {
+            throw new MetadataProviderException("日期区间必须 from < to", 422);
+        }
+        return discoverByDates(List.of(">=" + from, "<" + to), limit);
+    }
+
+    private List<MetadataRecord> discoverByDates(List<String> dates, int limit) throws MetadataProviderException {
         Map<String, Object> filter = new LinkedHashMap<>();
         filter.put("type", List.of(2));
         filter.put("air_date", dates);

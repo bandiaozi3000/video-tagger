@@ -1,24 +1,22 @@
 package com.videotagger.controller;
 
 import com.videotagger.metadata.MetadataCandidate;
-import com.videotagger.metadata.MetadataSyncDraftRequest;
-import com.videotagger.metadata.MetadataSyncDraftView;
 import com.videotagger.metadata.MetadataSyncRequest;
 import com.videotagger.metadata.MetadataSyncResult;
+import com.videotagger.metadata.MetadataSyncCommitService;
 import com.videotagger.metadata.MetadataSyncService;
-import com.videotagger.metadata.MetadataSyncTaskCreateRequest;
-import com.videotagger.metadata.MetadataSyncTaskDetail;
-import com.videotagger.metadata.MetadataSyncTaskItemRetryRequest;
-import com.videotagger.metadata.MetadataSyncWorkspaceService;
-import com.videotagger.entity.MetadataSyncTask;
+import com.videotagger.metadata.SyncCommitRequest;
+import com.videotagger.metadata.SyncCommitResult;
+import com.videotagger.metadata.SyncPlanRequest;
+import com.videotagger.metadata.SyncPlanResult;
+import com.videotagger.metadata.SyncRangeFetchRequest;
+import com.videotagger.metadata.SyncRangeFetchResult;
 import com.videotagger.metadata.ProviderCapabilities;
 import com.videotagger.service.ExternalMetadataDetail;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,16 +27,40 @@ import java.util.List;
 @RequestMapping("/api/metadata-sync")
 public class MetadataSyncController {
     private final MetadataSyncService service;
-    private final MetadataSyncWorkspaceService workspaceService;
+    private final MetadataSyncCommitService commitService;
 
-    public MetadataSyncController(MetadataSyncService service, MetadataSyncWorkspaceService workspaceService) {
+    public MetadataSyncController(MetadataSyncService service, MetadataSyncCommitService commitService) {
         this.service = service;
-        this.workspaceService = workspaceService;
+        this.commitService = commitService;
     }
 
     @GetMapping("/providers")
     public List<ProviderCapabilities> providers() {
         return List.of(service.capabilities());
+    }
+
+    /**
+     * 年/季/月多选 → 查询区间计划（2026-09-21 新流程第一步）。
+     */
+    @PostMapping("/discover/plan")
+    public SyncPlanResult plan(@RequestBody SyncPlanRequest request) {
+        return service.plan(request);
+    }
+
+    /**
+     * 取某一段区间的候选（**只读**）。前端逐段调用以显示进度。
+     */
+    @PostMapping("/discover/fetch")
+    public SyncRangeFetchResult fetchRange(@RequestBody SyncRangeFetchRequest request) {
+        return service.discoverRange(request.from(), request.to());
+    }
+
+    /**
+     * 提交同步（勾选后直接同步）。每项独立事务，失败不影响其它项；返回「新增/更新/跳过/失败」条数。
+     */
+    @PostMapping("/commit")
+    public SyncCommitResult commit(@RequestBody SyncCommitRequest request) {
+        return commitService.commit(request);
     }
 
     @PostMapping("/preview")
@@ -49,50 +71,6 @@ public class MetadataSyncController {
     @PostMapping("/sync")
     public ResponseEntity<MetadataSyncResult> sync(@RequestBody MetadataSyncRequest request) {
         return ResponseEntity.ok(service.sync(request));
-    }
-
-    @GetMapping("/draft")
-    public ResponseEntity<MetadataSyncDraftView> draft() {
-        MetadataSyncDraftView draft = workspaceService.getDraft();
-        return draft == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(draft);
-    }
-
-    @PutMapping("/draft")
-    public MetadataSyncDraftView saveDraft(@RequestBody MetadataSyncDraftRequest request) {
-        return workspaceService.saveDraft(request);
-    }
-
-    @DeleteMapping("/draft")
-    public ResponseEntity<Void> deleteDraft() {
-        workspaceService.deleteDraft();
-        return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/tasks")
-    public ResponseEntity<MetadataSyncTaskDetail> createTask(@RequestBody MetadataSyncTaskCreateRequest request) {
-        return ResponseEntity.accepted().body(workspaceService.createTask(request));
-    }
-
-    @GetMapping("/tasks")
-    public List<MetadataSyncTask> tasks() {
-        return workspaceService.listTasks();
-    }
-
-    @GetMapping("/tasks/{taskId}")
-    public MetadataSyncTaskDetail task(@PathVariable String taskId) {
-        return workspaceService.getTask(taskId);
-    }
-
-    @DeleteMapping("/tasks/{taskId}")
-    public ResponseEntity<Void> deleteTask(@PathVariable String taskId) {
-        workspaceService.deleteTask(taskId);
-        return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/tasks/{taskId}/items/{itemId}/retry")
-    public MetadataSyncTaskDetail retryTaskItem(@PathVariable String taskId, @PathVariable long itemId,
-                                                @RequestBody MetadataSyncTaskItemRetryRequest request) {
-        return workspaceService.retryItem(taskId, itemId, request);
     }
 
     @GetMapping("/media/{mediaId}/metadata")
