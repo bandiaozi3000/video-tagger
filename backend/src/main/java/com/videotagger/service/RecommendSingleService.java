@@ -118,8 +118,9 @@ public class RecommendSingleService {
 
     /** 单集推荐预览的封面：与全应用统一——**Bangumi 外链 → 显式封面 → 片段帧**（用户 2026-09-20 定稿）。 */
     private String firstCover(MediaDetail media, Iterable<Clip> clips) {
-        if (media.externalCoverUrl() != null && !media.externalCoverUrl().isBlank()) return media.externalCoverUrl();
+        // 2026-09-25 用户拍板：本地显式封面优先（手动上传的以本地为准）
         if (media.coverPath() != null && !media.coverPath().isBlank()) return media.coverPath();
+        if (media.externalCoverUrl() != null && !media.externalCoverUrl().isBlank()) return media.externalCoverUrl();
         if (media.fallbackCoverPath() != null && !media.fallbackCoverPath().isBlank()) return media.fallbackCoverPath();
         for (Clip clip : clips) {
             if (clip.getDetailCoverPath() != null && !clip.getDetailCoverPath().isBlank()) return clip.getDetailCoverPath();

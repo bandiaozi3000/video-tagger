@@ -61,9 +61,11 @@ public class CollectionController {
                                     @RequestParam(required = false) String source,
                                     @RequestParam(required = false) String q,
                                     @RequestParam(required = false) String sort,
-                                    @RequestParam(required = false) String order) {
+                                    @RequestParam(required = false) String order,
+                                    @RequestParam(required = false) List<String> genres,
+                                    @RequestParam(required = false) String season) {
         return collectionService.media(id, limit, offset, status, format, subcategoryId, confirmed, year, source, q,
-                sort, order);
+                sort, order, genres, season);
     }
 
     @PostMapping("/{id}/media")

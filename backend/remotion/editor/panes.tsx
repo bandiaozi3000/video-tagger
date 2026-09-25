@@ -6,7 +6,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { api, type CandidateFilter, type ClipBrief, type EditorConfig, type MediaBrief, type MediaClips, type MediaExportRow, type MediaFormatBrief } from './api';
-import { alertDialog, confirmDialog } from './confirm';
+import { confirmDialog } from './confirm';
 import { buildListText, DEFAULT_TOGGLES, prepareRows, type ExportToggles } from './export-list';
 
 /** ExportToggles 里的布尔开关（sortBy 是枚举，不走 checkbox 助手）。 */
@@ -736,6 +736,23 @@ const STATUS_OPTIONS = [
   { value: 'DROPPED', label: '弃番' },
 ];
 
+/**
+ * 按年份把已加载的候选切成**连续年份段**。
+ *
+ * 无限滚动下同一年会跨页：靠"与上一段同年就并入"来避免同一个年份出现两次表头
+ * （所以分组时必须让后端 `sort=year`，否则年份交错、分段无意义）。
+ */
+function yearRuns(items: MediaBrief[]): { year: number | null; items: MediaBrief[] }[] {
+  const runs: { year: number | null; items: MediaBrief[] }[] = [];
+  for (const item of items) {
+    const year = item.year ?? null;
+    const last = runs[runs.length - 1];
+    if (last && last.year === year) last.items.push(item);
+    else runs.push({ year, items: [item] });
+  }
+  return runs;
+}
+
 interface FilterDict {
   collections: { id: number; name: string }[];
   years: number[];
@@ -1110,10 +1127,14 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   const [clipMedia, setClipMedia] = React.useState<MediaBrief | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [tab, setTab] = React.useState<'candidates' | 'selected'>('candidates');
+  /** 候选按首播年份分组（用户 2026-09-26 要求）。默认关 —— 不开时保持原来的 id 倒序。 */
+  const [groupByYear, setGroupByYear] = React.useState(false);
   const pageSize = 30;
 
-  // filter 是对象：用序列化签名做依赖，直接依赖引用会无限重取
-  const filterKey = JSON.stringify(filter);
+  // filter 是对象：用序列化签名做依赖，直接依赖引用会无限重取。
+  // 分组开关也并进签名：切分组 = 换一次请求序列（回第 1 页 + 换排序），
+  // 复用已有的「页码与签名绑成原子状态」机制，不另写一套重置逻辑。
+  const filterKey = JSON.stringify({ ...filter, __groupByYear: groupByYear });
   const idsKey = config.ids.join(',');
   const activeKeys = FILTER_DIMS.map((d) => d.key).filter((key) => isDimActive(filter, key));
   const subOptions = React.useMemo(() => flattenSubcategories(formats), [formats]);
@@ -1161,7 +1182,8 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
     setLoading(true);
     const at = query.page;
     Promise.all([
-      api.media({ limit: pageSize, offset: (at - 1) * pageSize, filter }),
+      // 分组时按年份降序取（否则年份交错，分组无意义）；不分组保持默认（id 倒序）
+      api.media({ limit: pageSize, offset: (at - 1) * pageSize, filter, sort: groupByYear ? 'year' : undefined, order: 'desc' }),
       api.mediaCount(filter),
     ])
       .then(([items, count]) => {
@@ -1175,6 +1197,61 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   }, [query]);   // eslint-disable-line react-hooks/exhaustive-deps  （filter/query.key 一一对应）
 
   const hasMore = list.length < total;
+
+  /** 单张候选卡（分组与非分组共用）。内部不用 hook，所以可以是普通函数。 */
+  const renderCard = (item: MediaBrief) => {
+    // 媒体封面统一取值链（用户 2026-09-20 定稿）：Bangumi 外链 → 显式封面 → 片段帧兜底
+    const cover = item.coverPath || item.externalCoverUrl || item.fallbackCoverPath;
+    const clipCount = config.mediaClips[String(item.id)]?.order.length ?? 0;
+    return (
+      <div key={item.id} className={cls('vt-media-card', selected.has(item.id) && 'selected', picked === item.id && 'picked')} draggable
+           onClick={() => onSelect({ kind: 'media', mediaId: item.id, title: item.title })}
+           onDragStart={(event) => {
+             draggedId.current = item.id;
+             event.dataTransfer.setData('text/vt-media', String(item.id));
+             event.dataTransfer.effectAllowed = 'copyMove';
+           }}>
+        <div className="vt-media-cover">
+          {cover ? <img src={cover} alt="" loading="lazy" /> : <span className="vt-cover-placeholder">{(item.title || '?').slice(0, 1)}</span>}
+          <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} title="加入推荐" />
+          <button type="button" className={cls('vt-clip-badge', clipCount > 0 && 'has')} title="挂载片段"
+                  onClick={(event) => { event.stopPropagation(); openClips(item); }}>
+            {clipCount > 0 ? `✂ ${clipCount}` : '＋ 片段'}
+          </button>
+          {/* 开场秀：拖卡也可以（旧交互保留），但拖拽不发现 → 再给一个按钮（用户 2026-09-20） */}
+          <button type="button"
+                  className={cls('vt-open-badge', config.openingIds.includes(item.id) && 'has')}
+                  disabled={config.openingIds.includes(item.id)}
+                  title={config.openingIds.includes(item.id)
+                    ? '已在开场秀（第一个 = 开场主推，可在左侧名单里排序/移出）'
+                    : '加入开场秀（追加到名单末尾）'}
+                  onClick={(event) => { event.stopPropagation(); patch({ openingIds: [...config.openingIds, item.id] }); }}>
+            {config.openingIds.includes(item.id) ? '🎬 开场秀 ✓' : '🎬 开场秀'}
+          </button>
+          {/* ★ 重点（2026-09-26 A+C+D）：**可反选**的手动开关；组内数量不设上限 */}
+          <button type="button"
+                  className={cls('vt-star-badge', config.featuredIds.includes(item.id) && 'has')}
+                  title={config.featuredIds.includes(item.id)
+                    ? '已标为重点 ★（再点取消）—— 本组群像后会给它单独一幕资料卡，结尾还会汇总成「全片重点回顾」'
+                    : '标为重点 ★（本组群像后单独一幕资料卡 + 结尾重点回顾）'}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    patch({
+                      featuredIds: config.featuredIds.includes(item.id)
+                        ? config.featuredIds.filter((id) => id !== item.id)
+                        : [...config.featuredIds, item.id],
+                    });
+                  }}>
+            {config.featuredIds.includes(item.id) ? '★ 重点 ✓' : '★ 重点'}
+          </button>
+        </div>
+        <div className="vt-media-title" title={item.title}>{item.title}</div>
+        <div className="vt-media-foot">
+          <span className="vt-media-year">{item.year ?? '—'}</span>
+        </div>
+      </div>
+    );
+  };
   /** 滚到接近底部就自动取下一页（失败/无更多时不动）。 */
   const onListScroll = (event: React.UIEvent<HTMLDivElement>) => {
     const box = event.currentTarget;
@@ -1263,10 +1340,12 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
         msg: `将用当前筛选命中的 ${hits} 部替换已选的 ${config.ids.length} 部（手工挑选的会被移除），继续？`,
         okText: '替换',
       }))) return;
-      const all = await api.media({ limit: 500, offset: 0, filter });
+      const all = hits === 0 ? [] : await api.media({ limit: hits, offset: 0, filter });
       const ids = all.map((item) => item.id);
       patch({ ids, openingIds: config.openingIds.filter((id) => ids.includes(id)) });
-      if (hits > 500) await alertDialog(`命中 ${hits} 部，本次只取前 500 部。`);
+      // 取**全部**命中（2026-09-25 用户报「候选 557、已选只有 200」）：原来写死 `limit: 500`，
+      // 而后端又把 limit 钳到 200 → 实际只填进 200 部；且下面那句提示还谎报「只取前 500 部」。
+      // 两端上限都已去掉，这里按实际命中数取满。
     } catch {
       // 失败保持原勾选
     } finally {
@@ -1347,6 +1426,9 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
                         onClick={() => { setPopDim(null); setPopOpen((open) => !open); }}>
                   ＋ 筛选{activeKeys.length > 0 ? <i>{activeKeys.length}</i> : null}
                 </button>
+                <button type="button" className={cls('btn-mini', 'vt-group-btn', groupByYear && 'active')}
+                        title={groupByYear ? '取消按年份分组（恢复默认排序）' : '按首播年份分组（分组时按年份从新到旧排序）'}
+                        onClick={() => setGroupByYear((value) => !value)}>📅 按年份</button>
               </div>
 
               {activeKeys.length > 0 ? (
@@ -1383,43 +1465,20 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
             ) : null}
 
             <div className="vt-media-grid">
-        {list.map((item) => {
-          // 媒体封面统一取值链（用户 2026-09-20 定稿）：Bangumi 外链 → 显式封面 → 片段帧兜底
-          const cover = item.externalCoverUrl || item.coverPath || item.fallbackCoverPath;
-          const clipCount = config.mediaClips[String(item.id)]?.order.length ?? 0;
-          return (
-            <div key={item.id} className={cls('vt-media-card', selected.has(item.id) && 'selected', picked === item.id && 'picked')} draggable
-                 onClick={() => onSelect({ kind: 'media', mediaId: item.id, title: item.title })}
-                 onDragStart={(event) => {
-                   draggedId.current = item.id;
-                   event.dataTransfer.setData('text/vt-media', String(item.id));
-                   event.dataTransfer.effectAllowed = 'copyMove';
-                 }}>
-              <div className="vt-media-cover">
-                {cover ? <img src={cover} alt="" loading="lazy" /> : <span className="vt-cover-placeholder">{(item.title || '?').slice(0, 1)}</span>}
-                <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} title="加入推荐" />
-                <button type="button" className={cls('vt-clip-badge', clipCount > 0 && 'has')} title="挂载片段"
-                        onClick={(event) => { event.stopPropagation(); openClips(item); }}>
-                  {clipCount > 0 ? `✂ ${clipCount}` : '＋ 片段'}
-                </button>
-                {/* 开场秀：拖卡也可以（旧交互保留），但拖拽不发现 → 再给一个按钮（用户 2026-09-20） */}
-                <button type="button"
-                        className={cls('vt-open-badge', config.openingIds.includes(item.id) && 'has')}
-                        disabled={config.openingIds.includes(item.id)}
-                        title={config.openingIds.includes(item.id)
-                          ? '已在开场秀（第一个 = 开场主推，可在左侧名单里排序/移出）'
-                          : '加入开场秀（追加到名单末尾）'}
-                        onClick={(event) => { event.stopPropagation(); patch({ openingIds: [...config.openingIds, item.id] }); }}>
-                  {config.openingIds.includes(item.id) ? '🎬 开场秀 ✓' : '🎬 开场秀'}
-                </button>
-              </div>
-              <div className="vt-media-title" title={item.title}>{item.title}</div>
-              <div className="vt-media-foot">
-                <span className="vt-media-year">{item.year ?? '—'}</span>
-              </div>
-            </div>
-          );
-        })}
+        {groupByYear
+          ? yearRuns(list).map((run, runIndex, all) => (
+              <React.Fragment key={run.year ?? 'unknown'}>
+                <div className="vt-year-head">
+                  <span className="vt-year-num">{run.year ?? '未知年份'}</span>
+                  {/* 最后一段可能在无限滚动中还没取完 → 标"已加载"，避免当成该年总数 */}
+                  <span className="vt-year-count">
+                    {hasMore && runIndex === all.length - 1 ? `已加载 ${run.items.length} 部` : `${run.items.length} 部`}
+                  </span>
+                </div>
+                {run.items.map(renderCard)}
+              </React.Fragment>
+            ))
+          : list.map(renderCard)}
       </div>
             {!loading && list.length === 0 ? (
               <div className="vt-empty-hits">

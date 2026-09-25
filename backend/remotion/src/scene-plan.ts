@@ -4,6 +4,20 @@ import { TEMPLATE_IDS } from './types';
 
 export type { GroupPlan };
 
+/** 全片重点回顾章节页的标题（D 方案；跨组的重点汇总成一屏网格）。 */
+export const FEATURED_RECAP_TITLE = '全片核心回顾';
+
+/** 组首「本组核心」区的题头（也是 core 场景的标识，转场音靠它挂点）。 */
+export const CORE_KICKER = '本组核心';
+
+/**
+ * 核心项 ≤ 这个数就**逐部满屏**（每部一幕 MEDIA_INFO，视觉冲击最大）；超过就一屏大卡。
+ *
+ * 为什么分档：逐部满屏要吃掉 N 幕 `detailSec`，而用户明确要求「核心数量不设上限」——
+ * 不限 + 逐部满屏 = 成片长度失控。
+ */
+const CORE_SOLO_MAX = 2;
+
 /**
  * 帧级场景计划 —— **唯一时长权威**（设计规格 §6.1）。
  *
@@ -50,7 +64,14 @@ export function groupMedia(input: MultiMediaPocInput, groupBy: string, groupSort
       return desc ? bn - an : an - bn;
     });
   }
-  return names.map((name, index) => ({ name, index: useGroups ? index : -1, media: buckets.get(name)! }));
+  // ★ 重点项**排到本组最前**（2026-09-26）：
+  //   1. 组首「本组核心」区讲完就直接进群像，核心项必然落在第一屏，叙事不跳；
+  //   2. 跨幕接力（豪华版）只需要在第一屏内做，不用处理“核心散在后面几屏”的窘境。
+  const ordered = names.map((name) => {
+    const list = buckets.get(name)!;
+    return { name, media: [...list.filter((m) => m.featured), ...list.filter((m) => !m.featured)] };
+  });
+  return ordered.map((entry, index) => ({ name: entry.name, index: useGroups ? index : -1, media: entry.media }));
 }
 
 export function buildScenePlan(input: MultiMediaPocInput): ScenePlan {
@@ -79,16 +100,34 @@ export function buildScenePlan(input: MultiMediaPocInput): ScenePlan {
     if (group.index >= 0 && style === 'chapter') {
       push({ type: 'GROUP_INTRO', groupName: group.name, groupIndex: group.index }, secToFrames(params.durations.group, fps));
     }
-    // 资料卡 / 每屏 N 部网格
+    // ★ 组首「本组核心」区（2026-09-26 A+C 升级）：**先亮核心，再给全貌**。
+    //   核心 ≤2 部 → 逐部满屏（每部一幕 MEDIA_INFO，冲击最大）；≥3 部 → 一屏大卡（几何自动给大卡）。
+    //   原先我在组尾插的资料卡已删除 —— 同一批不该展示两次，且组尾亮相叙事上太晚。
+    const core = group.media.filter((item) => item.featured);
+    if (core.length > 0 && style === 'chapter') {
+      const detailFrames = secToFrames(params.durations.detail, fps);
+      if (core.length <= CORE_SOLO_MAX) {
+        core.forEach((item, index) => push(
+          { type: 'MEDIA_INFO', mediaId: item.mediaId, kicker: CORE_KICKER, numberFrom: index + 1 }, detailFrames));
+      } else {
+        for (let i = 0; i < core.length; i += perScreen) {
+          const chunk = core.slice(i, i + perScreen);
+          push({ type: 'MEDIA_GRID', mediaIds: chunk.map((m) => m.mediaId), kicker: CORE_KICKER, numberFrom: i + 1 }, detailFrames);
+        }
+      }
+    }
+    // 资料卡 / 每屏 N 部网格（序号按**组内**从 1 数）
     const chunks: PocMedia[][] = [];
     for (let i = 0; i < group.media.length; i += perScreen) {
       chunks.push(group.media.slice(i, i + perScreen));
     }
-    for (const chunk of chunks) {
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      const chunk = chunks[chunkIndex];
+      const numberFrom = chunkIndex * perScreen + 1;
       if (chunk.length === 1 && perScreen === 1) {
-        push({ type: 'MEDIA_INFO', mediaId: chunk[0].mediaId }, secToFrames(params.durations.detail, fps));
+        push({ type: 'MEDIA_INFO', mediaId: chunk[0].mediaId, numberFrom }, secToFrames(params.durations.detail, fps));
       } else {
-        push({ type: 'MEDIA_GRID', mediaIds: chunk.map((m) => m.mediaId) }, secToFrames(params.durations.detail, fps));
+        push({ type: 'MEDIA_GRID', mediaIds: chunk.map((m) => m.mediaId), numberFrom }, secToFrames(params.durations.detail, fps));
       }
       // 片段屏：每个片段独占一个场景（时长来自素材本身，不由 durations 决定）
       for (const media of chunk) {
@@ -99,6 +138,16 @@ export function buildScenePlan(input: MultiMediaPocInput): ScenePlan {
           );
         }
       }
+    }
+  }
+
+  // D 方案：全片核心回顾（跨组的核心汇总成「章节页 + 网格」），放在结尾之前。
+  const featuredAll = input.media.filter((media) => media.featured);
+  if (featuredAll.length > 0 && style === 'chapter') {
+    push({ type: 'GROUP_INTRO', groupName: FEATURED_RECAP_TITLE, groupIndex: groups.length }, secToFrames(params.durations.group, fps));
+    for (let i = 0; i < featuredAll.length; i += perScreen) {
+      const chunk = featuredAll.slice(i, i + perScreen);
+      push({ type: 'MEDIA_GRID', mediaIds: chunk.map((m) => m.mediaId), numberFrom: i + 1 }, secToFrames(params.durations.detail, fps));
     }
   }
 

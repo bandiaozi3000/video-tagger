@@ -32,10 +32,10 @@ class CollectionServiceIT extends AbstractMySqlIT {
         Media a = mediaService.create(new MediaRequest("测试番", null, null, "VIDEO", null, "番剧", "WANT", null, null, null));
 
         collectionService.addMedia(c.getId(), a.getId());
-        assertEquals(1, collectionService.media(c.getId(), 100, 0, null, null, null, null, null, null, null, null, null).size());
+        assertEquals(1, collectionService.media(c.getId(), 100, 0, null, null, null, null, null, null, null, null, null, null, null).size());
 
         collectionService.removeMedia(c.getId(), a.getId());
-        assertEquals(0, collectionService.media(c.getId(), 100, 0, null, null, null, null, null, null, null, null, null).size());
+        assertEquals(0, collectionService.media(c.getId(), 100, 0, null, null, null, null, null, null, null, null, null, null, null).size());
 
         collectionService.delete(c.getId());
         assertNull(collectionMapper.selectById(c.getId()));
@@ -53,7 +53,7 @@ class CollectionServiceIT extends AbstractMySqlIT {
 
         // 按首播年份升序：null（未知年份）排最后
         List<MediaSummary> asc = collectionService.media(c.getId(), 100, 0, null, null, null, null, null, null, null,
-                "year", "asc");
+                "year", "asc", null, null);
         assertEquals(3, asc.size());
         assertEquals(old.getId(), asc.get(0).id());
         assertEquals(recent.getId(), asc.get(1).id());
@@ -61,7 +61,7 @@ class CollectionServiceIT extends AbstractMySqlIT {
 
         // 降序：新番在前，未知年份仍排最后
         List<MediaSummary> desc = collectionService.media(c.getId(), 100, 0, null, null, null, null, null, null, null,
-                "year", "desc");
+                "year", "desc", null, null);
         assertEquals(recent.getId(), desc.get(0).id());
         assertEquals(unknown.getId(), desc.get(2).id());
     }

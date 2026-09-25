@@ -29,4 +29,15 @@ public interface MediaCollectionMapper extends BaseMapper<MediaCollection> {
 
     @Select("SELECT collection_id FROM media_collection WHERE media_id = #{mediaId} ORDER BY collection_id")
     List<Long> selectCollectionIdsByMedia(@Param("mediaId") long mediaId);
+
+    /** 批量版（渲染输入用）：一次取多部媒体的收藏夹归属。 */
+    @Select("<script>"
+            + "SELECT media_id AS mediaId, collection_id AS collectionId FROM media_collection "
+            + "WHERE media_id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach> "
+            + "ORDER BY media_id, collection_id"
+            + "</script>")
+    List<MediaCollectionRow> listByMediaIds(@Param("ids") List<Long> ids);
+
+    record MediaCollectionRow(Long mediaId, Long collectionId) {
+    }
 }

@@ -79,7 +79,7 @@ public class VideoExportTaskService {
     public VideoExportTask create(List<Long> ids, String title, String format, String resolution,
                                   List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
                                   String groupBy, String groupStyle, String subtitle, String coverSize,
-                                  List<Long> openingIds, String intro, RecommendService.Durations durations,
+                                  List<Long> openingIds, List<Long> featuredIds, String intro, RecommendService.Durations durations,
                                   String endingTitle, String endingText, String bgColor, List<String> bgImages,
                                   Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
                                   String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
@@ -102,7 +102,7 @@ public class VideoExportTaskService {
         long id = row.getId();
         /* 走 self 代理调用，@Async 才切到 videoExportExecutor 顺序渲染；直接 this.runAsync 会同步阻塞 POST */
         self.runAsync(id, ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle,
-                subtitle, coverSize, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages,
+                subtitle, coverSize, openingIds, featuredIds, intro, durations, endingTitle, endingText, bgColor, bgImages,
                 bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle,
                 groupSort, openingSpeed, endingScrollSpeed,
                 bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset, requestedClips, seed, clipVolume, bgmRange,
@@ -114,7 +114,7 @@ public class VideoExportTaskService {
     public void runAsync(long id, List<Long> ids, String title, String format, String resolution,
                          List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
                          String groupBy, String groupStyle, String subtitle, String coverSize,
-                         List<Long> openingIds, String intro, RecommendService.Durations durations,
+                         List<Long> openingIds, List<Long> featuredIds, String intro, RecommendService.Durations durations,
                          String endingTitle, String endingText, String bgColor, List<String> bgImages,
                                   Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
                          String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
@@ -129,7 +129,7 @@ public class VideoExportTaskService {
             mapper.setWorkDir(id, work.toString(), now);
             mapper.markRunning(id, now);
             Path out = videoService.render(ids, title, format, resolution, bgmPaths, bgmTracks,
-                    groupBy, groupStyle, subtitle, coverSize, openingIds, intro, durations,
+                    groupBy, groupStyle, subtitle, coverSize, openingIds, featuredIds, intro, durations,
                     endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle,
                     groupSort, openingSpeed, endingScrollSpeed,
                     bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset, requestedClips, seed, clipVolume, bgmRange,

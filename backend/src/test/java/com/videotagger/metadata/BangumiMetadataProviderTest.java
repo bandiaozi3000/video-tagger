@@ -113,6 +113,66 @@ class BangumiMetadataProviderTest {
     }
 
     @Test
+    void sendsRegionAsMetaTagFilter() throws Exception {
+        server.enqueue(json("{\"data\":[]}"));
+
+        provider.discoverRange("2024-04-01", "2024-07-01", "日本", null, 10);
+
+        String body = server.takeRequest().getBody().readUtf8();
+        assertTrue(body.contains("\"meta_tags\":[\"日本\"]"));
+        assertTrue(body.contains("\"type\":[2]"));
+    }
+
+    @Test
+    void omitsMetaTagsWhenRegionBlank() throws Exception {
+        server.enqueue(json("{\"data\":[]}"));
+
+        provider.discoverRange("2024-04-01", "2024-07-01", "  ", null, 10);
+
+        assertFalse(server.takeRequest().getBody().readUtf8().contains("meta_tags"));
+    }
+
+    @Test
+    void rejectsUnknownRegionBeforeAnyRequest() {
+        MetadataProviderException error = assertThrows(MetadataProviderException.class,
+                () -> provider.discoverRange("2024-04-01", "2024-07-01", "火星", null, 10));
+
+        assertEquals(422, error.status());
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
+    void sendsCategoryAsMetaTagFilterWhenRegionBlank() throws Exception {
+        server.enqueue(json("{\"data\":[]}"));
+
+        provider.discoverRange("2024-04-01", "2024-07-01", "  ", "TV", 10);
+
+        String body = server.takeRequest().getBody().readUtf8();
+        assertTrue(body.contains("\"meta_tags\":[\"TV\"]"));
+    }
+
+    @Test
+    void sendsRegionAndCategoryAsAndedMetaTags() throws Exception {
+        server.enqueue(json("{\"data\":[]}"));
+
+        provider.discoverRange("2024-04-01", "2024-07-01", "日本", "剧场版", 10);
+
+        // 顺序固定 region 在前：meta_tags 是且关系，[日本,剧场版] = 日本的剧场版
+        assertTrue(server.takeRequest().getBody().readUtf8().contains("\"meta_tags\":[\"日本\",\"剧场版\"]"));
+    }
+
+    @Test
+    void rejectsUnknownCategoryBeforeAnyRequest() {
+        // Bangumi 对未知 meta_tags 不报错、只静默返回 0 条 —— 所以必须本地白名单卡住，
+        // 否则打错一个字的效果是「拉了 0 条候选」而不是报错。
+        MetadataProviderException error = assertThrows(MetadataProviderException.class,
+                () -> provider.discoverRange("2024-04-01", "2024-07-01", "日本", "其他", 10));
+
+        assertEquals(422, error.status());
+        assertEquals(0, server.getRequestCount());
+    }
+
+    @Test
     void fetchesSubjectAndEpisodes() {
         server.enqueue(new MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json")
                 .setBody("{\"id\":2,\"name\":\"Original\",\"name_cn\":\"中文\",\"summary\":\"简介\",\"date\":\"2025-01-01\",\"eps\":1}"));

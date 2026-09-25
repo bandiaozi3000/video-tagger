@@ -81,6 +81,11 @@ export interface EditorConfig {
   /** BGM 播放范围：全程 / 仅开场 / 仅结尾 / 开场+结尾（2026-09-20）。 */
   bgmRange: string;
   openingIds: number[];
+  /**
+   * 手动 ★ 重点（2026-09-26 用户拍板 A+C+D）：组内群像后逐部补一幕资料卡，
+   * 结尾再汇总成「全片重点回顾」；组内数量**不设上限**（自由选）。
+   */
+  featuredIds: number[];
   /** 片段原声音量（0 = 全静音；默认 100 保持现状）。 */
   clipVolume: number;
   /** 中景摆位随机种子（🎲 重排 写入；同一份草稿预览与成片一致）。 */
@@ -275,10 +280,14 @@ export const api = {
   deleteSession: (token: string) =>
     fetch(`/api/recommend/session/${token}`, { method: 'DELETE' }).then(() => undefined),
 
-  media: (query: { limit: number; offset: number; filter: CandidateFilter; ids?: number[] }) => {
+  media: (query: { limit: number; offset: number; filter: CandidateFilter; ids?: number[]; sort?: string; order?: string }) => {
     const params = filterParams(query.filter);
     params.set('limit', String(query.limit));
     params.set('offset', String(query.offset));
+    // 排序与筛选分开：分组要看年份连续，得单独要 `sort=year`（不放进 CandidateFilter ——
+    // 那个会随模板保存、还会影响导出清单的顺序）
+    if (query.sort) params.set('sort', query.sort);
+    if (query.order) params.set('order', query.order);
     if (query.ids && query.ids.length > 0) params.set('ids', query.ids.join(','));
     return json<MediaBrief[]>(`/api/media?${params.toString()}`);
   },

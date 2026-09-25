@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { bgmGainAt, bgmTimeline } from '../src/bgm';
-import { buildScenePlan, groupMedia, hasOriginalAudioAt } from '../src/scene-plan';
+import { CORE_KICKER, FEATURED_RECAP_TITLE, buildScenePlan, groupMedia, hasOriginalAudioAt } from '../src/scene-plan';
 import type { MultiMediaPocInput, PocMedia } from '../src/types';
 import { DEFAULT_PARAMS, resolveParams } from '../src/params';
 
@@ -155,5 +155,103 @@ describe('BGM 时间轴与 ducking', () => {
   it('默认参数下不会超过 1', () => {
     const params = { ...DEFAULT_PARAMS, bgmGain: 1 };
     expect(bgmGainAt(0, params, plan)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('★ 重点项（A+C+D，2026-09-26 用户拍板）', () => {
+  it('核心 ≤2 部：组章节页后**紧跟逐部满屏**（MEDIA_INFO）', () => {
+    const a = { ...media(1, 1, 2020, 0, '2020 年'), featured: true };
+    const b = media(2, 2, 2020, 0, '2020 年');
+    const plan = buildScenePlan(input({
+      media: [a, b],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+    } as Partial<MultiMediaPocInput>));
+    const types = plan.scenes.map((s) => s.type);
+    const groupAt = types.indexOf('GROUP_INTRO');
+    expect(groupAt).toBeGreaterThan(-1);
+    // 组章节页 → 核心满屏（不是先给群像）
+    expect(types[groupAt + 1]).toBe('MEDIA_INFO');
+    const core = plan.scenes[groupAt + 1];
+    expect(core.mediaId).toBe(1);
+    expect(core.kicker).toBe(CORE_KICKER);
+    expect(core.numberFrom).toBe(1);
+  });
+
+  it('核心 ≥3 部：组章节页后**紧跟一屏大卡**（MEDIA_GRID + 金色题头）', () => {
+    const list = [1, 2, 3, 4].map((i) => ({ ...media(i, i, 2020, 0, '2020 年'), featured: i <= 3 }));
+    const plan = buildScenePlan(input({
+      media: list,
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+    } as Partial<MultiMediaPocInput>));
+    const groupAt = plan.scenes.findIndex((s) => s.type === 'GROUP_INTRO');
+    const core = plan.scenes[groupAt + 1];
+    expect(core.type).toBe('MEDIA_GRID');
+    expect(core.kicker).toBe(CORE_KICKER);
+    expect(core.mediaIds).toEqual([1, 2, 3]);           // 只装核心项
+    expect(core.numberFrom).toBe(1);
+  });
+
+  it('核心项排到组内最前，群像序号按**组内**从 1 数', () => {
+    // ids 顺序故意把核心项放在后面 —— 靠分组时重排把它提到最前
+    const list = [media(1, 1, 2020, 0, '2020 年'), { ...media(2, 2, 2020, 0, '2020 年'), featured: true }, media(3, 3, 2020, 0, '2020 年')];
+    const plan = buildScenePlan(input({
+      media: list,
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+    } as Partial<MultiMediaPocInput>));
+    // 群像网格（非核心场景）里的第一项应当是核心项 2，且序号从 1 开始
+    const grid = plan.scenes.find((s) => s.type === 'MEDIA_GRID' && !s.kicker);
+    expect(grid?.mediaIds?.[0]).toBe(2);
+    expect(grid?.numberFrom).toBe(1);
+  });
+
+  it('D：结尾前有「全片核心回顾」章节页 + 只含核心项的网格', () => {
+    const plan = buildScenePlan(input({
+      media: [
+        { ...media(1, 1, 2020, 0, '2020 年'), featured: true },
+        media(2, 2, 2020, 0, '2020 年'),
+        { ...media(3, 3, 2019, 0, '2019 年'), featured: true },
+      ],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+    } as Partial<MultiMediaPocInput>));
+    const recapAt = plan.scenes.findIndex((s) => s.type === 'GROUP_INTRO' && s.groupName === FEATURED_RECAP_TITLE);
+    expect(recapAt).toBeGreaterThan(-1);
+    // 回顾章节页之后必须紧跟一格网格，里面**只**放核心项，且在结尾之前
+    expect(plan.scenes[recapAt + 1].type).toBe('MEDIA_GRID');
+    expect(plan.scenes[recapAt + 1].mediaIds).toEqual([1, 3]);
+    expect(plan.scenes[recapAt + 1].numberFrom).toBe(1);
+    expect(plan.scenes.findIndex((s) => s.type === 'COLLECTION_ENDING')).toBeGreaterThan(recapAt);
+  });
+
+  it('无重点项时不产生多余资料卡', () => {
+    const plan = buildScenePlan(input({
+      media: [media(1, 1, 2020, 0, '2020 年'), media(2, 2, 2020, 0, '2020 年')],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+    } as Partial<MultiMediaPocInput>));
+    expect(plan.scenes.filter((s) => s.type === 'MEDIA_INFO')).toHaveLength(0);
+  });
+
+  it('D：结尾前有「全片重点回顾」章节页 + 重点项的网格', () => {
+    const plan = buildScenePlan(input({
+      media: [
+        { ...media(1, 1, 2020, 0, '2020 年'), featured: true },
+        media(2, 2, 2020, 0, '2020 年'),
+        { ...media(3, 3, 2019, 0, '2019 年'), featured: true },
+      ],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+    } as Partial<MultiMediaPocInput>));
+    const recapAt = plan.scenes.findIndex((s) => s.type === 'GROUP_INTRO' && s.groupName === FEATURED_RECAP_TITLE);
+    expect(recapAt).toBeGreaterThan(-1);
+    // 回顾章节页之后必须紧跟一格网格，里面**只**放重点项，且在结尾之前
+    expect(plan.scenes[recapAt + 1].type).toBe('MEDIA_GRID');
+    expect(plan.scenes[recapAt + 1].mediaIds).toEqual([1, 3]);
+    expect(plan.scenes.findIndex((s) => s.type === 'COLLECTION_ENDING')).toBeGreaterThan(recapAt);
+  });
+
+  it('无核心项时不产生「全片核心回顾」章节', () => {
+    const plan = buildScenePlan(input({
+      media: [media(1, 1, 2020, 0, '2020 年')],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+    } as Partial<MultiMediaPocInput>));
+    expect(plan.scenes.some((s) => s.groupName === FEATURED_RECAP_TITLE)).toBe(false);
   });
 });

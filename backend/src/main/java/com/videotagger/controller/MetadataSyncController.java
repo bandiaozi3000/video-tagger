@@ -49,10 +49,12 @@ public class MetadataSyncController {
 
     /**
      * 取某一段区间的候选（**只读**）。前端逐段调用以显示进度。
+     *
+     * `region` / `category` 可空 = 不限；非空时取并集当成 `filter.meta_tags`（**且**关系）。
      */
     @PostMapping("/discover/fetch")
     public SyncRangeFetchResult fetchRange(@RequestBody SyncRangeFetchRequest request) {
-        return service.discoverRange(request.from(), request.to());
+        return service.discoverRange(request.from(), request.to(), request.region(), request.category());
     }
 
     /**

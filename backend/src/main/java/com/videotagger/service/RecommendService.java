@@ -14,7 +14,9 @@ import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.CollectionMapper;
 import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.ExternalWorkMapper;
+import com.videotagger.mapper.MediaCollectionMapper;
 import com.videotagger.mapper.MediaFormatMapper;
+import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.MediaSubcategoryMapper;
 import com.videotagger.mapper.TagMapper;
 import org.slf4j.Logger;
@@ -55,6 +57,8 @@ public class RecommendService {
     }
 
     private final MediaService mediaService;
+    private final MediaMapper mediaMapper;
+    private final MediaCollectionMapper mediaCollectionMapper;
     private final TagMapper tagMapper;
     private final MediaSubcategoryMapper mediaSubcategoryMapper;
     private final MediaFormatMapper mediaFormatMapper;
@@ -65,7 +69,8 @@ public class RecommendService {
     private final ClipMapper clipMapper;
     private final ObjectMapper objectMapper;
 
-    public RecommendService(MediaService mediaService, TagMapper tagMapper,
+    public RecommendService(MediaService mediaService, MediaMapper mediaMapper,
+                            MediaCollectionMapper mediaCollectionMapper, TagMapper tagMapper,
                             MediaSubcategoryMapper mediaSubcategoryMapper,
                             MediaFormatMapper mediaFormatMapper, CoverService coverService,
                             CollectionMapper collectionMapper,
@@ -74,6 +79,8 @@ public class RecommendService {
                             ClipMapper clipMapper,
                             ObjectMapper objectMapper) {
         this.mediaService = mediaService;
+        this.mediaMapper = mediaMapper;
+        this.mediaCollectionMapper = mediaCollectionMapper;
         this.tagMapper = tagMapper;
         this.mediaSubcategoryMapper = mediaSubcategoryMapper;
         this.mediaFormatMapper = mediaFormatMapper;
@@ -154,31 +161,41 @@ public class RecommendService {
      * 只读 media / external_work / media_tag 三张表，**不读封面文件也不探测视频** —— 要能在 focus 里频繁调用。
      */
     public String metaFingerprint(List<Long> ids) {
+        // 批量取（2026-09-26）：以前这里也是 `for (id) mediaService.get(id)` = 8 条 SQL/部，
+        // 而它是**每次渲染输入都要算**的 —— 等于把刚批量化掉的开销又付一遍。
+        return fingerprintOf(ids, loadRenderMedia(ids));
+    }
+
+    /**
+     * 指纹正文。字段与顺序沿用旧实现（渲染输入与 `/meta-fingerprint` 共用）。
+     *
+     * ⚠️ 与旧实现的一处差异：标签用的是 {@link #loadRenderMedia} 已取的
+     * 「media ∪ episode ∪ clip，最多 {@link #MAX_TAG_COUNT} 个、跳过零引用」那组，
+     * 而旧的是 `media_tag` 单表全量。二者对「库里改没改过资料」同样敏感；
+     * 极端情况下（改动落在第 7 个以后的标签上）指纹不变，可用工具栏的「重新读取素材」手动重建。
+     */
+    private String fingerprintOf(List<Long> ids, List<RenderMedia> loaded) {
         if (ids == null || ids.isEmpty()) return "-";
         StringBuilder raw = new StringBuilder();
+        int cursor = 0;
         for (Long id : ids) {
             if (id == null) continue;
-            MediaDetail d;
-            try {
-                d = mediaService.get(id);
-            } catch (RuntimeException e) {
-                raw.append(id).append("\u0001missing");
-                continue;
-            }
+            // 两边同序：下一个已加载的 id 对不上就说明这个 id 缺失
+            RenderMedia d = cursor < loaded.size() && id.equals(loaded.get(cursor).id()) ? loaded.get(cursor++) : null;
             if (d == null) {
-                raw.append(id).append("\u0001missing");
+                raw.append(id).append('\u0001').append("missing");
                 continue;
             }
-            raw.append(d.id()).append('\u0001').append(d.title()).append('\u0001').append(d.originalTitle())
+            raw.append(d.id()).append('\u0001').append(d.title()).append('\u0001').append((String) null)
                     .append('\u0001').append(d.aliases()).append('\u0001').append(d.year()).append('\u0001')
                     .append(d.season()).append('\u0001').append(d.mediaFormat()).append('\u0001')
                     .append(d.subcategory()).append('\u0001').append(d.note()).append('\u0001')
                     .append(d.status()).append('\u0001').append(d.rating()).append('\u0001')
                     .append(d.coverPath()).append('\u0001').append(d.fallbackCoverPath()).append('\u0001')
-                    .append(d.externalCoverUrl()).append('\u0001').append(d.episodeCount()).append('\u0001')
-                    .append(d.clipCount()).append('\u0001').append(d.source());
-            for (com.videotagger.entity.Tag tag : d.tags() == null ? List.<com.videotagger.entity.Tag>of() : d.tags()) {
-                raw.append('\u0002').append(tag.getName());
+                    .append(d.externalCoverUrl()).append('\u0001').append(d.episodeRows()).append('\u0001')
+                    .append(d.clipCount()).append('\u0001').append(d.provider());
+            for (String tag : d.tagNames()) {
+                raw.append('\u0002').append(tag);
             }
         }
         try {
@@ -188,6 +205,7 @@ public class RecommendService {
         } catch (java.security.NoSuchAlgorithmException e) {
             return Integer.toHexString(raw.toString().hashCode());
         }
+
     }
 
     /**
@@ -201,7 +219,7 @@ public class RecommendService {
      * @param probeSeconds  素材时长探测（入参为工作目录相对的素材路径，返回秒）
      */
     public String buildRenderInput(List<Long> ids, String title, List<BgmTrack> bgmTracks, String subtitle,
-                                  String coverSize, String groupBy, String groupStyle, List<Long> openingIds,
+                                  String coverSize, String groupBy, String groupStyle, List<Long> openingIds, List<Long> featuredIds,
                                   String intro, Durations durations, String endingTitle, String endingText,
                                   String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity,
                                   Integer bgBlur, Integer bgBrightness, String prologueTitle, String groupSort,
@@ -227,17 +245,14 @@ public class RecommendService {
 
         List<Map<String, Object>> mediaViews = new ArrayList<>();
         // 先把媒体取出来（顺带**并发预热 Bangumi 封面**：几十张串行下载会让首次预览/渲染卡十几秒）
-        List<MediaDetail> details = new ArrayList<>();
-        for (Long id : ids) {
-            try {
-                details.add(mediaService.get(id));
-            } catch (RuntimeException e) {
-                log.warn("Remotion 输入跳过不存在的媒体 {}: {}", id, e.getMessage());
-            }
-        }
+        // 批量取（2026-09-26）：以前这里是 `for (id) mediaService.get(id)` = 18 条 SQL/部
+        List<RenderMedia> details = loadRenderMedia(ids);
         warmExternalCovers(details);
+        GroupContext groupCtx = loadGroupContext();
+        // 主色**只有银幕式用**（"每部一色"）：其余模板跳过 —— 它要解码整张封面，是全选后卡顿的大头之一
+        boolean needsAccent = "cinema".equals(styleOf(groupStyle));
         int order = 0;
-        for (MediaDetail d : details) {
+        for (RenderMedia d : details) {
             order++;
             List<RecommendClipSourceService.PreparedClip> clips =
                     preparedClips == null ? null : preparedClips.get(d.id());
@@ -246,7 +261,8 @@ public class RecommendService {
             view.put("order", order);
             view.put("mode", (clips == null || clips.isEmpty()) ? "INFO_ONLY" : "CLIPS_SELECTED");
             view.put("title", d.title() == null ? "" : d.title());
-            if (d.originalTitle() != null && !d.originalTitle().isBlank()) view.put("originalTitle", d.originalTitle());
+            // 注：`originalTitle` 不再输出 —— 旧路径里它恒为 null（MediaService.get 第 4 个参数就是 null），
+            // 写进去也没值；真要展示原名得从 aliases 推，属于另一件事。
             if (d.year() != null) view.put("year", d.year());
             if (d.season() != null) view.put("season", d.season());
             // 封面：**统一优先 Bangumi**（`external_work.cover_url` → 本地缓存 `covers/ext/`），本地封面退成兜底
@@ -255,21 +271,18 @@ public class RecommendService {
             String cover = resolveCover(d, bangumiCover, coverMode == null || coverMode.isBlank() ? "embed" : coverMode);
             if (cover != null && !cover.isBlank()) view.put("coverAssetPath", cover);
             // 每部一色：从**实际用到的**封面本地文件算主色（读不到 → 不填，渲染侧退到确定性兜底色）
-            String accent = coverService.accentColorForPath(
-                    bangumiCover != null && !bangumiCover.isBlank() ? bangumiCover : d.coverPath());
-            if (accent != null) view.put("accentColor", accent);
-            view.put("description", d.note() == null ? "" : d.note().trim());
-            List<String> tagNames = new ArrayList<>();
-            for (List<Object> tag : buildTags(d.id())) {
-                if (!tag.isEmpty() && tag.get(0) != null) tagNames.add(String.valueOf(tag.get(0)));
+            // 顺序跟上封面链：本地显式封面优先。**仅银幕式需要**（见上面的 needsAccent）
+            if (needsAccent) {
+                String accent = coverService.accentColorForPath(
+                        d.coverPath() != null && !d.coverPath().isBlank() ? d.coverPath() : bangumiCover);
+                if (accent != null) view.put("accentColor", accent);
             }
-            view.put("tags", tagNames);
+            view.put("description", d.note() == null ? "" : d.note().trim());
+            // 标签已随媒体批量取（以前每部一条 3 表 UNION）
+            view.put("tags", d.tagNames());
             // 番剧元数据（Bangumi/AniList 同步结果）：剧情简介 / 类型数组 / 总集数（v0.29 视觉重设计接线）
-            List<ExternalWork> works = externalWorkMapper.listByMedia(d.id());
-            ExternalWork work = works.stream()
-                    .filter((w) -> w.getDescription() != null && !w.getDescription().isBlank())
-                    .findFirst()
-                    .orElse(works.isEmpty() ? null : works.get(0));
+            // 作品行已在 loadRenderMedia 里按「有简介优先、否则第一条」选好
+            ExternalWork work = d.work();
             if (work != null) {
                 String synopsis = cleanSynopsis(work.getDescription());
                 if (synopsis != null) view.put("synopsis", synopsis);
@@ -277,15 +290,15 @@ public class RecommendService {
                 if (!genres.isEmpty()) view.put("genres", genres);
             }
             Integer episodeCount = work == null ? null : work.getEpisodeCount();
-            if (episodeCount == null) {
-                long rows = episodeMapper.countByMedia(d.id());
-                episodeCount = rows > 0 ? (int) rows : null;
-            }
+            if (episodeCount == null && d.episodeRows() > 0) episodeCount = d.episodeRows();
             if (episodeCount != null) view.put("episodeCount", episodeCount);
             if (d.subcategory() != null && !d.subcategory().isBlank()) view.put("subcategory", d.subcategory());
             // 分组名（Remotion 侧据此排章节页与组序）
-            String groupName = groupOf(d, groupBy);
+            String groupName = groupOf(d, groupBy, groupCtx);
             if (groupName != null) view.put("group", groupName);
+            // 重点项（2026-09-26 用户拍板 A+C+D）：编辑器手动 ★ 勾选 → 置位后由 scene-plan
+            // 负责「网格上带 ★ 角标 / 本组网格后逐部补资料卡 / 结尾汇总成重点回顾」。
+            if (featuredIds != null && featuredIds.contains(d.id())) view.put("featured", true);
 
             // 片段行：PreparedClip 只带渲染必需字段，tag / 所属集号得回查原始行
             Map<Long, Clip> clipRows = new HashMap<>();
@@ -337,7 +350,7 @@ public class RecommendService {
         root.put("media", mediaViews);
         // 素材信息指纹（2026-09-20 用户 A+B）：编辑器靠它判断“库里改过资料”，切回窗口时自动重建会话。
         // 放在根上而不是 params 里——它是元信息，不是渲染参数。
-        root.put("metaFingerprint", metaFingerprint(ids));
+        root.put("metaFingerprint", fingerprintOf(ids, details));
 
         Map<String, Object> p = new LinkedHashMap<>();
         p.put("title", title == null ? "" : title.trim());
@@ -504,23 +517,25 @@ public class RecommendService {
     }
 
     /** 分组维度取值：year → 「年份 年」；subcategory → 子分类路径；collection → 首个收藏夹名；none/未知 → null。 */
-    private String groupOf(MediaDetail d, String groupBy) {
+    private String groupOf(RenderMedia d, String groupBy, GroupContext ctx) {
         if (groupBy == null || groupBy.isBlank() || "none".equals(groupBy)) {
             return null;
         }
         return switch (groupBy) {
             case "year" -> d.year() == null ? "未知年份" : d.year() + " 年";
             case "subcategory" -> {
-                String sub = subcategoryPath(d.subcategoryId(), d.subcategory());
+                // 字典已预加载；取不到就退到快照名
+                String sub = d.subcategoryId() == null || d.subcategoryId() <= 0
+                        ? d.subcategory() : ctx.subcategoryPaths().getOrDefault(d.subcategoryId(), d.subcategory());
                 yield sub == null || sub.isBlank() ? "未分类" : sub;
             }
             case "collection" -> {
                 String name = null;
                 if (d.collectionIds() != null) {
                     for (Long cid : d.collectionIds()) {
-                        Collection c = collectionMapper.selectById(cid);
-                        if (c != null && c.getName() != null && !c.getName().isBlank()) {
-                            name = c.getName();
+                        String hit = ctx.collectionNames().get(cid);
+                        if (hit != null && !hit.isBlank()) {
+                            name = hit;
                             break; // 取首个收藏夹名（按 collection_id 排序）
                         }
                     }
@@ -540,15 +555,100 @@ public class RecommendService {
      *   2. 本地封面 `media.cover_path`；
      *   3. 预览（url）额外允许片段帧兜底 `/clip-images/...`（embed 读不到：`base64ForCoverPath` 只认 `/covers/`）。
      */
-    private String resolveCover(MediaDetail d, String bangumiCover, String coverMode) {
+    /**
+     * 渲染输入用的媒体视图：只含 `buildRenderInput` **真正消费**的字段
+     * （比 `MediaDetail` 轻很多，且不触发任何逐部查询）。
+     */
+    private record RenderMedia(Long id, String title, Integer year, Integer season, String aliases, String mediaFormat,
+                              String status, java.math.BigDecimal rating, String note, String coverPath, String subcategory,
+                              Long subcategoryId, String externalCoverUrl, String provider, int episodeRows, long clipCount,
+                              String fallbackCoverPath, List<String> tagNames, List<Long> collectionIds, ExternalWork work) {
+    }
+
+    /** 分组用的预加载字典（收藏夹名 + 子分类路径），避免 `groupOf` 逐部查库。 */
+    private record GroupContext(Map<Long, String> collectionNames, Map<Long, String> subcategoryPaths) {
+    }
+
+    /**
+     * 批量装载渲染输入所需的媒体。
+     *
+     * **为什么要它**（2026-09-26）：原先 `for (id : ids) mediaService.get(id)` + 循环里逐部查 tags/
+     * external_work/collections/子分类 = **18 条 SQL/部**、185-207ms/部；137 部要 25 秒、557 部超百秒。
+     * 现在 **6 条 SQL 封顶**（与 ids 数量无关）。
+     */
+    private List<RenderMedia> loadRenderMedia(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        Map<Long, MediaMapper.RenderMediaRow> rows = new HashMap<>();
+        for (MediaMapper.RenderMediaRow row : mediaMapper.listRenderBatch(ids)) rows.put(row.id(), row);
+
+        // 标签：批量取后按 media_id 分组；每部最多 MAX_TAG_COUNT 个、跳过零引用的（等价于原 buildTags）
+        Map<Long, List<String>> tagsByMedia = new HashMap<>();
+        for (TagMapper.MediaTagUsage usage : tagMapper.countByMediaIds(ids)) {
+            if (usage.refCount() <= 0) continue;
+            List<String> list = tagsByMedia.computeIfAbsent(usage.mediaId(), k -> new ArrayList<>());
+            if (list.size() < MAX_TAG_COUNT) list.add(usage.name() == null ? "" : usage.name());
+        }
+        Map<Long, List<Long>> collectionsByMedia = new HashMap<>();
+        for (MediaCollectionMapper.MediaCollectionRow row : mediaCollectionMapper.listByMediaIds(ids)) {
+            collectionsByMedia.computeIfAbsent(row.mediaId(), k -> new ArrayList<>()).add(row.collectionId());
+        }
+        Map<Long, List<ExternalWork>> worksByMedia = new HashMap<>();
+        for (ExternalWork work : externalWorkMapper.listByMediaIds(ids)) {
+            worksByMedia.computeIfAbsent(work.getMediaId(), k -> new ArrayList<>()).add(work);
+        }
+
+        List<RenderMedia> out = new ArrayList<>(ids.size());
+        for (Long id : ids) {                       // 按传入顺序输出（渲染序号 order 依赖它）
+            MediaMapper.RenderMediaRow row = rows.get(id);
+            if (row == null) {
+                log.warn("Remotion 输入跳过不存在的媒体 {}", id);
+                continue;
+            }
+            List<ExternalWork> works = worksByMedia.getOrDefault(id, List.of());
+            ExternalWork work = works.stream()
+                    .filter((w) -> w.getDescription() != null && !w.getDescription().isBlank())
+                    .findFirst()
+                    .orElse(works.isEmpty() ? null : works.get(0));
+            out.add(new RenderMedia(row.id(), row.title(), row.year(), row.season(), row.aliases(), row.mediaFormat(),
+                    row.status(), row.rating(), row.note(), row.coverPath(), row.subcategory(), row.subcategoryId(),
+                    row.externalCoverUrl(), row.provider(), (int) row.episodeRows(), row.clipCount(), row.fallbackCoverPath(),
+                    tagsByMedia.getOrDefault(id, List.of()), collectionsByMedia.getOrDefault(id, List.of()), work));
+        }
+        return out;
+    }
+
+    /** 预加载分组字典：收藏夹与子分类都是**小表**，一次取全即可（与媒体数量无关）。 */
+    private GroupContext loadGroupContext() {
+        Map<Long, String> names = new HashMap<>();
+        for (Collection c : collectionMapper.selectList(null)) {
+            if (c.getName() != null && !c.getName().isBlank()) names.put(c.getId(), c.getName());
+        }
+        Map<Long, MediaSubcategory> byId = new HashMap<>();
+        for (MediaSubcategory s : mediaSubcategoryMapper.selectList(null)) byId.put(s.getId(), s);
+        Map<Long, String> paths = new HashMap<>();
+        for (MediaSubcategory s : byId.values()) {
+            List<String> chain = new ArrayList<>();
+            MediaSubcategory cur = s;
+            for (int depth = 0; cur != null && depth < SUB_CATEGORY_DEPTH; depth++) {
+                chain.add(0, cur.getName());
+                cur = cur.getParentId() == null || cur.getParentId() <= 0 ? null : byId.get(cur.getParentId());
+            }
+            paths.put(s.getId(), String.join(" / ", chain));
+        }
+        return new GroupContext(names, paths);
+    }
+
+    private String resolveCover(RenderMedia d, String bangumiCover, String coverMode) {
+        // 2026-09-25 用户拍板：封面链改为「**本地显式封面 → Bangumi 封面 → 片段帧**」
+        // （以前 Bangumi 在前）。自动下载的本地封面已在对账时清掉，所以两级不会打架。
         if ("url".equals(coverMode)) {
-            if (bangumiCover != null && !bangumiCover.isBlank()) return bangumiCover;
             if (d.coverPath() != null && !d.coverPath().isBlank()) return d.coverPath();
+            if (bangumiCover != null && !bangumiCover.isBlank()) return bangumiCover;
             return d.fallbackCoverPath();
         }
-        String data = coverService.base64ForCoverPath(bangumiCover);
+        String data = coverService.base64ForCoverPath(d.coverPath());
         if (data == null) {
-            data = coverService.base64ForCoverPath(d.coverPath());
+            data = coverService.base64ForCoverPath(bangumiCover);
         }
         if (data == null) {
             data = coverService.base64ForCoverPath(d.fallbackCoverPath());
@@ -557,9 +657,9 @@ public class RecommendService {
     }
 
     /** Bangumi 封面预热：并发拉进 `covers/ext/`（已缓存瞬间返回；单张失败不影响其它）。 */
-    private void warmExternalCovers(List<MediaDetail> details) {
+    private void warmExternalCovers(List<RenderMedia> details) {
         List<Callable<Void>> tasks = new ArrayList<>();
-        for (MediaDetail detail : details) {
+        for (RenderMedia detail : details) {
             String url = detail.externalCoverUrl();
             if (url == null || url.isBlank()) continue;
             tasks.add(() -> {
@@ -600,21 +700,6 @@ public class RecommendService {
         }
         return String.join(" / ", names);
     }
-
-    /** 标签热度：countByMedia 过滤 refCount>0，取前 N（次数降序）。 */
-    private List<List<Object>> buildTags(Long mediaId) {        List<List<Object>> tags = new ArrayList<>();
-        for (TagUsage u : tagMapper.countByMedia(mediaId)) {
-            if (tags.size() >= MAX_TAG_COUNT) {
-                break;
-            }
-            if (u.refCount() <= 0) {
-                continue;
-            }
-            tags.add(List.of(u.name() == null ? "" : u.name(), u.refCount()));
-        }
-        return tags;
-    }
-
 
     /** 推荐模板归一化：chapter/clip 为正式模板；历史 stream/overview 回退到 chapter。 */
     private static String normalizeStyle(String groupStyle) {

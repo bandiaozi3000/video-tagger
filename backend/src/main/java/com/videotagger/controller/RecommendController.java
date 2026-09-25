@@ -66,7 +66,7 @@ public class RecommendController {
                                          String bgmName, String bgmBase64, String groupBy, String groupStyle,
                                          String subtitle, String coverSize,
                                          List<RecommendService.BgmTrack> bgmTracks,
-                                         List<Long> openingIds, String intro,
+                                         List<Long> openingIds, List<Long> featuredIds, String intro,
                                          Integer openingSec, Integer introSec, Integer groupSec,
                                          Integer detailSec, Integer endingSec,
                                          String endingTitle, String endingText,
@@ -144,7 +144,7 @@ public class RecommendController {
                 body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec(), body.titleSec());
         int[] wh = RecommendVideoService.pixelsOf(body.resolution());
         String inputJson = recommendService.buildRenderInput(body.ids(), body.title(), tracks,
-                body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.intro(),
+                body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.featuredIds(), body.intro(),
                 dur, body.endingTitle(), body.endingText(), body.bgColor(), body.bgImages(), body.bgRotationSec(),
                 body.bgOpacity(), body.bgBlur(), body.bgBrightness(), body.prologueTitle(), body.groupSort(),
                 body.openingSpeed(), body.endingScrollSpeed(), body.bgmScale(), body.bgmX(), body.bgmY(),
@@ -212,7 +212,7 @@ public class RecommendController {
         VideoExportTaskService.VideoExportTask t = exportTaskService.create(
                 body.ids(), body.title(), fmt, body.resolution(), bgmPaths, bgmTracks,
                 body.groupBy(), body.groupStyle(), body.subtitle(), body.coverSize(),
-                body.openingIds(), body.intro(), dur, body.endingTitle(), body.endingText(),
+                body.openingIds(), body.featuredIds(), body.intro(), dur, body.endingTitle(), body.endingText(),
                 body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(),
                 body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(),
                 body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(),

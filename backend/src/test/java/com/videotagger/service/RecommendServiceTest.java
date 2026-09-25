@@ -8,13 +8,17 @@ import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.CollectionMapper;
 import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.ExternalWorkMapper;
+import com.videotagger.mapper.MediaCollectionMapper;
 import com.videotagger.mapper.MediaFormatMapper;
+import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.MediaSubcategoryMapper;
 import com.videotagger.mapper.TagMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -23,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -35,6 +40,8 @@ import static org.mockito.Mockito.when;
 class RecommendServiceTest {
 
     MediaService mediaService;
+    MediaMapper mediaMapper;
+    MediaCollectionMapper mediaCollectionMapper;
     TagMapper tagMapper;
     MediaSubcategoryMapper subMapper;
     MediaFormatMapper formatMapper;
@@ -44,10 +51,14 @@ class RecommendServiceTest {
     EpisodeMapper episodeMapper;
     ClipMapper clipMapper;
     RecommendService service;
+    /** 测试夹具：`media(...)` 注册进来，`listRenderBatch` 从这里答复（等价于一条批量 SQL）。 */
+    final Map<Long, MediaDetail> fixtures = new LinkedHashMap<>();
 
     @BeforeEach
     void setUp() {
         mediaService = mock(MediaService.class);
+        mediaMapper = mock(MediaMapper.class);
+        mediaCollectionMapper = mock(MediaCollectionMapper.class);
         tagMapper = mock(TagMapper.class);
         subMapper = mock(MediaSubcategoryMapper.class);
         formatMapper = mock(MediaFormatMapper.class);
@@ -57,18 +68,38 @@ class RecommendServiceTest {
         externalWorkMapper = mock(ExternalWorkMapper.class);
         episodeMapper = mock(EpisodeMapper.class);
         clipMapper = mock(ClipMapper.class);
-        service = new RecommendService(mediaService, tagMapper, subMapper, formatMapper,
-                coverService, collectionMapper, externalWorkMapper, episodeMapper, clipMapper, new ObjectMapper());
-        when(tagMapper.countByMedia(anyLong())).thenReturn(List.of());
+        service = new RecommendService(mediaService, mediaMapper, mediaCollectionMapper, tagMapper, subMapper,
+                formatMapper, coverService, collectionMapper, externalWorkMapper, episodeMapper, clipMapper,
+                new ObjectMapper());
+        // 2026-09-26 起 buildRenderInput 走**批量取数**（不再逐部 mediaService.get）：
+        // 下面把夹具表映射成批量投影，原来的 `when(mediaService.get(X)).thenReturn(media(...))` 照样管用。
+        when(mediaMapper.listRenderBatch(anyList())).thenAnswer((invocation) -> {
+            List<Long> ids = invocation.getArgument(0);
+            List<MediaMapper.RenderMediaRow> rows = new ArrayList<>();
+            for (Long id : ids) {
+                MediaDetail d = fixtures.get(id);
+                if (d == null) continue;                 // 缺失媒体 → 不出现在批量结果里 → 渲染输入跳过它
+                rows.add(new MediaMapper.RenderMediaRow(d.id(), d.title(), d.year(), d.season(), d.aliases(),
+                        d.mediaFormat(), d.status(), d.rating(), d.note(), d.coverPath(), d.subcategory(),
+                        d.subcategoryId(), d.externalCoverUrl(), d.source(), d.episodeCount(), d.clipCount(),
+                        d.fallbackCoverPath()));
+            }
+            return rows;
+        });
+        when(tagMapper.countByMediaIds(anyList())).thenReturn(List.of());
+        when(mediaCollectionMapper.listByMediaIds(anyList())).thenReturn(List.of());
+        when(collectionMapper.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+        when(subMapper.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
         when(coverService.base64ForCoverPath(org.mockito.ArgumentMatchers.any())).thenReturn("AAA");
-        when(externalWorkMapper.listByMedia(anyLong())).thenReturn(List.of());
-        when(episodeMapper.countByMedia(anyLong())).thenReturn(0L);
+        when(externalWorkMapper.listByMediaIds(anyList())).thenReturn(List.of());
     }
 
     private MediaDetail media(long id, String title, Integer year) {
-        return new MediaDetail(id, title, year, "原名" + id, "别名", "ANIME", "异世界", 5L, "简介" + id, "WANT",
+        MediaDetail d = new MediaDetail(id, title, year, "原名" + id, "别名", "ANIME", "异世界", 5L, "简介" + id, "WANT",
                 BigDecimal.ONE, "/covers/" + id + ".jpg", 1, "MANUAL", 1L, 3L, 1L,
                 List.of(), List.of(), "/covers/clip/" + id + "-fallback.jpg");
+        fixtures.put(id, d);
+        return d;
     }
 
     /** 只填必要参数的调用：其余走 Java 默认值（与前端空提交等价）。 */
@@ -83,7 +114,7 @@ class RecommendServiceTest {
                                List<RecommendService.BgmTrack> bgmTracks, List<String> bgmPaths,
                                Map<Long, List<RecommendClipSourceService.PreparedClip>> clips, String preset) {
         return service.buildRenderInput(ids, "标题", bgmTracks, "副标题", "50", groupBy, style,
-                List.of(), "序言", service.normalizeDurations(null, null, null, null, null, null),
+                List.of(), List.of(), "序言", service.normalizeDurations(null, null, null, null, null, null),
                 "结尾标题", "结尾文案", "", List.of(), 8, 100, 0, 50,
                 "序言标题", "date-desc", 50, 50, 100, 1, 8, "品牌", 1, null, preset,
                 clips == null ? Map.of() : clips, "embed", 30, 1280, 720, bgmPaths,
@@ -132,7 +163,8 @@ class RecommendServiceTest {
         sub.setId(3L);
         sub.setName("异世界");
         sub.setParentId(0L);
-        when(subMapper.selectById(3L)).thenReturn(sub);
+        // 2026-09-26 起子分类字典**一次取全**（loadGroupContext → selectList），不再逐部 selectById
+        when(subMapper.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of(sub));
         JsonNode node = parse(renderInput(List.of(1L), "subcategory", null, null, null, null));
         assertEquals("异世界", node.get("media").get(0).get("group").asText());
     }

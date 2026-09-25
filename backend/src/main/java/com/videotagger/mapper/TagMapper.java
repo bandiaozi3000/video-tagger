@@ -50,6 +50,28 @@ public interface TagMapper extends BaseMapper<Tag> {
             + "ORDER BY ref_count DESC, t.id")
     List<TagUsage> countByMedia(@Param("mediaId") long mediaId);
 
+    /** 批量版标签计数（渲染输入用）：一次取多部媒体的标签名与引用数，按 media_id + 引用次数倒序。 */
+    @Select("<script>"
+            + "SELECT x.media_id AS mediaId, t.name AS name, COUNT(*) AS refCount "
+            + "FROM tag t JOIN ("
+            + "SELECT mt.tag_id AS tid, mt.media_id AS media_id FROM media_tag mt WHERE mt.media_id IN "
+            + "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach> "
+            + "UNION ALL "
+            + "SELECT et.tag_id AS tid, e.media_id AS media_id FROM episode_tag et JOIN episode e ON e.id = et.episode_id WHERE e.media_id IN "
+            + "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach> "
+            + "UNION ALL "
+            + "SELECT ct.tag_id AS tid, e.media_id AS media_id FROM clip_tag ct JOIN clips c ON c.id = ct.clip_id "
+            + "JOIN episode e ON e.id = c.episode_id WHERE e.media_id IN "
+            + "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach>"
+            + ") x ON x.tid = t.id "
+            + "GROUP BY x.media_id, t.id, t.name ORDER BY x.media_id, refCount DESC, t.id"
+            + "</script>")
+    List<MediaTagUsage> countByMediaIds(@Param("ids") List<Long> ids);
+
+    /** 媒体维度的标签使用行（批量用；与 {@link TagUsage} 的区别是带上了 media_id）。 */
+    record MediaTagUsage(Long mediaId, String name, long refCount) {
+    }
+
     /** 某集范围内标签 + 该集内引用次数（集本身 episode_tag ∪ 其下片段 clip_tag）。 */
     @Select("SELECT t.id, t.name, t.created_at, 0 AS media_count, 0 AS episode_count, 0 AS clip_count, COUNT(*) AS ref_count "
             + "FROM tag t JOIN ("

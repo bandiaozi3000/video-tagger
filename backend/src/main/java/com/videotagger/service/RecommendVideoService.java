@@ -129,18 +129,18 @@ public class RecommendVideoService {
     }
 
     public Path render(List<Long> ids, String resolution) {
-        return render(ids, null, null, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null, null, null, null, null, null, null, null, null, null);
+        return render(ids, null, null, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null, null, null, null, null, null, null, null, null, null);
     }
 
     /** 渲染推荐媒体为视频（无 BGM）。 */
     public Path render(List<Long> ids, String title, String format, String resolution) {
-        return render(ids, title, format, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null, null, null, null, null, null, null, null, null, null);
+        return render(ids, title, format, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null, null, null, null, null, null, null, null, null, null);
     }
 
     /** 渲染推荐媒体为视频（单曲 BGM，兼容旧签名）。 */
     public Path render(List<Long> ids, String title, String format, String resolution, String bgmPath) {
         return render(ids, title, format, resolution,
-                bgmPath == null || bgmPath.isBlank() ? null : List.of(bgmPath), null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null, null, null, null, null, null, null, null, null, null);
+                bgmPath == null || bgmPath.isBlank() ? null : List.of(bgmPath), null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null, null, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -162,7 +162,7 @@ public class RecommendVideoService {
      */
     public Path render(List<Long> ids, String title, String format, String resolution, List<String> bgmPaths,
                        List<RecommendService.BgmTrack> bgmTracks, String groupBy, String groupStyle,
-                       String subtitle, String coverSize, List<Long> openingIds, String intro,
+                       String subtitle, String coverSize, List<Long> openingIds, List<Long> featuredIds, String intro,
                        RecommendService.Durations durations, String endingTitle, String endingText,
                        String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
                        String prologueTitle,
@@ -173,7 +173,7 @@ public class RecommendVideoService {
                        String stingPath, Integer stingVolume, java.nio.file.Path workDir,
                        RenderCallbacks callbacks) {
         return render(ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle,
-                subtitle, coverSize, openingIds, intro, durations, endingTitle, endingText, bgColor,
+                subtitle, coverSize, openingIds, featuredIds, intro, durations, endingTitle, endingText, bgColor,
                 bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort,
                 openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, null, null, seed, clipVolume, bgmRange,
                 stingPath, stingVolume, workDir, callbacks);
@@ -181,7 +181,7 @@ public class RecommendVideoService {
 
     public Path render(List<Long> ids, String title, String format, String resolution, List<String> bgmPaths,
                        List<RecommendService.BgmTrack> bgmTracks, String groupBy, String groupStyle,
-                       String subtitle, String coverSize, List<Long> openingIds, String intro,
+                       String subtitle, String coverSize, List<Long> openingIds, List<Long> featuredIds, String intro,
                        RecommendService.Durations durations, String endingTitle, String endingText,
                        String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
                        String prologueTitle,
@@ -224,7 +224,7 @@ public class RecommendVideoService {
                 preparedClips = result.byMedia();
             }
             return renderWithRemotion(work, ids, title, fmt, wh, bgmPaths, bgmTracks, groupBy, groupStyle,
-                    openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
+                    openingIds, featuredIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
                     bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed,
                     endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset, preparedClips,
                     subtitle, coverSize, seed, clipVolume, bgmRange, stingPath, stingVolume, callbacks);
@@ -243,7 +243,7 @@ public class RecommendVideoService {
      */
     private Path renderWithRemotion(Path work, List<Long> ids, String title, String fmt, int[] wh,
                                     List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
-                                    String groupBy, String groupStyle, List<Long> openingIds, String intro,
+                                    String groupBy, String groupStyle, List<Long> openingIds, List<Long> featuredIds, String intro,
                                     RecommendService.Durations durations, String endingTitle, String endingText,
                                     String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity,
                                     Integer bgBlur, Integer bgBrightness, String prologueTitle, String groupSort,
@@ -289,7 +289,7 @@ public class RecommendVideoService {
         }
 
         String inputJson = recommendService.buildRenderInput(ids, title, audioTracks, subtitle, coverSize, groupBy,
-                groupStyle, openingIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
+                groupStyle, openingIds, featuredIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
                 bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale,
                 bgmX, bgmY, brandTitle, perScreen, detailShow, preset, preparedClips, "embed",
                 RecommendService.fpsOf(groupStyle), wh[0], wh[1],

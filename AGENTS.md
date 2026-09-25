@@ -43,6 +43,9 @@
 - 双库演进：**已冻结**——只维护 MySQL Flyway VNN；SQLite 侧（`migration-sqlite/vNN.sql`、`sqlite-schema.sql` 基线、`SqliteSchemaMigrator` 版本断言）不再同步维护。解冻清单见 `docs/rules.md` §13。
 - **「同步番剧」= 弹窗直连（2026-09-21 简化，勿复活旧工作区）**：年/季/月多选 → 拉取候选 → 勾选 → 直接同步 → 报条数；旧的独立审核工作区 / 后台任务表 / 草稿已删（V38 删表），详见 `docs/rules.md` §16。更新路径**不动本地 media 字段**（标题/年份/备注/评分/状态/封面一律不写）。
 - 记忆同步：改规则 → 同步 `docs/rules.md` 清单（Pi 不读 `~/.claude/.../memory/`）。
+- **「全量同步」= 按筛选条件跳过拉取候选直接同步（2026-09-25 拍板）**：与弹窗逐条勾选**同源**（同一 `SyncActionDecider` + 同一 commit），故幂等；任务表 V41，与对账共用单线程 `mediaBatchExecutor`。**改这块前必读 `docs/rules.md` §18**（尤其「取消随机失效」那个坑：循环内绝不能 `updateById(job)` 写进度，会把 `CANCELLED` 覆盖回 `RUNNING`）。
+- **媒体页筛选（2026-09-25 重构）**：主行 = 搜索 + `⚙ 筛选(n)` + 条件 chips（各带 ×）+ 清空，排序/视图归右侧；浮层左栏维度、右栏取值（**带计数**），点选即时生效、面板不关。**维度 AND；题材多选、同维度内 OR。** **改这块前必读 `docs/rules.md` §19**（题材为什么要白名单：Bangumi tag 全库 17871 个值、人名/公司/年份/吐槽全混着；以及「浮层被自己关掉」那个坑：判外部点击**只能用 mousedown**，click 阶段 `contains`/`composedPath` 都失效）。
+- **媒体库对账「清理未关联」（2026-09-25 已在真库执行）**：无 Bangumi 关联且无引用 → 删；有引用且能精确关联（**含 `infobox.别名`**）→ 关联；剩余 → 删。**改这块前必读 `docs/rules.md` §17**（OFFSET 分页两种模式都不成立、删除要补 `media_entry`/`title_mapping`/`highlight_project`、`mvn spring-boot:run` 的工作目录会被解析成 cover-dir 导致封面静默删不掉）。
 
 ## 3. 环境事实（本机）
 
@@ -54,6 +57,11 @@
 - **MySQL 备份监工（2026-09-20 用户指令）**：后端启动时由 `config/BackupWatcherLauncher` 自动拉起 `scripts/backup-mysql-watch.ps1`（幂等：容器健康→**立刻备一次**→之后每 60 分钟；双写 `data/backup/` + `%LOCALAPPDATA%\VideoTagger\backup`；留 3 代；全局互斥 `Global\VideoTagger-MySqlBackupWatcher`），每 5 分钟看护重拉（子进程退出码 0 = 已有实例在跑→不重拉）。它是**守护**：不随后端退出而终止（后端重启/关掉都不影响备份节奏）。开关 `videotagger.backup.enabled`（`BACKUP_WATCHER_ENABLED=false`）。`scripts/install-backup-watcher.ps1`（计划任务）**变成可选**，两个渠道靠互斥共存。查看日志：`%LOCALAPPDATA%\VideoTagger\backup\backup-watcher.log`；手动停：`Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | ? CommandLine -like '*backup-mysql-watch*' | % { Stop-Process -Id $_.ProcessId -Force }`。
 - **PowerShell + Docker 探测的坑（2026-09-20 实测）**：`$ErrorActionPreference='Stop'` 时，原生命令（`docker info`）往 stderr 写会变成**终止性异常**，Docker Desktop 重启的那几分钟会让监工直接自杀退出（当天日志里发生两次）→ 脚本里所有 docker 调用必须走 `Invoke-DockerQuiet` 包装（临时改 `Continue` + 只看 `$LASTEXITCODE`）。
 - 银幕式（cinema）字体：内嵌在 `backend/remotion/public/fonts/`，由 `src/cinema/fonts.tsx` 注入；**别再拿文件名当族名**（`阿里巴巴普惠体 2 115 Black` 在 Windows 上永不命中，系统真名是 `阿里巴巴普惠体 2.0` / `Mona Sans`，只当兜底）。开场时长由用户设置直接决定（`scan = 55%`），掠影拍点在短场景下会等比压缩。
-- **媒体封面取值链（2026-09-20 用户定稿，全应用统一）**：**Bangumi 封面（`external_work.cover_url`）→ 显式封面（`media.cover_path`）→ 代表片段帧（`fallback_cover_path`）**。前端唯一实现在 `static/app.js` 的 `mediaCoverSources/mediaCoverSrc/mediaCoverAttrs`（三处：卡片/列表行/搜索卡/回收站/详情都是它）；编辑器同序（`editor/panes.tsx`）；推荐视频与单集推荐后端同序（`RecommendService.resolveCover` / `RecommendSingleService.firstCover`）。**新加封面展示位请走这条链，别再写 `coverPath || fallbackCoverPath || ...`**（旧顺序会让片段帧盖掉 Bangumi）。
+- **媒体封面取值链（2026-09-25 用户拍板反转，全应用统一）**：**显式封面（`media.cover_path`）→ Bangumi 封面（`external_work.cover_url`）→ 代表片段帧（`fallback_cover_path`）**。
+  - 反转理由：「**手动上传的封面以本地为准**」；而**自动下载的本地封面在对账时已全部清掉**（`media_reconcile`），所以这两级实际不会打架。
+  - 前端唯一实现在 `static/app.js` 的 `mediaCoverSources/mediaCoverSrc/mediaCoverAttrs`（卡片/列表行/搜索卡/回收站/详情都走它）；编辑器同序（`backend/remotion/editor/panes.tsx`）；推荐视频与单集推荐后端同序（`RecommendService.resolveCover` / `RecommendSingleService.firstCover`）。
+  - **新加封面展示位请走这条链**，别再手写 `externalCoverUrl || coverPath || ...`。
+  - Bangumi 封面缓存位置：`CoverService.ensureExternalCover` → `covers/ext/<mediaId>.<ext>`，**故意不写 `media.cover_path`**。
+  - 目录约定（别混）：`covers/<数字>.<ext>`=media 封面、`covers/clip/`=片段、`covers/ep/`=单集、`covers/ext/`=Bangumi 缓存。
 - 推荐视频渲染：`chapter`（含 `stream`/`overview` 回退）走 **Remotion**（`backend/remotion`，需先在该目录 `npm install`；可用 `RENDER_REMOTION_DIR` 覆盖）；`clip` 样式仍走旧 Puppeteer `render.js`。`RENDER_FFPROBE_PATH` 不配则按 ffmpeg 同目录探测（探不到时会先试一次混合再回退，会多一条 WARN）。Player 预览页需先在 `backend/remotion` 跑 `npm run build:player`（产出 `dist-player/`，已 gitignore；产物不存在时 `/preview` 自动回退旧 HTML）。
 - **推荐时间轴帧率按模板形态（2026-09-20 用户拍板）**：`RecommendService.fpsOf(groupStyle)` → **银幕式 = 24fps**（番剧素材实测清一色 23.976；24fps 时间轴下逐帧都落在真帧上，不再每 5 帧补一帧，且素材零重编码直通），**其余模板 = 30fps**（旧行为一字不动）。预览（`RecommendController`）与导出（`RecommendVideoService`）两个调用点都必须用 `fpsOf`，片段准备 `RecommendClipSourceService.prepare(..., fps)` 也要传同一个值（其 0.05 容差让 23.976 直通）。**判“帧节奏是否均匀”只能用帧间差**（`tblend=all_mode=difference,signalstats` 的 YAVG），**不能用 md5**（h264 重编码会把同内容像素改写 ±1 → 假阴性）。

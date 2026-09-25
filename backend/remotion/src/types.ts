@@ -53,6 +53,16 @@ export interface PocMedia {
   subcategory?: string;
   /** 分组名（由 Java 侧按 `groupBy` 计算，含"未分组/未知年份"等兜底文案）；无分组时缺省。 */
   group?: string;
+  /**
+   * 重点项（用户在编辑器里手动 ★ 勾选；Java 侧按 `featuredIds` 置位）。
+   *
+   * 语义（2026-09-26 用户拍板「A+C+D」）：
+   *   - 组内群像网格上带 ★ 角标与强调描边（A）；
+   *   - 本组网格放完后，**逐部**补一幕资料卡（C，复用 MEDIA_INFO）；
+   *   - 全片结尾前再把各组的重点汇总成「全片重点回顾」章节（D）。
+   * 组内数量**不设上限**（用户要自由选），但每部会吃掉 `durations.detail` 秒。
+   */
+  featured?: boolean;
   /** 从封面实测提取的主色（`CoverService.accentColorForPath`，「银幕式」模板的"每部一色"）。 */
   accentColor?: string;
   clips: PocClip[];
@@ -84,6 +94,17 @@ export interface Scene {
   /** GROUP_INTRO 用：组名与组序（强调色轮转依据）。 */
   groupName?: string;
   groupIndex?: number;
+  /**
+   * MEDIA_GRID / MEDIA_INFO 用：**本地序号起点**（1 基）。
+   *
+   * ⚠️ 不用 `PocMedia.order`（那是 Java 侧按请求顺序编的**全局**序号，1..N）：
+   * 画面是按分组重排的，两者不同源 —— 全局号在第二组起就是 88…159，
+   * 重点回顾里更是 03/128/402 乱跳（用户 2026-09-26 报「数量排一会 500 一会几十」）。
+   * 现在按**组内**从 1 数；重点回顾按回顾顺序从 1 数。
+   */
+  numberFrom?: number;
+  /** MEDIA_GRID 用：本屏的题头（如「本组核心」）；缺省用组名行。 */
+  kicker?: string;
   fromFrame: number;
   durationInFrames: number;
 }

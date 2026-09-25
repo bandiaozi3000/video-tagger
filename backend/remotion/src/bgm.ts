@@ -1,5 +1,6 @@
 import { interpolate } from 'remotion';
 import type { RenderParams } from './params';
+import { CORE_KICKER } from './scene-plan';
 
 /**
  * BGM 时间轴与增益曲线（帧为单位）——UI 与音频共用同一份计算，避免"条上显示的"和"听到的"不一致。
@@ -40,8 +41,9 @@ export interface BgmPlanLike {
   fps: number;
   durationInFrames: number;
   audioWindows: Array<{ fromFrame: number; toFrame: number }>;
-  /** 银幕式传真场景表（片名卡窗口靠它定位）；旧模板不传 → 只支持开场/结尾窗口。 */
-  scenes?: Array<{ type: string; fromFrame: number; durationInFrames: number }>;
+  /** 银幕式传真场景表（片名卡窗口靠它定位）；旧模板不传 → 只支持开场/结尾窗口。
+   *  `kicker` 用于识别 chapter 的**组首「本组核心」区**（转场音挂点，2026-09-26）。 */
+  scenes?: Array<{ type: string; fromFrame: number; durationInFrames: number; kicker?: string }>;
 }
 
 export interface BgmSlot {
@@ -248,7 +250,9 @@ export interface StingSlot {
 export function stingTimeline(params: RenderParams, plan: BgmPlanLike): StingSlot[] {
   if (!params.stingPath) return [];
   return (plan.scenes ?? [])
-    .filter((scene) => scene.type === 'TITLE' && scene.durationInFrames > 0)
+    // 银幕式的片名卡（TITLE）与 chapter 的**组首「本组核心」区**（2026-09-26 用户选 ④ 音画同步：
+    // 金色扫光 + ★ 弹入与音效同帧落下）。注：chapter 之前**完全没有** sting 挂点。
+    .filter((scene) => scene.type === 'TITLE' || scene.kicker === CORE_KICKER)
     .map((scene) => ({ fromFrame: scene.fromFrame, durationInFrames: scene.durationInFrames }));
 }
 

@@ -48,6 +48,7 @@ export function defaultConfig(): EditorConfig {
     bgmY: 8,
     bgmRange: 'all',
     openingIds: [],
+    featuredIds: [],
     clipVolume: 100,
     seed: rollSeed(),
     preset: 'starlit',
@@ -113,6 +114,13 @@ export function sessionSignature(config: EditorConfig): string {
     ids: config.ids,
     clips: config.mediaClips,
     groupBy: config.groupBy,
+    // ⚠️ `groupStyle` 必须在内：**主色（accentColor）只有银幕式才由后端计算**（2026-09-26 起），
+    // 且它就在渲染输入里 —— 不把模板形态并进签名，chapter ↔ cinema 互切时不会重取输入，
+    // 银幕式会拿不到主色而退到兜底色。
+    groupStyle: config.groupStyle,
+    // `featuredIds` 也在内：★ 重点会**改变场景结构**（组内补资料卡 + 结尾重点回顾），
+    // 后端得重算 scene-plan。
+    featured: config.featuredIds,
     bgm: config.bgmTracks.map((t) => `${t.name}:${t.base64?.length ?? 0}`),
     sting: config.stingTracks.map((t) => `${t.name}:${t.base64?.length ?? 0}`),
   });

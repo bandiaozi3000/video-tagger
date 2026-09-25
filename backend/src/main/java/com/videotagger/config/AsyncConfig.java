@@ -74,6 +74,27 @@ public class AsyncConfig {
         return executor;
     }
 
+    /**
+     * 媒体库批处理：对账（要打上千次 Bangumi 搜索 + 可能物理删几千条 media）与
+     * 「全量同步」（按年份范围逐季拉，1.4 万条 / 2–4 小时）**共用这一条单线程**。
+     *
+     * 单线程是**故意的**：两者都在猛打 Bangumi，串行才不会触发限流；
+     * 且**不能**跟抓取/导出共池（那样会把封面队列与渲染队列堵死）。
+     * ⚠️ `queueCapacity` **不能是 0**：单线程正忙时提交新任务会被直接**拒绝**，
+     * `@Async` 方法压根不跑，任务行就永远停在 PENDING（2026-09-25 实测：取消一个任务后
+     * 立刻再起一个，新任务卡死）。给个小队列，让它排队等前一个跑完。
+     */
+    @Bean("mediaBatchExecutor")
+    public Executor mediaBatchExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(8);
+        executor.setThreadNamePrefix("media-batch-");
+        executor.initialize();
+        return executor;
+    }
+
     @Bean("highlightExportExecutor")
     public Executor highlightExportExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

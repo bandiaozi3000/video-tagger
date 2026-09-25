@@ -61,7 +61,7 @@ class MediaExportDedupeIT extends AbstractMySqlIT {
         assertEquals("番外篇", pairs.get(0).relationType());
 
         List<MediaExportRow> rows = mediaService.listExport(null, null, null, null, null, null, null, null, null,
-                List.of(base, ova));
+                List.of(base, ova), null, null);
         Map<Long, MediaExportRow> byId = rows.stream().collect(java.util.stream.Collectors.toMap(MediaExportRow::id, row -> row));
         assertEquals(2, rows.size());
         assertNull(byId.get(base).seriesBaseId(), "本体自己 seriesBaseId 为空 → 去重时保留");
@@ -77,7 +77,7 @@ class MediaExportDedupeIT extends AbstractMySqlIT {
         link(a, "it-vn", "it-drama", "广播剧");   // 白名单外
 
         List<MediaExportRow> rows = mediaService.listExport(null, null, null, null, null, null, null, null, null,
-                List.of(a, b));
+                List.of(a, b), null, null);
         for (MediaExportRow row : rows) {
             assertNull(row.seriesBaseId(), "广播剧不是同系列视频 → 不该被折叠");
         }

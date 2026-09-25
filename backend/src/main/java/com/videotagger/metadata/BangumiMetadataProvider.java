@@ -34,6 +34,18 @@ public class BangumiMetadataProvider implements MetadataProvider {
     private static final int MAX_ATTEMPTS = 3;
     private static final long REQUEST_DELAY_MS = 150;
 
+    /** 地区筛选白名单（Bangumi 公共标签 `meta_tags` 实测值，不是杜撰的枚举）。 */
+    private static final Set<String> REGIONS = Set.of("日本", "中国", "美国", "欧美");
+
+    /**
+     * 分类筛选白名单（同样是 `meta_tags`，2026-09-25 真接口实测）。
+     *
+     * Bangumi 网页筛「分类」时能看到一个「其他」——那是**站点自己的兜底项，不是公共标签**：
+     * 带 `meta_tags:["其他"]` 查任何区间恒为 0 条，所以故意不列。同理，未知标签不会报错，
+     * 只会**静默返回 0 条**，所以必须白名单卡住，不能让打错的一个字变成「拉了 0 条候选」。
+     */
+    private static final Set<String> CATEGORIES = Set.of("TV", "WEB", "OVA", "剧场版", "动态漫画");
+
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final String baseUrl;
@@ -91,24 +103,30 @@ public class BangumiMetadataProvider implements MetadataProvider {
             throw new MetadataProviderException("年份无效", 422);
         }
         List<String> dates = dateRange(year, season);
-        return discoverByDates(dates, limit);
+        return discoverByDates(dates, null, null, limit);
     }
 
     @Override
-    public List<MetadataRecord> discoverRange(String from, String to, int limit) throws MetadataProviderException {
+    public List<MetadataRecord> discoverRange(String from, String to, String region, String category, int limit) throws MetadataProviderException {
         if (from == null || to == null || !from.matches("\\d{4}-\\d{2}-\\d{2}") || !to.matches("\\d{4}-\\d{2}-\\d{2}")) {
             throw new MetadataProviderException("日期区间无效（应为 YYYY-MM-DD）", 422);
         }
         if (from.compareTo(to) >= 0) {
             throw new MetadataProviderException("日期区间必须 from < to", 422);
         }
-        return discoverByDates(List.of(">=" + from, "<" + to), limit);
+        return discoverByDates(List.of(">=" + from, "<" + to), normalizedRegion(region), normalizedCategory(category), limit);
     }
 
-    private List<MetadataRecord> discoverByDates(List<String> dates, int limit) throws MetadataProviderException {
+    private List<MetadataRecord> discoverByDates(List<String> dates, String region, String category, int limit)
+            throws MetadataProviderException {
         Map<String, Object> filter = new LinkedHashMap<>();
         filter.put("type", List.of(2));
         filter.put("air_date", dates);
+        // 地区与分类都是 meta_tags，多个值是**且**关系 —— 正好就是「日本的 TV」。
+        List<String> metaTags = new ArrayList<>();
+        if (region != null) metaTags.add(region);
+        if (category != null) metaTags.add(category);
+        if (!metaTags.isEmpty()) filter.put("meta_tags", metaTags);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("keyword", "");
         body.put("filter", filter);
@@ -337,6 +355,27 @@ public class BangumiMetadataProvider implements MetadataProvider {
             }
         }
         throw new MetadataProviderException("Bangumi 请求失败", 502);
+    }
+
+    /**
+     * 地区 → `meta_tags` 白名单。Bangumi 无地区字段，动画的地区以**官方公共标签**形式存在
+     * （实测本库 317 条：日本 285 / 中国 24 / 美国 8 / 欧美 3）。
+     *
+     * 不做多选：`meta_tags` 是**且**关系，选多个只会收窄到「同时属于两国」= 0 条。
+     */
+    private static String normalizedRegion(String region) {
+        if (region == null || region.isBlank()) return null;
+        String value = region.trim();
+        if (!REGIONS.contains(value)) throw new MetadataProviderException("地区无效: " + value, 422);
+        return value;
+    }
+
+    /** 分类 → `meta_tags` 白名单；空 = 不限。非法值 422 且**不发请求**（未知标签在 Bangumi 侧是静默 0 条）。 */
+    private static String normalizedCategory(String category) {
+        if (category == null || category.isBlank()) return null;
+        String value = category.trim();
+        if (!CATEGORIES.contains(value)) throw new MetadataProviderException("分类无效: " + value, 422);
+        return value;
     }
 
     private static List<String> dateRange(int year, String season) {

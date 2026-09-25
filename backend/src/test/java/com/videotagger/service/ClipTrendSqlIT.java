@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -38,7 +39,10 @@ class ClipTrendSqlIT extends AbstractMySqlIT {
 
     @Test
     void 趋势查询按天分组_在MySQL上不报语法错() {
-        ZoneId zone = ZoneId.systemDefault();
+        // 两边都钉 UTC：MySQL 容器（mysql:8.0）默认跑 UTC，`FROM_UNIXTIME` 按**容器时区**换算，
+        // 而 `LocalDate.now(systemDefault)` 是 JVM 时区。本机 UTC+8 时，本地 00:00-08:00 这段
+        // 两个日期跨天 → 断言恒挂（2026-09-25 实测：`-Duser.timezone=UTC` 跑同一条即过）。
+        ZoneId zone = ZoneOffset.UTC;
         long today = Instant.now().toEpochMilli();
         long yesterday = LocalDate.now(zone).minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli();
         insertClip(today);

@@ -49,6 +49,16 @@ public class CoverService {
     private final MediaMapper mediaMapper;
     private final Path coverDir;
 
+    /**
+     * 主色缓存：`封面路径 → 主色`（`""` = 算过但取不出，避免反复解码）。
+     *
+     * **为什么必须有**（2026-09-26）：`accentColorForPath` 要把整张封面（≈848×1200 的 JPEG）
+     * `ImageIO.read` 解码后再降采样算主色；以前**每次重建渲染输入都对每部重算一遍**，
+     * 是无缓存版本下「全选后预览卡几十秒」的大头之一。封面文件视为不可变，所以按路径缓存即可
+     * （覆盖上传会换文件名，不会读到陈旧值）。
+     */
+    private final java.util.Map<String, String> accentCache = new java.util.concurrent.ConcurrentHashMap<>();
+
     public CoverService(MediaMapper mediaMapper,
                         @Value("${videotagger.cover-dir:data/covers}") String coverDir) {
         this.mediaMapper = mediaMapper;
@@ -211,7 +221,14 @@ public class CoverService {
                 log.warn("拒绝删除越界封面路径: {}", path);
                 return;
             }
-            Files.deleteIfExists(file);
+            if (!Files.deleteIfExists(file)) {
+                // 文件本来就不在 —— **不能当正常**：cover-dir 跟随启动工作目录
+                // （`${VT_DATA_DIR:data}/covers`），从 backend/ 启动会解析成 backend/data/covers，
+                // 于是删除全部静默失败、孤儿封面越攒越多（2026-09-25 对账时踩过：DB 里 cover_path 已置空，
+                // 磁盘上 5503 个文件一个没删，事后手工补删）。
+                log.warn("封面文件不存在，没删到任何东西: {}（解析为 {}）—— 检查启动工作目录 / VT_DATA_DIR / COVER_DIR",
+                        path, file.toAbsolutePath());
+            }
         } catch (IOException e) {
             log.warn("删除封面失败 {}: {}", path, e.getMessage());
         }
@@ -249,6 +266,16 @@ public class CoverService {
      * 读不到、越界、或 ImageIO 解不了（如 webp）→ null，渲染侧退到确定性的兜底色。
      */
     public String accentColorForPath(String coverPath) {
+        if (coverPath == null || coverPath.isBlank()) return null;
+        String hit = accentCache.get(coverPath);
+        if (hit != null) return hit.isEmpty() ? null : hit;
+        String computed = computeAccentColor(coverPath);
+        accentCache.put(coverPath, computed == null ? "" : computed);
+        return computed;
+    }
+
+    /** 实际解码算主色（无缓存）；结果交给 {@link #accentColorForPath} 缓存。 */
+    private String computeAccentColor(String coverPath) {
         try {
             Path file = coverFile(coverPath);
             if (file == null) return null;

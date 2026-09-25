@@ -103,12 +103,12 @@ public class MediaService {
     }
 
     /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/来源/媒体标签/q 标题模糊筛选；ids 精确圈选（仅显示已勾选用）；offset 分页。 */
-    /** 清单导出（候选按当前筛选 / 已选按 ids）：与 list 同一套条件，但不分页（上限 500 在 SQL 里）。 */
+    /** 清单导出（候选按当前筛选 / 已选按 ids）：与 list 同一套条件，不分页、**无行数上限**。 */
     public List<MediaExportRow> listExport(String status, String format, Long subcategoryId, Integer confirmed,
                                            Long collectionId, Integer year, String source, Long tagId, String q,
-                                           List<Long> ids) {
+                                           List<Long> ids, List<String> genres, String season) {
         List<MediaExportRow> rows = mediaMapper.listExportRows(status, format, subcategoryId, confirmed, collectionId,
-                year, source, tagId, q, ids);
+                year, source, tagId, q, ids, genresJson(genres), season);
         if (rows.isEmpty()) {
             return rows;
         }
@@ -131,33 +131,90 @@ public class MediaService {
         }).toList();
     }
 
+    /**
+     * 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/来源/媒体标签/q 标题模糊筛选；ids 精确圈选；offset 分页。
+     *
+     * **不再钳位 `limit`**（2026-09-25 去掉原来的 `Math.min(..., 200)`）：那个上限把「用当前筛选替换已选」
+     * 静默砍到 200 部（用户报「候选 557，已选只有 200」），也把「已选中有多少不在筛选内」算错。
+     * 不去掉也不会有无界风险 —— 返回行数**天然被表数据量封顶**（当前 5249 部 ≈ 1MB / 2s，
+     * 而更重的「清单导出」本来就无上限）。
+     */
     public List<MediaSummary> list(int limit, int offset, String status, String format, Long subcategoryId,
                                    Integer confirmed, Long collectionId, String sort, String order, Integer year,
-                                   String source, Long tagId, String q, List<Long> ids) {
+                                   String source, Long tagId, String q, List<Long> ids,
+                                   List<String> genres, String season) {
         return mediaMapper.listFiltered(status, format, subcategoryId, confirmed, collectionId, sort, order, year,
-                source, tagId, q, ids,
-                Math.min(Math.max(limit, 1), 200), Math.max(offset, 0));
+                source, tagId, q, ids, genresJson(genres), season,
+                Math.max(limit, 1), Math.max(offset, 0));
     }
 
     /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/format/子分类/confirmed/collectionId/year/source/q 筛选；offset 分页。 */
     public List<MediaSummary> recent(int limit, int offset, String status, String format, Long subcategoryId,
-                                     Integer confirmed, Long collectionId, Integer year, String source, String q) {
-        return mediaMapper.listByLatest(Math.min(Math.max(limit, 1), 200), Math.max(offset, 0),
-                status, format, subcategoryId, confirmed, collectionId, year, source, q);
+                                     Integer confirmed, Long collectionId, Integer year, String source, String q,
+                                     Long tagId, List<String> genres, String season) {
+        return mediaMapper.listByLatest(Math.max(limit, 1), Math.max(offset, 0),
+                status, format, subcategoryId, confirmed, collectionId, year, source, q,
+                tagId, genresJson(genres), season);
     }
 
     /** 带筛选的媒体总数：全部媒体/收藏夹分支走 countFiltered，最近观看分支（latest=true）走 countLatest。 */
     public long count(String status, String format, Long subcategoryId, Integer confirmed, Long collectionId,
-                      Integer year, String source, Long tagId, boolean latest, String q) {
+                      Integer year, String source, Long tagId, boolean latest, String q,
+                      List<String> genres, String season) {
         if (latest) {
-            return mediaMapper.countLatest(status, format, subcategoryId, confirmed, collectionId, year, source, q);
+            return mediaMapper.countLatest(status, format, subcategoryId, confirmed, collectionId, year, source, q,
+                    tagId, genresJson(genres), season);
         }
-        return mediaMapper.countFiltered(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, q);
+        return mediaMapper.countFiltered(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, q,
+                genresJson(genres), season);
     }
 
     /** 库中已有的全部首播年份（降序）。 */
     public List<Integer> years() {
         return mediaMapper.listDistinctYears();
+    }
+
+    /**
+     * 题材白名单（硬编码，2026-09-25 用户拍板）：取值依据 = 真库实测出现次数 ≥ 30 的题材词。
+     *
+     * <p>**为什么必须白名单**：Bangumi 的 tag 是原始标签堆 —— 全库 17871 个不同值，混着人名
+     * （津田尚克 / 若山詩音，还带中/日文双份）、制作公司（8bit / Lay-duce）、年份与档期
+     * （2026年4月 / 2026春 / 未定档）、来源（漫画改 / 轻改）、国家（日本）、以及用户吐槽
+     * （厕纸 / 略无聊 / 哈气推动剧情法），直接拿它当筛选项就是一万七千项的垃圾堆。
+     *
+     * <p>只用于**生成选项列表**，查询侧不校验（传白名单外的词也能查，无害）。
+     */
+    public static final List<String> GENRES = List.of(
+            "奇幻", "搞笑", "战斗", "日常", "恋爱", "校园", "治愈", "后宫", "百合", "热血",
+            "科幻", "泡面番", "子供向", "异世界", "冒险", "青春", "悬疑", "女性向", "机战", "音乐",
+            "魔法", "运动", "偶像", "竞技", "猎奇", "乙女", "推理", "职场", "超能力", "转生",
+            "战争", "历史", "催泪", "耽美", "致郁", "美食", "恐怖", "机器人", "亲情", "棒球",
+            "乐队");
+
+    /** 题材选项字典：白名单 ∩ 库内实际出现，带各自媒体数（降序）。 */
+    public List<MediaMapper.GenreCount> genreCounts() {
+        return mediaMapper.listGenreCounts(GENRES);
+    }
+
+    /** 媒体标签选项字典：只列真正挂在媒体上的标签（降序）。 */
+    public List<MediaMapper.TagCount> tagCounts() {
+        return mediaMapper.listTagCounts();
+    }
+
+    /**
+     * 题材多选 → JSON 数组字面量（空 → null，即“不筛”）。
+     *
+     * <p>手写而不用 ObjectMapper：三行、无受检异常；题材词含引号的情况不存在（已核）。
+     */
+    static String genresJson(List<String> genres) {
+        if (genres == null) {
+            return null;
+        }
+        List<String> clean = genres.stream()
+                .filter(g -> g != null && !g.isBlank())
+                .map(g -> '"' + g.trim().replace("\\", "\\\\").replace("\"", "\\\"") + '"')
+                .toList();
+        return clean.isEmpty() ? null : "[" + String.join(",", clean) + "]";
     }
 
     /** 补下缺失封面已停用：外部封面只从 external_work.cover_url 远程读取，用户封面仍走 cover_path。 */
@@ -344,7 +401,7 @@ public class MediaService {
 
     /** 回收站列表：已删媒体（deleted_at 非空），q 按标题模糊过滤，按删除时间倒序。 */
     public List<Media> listTrash(String q, int limit, int offset) {
-        return mediaMapper.listTrash(q, Math.min(Math.max(limit, 1), 200), Math.max(offset, 0));
+        return mediaMapper.listTrash(q, Math.max(limit, 1), Math.max(offset, 0));
     }
 
     /** 回收站数量（可带标题过滤）。 */

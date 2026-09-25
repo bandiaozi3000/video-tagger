@@ -152,7 +152,7 @@ public class MetadataSyncService {
     /**
      * 年/季/月多选 → 查询区间计划（纯函数 {@link SyncRangePlanner}）。
      *
-     * 前端先拿计划，再逐段调 {@link #discoverRange(String, String)}，这样能显示「第 x/y 段」进度，
+     * 前端先拿计划，再逐段调 {@link #discoverRange(String, String, String, String)}，这样能显示「第 x/y 段」进度，
      * 也避免浏览器端单请求等待几十秒。
      */
     public SyncPlanResult plan(SyncPlanRequest request) {
@@ -165,8 +165,8 @@ public class MetadataSyncService {
      *
      * 截断判定：Bangumi 的 total 硬上限 1000，取满 1000 条就标 truncated，让前端提示改选月份。
      */
-    public SyncRangeFetchResult discoverRange(String from, String to) {
-        List<MetadataRecord> records = provider.discoverRange(from, to, DISCOVER_LIMIT);
+    public SyncRangeFetchResult discoverRange(String from, String to, String region, String category) {
+        List<MetadataRecord> records = provider.discoverRange(from, to, region, category, DISCOVER_LIMIT);
         Map<String, MetadataRecord> unique = new LinkedHashMap<>();
         for (MetadataRecord record : records) {
             if (record.externalId() == null) continue;

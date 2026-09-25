@@ -64,7 +64,7 @@ public class MediaController {
     }
 
     /**
-     * 清单导出（编辑器「📋 导出清单」）：候选走当前筛选、已选走 ids，返回带**集数与标签**的行，上限 500。
+     * 清单导出（编辑器「📋 导出清单」）：候选走当前筛选、已选走 ids，返回带**集数与标签**的行。
      *
      * 与 `GET /api/media` 的区别：不分页、多两列（episodeCount/tags）、列少很多（封面/状态/评分不参与导出）。
      */
@@ -78,8 +78,10 @@ public class MediaController {
                                           @RequestParam(required = false) String source,
                                           @RequestParam(required = false) Long tagId,
                                           @RequestParam(required = false) String q,
-                                          @RequestParam(required = false) List<Long> ids) {
-        return mediaService.listExport(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, q, ids);
+                                          @RequestParam(required = false) List<Long> ids,
+                                          @RequestParam(required = false) List<String> genres,
+                                          @RequestParam(required = false) String season) {
+        return mediaService.listExport(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, q, ids, genres, season);
     }
 
     @GetMapping
@@ -96,8 +98,26 @@ public class MediaController {
                                    @RequestParam(required = false) String source,
                                    @RequestParam(required = false) Long tagId,
                                    @RequestParam(required = false) String q,
-                                   @RequestParam(required = false) List<Long> ids) {
-        return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, order, year, source, tagId, q, ids);
+                                   @RequestParam(required = false) List<Long> ids,
+                                   @RequestParam(required = false) List<String> genres,
+                                   @RequestParam(required = false) String season) {
+        return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, order, year, source, tagId, q, ids, genres, season);
+    }
+
+    /**
+     * 题材选项字典：白名单 ∩ 库内实际出现的题材，带各自媒体数（降序）。
+     *
+     * <p>选项列表数据驱动 —— 白名单只回答“哪些词算题材”，计数与存在性都来自库。
+     */
+    @GetMapping("/genres")
+    public List<com.videotagger.mapper.MediaMapper.GenreCount> genres() {
+        return mediaService.genreCounts();
+    }
+
+    /** 媒体标签选项字典：只列真正挂在媒体上的标签，带各自媒体数（降序）。 */
+    @GetMapping("/tags")
+    public List<com.videotagger.mapper.MediaMapper.TagCount> tags() {
+        return mediaService.tagCounts();
     }
 
     /**
@@ -120,8 +140,11 @@ public class MediaController {
                                      @RequestParam(required = false) Long collectionId,
                                      @RequestParam(required = false) Integer year,
                                      @RequestParam(required = false) String source,
-                                     @RequestParam(required = false) String q) {
-        return mediaService.recent(limit, offset, status, format, subcategoryId, confirmed, collectionId, year, source, q);
+                                     @RequestParam(required = false) String q,
+                                     @RequestParam(required = false) Long tagId,
+                                     @RequestParam(required = false) List<String> genres,
+                                     @RequestParam(required = false) String season) {
+        return mediaService.recent(limit, offset, status, format, subcategoryId, confirmed, collectionId, year, source, q, tagId, genres, season);
     }
 
     /** 带筛选的媒体总数（分页页码导航用）；latest=true 时按「最近观看」口径只统计打过标记的媒体。 */
@@ -135,8 +158,10 @@ public class MediaController {
                       @RequestParam(required = false) String source,
                       @RequestParam(required = false) Long tagId,
                       @RequestParam(defaultValue = "false") boolean latest,
-                      @RequestParam(required = false) String q) {
-        return mediaService.count(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, latest, q);
+                      @RequestParam(required = false) String q,
+                      @RequestParam(required = false) List<String> genres,
+                      @RequestParam(required = false) String season) {
+        return mediaService.count(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, latest, q, genres, season);
     }
 
     /** 库中已有的全部首播年份（年份筛选下拉选项）。 */

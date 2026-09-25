@@ -88,12 +88,12 @@ function SceneView({ scene, input, params, theme, assetBaseUrl, plan }: {
   }
   if (scene.type === 'MEDIA_GRID') {
     const media = (scene.mediaIds ?? []).map((id) => plan.mediaIndex.get(id)).filter((item): item is NonNullable<typeof item> => Boolean(item));
-    return <GridScreen media={media} params={params} theme={theme} assetBaseUrl={assetBaseUrl} />;
+    return <GridScreen media={media} params={params} theme={theme} assetBaseUrl={assetBaseUrl} numberFrom={scene.numberFrom} kicker={scene.kicker} />;
   }
   const media = mediaForScene(plan, scene);
   if (!media) throw new Error(`场景媒体不存在: ${scene.mediaId}`);
   if (scene.type === 'MEDIA_INFO') {
-    return <MediaInfo media={media} params={params} theme={theme} assetBaseUrl={assetBaseUrl} />;
+    return <MediaInfo media={media} params={params} theme={theme} assetBaseUrl={assetBaseUrl} number={scene.numberFrom} kicker={scene.kicker} />;
   }
   const clip = media.clips.find((item) => item.clipId === scene.clipId);
   if (!clip) throw new Error(`场景 Clip 不存在: ${scene.clipId}`);

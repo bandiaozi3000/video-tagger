@@ -96,11 +96,13 @@ const episodeListEl = document.getElementById('episode-list');
 const detailTagsEl = document.getElementById('detail-tags');
 const detailCollectionsEl = document.getElementById('detail-collections');
 const detailStatusEl = document.getElementById('detail-status');
-const filterStatusEl = document.getElementById('filter-status');
-const filterSubcategoryEl = document.getElementById('filter-subcategory');
-const filterCollectionEl = document.getElementById('filter-collection');
-const filterUnconfirmedEl = document.getElementById('filter-unconfirmed');
-const filterYearEl = document.getElementById('filter-year');
+/* 媒体页筛选（2026-09-25 重构为「搜素 + ⚙ 筛选浮层 + 条件 chips」）：
+   维度定义 MEDIA_DIMS、选项字典 mediaFilterDict、渲染见 renderFilterPop 一带。 */
+const filterChipsEl = document.getElementById('filter-chips');
+const filterPopEl = document.getElementById('filter-pop');
+const filterCountEl = document.getElementById('filter-count');
+const filterClearEl = document.getElementById('filter-clear');
+const filterOpenBtn = document.getElementById('filter-open');
 const filterSourceEl = null;
 const filterSortEl = document.getElementById('filter-sort');
 const filterOrderBtn = document.getElementById('filter-order');
@@ -411,7 +413,7 @@ document.getElementById('prompt-modal-input').addEventListener('keydown', (e) =>
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('prompt-modal-ok').click(); }
 });
 document.getElementById('prompt-modal').addEventListener('click', (e) => { if (e.target && e.target.id === 'prompt-modal') { const c = promptModalCancel; closePromptModal(); if (c) c(); } });
-let mediaFilter = { q: '', status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', sort: '', order: 'desc' };
+let mediaFilter = { q: '', status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', sort: '', order: 'desc', genres: [], season: '', tagId: '' };
 let displayView = 'card';   // 全局视图偏好：card 卡片 / list 列表（媒体页/收藏夹/推荐页共用，单按钮切换）
 let collSelectedId = null;           // 收藏夹 tab：当前选中的收藏夹 id
 let collectionsCache = [];           // 收藏夹列表缓存（管理视图用）
@@ -2120,15 +2122,20 @@ function esc(s) {
  * 别再各写各的顺序 —— 之前列表写成 `coverPath || fallbackCoverPath || externalCoverUrl`，
  * 片段帧排在 Bangumi 前面，于是"片段有封面后媒体列表就显示片段封面"。
  */
+/** 封面取值链（本应用统一）：**本地显式封面 → Bangumi 封面 → 代表片段帧**。
+ *
+ * 2026-09-25 用户拍板反转：以前是 Bangumi 在前。现在「手动上传的封面以本地为准」，
+ * 而自动下载的本地封面在对账时会被清掉，所以两级实际上不会打架。
+ * ⚠️ 新增封面展示位请走这条链，别写 `externalCoverUrl || coverPath || ...`。 */
 function mediaCoverSources(m) {
-    return [m && m.externalCoverUrl, m && m.coverPath, m && m.fallbackCoverPath].filter(Boolean);
+    return [m && m.coverPath, m && m.externalCoverUrl, m && m.fallbackCoverPath].filter(Boolean);
 }
 
 function mediaCoverSrc(m) {
     return mediaCoverSources(m)[0] || '';
 }
 
-/** <img> 的降级属性：外链挂了 → 换本地封面 → 再挂换片段帧 → 都没有则移除元素。 */
+/** <img> 的降级属性：本地挂了 → 换 Bangumi 封面 → 再挂换片段帧 → 都没有则移除元素。 */
 function mediaCoverAttrs(m) {
     const chain = mediaCoverSources(m);
     if (chain.length < 2) return `onerror="this.remove()"`;
@@ -2177,8 +2184,206 @@ async function loadMedia(resetPage = true) {
     }
 }
 
+/* ═══ 媒体页筛选（2026-09-25 用户拍板）╔══════════════════════════════════════════
+   语言对齐推荐编辑器的候选库筛选（remotion/editor/panes.tsx 的 FilterPopover）：
+   主行只留高频（搜索）+ 一个 ⚙ 筛选按钮；已选条件变成可单个 × 掉的 chips；
+   点 ⚙ 开浮层：左栏维度、右栏取值，取值点选**即时生效**且面板不关（可连加条件）。
+   维度之间 AND；「题材」是多选，同维度内 OR（JSON_OVERLAPS）。
+
+   已删的旧控件（用户 2026-09-25：「删掉，先保留状态」）：
+   - 「待确认」：confirmed 全库 5255 条全是 1，筛了恒为 0 —— 死选项；
+   - 「子分类」：5254/5255 是 null —— 死选项。 */
+
+const MEDIA_DIMS = [
+    { key: 'genres', label: '题材' },
+    { key: 'year', label: '年份' },
+    { key: 'season', label: '季度' },
+    { key: 'status', label: '状态' },
+    { key: 'collectionId', label: '收藏夹' },
+    { key: 'tagId', label: '标签' },
+];
+
+/** 季度：唯一真值 = external_work.season，与同步弹窗的段标签同口径（冬=1–3月）。 */
+const SEASON_OPTIONS = [
+    { value: 'WINTER', label: '冬（1–3月）' },
+    { value: 'SPRING', label: '春（4–6月）' },
+    { value: 'SUMMER', label: '夏（7–9月）' },
+    { value: 'FALL', label: '秋（10–12月）' },
+];
+
+/** 状态字典唯一真值 = 后端 MediaService.STATUSES；中文沿用媒体详情页。 */
+const MEDIA_STATUS_OPTIONS = [
+    { value: 'WANT', label: '想看' },
+    { value: 'WATCHING', label: '在看' },
+    { value: 'DONE', label: '看完' },
+    { value: 'PAUSED', label: '搁置' },
+    { value: 'DROPPED', label: '弃番' },
+];
+
+/** 浮层选项字典：全部数据驱动（只列库里真有的），空数组 = 该维度暂无可选项。 */
+const mediaFilterDict = { years: [], genres: [], tags: [], collections: [] };
+
+/** 只有题材是多选；其余单选（单选列表顶部给「全部（不限）」当清空入口）。 */
+function dimIsMulti(key) { return key === 'genres'; }
+
+function dimActive(key) {
+    if (key === 'genres') return (mediaFilter.genres || []).length > 0;
+    return String(mediaFilter[key] ?? '').trim() !== '';
+}
+
+/** 某维度的取值列表（带媒体数，方便判断哪个条件划得来）。 */
+function dimValues(key) {
+    let list;
+    switch (key) {
+        case 'genres':
+            list = mediaFilterDict.genres.map(g => ({ value: g.genre, label: g.genre, count: g.count }));
+            break;
+        case 'year':
+            list = mediaFilterDict.years.map(y => ({ value: String(y), label: `${y} 年` }));
+            break;
+        case 'season': list = SEASON_OPTIONS; break;
+        case 'status': list = MEDIA_STATUS_OPTIONS; break;
+        case 'collectionId':
+            list = mediaFilterDict.collections.map(c => ({ value: String(c.id), label: c.name, count: c.mediaCount }));
+            break;
+        case 'tagId':
+            list = mediaFilterDict.tags.map(t => ({ value: String(t.tagId), label: t.name, count: t.count }));
+            break;
+        default: list = [];
+    }
+    return dimIsMulti(key) ? list : [{ value: '', label: '全部（不限）' }, ...list];
+}
+
+/** 维度当前值的中文展示（chip 与浮层左栏共用）。 */
+function dimLabel(key) {
+    if (key === 'genres') return (mediaFilter.genres || []).join('、');
+    if (key === 'year') return `${mediaFilter.year} 年`;
+    const raw = String(mediaFilter[key] ?? '');
+    const hit = dimValues(key).find(o => String(o.value) === raw);
+    return hit ? hit.label : raw;
+}
+
+/** 已选条件 chips；返回激活的条件数（题材多选按个数算）。 */
+function renderFilterChips() {
+    filterChipsEl.innerHTML = '';
+    let n = 0;
+    for (const d of MEDIA_DIMS) {
+        if (!dimActive(d.key)) continue;
+        n += dimIsMulti(d.key) ? (mediaFilter.genres || []).length : 1;
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'filter-chip';
+        chip.title = `移除「${d.label}」条件`;
+        const text = document.createElement('span');
+        text.textContent = `${d.label} ${dimLabel(d.key)}`;
+        const x = document.createElement('span');
+        x.className = 'fc-x';
+        x.textContent = '×';
+        chip.append(text, x);
+        chip.addEventListener('click', () => setDim(d.key, null));
+        filterChipsEl.appendChild(chip);
+    }
+    filterCountEl.hidden = n === 0;
+    filterCountEl.textContent = String(n);
+    filterClearEl.hidden = n === 0;
+    filterOpenBtn.classList.toggle('active', n > 0);
+    return n;
+}
+
+/** 写一个维度的取值并立刻重查（value=null → 清掉该维度）。 */
+function setDim(key, value) {
+    if (dimIsMulti(key)) {
+        const cur = mediaFilter.genres || [];
+        if (value == null) mediaFilter.genres = [];
+        else mediaFilter.genres = cur.includes(value) ? cur.filter(g => g !== value) : [...cur, value];
+    } else {
+        mediaFilter[key] = value == null ? '' : String(value);
+    }
+    renderFilterChips();
+    renderFilterPop();
+    loadMedia();
+}
+
+let filterPopDim = 'genres';
+
+function openFilterPop() {
+    renderFilterPop();
+    filterPopEl.hidden = false;
+    filterOpenBtn.setAttribute('aria-expanded', 'true');
+}
+
+function closeFilterPop() {
+    filterPopEl.hidden = true;
+    filterOpenBtn.setAttribute('aria-expanded', 'false');
+}
+
+/** 浮层两栏：左维度（带当前值与激活态）→ 右取值。两栏常驻，不做窄屏的「返回」二级页。 */
+function renderFilterPop() {
+    const dimsHost = document.getElementById('fp-dims');
+    dimsHost.innerHTML = '';
+    for (const d of MEDIA_DIMS) {
+        const active = dimActive(d.key);
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = active ? 'on' : '';
+        const name = document.createElement('span');
+        name.textContent = d.label;
+        b.appendChild(name);
+        if (active) {
+            const val = document.createElement('span');
+            val.className = 'fd-val';
+            val.textContent = dimLabel(d.key);
+            b.appendChild(val);
+        }
+        b.addEventListener('click', () => { filterPopDim = d.key; renderFilterPop(); });
+        dimsHost.appendChild(b);
+    }
+
+    const valHost = document.getElementById('fp-vals');
+    valHost.innerHTML = '';
+    const dim = MEDIA_DIMS.find(d => d.key === filterPopDim);
+    if (!dim) return;
+    const head = document.createElement('div');
+    head.className = 'fp-vals-head';
+    head.textContent = dimIsMulti(dim.key) ? `${dim.label}（可多选，命中任一）` : dim.label;
+    valHost.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'fp-vals-body';
+    const items = dimValues(dim.key);
+    if (!items.length) {
+        const empty = document.createElement('div');
+        empty.className = 'fp-empty';
+        empty.textContent = '暂无可选项（库里还没这类数据）';
+        body.appendChild(empty);
+    }
+    for (const item of items) {
+        const on = dimIsMulti(dim.key)
+            ? (mediaFilter.genres || []).includes(String(item.value))
+            : String(mediaFilter[dim.key] ?? '') === String(item.value);
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'fp-val' + (on ? ' on' : '');
+        const mark = document.createElement('span');
+        mark.className = 'fv-mark';
+        mark.textContent = dimIsMulti(dim.key) ? (on ? '☑' : '☐') : (on ? '●' : '○');
+        const label = document.createElement('span');
+        label.textContent = item.label;
+        b.append(mark, label);
+        if (item.count != null) {
+            const c = document.createElement('span');
+            c.className = 'fv-count';
+            c.textContent = String(item.count);
+            b.appendChild(c);
+        }
+        b.addEventListener('click', () => setDim(dim.key, item.value === '' ? null : item.value));
+        body.appendChild(b);
+    }
+    valHost.appendChild(body);
+}
+
 /** 按当前筛选/分页构造列表与 count 请求 URL（全部媒体/最近观看/收藏夹三分支）。
- *  format/subcategoryId/year 全部后端过滤，保证分页总数与列表同条件。 */
+ *  format/subcategoryId/year/genres/season/tagId 全部后端过滤，保证分页总数与列表同条件。 */
 function buildMediaUrls() {
     const base = new URLSearchParams({ limit: String(mediaPageSize), offset: String((mediaPage - 1) * mediaPageSize) });
     const addCommon = p => {
@@ -2188,6 +2393,9 @@ function buildMediaUrls() {
         if (mediaFilter.subcategoryId) p.set('subcategoryId', mediaFilter.subcategoryId);
         if (mediaFilter.unconfirmed) p.set('confirmed', '0');
         if (mediaFilter.year) p.set('year', mediaFilter.year);
+        if (mediaFilter.tagId) p.set('tagId', mediaFilter.tagId);
+        if (mediaFilter.season) p.set('season', mediaFilter.season);
+        if (mediaFilter.genres && mediaFilter.genres.length) p.set('genres', mediaFilter.genres.join(','));
         if (mediaFilter.sort) p.set('sort', mediaFilter.sort);
         if (mediaFilter.order !== 'desc') p.set('order', mediaFilter.order);
     };
@@ -2220,22 +2428,29 @@ function renderMediaPagination(totalPages) {
     mediaPageNextEl.disabled = mediaPage >= totalPages;
 }
 
-/** 年份筛选下拉：库中已有的首播年份（降序）。 */
-async function fillYearFilter() {
-    try {
-        const resp = await fetch('/api/media/years');
-        if (!resp.ok) return;
-        const years = await resp.json();
-        const cur = filterYearEl.value;
-        filterYearEl.innerHTML = '<option value="">全部年份</option>';
-        for (const y of years) {
-            const opt = document.createElement('option');
-            opt.value = y;
-            opt.textContent = `${y} 年`;
-            filterYearEl.appendChild(opt);
-        }
-        filterYearEl.value = cur;
-    } catch (e) { /* 忽略 */ }
+/**
+ * 筛选浮层的选项字典：年份 / 题材 / 标签 / 收藏夹，**全部数据驱动**（只列库里真有的）。
+ *
+ * <p>题材为什么不是 Bangumi 的全部 tag：那是原始标签堆（全库 17871 个不同值，混着人名、制作公司、
+ * 年份档期、国家、用户吐槽），后端用白名单（`MediaService.GENRES`）只种下 41 个真题材词。
+ */
+async function fillMediaFilterDict() {
+    const grab = async (url) => {
+        try {
+            const resp = await fetch(url);
+            return resp.ok ? await resp.json() : [];
+        } catch (e) { return []; }
+    };
+    const [years, genres, tags, collections] = await Promise.all([
+        grab('/api/media/years'), grab('/api/media/genres'),
+        grab('/api/media/tags'), grab('/api/collections'),
+    ]);
+    mediaFilterDict.years = Array.isArray(years) ? years : [];
+    mediaFilterDict.genres = Array.isArray(genres) ? genres : [];
+    mediaFilterDict.tags = Array.isArray(tags) ? tags : [];
+    mediaFilterDict.collections = Array.isArray(collections) ? collections : [];
+    renderFilterChips();
+    if (!filterPopEl.hidden) renderFilterPop();
 }
 
 /** 收藏夹 tab 年份筛选下拉：库中已有的首播年份（降序）。 */
@@ -2257,20 +2472,14 @@ async function fillCollYearFilter() {
 }
 
 
+/** 收藏夹字典：新建/改名/删除后调（浮层「收藏夹」维度的选项跟着变）。 */
 async function fillFilterCollections() {
     try {
         const resp = await fetch('/api/collections');
         if (!resp.ok) return;
         const list = await resp.json();
-        const cur = filterCollectionEl.value;
-        filterCollectionEl.innerHTML = '<option value="">收藏夹</option>';
-        for (const c of list) {
-            const opt = document.createElement('option');
-            opt.value = c.id;
-            opt.textContent = `${c.name}（${c.mediaCount || 0}）`;
-            filterCollectionEl.appendChild(opt);
-        }
-        filterCollectionEl.value = cur;
+        mediaFilterDict.collections = Array.isArray(list) ? list : [];
+        if (!filterPopEl.hidden) renderFilterPop();
     } catch (e) { /* 忽略 */ }
 }
 
@@ -2325,8 +2534,8 @@ async function saveCollectionFromModal() {
                 await fillFilterCollections();
             } else {
                 await fillFilterCollections();
-                filterCollectionEl.value = String(c.id);
                 mediaFilter.collectionId = String(c.id);
+                renderFilterChips();
                 loadMedia();
             }
         }
@@ -4610,7 +4819,7 @@ async function loadFormats() {
     renderFormatTabs();
     fillSubcategoryFilter();
     fillSearchFilters();
-    fillYearFilter();
+    fillMediaFilterDict();
     fillCollYearFilter();
 }
 
@@ -4680,20 +4889,13 @@ function subcategoryTreeIds(f, nodeId) {
     return set;
 }
 
+/**
+ * 子分类筛选已在 2026-09-25 移除（用户拍板「删掉」）：真库里 `media.subcategory` 5254/5255 是 null，
+ * 筛不出东西，是死选项（同理删掉了「待确认」—— confirmed 全库 5255 条全是 1）。
+ *
+ * 函数与两个调用点（loadFormats / selectFormatTab）保留为 no-op，以后数据长起来再挂回浮层。
+ */
 function fillSubcategoryFilter() {
-    if (!filterSubcategoryEl) return;
-    const f = formatsCache.find(x => x.code === activeFormatTab);
-    filterSubcategoryEl.innerHTML = `<option value="">${f ? '子分类' : '（先选格式）'}</option>`;
-    if (f) {
-        const path = subPathMap(f);
-        for (const s of f.subcategories) {
-            const opt = document.createElement('option');
-            opt.value = String(s.id);
-            opt.textContent = path.get(String(s.id)) || s.name;
-            filterSubcategoryEl.appendChild(opt);
-        }
-    }
-    filterSubcategoryEl.value = mediaFilter.subcategoryId || '';
 }
 
 function fillSearchFilters() {
@@ -5859,7 +6061,10 @@ function confirmTagBatchDelete() {
 async function fillTagMediaSelect() {
     tagMediaSelectEl.innerHTML = '<option value="">— 选择媒体 —</option>';
     try {
-        const resp = await fetch('/api/media?limit=500');
+        // 取全部（2026-09-25）：原来写 `limit=500`，而后端又把 limit 钳到 200 → 5249 部里只列出 200 部。
+        // 后端已不钳位（行数天然被表数据量封顶），这里先问总数再一次要满，不引入魔法数字。
+        const total = await (await fetch('/api/media/count')).json();
+        const resp = await fetch(`/api/media?limit=${Math.max(Number(total) || 0, 1)}`);
         if (!resp.ok) return;
         const list = await resp.json();
         for (const m of list) {
@@ -6622,8 +6827,27 @@ document.getElementById('materialize-run').addEventListener('click', async () =>
 });
 
 
-filterStatusEl.addEventListener('change', () => { mediaFilter.status = filterStatusEl.value; loadMedia(); });
-filterSubcategoryEl.addEventListener('change', () => { mediaFilter.subcategoryId = filterSubcategoryEl.value; loadMedia(); });
+/* 筛选浮层：⚙ 开关；点外部或 Esc 关（取值点选即时生效，面板保持打开可连加条件） */
+filterOpenBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (filterPopEl.hidden) openFilterPop(); else closeFilterPop();
+});
+document.addEventListener('mousedown', (e) => {
+    if (filterPopEl.hidden) return;
+    // ⚠️ 用 mousedown 而不是 click 判外部点击（2026-09-25 浏览器实测踩到）：
+    // 取值点选会触发 setDim → renderFilterPop 把取值节点**整块重建**，等 click 冒泡到 document 时
+    // 目标已脱离 DOM —— 此时 `contains(e.target)` 和 `composedPath()` **都不再包含浮层**，
+    // 结果刚开的浮层被自己关掉。mousedown 早于 click，DOM 还是完整的。
+    if (filterPopEl.contains(e.target) || filterOpenBtn.contains(e.target)) return;
+    closeFilterPop();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !filterPopEl.hidden) closeFilterPop(); });
+filterClearEl.addEventListener('click', () => {
+    for (const d of MEDIA_DIMS) mediaFilter[d.key] = d.key === 'genres' ? [] : '';
+    renderFilterChips();
+    if (!filterPopEl.hidden) renderFilterPop();
+    loadMedia();
+});
 /* 标题模糊搜索（300ms 防抖） */
 const filterQEl = document.getElementById('filter-q');
 let filterQTimer = null;
@@ -6631,9 +6855,6 @@ filterQEl.addEventListener('input', () => {
     clearTimeout(filterQTimer);
     filterQTimer = setTimeout(() => { mediaFilter.q = filterQEl.value.trim(); loadMedia(); }, 300);
 });
-filterCollectionEl.addEventListener('change', () => { mediaFilter.collectionId = filterCollectionEl.value; loadMedia(); });
-filterUnconfirmedEl.addEventListener('change', () => { mediaFilter.unconfirmed = filterUnconfirmedEl.checked; loadMedia(); });
-filterYearEl.addEventListener('change', () => { mediaFilter.year = filterYearEl.value; loadMedia(); });
 // 来源筛选已改由外部资料关联派生，当前界面不开放旧来源控件。
 filterSortEl.addEventListener('change', () => { mediaFilter.sort = filterSortEl.value; loadMedia(); });
 filterOrderBtn.addEventListener('click', () => {

@@ -490,6 +490,16 @@ function App() {
                   doubleClickToFullscreen
                 />
                 <BgmOverlay config={config} patch={patch} shellRef={shellRef} />
+                {/* 素材准备遮罩（2026-09-26）：以前 busy 只把「▶ 导出视频」按钮改成"提交中…"并禁用，
+                    预览区（尤其**已经有旧预览**时）一点反馈都没有 —— 用户全选 137 部后等几十秒，
+                    看到的画面完全没变，以为是「预览不生效」。 */}
+                {busy ? (
+                  <div className="vt-busy-veil">
+                    <span className="vt-busy-spin" />
+                    <span>正在准备 <b>{config.ids.length}</b> 部素材…</span>
+                    <small>首次需下载缺失的 Bangumi 封面；完成后会自动刷新预览</small>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="vt-empty">

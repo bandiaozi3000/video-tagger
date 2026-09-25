@@ -30,6 +30,16 @@ const SPOTS = [
   { x: 0.43, y: 0.16, s: 0.9, r: -6 },
 ];
 
+/**
+ * 开场封面卡尺寸。**导出供单测断言「是竖版」** —— `cardAspect` 是宽/高比（190/270），
+ * 必须**除**它；写成乘会得到横版卡并把竖版封面裁成横带（2026-09-26 踩过）。
+ */
+export function openingCardSize(theme: Theme, height: number, coverSize: number) {
+  const coef = coverCoef(coverSize);
+  const width = height * theme.layout.cardRatio * coef;
+  return { width, height: width / theme.layout.cardAspect };
+}
+
 export function Opening({ input, params, theme, assetBaseUrl, beatFrames }: {
   input: MultiMediaPocInput;
   params: RenderParams;
@@ -48,8 +58,9 @@ export function Opening({ input, params, theme, assetBaseUrl, beatFrames }: {
   const plateIn = useEnter(0, theme);
   const coef = coverCoef(params.coverSize);
 
-  const cardWidth = height * theme.layout.cardRatio * coef;
-  const cardHeight = cardWidth * theme.layout.cardAspect;
+  const opening = openingCardSize(theme, height, params.coverSize);
+  const cardWidth = opening.width;
+  const cardHeight = opening.height;
 
   return (
     <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
