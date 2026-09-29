@@ -19,18 +19,27 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 校验并准备推荐所选 Clip 的本地视频素材（**混合策略**，设计规格 §8.1）。
  *
  * 优先级：
- * 1. 会话缓存命中（同一会话内同一片段不重复准备）；
- * 2. 已物化的 `GENERATED_CLIP` 产物且区间一致 → **探测编解码**：浏览器可播（h264+aac 等）直接复制，
+ * 1. **跨会话素材缓存**（`data/recommend-clip-cache/`）命中 → 直接链接/复制，零重编码（2026-09-29 用户：
+ *    「每次都得重新素材太麻烦了」——以前只在会话内去重，每个新会话都从头准备一遍）；
+ * 2. 会话缓存命中（同一会话内同一片段不重复准备）；
+ * 3. 已物化的 `GENERATED_CLIP` 产物且区间一致 → **探测编解码**：浏览器可播（h264+aac 等）直接复制，
  *    否则从该产物重编码（比从整集源重编码快）；
- * 3. 回退：从 `data/videos` 的整集源裁剪重编码（旧行为）。
+ * 4. 回退：从 `data/videos` 的整集源裁剪重编码（旧行为）。
  *
  * 为什么必须探测：物化用 `-c copy`（`ClipMaterializationService.cut`），产物编解码继承源片；
  * HEVC/AV1 源直接给 Chromium 会预览黑屏。探测失败按"不可播"处理（保守重编码）。
+ *
+ * **帧率不再触发重编码**（2026-09-29 用户拍板）：能重编码出来的帧本来就不存在，顿挫消不掉
+ * （2026-09-20 自己实测过：「24fps 内容重新封成 30fps 只能靠重复帧，顿挫一分不少」）；
+ * 而"帧率对不上就重编码"这笔买卖的实际效果是——为了对齐 24 时间轴把产物写成了 **30fps**（下面 `export`
+ * 曾经读错字段），既没对齐、又每个会话白转一遍。真解是让**时间轴跟着素材走**（银幕式 → 24），
+ * 不一致的素材就让它按原帧率进时间轴，不再拿重编码去假装对齐。
  */
 @Service
 public class RecommendClipSourceService {
@@ -47,6 +56,10 @@ public class RecommendClipSourceService {
     private final Path assetRoot;
     /** 推荐时间轴帧率：片段素材的帧率与它不一致时不能直通（否则播放时帧节奏不匀 = "晃"）。 */
     private final double targetFps;
+    /** 跨会话片段素材缓存目录（同片段第二次起零重编码；可整个删掉，只影响下一次的准备耗时）。 */
+    private final Path clipCacheDir;
+    /** 本卷是否不支持硬链（首次失败后置位，之后一律走复制）。 */
+    private volatile boolean hardLinkUnsupported;
     /** 同系列解析（借片段时校验「来源与本体有视频类关联」）；测试可传 null → 不校验。 */
     private final RelatedMediaService relatedMediaService;
     private final com.videotagger.mapper.MediaMapper mediaMapper;
@@ -58,6 +71,7 @@ public class RecommendClipSourceService {
                                       MediaProbe mediaProbe,
                                       @Value("${videotagger.video-assets.root-dir:${VT_DATA_DIR:data}/video-assets}") String assetRoot,
                                       @Value("${videotagger.render.fps:30}") double targetFps,
+                                      @Value("${videotagger.recommend-clip-cache-dir:${VT_DATA_DIR:data}/recommend-clip-cache}") String clipCacheDir,
                                       RelatedMediaService relatedMediaService,
                                       com.videotagger.mapper.MediaMapper mediaMapper,
                                       com.videotagger.mapper.EpisodeMapper episodeMapper) {
@@ -68,6 +82,8 @@ public class RecommendClipSourceService {
         this.mediaProbe = mediaProbe;
         this.assetRoot = Path.of(assetRoot).toAbsolutePath().normalize();
         this.targetFps = targetFps > 0 ? targetFps : 30;
+        this.clipCacheDir = clipCacheDir == null || clipCacheDir.isBlank()
+                ? null : Path.of(clipCacheDir).toAbsolutePath().normalize();
         this.relatedMediaService = relatedMediaService;
         this.mediaMapper = mediaMapper;
         this.episodeMapper = episodeMapper;
@@ -101,7 +117,7 @@ public class RecommendClipSourceService {
                             loaded.reasons().getOrDefault(clipId, "片段不存在或不属于所选媒体"));
                     Path output = outputs.computeIfAbsent(clipId, id -> workDir.resolve("media").resolve("clip-" + id + ".mp4"));
                     if (!Files.isRegularFile(output)) {
-                        prepareOne(clip, output, timelineFps);
+                        prepareCached(clip, output, timelineFps);
                     } else if (!isFastStart(output)) {
                         // 旧会话文件可能是“moov 在尾”（产物直拷时代留下的）→ 就地升级，
                         // 否则浏览器 <video> 起播/跳转会先空一大截（2026-09-21 用户截图定位）。
@@ -130,11 +146,80 @@ public class RecommendClipSourceService {
         return new PreparedClips(prepared, missing);
     }
 
+    /**
+     * 会话文件产出：**先看跨会话缓存**（命中 → 硬链/复制，零重编码），未命中才准备并回写缓存。
+     *
+     * <p>缓存文件永远是 faststart（三条写入路径都带 `+faststart`），所以从缓存来的文件不必再 remux。
+     * 硬链优先：同卷上零拷贝、零额外磁盘，会话目录被回收时只删自己的那一份链接；
+     * 卷不支持硬链（实测本机 D: 报 `ERROR_INVALID_FUNCTION`）或跨卷时自动退回复制（184MB 约 0.5s）。
+     * 万一有代码**原地改写**这些文件，会连带污染缓存 —— 现有路径都是"写临时文件再原子改名"，是安全的；
+     * 新增会写片段文件的逻辑时请保持这个约定。
+     *
+     * ponytail: 缓存不做 LRU/上限（`data/recommend-clip-cache/` 可随时整目录删）；容量真成问题时再加。
+     */
+    private void prepareCached(Clip clip, Path output, double timelineFps) throws IOException, InterruptedException {
+        Path cached = clipCacheDir == null ? null : clipCacheDir.resolve(cacheKey(clip, timelineFps));
+        if (cached == null) {
+            prepareOne(clip, output, timelineFps);
+            return;
+        }
+        if (!Files.isRegularFile(cached)) {
+            Files.createDirectories(cached.getParent());
+            // 唯一临时名：多标签页同时准备同一片段时不会互相踩（原子改名保证缓存里只可能是完整文件）
+            Path temp = cached.resolveSibling(cached.getFileName() + ".tmp-" + UUID.randomUUID());
+            try {
+                prepareOne(clip, temp, timelineFps);
+                try {
+                    Files.move(temp, cached, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                    Files.move(temp, cached, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (RuntimeException | IOException | InterruptedException e) {
+                deleteQuietly(temp);
+                if (!Files.isRegularFile(cached)) throw e;   // 别人刚好写好了 → 用他的
+            }
+        }
+        Files.createDirectories(output.getParent());
+        if (linkFromCache(cached, output)) return;
+        Files.copy(cached, output, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    /** 从缓存硬链到会话；本卷不支持硬链时记下来，以后不再白试（异常当控制流太慢也太吵）。 */
+    private boolean linkFromCache(Path cached, Path output) {
+        if (hardLinkUnsupported) return false;
+        try {
+            Files.deleteIfExists(output);
+            Files.createLink(output, cached);
+            return true;
+        } catch (IOException | UnsupportedOperationException | SecurityException e) {
+            hardLinkUnsupported = true;
+            log.info("本卷不支持硬链，片段改走复制（仅首次提示）: {}", e.getMessage());
+            deleteQuietly(output);
+            return false;
+        }
+    }
+
+    /**
+     * 缓存键：凡影响产物字节的都要进键。
+     *
+     * - `clipId` + 区间：用户改过裁剪点就是另一段画面；
+     * - `videoAssetId`：重新物化会**新建**资产行（id 变）→ 不会拿旧产物顶新产物；
+     * - `videoFp`：产物丢失时回退到整集源，源指纹决定内容（`data/videos` 换文件也换键）；
+     * - 时间轴帧率：走重编码分支时它就是 `-r` 的值。
+     */
+    private String cacheKey(Clip clip, double timelineFps) {
+        String fingerprint = clip.getVideoFp() == null || clip.getVideoFp().isBlank() ? "nofp" : clip.getVideoFp();
+        Long end = endMs(clip);
+        return "clip-" + clip.getId() + "-" + startMs(clip) + "-" + (end == null ? "end" : String.valueOf(end))
+                + "-a" + (clip.getVideoAssetId() == null ? 0L : clip.getVideoAssetId())
+                + "-" + fingerprint + "-" + (int) Math.round(timelineFps) + "fps.mp4";
+    }
+
     /** 单个片段：物化产物直用 / 产物重编码 / 源视频重编码。 */
     private void prepareOne(Clip clip, Path output, double timelineFps) throws IOException, InterruptedException {
         Artifact artifact = reusableArtifact(clip);
         if (artifact != null) {
-            if (playable(artifact, timelineFps)) {
+            if (playable(artifact)) {
                 Files.createDirectories(output.getParent());
                 if (isFastStart(artifact.file())) {
                     Files.copy(artifact.file(), output, StandardCopyOption.REPLACE_EXISTING);
@@ -153,12 +238,12 @@ public class RecommendClipSourceService {
                 return;
             }
             log.info("片段 {} 物化产物编解码不可直用，改为重编码: {}", clip.getId(), artifact.file().getFileName());
-            export(clip, artifact.file(), output, false);
+            export(clip, artifact.file(), output, false, timelineFps);
             return;
         }
         validateRange(clip);
         Path source = videoResolver.resolve(clip.getVideoFp());
-        export(clip, source, output, true);
+        export(clip, source, output, true, timelineFps);
     }
 
     /**
@@ -245,8 +330,8 @@ public class RecommendClipSourceService {
             if (asset == null || !"AVAILABLE".equals(asset.getAvailabilityState()) || asset.getStoragePath() == null) {
                 return null;
             }
-            Path file = assetRoot.resolve(asset.getStoragePath()).normalize();
-            if (!file.startsWith(assetRoot) || !Files.isRegularFile(file)) return null;
+            Path file = VideoAssetPathService.trustedPath(assetRoot, asset.getStoragePath());
+            if (file == null || !Files.isRegularFile(file)) return null;
             long startMs = startMs(clip);
             Long endMs = endMs(clip);
             if (endMs == null || endMs <= startMs) return null;
@@ -261,30 +346,16 @@ public class RecommendClipSourceService {
         }
     }
 
-    /** 产物是否可被浏览器直接播放：存库编解码优先，字段缺失才探测（探测不出 → 不可直用）。 */
     /**
-     * 物化产物能否直重复用：编解码可播 **且帧率与推荐时间轴一致**。
+     * 物化产物能否直重复用：**只看编解码**（浏览器能不能播）。
      *
-     * 帧率那条是 2026-09-19 补的：以前只看编解码，于是 23.976fps 的素材被零重编码直通，
-     * 进 30fps 时间轴后帧节奏不匀（源帧重复/跳过混排），观感就是“片段一直在晃”。
-     * 探测不到帧率（探针不可用）时按可复用来处理，避免在探测失败时把全部片段都转一遍。
-     *
-     * 更正（2026-09-20）：当时以为“重编码成时间轴帧率”能消掉顿挫，**其实不能** ——
-     * 24fps 内容重新封成 30fps 只能靠重复帧（帧间差实测每 5 帧一个 ≈0），顿挫一分不少。
-     * 真正的解是让时间轴跟着素材走（银幕式 → 24），因此这里的比对帧率也随模板形态变。
+     * <p>帧率那条已在 2026-09-29 删除（用户拍板）。历史：2026-09-19 加它，是因为 23.976 素材零重编码直进
+     * 30fps 时间轴时观测到"片段一直在晃"；2026-09-20 又自己实测更正——把内容重新封成时间轴帧率**消不掉顿挫**
+     * （靠重复帧，帧间差每 5 帧一个 ≈0），真解是让时间轴跟着素材走（银幕式 → 24）。
+     * 既然转帧率买不到东西，就不该为它付整段重编码（实测 1080p 60s ≈ 13s，一个 10 分钟片段 ≈ 2.3 分钟/会话）。
      */
-    private boolean playable(Artifact artifact, double timelineFps) {
-        if (!codecsPlayable(artifact)) return false;
-        double fps = mediaProbe.fps(artifact.file().toString());
-        if (fps <= 0) {
-            log.warn("片段物化产物帧率探测失败，按可复用处理: {}", artifact.file().getFileName());
-            return true;
-        }
-        if (Math.abs(fps - timelineFps) > 0.05) {
-            log.info("片段物化产物帧率 {} ≠ 时间轴 {}，改为重编码（CFR）: {}", fps, timelineFps, artifact.file().getFileName());
-            return false;
-        }
-        return true;
+    private boolean playable(Artifact artifact) {
+        return codecsPlayable(artifact);
     }
 
     private boolean codecsPlayable(Artifact artifact) {
@@ -312,8 +383,12 @@ public class RecommendClipSourceService {
 
     /**
      * 裁剪编码：`fromSource=true` 时按 clip 区间取源片；false 表示输入已是裁剪好的产物（只重编码）。
+     *
+     * <p>`timelineFps` **必须**是调用方传下来的时间轴帧率（银幕式 24）：以前这里读的是字段 `targetFps`
+     * （`videotagger.render.fps`，默认 30），于是银幕式的重编码产物是 30fps —— 既没对齐时间轴、又每个会话白转一遍
+     * （2026-09-29 实测：同一会话里 23.98 片段直通、29.97 片段被写成 30fps）。
      */
-    private void export(Clip clip, Path input, Path output, boolean fromSource) throws IOException, InterruptedException {
+    private void export(Clip clip, Path input, Path output, boolean fromSource, double timelineFps) throws IOException, InterruptedException {
         Files.createDirectories(output.getParent());
         Path temp = output.resolveSibling(output.getFileName() + ".part");
         Files.deleteIfExists(temp);
@@ -332,7 +407,7 @@ public class RecommendClipSourceService {
         }
         command.addAll(List.of("-c:v", "libx264", "-preset", "fast", "-crf", "20",
                 // 常帧率 + 对齐推荐时间轴帧率：帧率不匹配的素材直接进时间轴会帧节奏不匀（“抖”）
-                "-vsync", "cfr", "-r", String.valueOf((int) Math.round(targetFps)),
+                "-vsync", "cfr", "-r", String.valueOf((int) Math.round(timelineFps > 0 ? timelineFps : targetFps)),
                 // 保留素材原声（Remotion 路径需要原声）
                 "-c:a", "aac", "-b:a", "128k",
                 "-movflags", "+faststart", "-f", "mp4", temp.toString()));

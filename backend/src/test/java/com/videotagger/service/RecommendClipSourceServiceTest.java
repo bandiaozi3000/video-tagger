@@ -35,6 +35,10 @@ class RecommendClipSourceServiceTest {
     @TempDir
     Path workDir;
 
+    /** 跨会话片段素材缓存目录（第二个会话从这里硬链，不再重编码）。 */
+    @TempDir
+    Path clipCacheDir;
+
     private static final long MEDIA_ID = 42L;
     private static final long CLIP_ID = 7L;
 
@@ -72,7 +76,7 @@ class RecommendClipSourceServiceTest {
         properties.setFfmpegPath("no-such-ffmpeg-binary");
         properties.setTaskTimeoutSec(5);
         return new RecommendClipSourceService(clipMapper, resolver, properties, assetMapper, probe,
-                assetRoot.toString(), 30, related, mediaMapper, episodeMapper);
+                assetRoot.toString(), 30, clipCacheDir.toString(), related, mediaMapper, episodeMapper);
     }
 
     private Map<Long, RecommendMediaClips> request() {
@@ -154,18 +158,23 @@ class RecommendClipSourceServiceTest {
         assertEquals(1, result.missing().size());
         assertTrue(result.missing().get(0).reason().contains("找不到本地源视频"));
     }
-@Test
-    void transcodesWhenArtifactFpsDiffersFromTimeline() throws Exception {
-        // 2026-09-19 回归：帧率与时间轴不一致的产物**不能**直通。
-        // 以前只看编解码，23.976fps 的产物被零重编码复制进 30fps 时间轴 →
-        // 逐帧按时间取源帧时出现规律性重复/跳帧（观感「片段一直在晃」）。
-        Path artifact = assetRoot.resolve("asset-23.mp4");
+
+    /**
+     * 2026-09-29 用户拍板：**帧率不再触发重编码**。
+     *
+     * 这条用例是原 `transcodesWhenArtifactFpsDiffersFromTimeline` 的**反转**：当时要求帧率不一致就重编码，
+     * 现在要求一律直通——依据是 2026-09-20 自己实测的结论「重编码成时间轴帧率消不掉顿挫」，
+     * 而实测重编码实际写的是 30fps（比时间轴 24 更不对），等于每个会话白转一遍。
+     */
+    @Test
+    void passesThroughArtifactWhenOnlyFpsDiffers() throws Exception {
+        Path artifact = assetRoot.resolve("asset-29-97.mp4");
         Files.write(artifact, new byte[2048]);
 
         VideoAsset asset = new VideoAsset();
         asset.setId(99L);
         asset.setAvailabilityState("AVAILABLE");
-        asset.setStoragePath("asset-23.mp4");
+        asset.setStoragePath("asset-29-97.mp4");
         asset.setDurationMs(10_000L);
         asset.setVideoCodec("h264");
         asset.setAudioCodec("aac");
@@ -176,17 +185,60 @@ class RecommendClipSourceServiceTest {
         when(assetMapper.selectById(99L)).thenReturn(asset);
 
         MediaProbe probe = mock(MediaProbe.class);
-        when(probe.fps(anyString())).thenReturn(23.976);
+        when(probe.fps(anyString())).thenReturn(29.97);
         when(probe.codecs(anyString())).thenReturn(new MediaProbe.Codecs("h264", "aac", true));
 
         RecommendClipSourceService.PreparedClips result =
                 service(clipMapper, assetMapper, mock(LocalVideoResolver.class), probe)
-                        .prepare(request(), workDir);
+                        .prepare(request(), workDir, 24);
 
-        // 走了重编码分支（测试环境无 ffmpeg → 记为 missing），而不是把 23.976 的产物直接复制
-        assertEquals(1, result.missing().size(), "帧率不一致应改走重编码，不应直通");
-        Path output = workDir.resolve("media/clip-" + CLIP_ID + ".mp4");
-        assertTrue(!Files.exists(output) || Files.size(output) != 2048L, "不应留下与产物字节相同的直通文件");
+        assertTrue(result.missing().isEmpty(), "29.97 素材进 24 时间轴应直通，不该为了转帧率重编码");
+        assertEquals(2048L, Files.size(workDir.resolve("media/clip-" + CLIP_ID + ".mp4")),
+                "应是零重编码直通（字节数不变）");
+    }
+
+    /**
+     * 跨会话复用（2026-09-29，用户：「每次都得重新素材太麻烦了」）：
+     * 第二个会话（新 workDir = 新 token）应直接从缓存拿，不再走准备流程。
+     */
+    @Test
+    void reusesPreparedClipAcrossSessions() throws Exception {
+        Path artifact = assetRoot.resolve("asset-cache.mp4");
+        byte[] payload = new byte[2048];
+        java.util.Arrays.fill(payload, (byte) 7);
+        Files.write(artifact, payload);
+
+        VideoAsset asset = new VideoAsset();
+        asset.setId(99L);
+        asset.setAvailabilityState("AVAILABLE");
+        asset.setStoragePath("asset-cache.mp4");
+        asset.setDurationMs(10_000L);
+        asset.setVideoCodec("h264");
+        asset.setAudioCodec("aac");
+
+        ClipMapper clipMapper = mock(ClipMapper.class);
+        VideoAssetMapper assetMapper = mock(VideoAssetMapper.class);
+        when(clipMapper.listByMedia(MEDIA_ID)).thenReturn(List.of(clip()));
+        when(assetMapper.selectById(99L)).thenReturn(asset);
+
+        RecommendClipSourceService service =
+                service(clipMapper, assetMapper, mock(LocalVideoResolver.class), mock(MediaProbe.class));
+        service.prepare(request(), workDir);
+
+        List<Path> cached;
+        try (var stream = Files.list(clipCacheDir)) {
+            cached = stream.toList();
+        }
+        assertEquals(1, cached.size(), "第一次准备应写下 1 份缓存素材: " + cached);
+
+        // 第二个会话：换 workDir（= 换 token），缓存必须命中 —— 命中即不会重写缓存，字节也应一致
+        Path secondSession = Files.createDirectories(workDir.resolveSibling("session-2"));
+        RecommendClipSourceService.PreparedClips second = service.prepare(request(), secondSession);
+        assertTrue(second.missing().isEmpty(), "第二个会话不该缺素材");
+        assertEquals(2048L, Files.size(secondSession.resolve("media/clip-" + CLIP_ID + ".mp4")));
+        try (var stream = Files.list(clipCacheDir)) {
+            assertEquals(1, stream.count(), "缓存不应被写第二遍");
+        }
     }
 
     @Test
@@ -240,6 +292,10 @@ class BorrowedClipTest {
     private static final long SOURCE = 6648L;
     private static final long BORROWED_CLIP = 900L;
 
+    /** 跨会话片段素材缓存（每个测试类一个）。 */
+    @TempDir
+    Path clipCacheDir;
+
     /** 物化产物：READY + 文件在场 + 区间与 clip 一致 → 走「零重编码直通」，测试环境不需要 ffmpeg。 */
     private VideoAsset asset(Path root, String relative, long durationMs) {
         VideoAsset videoAsset = new VideoAsset();
@@ -271,7 +327,7 @@ class BorrowedClipTest {
         properties.setFfmpegPath("no-such-ffmpeg-binary");
         properties.setTaskTimeoutSec(5);
         return new RecommendClipSourceService(clipMapper, resolver, properties, assetMapper, probe,
-                assetRoot.toString(), 30, related, mediaMapper, null);
+                assetRoot.toString(), 30, clipCacheDir.toString(), related, mediaMapper, null);
     }
 
     private RelatedMediaService relatedService() {
@@ -384,6 +440,10 @@ class DanglingCrossMediaRefTest {
     private static final long OVA = 6648L;
     private static final long BORROWED = 182L;
 
+    /** 跨会话片段素材缓存（每个测试类一个）。 */
+    @TempDir
+    Path clipCacheDir;
+
     private RecommendClipSourceService service(ClipMapper clipMapper, RelatedMediaService related,
                                                com.videotagger.mapper.EpisodeMapper episodeMapper) {
         ClipExportProperties properties = new ClipExportProperties();
@@ -391,7 +451,7 @@ class DanglingCrossMediaRefTest {
         properties.setTaskTimeoutSec(5);
         return new RecommendClipSourceService(clipMapper, mock(LocalVideoResolver.class), properties,
                 mock(VideoAssetMapper.class), mock(MediaProbe.class), assetRoot.toString(), 30,
-                related, null, episodeMapper);
+                clipCacheDir.toString(), related, null, episodeMapper);
     }
 
     private RelatedMediaService relatedService() {
