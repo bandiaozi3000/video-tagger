@@ -859,3 +859,14 @@ done   # 然后在脚本里统计：总行 / 唯一 / 重复 / 年份块序列
 ### §20 附：清单排序的**两套口径**必须一致（2026-09-27）
 
 「按年份分组」时排序曾经只在成片侧生效、清单侧写死倒序（`buildListText` 的 `order.sort` 恒为 `Number(b)-Number(a)`，UI 还挂着「（分组时排序不生效）」自我交代）。**同一件事（年份组顺序）出现在两处就必须同源**：`src/scene-plan.ts` 的 `groupMedia()` 与 `editor/export-list.ts` 的 `buildListText()` 现在都读排序开关（`groupSort` / `sortBy`），「不排序」时两边都沿用年份倒序、「年份未知」永远排最后。
+
+## §41 Animeko WEB 缓存文件命名有**两代**，C2 定位必须都试（2026-09-29 修：集灯莫名 missing）
+
+- **现象**：Animeko 里显式缓存了某集、文件也在 `media-downloads/web-m3u/` 里，但集灯是 missing、本地回顾不可用（`/api/episodes/{id}/material/channels` 返回 `UNAVAILABLE`）。
+- **原因**：Animeko 把 WEB 缓存的文件名从 `{mediaId}.{ext}` 换成了 `http-v2-{sha256}.{ext}`，而 registry（`datastore/mediaCacheMetadataV2`）里**只有 `origin.mediaId` / `metadata.subjectId` / `metadata.episodeId`，没有任何路径字段** → 只按 `mediaId.ext` 猜路径必然落空。
+- **新命名公式**（Animeko `HttpMediaCacheEngine.httpDownloadId`，实测 9/9 文件吻合）：
+  `http-v2-` + `sha256("${len(mediaId)}:${mediaId}${len(subjectId)}:${subjectId}${len(episodeId)}:${episodeId}")`，输出文件再加扩展名。
+  Kotlin `String.length` 与 Java 同为 UTF-16 码元数，`String.length()` 直接用；`MessageDigest` + `HexFormat` 够用，别加依赖。
+- **旧代命名**：`{mediaId}.{ext}`，其中 `[\/:*?"<>|]` 被换成 `-`（`toSafeDownloadId`）。旧缓存仍在，**两代都要试，v2 优先**（与 Animeko 自己的 `restoredHttpDownloadId` 偏好一致）。
+- 唯一真源：`AnimekoCacheLocator.engineFileCandidates()`；**黄金样例**（真实三元组）：零之使魔 双月骑士 / subjectId=1103 / episodeId=2957 → `http-v2-73b20a95fd2079401ccab838451d77bdb046220e4139cb44780b7bf8e0884415.mp4`，见 `AnimekoCacheLocatorTest.httpV2NamingHit`。
+- 排查这条路别乱猜哈希：文件名 ↔ 真实 URL 的对应只在 Animeko 自己的 `data/logs/app.log`（`Preparing to download with id=http-v2-…, url=…`），公式去 Animeko 源码 `HttpMediaCacheEngine` 找；sha256(uri)/sha256(mediaId) 这类猜测全部 miss。

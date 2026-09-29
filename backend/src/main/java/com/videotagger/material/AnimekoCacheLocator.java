@@ -7,15 +7,22 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
 /**
  * C2 素材化渠道定位器：把 Bangumi episodeId 解析成 Animeko 本地缓存/整集文件。
+ *
+ * <p>注意 Animeko 的文件命名换过代（旧 {@code mediaId.ext} → 新 {@code http-v2-{sha256}.ext}），
+ * 两代都要试，见 {@link #engineFileCandidates}。
  *
  * <p>Animeko 的"缓存 registry"不在其 SQLite 内，而在 {@code data/datastore/mediaCacheMetadataV2}
  * （JSON 数组，元素含 {@code subjectId}/{@code episodeId} 与引擎侧文件字段）与各引擎目录
@@ -126,17 +133,56 @@ public class AnimekoCacheLocator {
         }
     }
 
-    /** 真实 Animeko 布局：文件在 media-downloads/{engine}/{origin.mediaId}.{ext}。engine=web-m3u/anitorrent 等。 */
+    /**
+     * 真实 Animeko 布局：文件在 media-downloads/{engine}/{名}.{ext}，engine=web-m3u/anitorrent 等。
+     *
+     * <p>文件名两代并存：
+     * <ul>
+     *   <li><b>v2（Animeko 2026-09 起）</b>：{@code http-v2-{sha256}}，见 {@link #httpV2DownloadId}；</li>
+     *   <li><b>旧代</b>：{@code {mediaId}}，mediaId 里的 {@code \/:*?"<>|} 会被 Animeko 换成 {@code -}。</li>
+     * </ul>
+     * v2 候选排前面，与 Animeko 自己的 "优先新 id、回退旧 id"（restoredHttpDownloadId）一致。
+     */
     private List<String> engineFileCandidates(JsonNode entry) {
         List<String> out = new ArrayList<>();
         String engine = textOf(entry, "engine");
         if (engine == null || engine.isBlank() || downloadsRoot == null) return out;
         String mediaId = firstValueByKey(entry, "mediaId");
         if (mediaId == null || mediaId.isBlank()) return out;
+        Path dir = downloadsRoot.resolve(engine);
+        String legacySafeId = mediaId.replaceAll(PATH_AFFECTING_CHARS, "-");
+        String v2 = httpV2DownloadId(mediaId, firstValueByKey(entry, "subjectId"), firstValueByKey(entry, "episodeId"));
         for (String ext : List.of("mp4", "mkv", "webm", "mov", "flv", "ts", "m4v")) {
-            out.add(downloadsRoot.resolve(engine).resolve(mediaId + "." + ext).toString());
+            if (v2 != null) out.add(dir.resolve(v2 + "." + ext).toString());
+            out.add(dir.resolve(mediaId + "." + ext).toString());
+            if (!legacySafeId.equals(mediaId)) out.add(dir.resolve(legacySafeId + "." + ext).toString());
         }
         return out;
+    }
+
+    /** Animeko 的 toSafeDownloadId 用的非法路径字符集（旧命名回退时用）。 */
+    private static final String PATH_AFFECTING_CHARS = "[\\\\/:*?\"<>|]";
+
+    /**
+     * Animeko {@code HttpMediaCacheEngine.httpDownloadId}：
+     * {@code "http-v2-" + sha256("${len(mediaId)}:${mediaId}${len(subjectId)}:${subjectId}${len(episodeId)}:${episodeId}")}。
+     *
+     * <p>实测依据：库里 9 个 v2 文件与 Animeko app.log 的 id↔url 全部吻合（2026-09-29，见
+     * {@code AnimekoCacheLocatorTest}）。Kotlin {@code String.length} 与 Java 同为 UTF-16 码元数，
+     * 长度语义一致（汉字计 1），故 {@code String.length()} 可直接用。
+     */
+    private static String httpV2DownloadId(String mediaId, String subjectId, String episodeId) {
+        if (mediaId == null || subjectId == null || episodeId == null) return null;
+        String identity = mediaId.length() + ":" + mediaId
+                + subjectId.length() + ":" + subjectId
+                + episodeId.length() + ":" + episodeId;
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(identity.getBytes(StandardCharsets.UTF_8));
+            return "http-v2-" + HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            log.warn("[animeko-c2] SHA-256 不可用，跳过 v2 命名候选: {}", e.getMessage());
+            return null;
+        }
     }
 
     private String textOf(JsonNode node, String key) {
