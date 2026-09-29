@@ -2,6 +2,7 @@ package com.videotagger.controller;
 
 import com.videotagger.service.ClipMaterializationService;
 import com.videotagger.service.MaterializationService;
+import com.videotagger.util.VideoMimeTypes;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -66,14 +67,8 @@ public class ClipMaterializationController {
         }
         File file = new File(path);
         if (!file.isFile()) return ResponseEntity.status(409).build();
-        String lower = path.toLowerCase();
-        MediaType mt = null;
-        if (lower.endsWith(".mp4")) mt = MediaType.parseMediaType("video/mp4");
-        else if (lower.endsWith(".webm")) mt = MediaType.parseMediaType("video/webm");
-        else if (lower.endsWith(".mkv")) mt = MediaType.parseMediaType("video/x-matroska");
-        else if (lower.endsWith(".mov")) mt = MediaType.parseMediaType("video/quicktime");
-        else if (lower.endsWith(".ts")) mt = MediaType.parseMediaType("video/mp2t");
-        else return ResponseEntity.status(409).build();
+        MediaType mt = VideoMimeTypes.of(file);   // 与集级「本地回顾」同口径：扩展名不认时嗅探文件头
+        if (mt == null) return ResponseEntity.status(409).build();
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_TYPE, mt.toString())
                 .header(HttpHeaders.ACCEPT_RANGES, "bytes")

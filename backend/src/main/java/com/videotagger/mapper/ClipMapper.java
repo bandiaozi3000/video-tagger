@@ -21,6 +21,14 @@ public interface ClipMapper extends BaseMapper<Clip> {
     @Select("SELECT * FROM clips WHERE video_asset_id = #{videoAssetId} ORDER BY start_ms, id")
     List<Clip> listByVideoAsset(@Param("videoAssetId") long videoAssetId);
 
+    /**
+     * 解除片段与资产的绑定。**必须**用显式 SQL：MyBatis-Plus 的 {@code updateById} 忽略 null 字段，
+     * {@code clip.setVideoAssetId(null)} 再 updateById 根本写不进去 → 资产删了、片段还指着它 = **悬空引用**。
+     * 2026-09-29 实测：悬空引用让「准备素材」报「Local verified asset is required before trimming」。
+     */
+    @Update("UPDATE clips SET video_asset_id = NULL, material_state = #{materialState} WHERE id = #{id}")
+    int clearVideoAsset(@Param("id") long id, @Param("materialState") String materialState);
+
     @Update("UPDATE clips SET video_asset_id = #{videoAssetId}, source_revision = #{sourceRevision}, start_ms = #{startMs}, end_ms = #{endMs}, material_state = #{materialState} WHERE id = #{id}")
     void bindVideoAsset(@Param("id") long id, @Param("videoAssetId") Long videoAssetId, @Param("sourceRevision") String sourceRevision, @Param("startMs") Long startMs, @Param("endMs") Long endMs, @Param("materialState") String materialState);
 

@@ -21,8 +21,24 @@ public class ClipMaterializationService {
     public record Result(long clipId,long generatedAssetId,String storagePath,long durationMs,String state) {}
     private final ClipMapper clipMapper; private final VideoAssetMapper assetMapper; private final VideoTimeMappingMapper mappingMapper; private final Path root; private final String ffmpegPath;
     public ClipMaterializationService(ClipMapper clipMapper,VideoAssetMapper assetMapper,VideoTimeMappingMapper mappingMapper,@Value("${videotagger.video-assets.root-dir:${VT_DATA_DIR:data}/video-assets}") String root,@Value("${videotagger.render.ffmpeg-path:ffmpeg}") String ffmpegPath){this.clipMapper=clipMapper;this.assetMapper=assetMapper;this.mappingMapper=mappingMapper;this.root=Path.of(root).toAbsolutePath().normalize();this.ffmpegPath=ffmpegPath;}
-    public Plan plan(long clipId){Clip clip=require(clipId);long start=start(clip);Long end=end(clip);VideoAsset asset=clip.getVideoAssetId()==null?null:assetMapper.selectById(clip.getVideoAssetId());String strategy=asset!=null&&asset.getStoragePath()!=null&&"AVAILABLE".equals(asset.getAvailabilityState())?"TRIM_LOCAL_ASSET":asset!=null&&"REMOTE_STREAM".equals(asset.getAssetType())?"DOWNLOAD_RANGE_OR_EPISODE":"SOURCE_REQUIRED";return new Plan(clipId,strategy,clip.getVideoAssetId(),start,end,clip.getMaterialState());}
-    public Result materialize(long clipId) throws Exception {Clip clip=require(clipId);Plan plan=plan(clipId);if(!"TRIM_LOCAL_ASSET".equals(plan.strategy()))throw new IllegalStateException("Local verified asset is required before trimming");if(plan.endMs()==null||plan.endMs()<=plan.startMs())throw new IllegalArgumentException("Clip end time is required");VideoAsset source=assetMapper.selectById(plan.sourceAssetId());Path input=root.resolve(source.getStoragePath()).normalize();if(!input.startsWith(root)||!Files.isRegularFile(input))throw new IllegalStateException("Source asset file is missing");return cut(clipId,source,input,plan.endMs(),"derived-from:"+source.getId(),source.getSourceRevision());}
+    public Plan plan(long clipId){
+        Clip clip=require(clipId);long start=start(clip);Long end=end(clip);
+        VideoAsset asset=clip.getVideoAssetId()==null?null:assetMapper.selectById(clip.getVideoAssetId());
+        // 绑定资产查不到（悬空引用：源被删/换源）或不可用时，回退到该集可用本地资产 —— 必须与
+        // MaterializationService.resolveC1 的「按 episodeId 命中可用资产」同口径，否则求值说
+        //「素材在场」、裁剪说「需要本地资产」，用户看到的就是「准备素材报错」（2026-09-29 实测）。
+        if ((asset==null||asset.getStoragePath()==null||!"AVAILABLE".equals(asset.getAvailabilityState()))
+                && clip.getEpisodeId()!=null) {
+            VideoAsset fallback=assetMapper.selectAvailable(clip.getEpisodeId());
+            if (isLocalKind(fallback)) asset=fallback;
+        }
+        String strategy=asset!=null&&asset.getStoragePath()!=null&&"AVAILABLE".equals(asset.getAvailabilityState())?"TRIM_LOCAL_ASSET":asset!=null&&"REMOTE_STREAM".equals(asset.getAssetType())?"DOWNLOAD_RANGE_OR_EPISODE":"SOURCE_REQUIRED";
+        return new Plan(clipId,strategy,asset==null?null:asset.getId(),start,end,clip.getMaterialState());
+    }
+
+    /** C1 本地原始源（与 MaterializationService.isC1 同口径）：产物 GENERATED_CLIP 不得当源。 */
+    private static boolean isLocalKind(VideoAsset a){String t=a==null?null:a.getAssetType();return "LOCAL_ORIGINAL".equals(t)||"DOWNLOADED".equals(t)||"UPLOADED".equals(t);}
+    public Result materialize(long clipId) throws Exception {Clip clip=require(clipId);Plan plan=plan(clipId);if(!"TRIM_LOCAL_ASSET".equals(plan.strategy()))throw new IllegalStateException("Local verified asset is required before trimming");if(plan.endMs()==null||plan.endMs()<=plan.startMs())throw new IllegalArgumentException("Clip end time is required");VideoAsset source=assetMapper.selectById(plan.sourceAssetId());Path input=VideoAssetPathService.trustedPath(root,source.getStoragePath());if(input==null||!Files.isRegularFile(input))throw new IllegalStateException("Source asset file is missing");return cut(clipId,source,input,plan.endMs(),"derived-from:"+source.getId(),source.getSourceRevision());}
 
     /**
      * M3 C2/C3：从外部绝对路径文件裁剪（Animeko 缓存整集 / 受控下载落盘文件）。

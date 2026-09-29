@@ -138,6 +138,29 @@ class MaterializationServiceTest {
     }
 
     @Test
+    @DisplayName("手动登记：外部绝对路径源（受管目录之外）→ C1 PRESENT")
+    void externalAbsoluteSourceIsTrusted() throws Exception {
+        Path outside = Files.createTempDirectory("vt-manual-src");
+        try {
+            Path file = Files.createFile(outside.resolve("ep02.mkv"));
+            Clip c = clip(30);
+            c.setVideoAssetId(30L);
+            when(clipMapper.selectById(30L)).thenReturn(c);
+            when(assetMapper.selectById(30L)).thenReturn(
+                    asset(30L, "UPLOADED", "AVAILABLE", file.toAbsolutePath().toString(), null, null));
+
+            MaterializationService.Evaluation ev = service.evaluate(30L);
+            assertEquals("C1", ev.channel());
+            assertEquals("PRESENT", ev.state());
+            assertEquals("TRIM_LOCAL_ASSET", ev.strategy());
+            assertEquals(file.toString(), ev.filePath());
+        } finally {
+            Files.deleteIfExists(outside.resolve("ep02.mkv"));
+            Files.deleteIfExists(outside);
+        }
+    }
+
+    @Test
     @DisplayName("C1：无绑定资产但 videoFp 命中池内资产 → PRESENT")
     void c1FingerprintHit() throws Exception {
         Path file = Files.createFile(assetRoot.resolve("pool.mp4"));

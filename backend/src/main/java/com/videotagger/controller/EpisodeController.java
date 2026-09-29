@@ -6,6 +6,7 @@ import com.videotagger.service.EpisodeReviewService;
 import com.videotagger.service.EpisodeService;
 import com.videotagger.service.EpisodeUpdateRequest;
 import com.videotagger.service.ReviewClipService;
+import com.videotagger.util.VideoMimeTypes;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -63,14 +64,8 @@ public class EpisodeController {
         }
         File file = new File(src.filePath());
         if (!file.isFile()) return ResponseEntity.status(409).body(null);
-        String lower = src.filePath().toLowerCase();
-        MediaType mt = null;
-        if (lower.endsWith(".mp4")) mt = MediaType.parseMediaType("video/mp4");
-        else if (lower.endsWith(".webm")) mt = MediaType.parseMediaType("video/webm");
-        else if (lower.endsWith(".mkv")) mt = MediaType.parseMediaType("video/x-matroska");
-        else if (lower.endsWith(".mov")) mt = MediaType.parseMediaType("video/quicktime");
-        else if (lower.endsWith(".ts")) mt = MediaType.parseMediaType("video/mp2t");
-        else return ResponseEntity.status(409).body(null);
+        MediaType mt = VideoMimeTypes.of(file);   // 扩展名不认时嗅探文件头（B 站伪 .flv 内核是 mp4）
+        if (mt == null) return ResponseEntity.status(409).body(null);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_TYPE, mt.toString())
                 .header(HttpHeaders.ACCEPT_RANGES, "bytes")

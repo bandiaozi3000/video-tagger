@@ -82,8 +82,8 @@ public class EpisodeReviewService {
         if ("C1".equals(src.channel())) {
             for (VideoAsset asset : assetMapper.listByEpisode(episodeId)) {
                 if (asset.getStoragePath() == null || asset.getStoragePath().isBlank()) continue;
-                Path p = assetRoot.resolve(asset.getStoragePath().replace('\\', '/')).normalize();
-                if (p.toAbsolutePath().normalize().toString().equals(src.filePath())) {
+                Path p = VideoAssetPathService.trustedPath(assetRoot, asset.getStoragePath());
+                if (p != null && p.toString().equals(src.filePath())) {
                     videoAssetService.deleteLocal(asset.getId());
                     return new SourceDeleteResult("C1", "UNAVAILABLE", "已删除本地资产（记录与文件）；如仍需观看该集请重新下载或缓存");
                 }
@@ -115,6 +115,12 @@ public class EpisodeReviewService {
             if ("PRESENT".equals(r.state()) && r.filePath() != null) {
                 return new ReviewSource("C2", "PRESENT", r.filePath(), r.message(), null, refUrl(ref));
             }
+        }
+        // 3) 登记过资产但文件不在场：给出可诊断信息，别只说「无本地源」
+        String stale = missingRegisteredAsset(episodeId);
+        if (stale != null) {
+            return new ReviewSource(null, "UNAVAILABLE", null,
+                    "已登记本地源但文件不在（路径被移动/删除？）：" + stale, null, null);
         }
         return new ReviewSource(null, "UNAVAILABLE", null,
                 "该集无本地源（无本地资产、无 Animeko 整集缓存）；可先在 Animeko 显式缓存该集", null, null);
@@ -152,11 +158,24 @@ public class EpisodeReviewService {
         return null;
     }
 
-    /** 资产存储路径 → 绝对路径；越界或文件不在返回 null。 */
+    /** 资产存储路径 → 绝对路径；不可信或文件不在返回 null（绝对路径＝用户登记的外部文件，见 trustedPath）。 */
     private String assetFilePath(VideoAsset a) {
-        Path p = assetRoot.resolve(a.getStoragePath()).normalize();
-        if (!p.startsWith(assetRoot) || !Files.isRegularFile(p)) return null;
+        Path p = VideoAssetPathService.trustedPath(assetRoot, a.getStoragePath());
+        if (p == null || !Files.isRegularFile(p)) return null;
         return p.toString();
+    }
+
+    /** 该集是否「登记了但文件不在场」的资产 → 返回其 storagePath（给用户可诊断的提示）。 */
+    private String missingRegisteredAsset(long episodeId) {
+        try {
+            for (VideoAsset a : assetMapper.listByEpisode(episodeId)) {
+                if ("GENERATED_CLIP".equals(a.getAssetType())) continue;
+                if (a.getStoragePath() == null || a.getStoragePath().isBlank()) continue;
+                if (assetFilePath(a) == null) return a.getStoragePath();
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     /** C2 片段的稳定引用（与 AnimekoTagService 现场打标同形）；无 subject 绑定时为 null。 */

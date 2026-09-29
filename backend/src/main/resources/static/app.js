@@ -1355,42 +1355,6 @@ function renderEpisodeDetailHead(ep, media) {
     episodeDetailHeadEl.querySelector('.ad-title').textContent = ep.title || '(未命名)';
 }
 
-/** 编辑集号：hero-ops 按钮触发，head meta 行内联替换为 集 输入（保存走 PUT /api/episodes/{id}）。 */
-function openEpisodeNoEditor() {
-    const ep = currentEpisode;
-    if (!ep) return;
-    const anchor = episodeDetailHeadEl && episodeDetailHeadEl.querySelector('.ad-title');
-    if (!anchor) return;
-    const eInput = document.createElement('input');
-    eInput.type = 'number'; eInput.min = '1'; eInput.placeholder = '集';
-    eInput.value = ep.episodeNo != null ? ep.episodeNo : '';
-    eInput.className = 'no-edit-input';
-    const save = document.createElement('button'); save.type = 'button'; save.className = 'btn-mini'; save.textContent = '保存';
-    const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn-mini'; cancel.textContent = '取消';
-    const wrap = document.createElement('div');
-    wrap.className = 'no-edit';
-    wrap.append('集', eInput, save, cancel);
-    anchor.after(wrap);
-    eInput.focus();
-    cancel.addEventListener('click', () => loadEpisodeDetail(ep.id));
-    save.addEventListener('click', async () => {
-        const body = {};
-        const e = parseInt(eInput.value, 10);
-        if (!isNaN(e) && e >= 1) body.episodeNo = e;
-        if (body.episodeNo == null) { loadEpisodeDetail(ep.id); return; }
-        try {
-            const resp = await fetch(`/api/episodes/${ep.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
-            if (resp.ok) { loadEpisodeDetail(ep.id); return; }
-        } catch (err) { }
-        wrap.remove();
-        showToast('集号保存失败');
-    });
-}
-
 // 集备注：Hero 卡内展示 + 点击内联编辑（保存走 PUT /api/episodes/{id}，仅改 note；变更后端入队重嵌）
 function renderEpisodeNote(ep) {
     const el = document.getElementById('episode-detail-note');
@@ -6328,7 +6292,7 @@ document.addEventListener('click', (e) => {
 function sourceRowHtml(chan, filePath, extra, remove) {
     const name = filePath ? filePath.split(/[\\\/]/).pop() : '';
     const delBtn = remove && filePath
-        ? `<button type="button" class="btn-mini folder-btn" data-remove-source data-remove-kind="${remove.kind}" data-remove-id="${remove.id}" data-remove-channel="${esc(chan || '')}" title="删除此本地文件（释放磁盘）">🗑 删除</button>`
+        ? `<button type="button" class="btn-mini folder-btn" data-remove-source data-remove-kind="${remove.kind}" data-remove-id="${remove.id}" data-remove-channel="${esc(chan || '')}" title="解除本地源关联（应用受管目录内的文件会一并删除；手动登记在别处的原文件不动）">🗑 删除</button>`
         : '';
     return `<div class="src-chan ${chan ? 'ok' : ''}">${chan ? '✓ ' + esc(chan) + ' · ' + esc(name) : esc(extra || '')}</div>`
         + (filePath ? `<div class="src-path" title="${esc(filePath)}">${esc(filePath)}</div>` : '')
@@ -6348,7 +6312,7 @@ document.addEventListener('click', (e) => {
     const title = isAnimeko ? '删除 Animeko 缓存整集' : '删除本地素材文件';
     const msg = isAnimeko
         ? '将删除 Animeko 缓存整集文件并释放磁盘。Animeko 内再次播放该集会重新缓存。'
-        : '将删除当前本地素材文件；若为物化产物，片段会回到未剪状态。';
+        : '将解除该本地源关联；文件在应用受管目录（video-assets）内会一并删除，你手动登记在别处的原文件只解除关联、不会被删。';
     showConfirm({ title, msg, okText: '删除', danger: true, onOk: () => deleteLocalSource(kind, id) });
 });
 
@@ -6369,6 +6333,39 @@ async function deleteLocalSource(kind, id) {
         }
     } catch (err) {
         showToast('删除本地源失败：' + (err.message || '后端未响应'), 4000);
+    }
+}
+
+/** 本地源登记块：给「自己下载好文件、只想让系统认到路径」的场景（2026-09-30）。 */
+function localRegisterHtml() {
+    return `<div class="src-register">`
+        + `<input class="src-register-input" type="text" placeholder="粘贴已下载文件的完整路径，如 D:\\Anime\\ep01.mkv" autocomplete="off" spellcheck="false">`
+        + `<button type="button" class="btn-mini folder-btn" data-register-local title="只登记路径：不复制文件、不转码">📁 登记本地文件</button>`
+        + `</div>`;
+}
+
+/** 手动登记本地源：登记为 C1 资产（UPLOADED/PRIMARY/AVAILABLE），只记路径。 */
+async function registerLocalSource(episodeId, panel) {
+    const input = panel.querySelector('.src-register-input');
+    const path = (input && input.value ? input.value : '').trim().replace(/^"|"$/g, '');
+    if (!path) { showToast('请先粘贴本地文件的完整路径', 3000); return; }
+    const name = path.split(/[\\\/]/).pop() || 'local-source';
+    try {
+        const resp = await fetch(`/api/episodes/${episodeId}/video-assets`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                assetType: 'UPLOADED', assetRole: 'PRIMARY', availabilityState: 'AVAILABLE',
+                storagePath: path, displayName: name
+            })
+        });
+        if (!resp.ok) throw new Error(await apiMessage(resp, 'HTTP ' + resp.status));
+        const ext = (name.split('.').pop() || '').toLowerCase();
+        const playable = ['mp4', 'webm', 'mkv', 'mov', 'm4v', 'ts'].includes(ext);
+        showToast(playable ? '已登记本地源：' + name : `已登记 ${name}（.${ext} 浏览器不能直接预览，仍可用于剪辑与推荐渲染）`, playable ? 3000 : 5500);
+        if (typeof refreshAllEpLamps === 'function') refreshAllEpLamps();
+        if (typeof currentEpisode !== 'undefined' && currentEpisode && currentEpisode.id === episodeId) syncEpisodeAvailability(currentEpisode);
+    } catch (err) {
+        showToast(err.message || '登记本地源失败', 4000);
     }
 }
 
@@ -6395,9 +6392,12 @@ async function syncEpisodeAvailability(ep) {
             revBtn.title = present ? `本地回顾整集（${ev.channel || ''}）` : (ev.message || '无本地源');
         }
         if (srcPanel) {
-            srcPanel.innerHTML = present && ev.filePath
+            srcPanel.innerHTML = (present && ev.filePath
                 ? sourceRowHtml(ev.channel, ev.filePath, null, { kind: 'episode', id: ep.id })
-                : `<span class="source-muted">${esc(ev.message || '无本地源，可先在 Animeko 显式缓存该集')}</span>`;
+                : `<span class="source-muted">${esc(ev.message || '无本地源，可先在 Animeko 显式缓存该集')}</span>`)
+                + localRegisterHtml();
+            const reg = srcPanel.querySelector('[data-register-local]');
+            if (reg) reg.addEventListener('click', () => registerLocalSource(ep.id, srcPanel));
         }
     } catch (err) {
         if (revBtn) { revBtn.disabled = true; revBtn.classList.remove('live'); }
@@ -7124,7 +7124,6 @@ applyUiConfig();
 document.getElementById('ep-detail-quick-play')?.addEventListener('click', () => {
     if (currentEpisode) window.v023QuickPlayEpisode?.(currentEpisode.id, currentEpisode.title || '本集');
 });
-document.getElementById('ep-detail-no-edit').addEventListener('click', () => openEpisodeNoEditor());
 document.getElementById('ep-detail-cover').addEventListener('click', () => { if (currentEpisode) openEpisodeCoverModal(currentEpisode); });
 document.getElementById('ep-detail-timeline').addEventListener('click', () => {
     if (!currentEpisode) return;

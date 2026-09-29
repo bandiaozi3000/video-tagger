@@ -87,9 +87,8 @@ public class VideoAssetService {
         if (asset == null) throw new IllegalArgumentException("Asset not found");
         boolean product = "GENERATED_CLIP".equals(asset.getAssetType());
         for (Clip clip : clipMapper.listByVideoAsset(assetId)) {
-            clip.setVideoAssetId(null);
-            clip.setMaterialState(product ? "PENDING" : "REFERENCE_ONLY");
-            clipMapper.updateById(clip);
+            // 必须显式 SQL：updateById 忽略 null，setVideoAssetId(null) 写不进去（见 ClipMapper.clearVideoAsset）
+            clipMapper.clearVideoAsset(clip.getId(), product ? "PENDING" : "REFERENCE_ONLY");
         }
         if (mappingMapper.countByAsset(assetId) > 0) {
             throw new IllegalStateException("该资产被换源校准引用，请先删除相关校准");

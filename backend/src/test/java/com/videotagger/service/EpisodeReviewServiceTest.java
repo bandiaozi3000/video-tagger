@@ -18,6 +18,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -68,6 +69,50 @@ class EpisodeReviewServiceTest {
         EpisodeReviewService.ReviewSource r = service(assets.toString(), "Z:/no/db.db").resolve(9L);
         assertEquals("PRESENT", r.state());
         assertEquals(file.toAbsolutePath().toString(), r.filePath());
+    }
+
+    @Test
+    @DisplayName("手动登记：外部绝对路径资产（文件在受管目录之外）→ PRESENT")
+    void externalAbsolutePathAssetIsTrusted() throws Exception {
+        assets = Files.createTempDirectory("ep-assets");
+        Path outside = Files.createTempDirectory("vt-manual-downloads");
+        try {
+            Path file = Files.createFile(outside.resolve("ep01.mkv"));
+            when(episodeMapper.selectById(11L)).thenReturn(ep(11L));
+            VideoAsset a = new VideoAsset();
+            a.setEpisodeId(11L);
+            a.setAssetType("UPLOADED");
+            a.setAssetRole("PRIMARY");
+            a.setAvailabilityState("AVAILABLE");
+            a.setStoragePath(file.toAbsolutePath().toString());
+            when(assetMapper.listByEpisode(11L)).thenReturn(List.of(a));
+
+            EpisodeReviewService.ReviewSource r = service(assets.toString(), "Z:/no/db.db").resolve(11L);
+            assertEquals("PRESENT", r.state());
+            assertEquals("C1", r.channel());
+            assertEquals(file.toAbsolutePath().normalize().toString(), r.filePath());
+        } finally {
+            Files.deleteIfExists(outside.resolve("ep01.mkv"));
+            Files.deleteIfExists(outside);
+        }
+    }
+
+    @Test
+    @DisplayName("登记了但文件不在场 → UNAVAILABLE 且提示具体路径（可诊断）")
+    void registeredButMissingFileGivesDiagnostic() {
+        Path missing = Path.of("Z:/no/such/dir/ep99.mkv");
+        when(episodeMapper.selectById(12L)).thenReturn(ep(12L));
+        VideoAsset a = new VideoAsset();
+        a.setEpisodeId(12L);
+        a.setAssetType("UPLOADED");
+        a.setAvailabilityState("AVAILABLE");
+        a.setStoragePath(missing.toString());
+        when(assetMapper.listByEpisode(12L)).thenReturn(List.of(a));
+
+        EpisodeReviewService.ReviewSource r = service(System.getProperty("java.io.tmpdir"), "Z:/no/db.db").resolve(12L);
+        assertEquals("UNAVAILABLE", r.state());
+        assertTrue(r.message().contains("已登记本地源但文件不在"), r.message());
+        assertTrue(r.message().contains("ep99.mkv"), r.message());
     }
 
     @Test

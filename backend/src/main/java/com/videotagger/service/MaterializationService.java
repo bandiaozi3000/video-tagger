@@ -196,9 +196,7 @@ public class MaterializationService {
         // 1) 物化产物（成品）：解除本片段引用后删除产物资产与文件
         if ("ALREADY_READY".equals(ev.strategy()) && ev.assetId() != null) {
             if (Long.valueOf(ev.assetId()).equals(clip.getVideoAssetId())) {
-                clip.setVideoAssetId(null);
-                clip.setMaterialState("PENDING");
-                clipMapper.updateById(clip);
+                clipMapper.clearVideoAsset(clip.getId(), "PENDING");
             }
             videoAssetService.deleteLocal(ev.assetId());
             return new DeleteSourceResult("C1", "PENDING", "已删除物化产物；需要时可重新物化");
@@ -213,9 +211,7 @@ public class MaterializationService {
         // 3) 本地资产源（TRIM_LOCAL_ASSET / 线索命中）：本片段若仍引用该资产先解除，再删资产行+文件
         if (ev.assetId() != null) {
             if (Long.valueOf(ev.assetId()).equals(clip.getVideoAssetId())) {
-                clip.setVideoAssetId(null);
-                clip.setMaterialState("REFERENCE_ONLY");
-                clipMapper.updateById(clip);
+                clipMapper.clearVideoAsset(clip.getId(), "REFERENCE_ONLY");
             }
             videoAssetService.deleteLocal(ev.assetId());
             return new DeleteSourceResult("C1", "PENDING", "已删除本地资产文件（含记录）");
@@ -269,8 +265,8 @@ public class MaterializationService {
 
     private String fileOf(VideoAsset a) {
         if (a.getStoragePath() == null) return null;
-        Path p = assetRoot.resolve(a.getStoragePath()).normalize();
-        if (!p.startsWith(assetRoot) || !Files.isRegularFile(p)) return null;
+        Path p = VideoAssetPathService.trustedPath(assetRoot, a.getStoragePath());
+        if (p == null || !Files.isRegularFile(p)) return null;
         return p.toString();
     }
 
