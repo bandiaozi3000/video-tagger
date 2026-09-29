@@ -52,6 +52,29 @@ export interface DetailShow {
   endingIndex?: boolean;
   endingYear?: boolean;
   endingStats?: boolean;
+  /**
+   * 片名卡（银幕式）的「备注」开关：**省略 = 跟随 `note`**。
+   * 老草稿从没这个键 → 行为与改动前一致（当年片名卡的备注就是跟着「资料卡·备注」的）。
+   */
+  titleNote?: boolean;
+  /** 片名卡显示「推荐理由」（每部手写那句，≤30 字）：省略 = 不显示（用户 2026-09-29）。 */
+  titleReason?: boolean;
+}
+
+/**
+ * 片名卡的「备注 / 推荐理由」两个开关（2026-09-29 用户：「推荐片名卡备注自定义勾选是否显示」）。
+ *
+ * **编辑器勾选状态与渲染侧必须同源**，所以只留这一个实现：两边都调它。
+ * （`RecommendService` 那段白名单注释警告过的坑：编辑器勾了、成片却不生效。）
+ */
+export function titleCardShow(show: Partial<DetailShow> | undefined | null): { note: boolean; reason: boolean } {
+  const s = show ?? {};
+  const note = typeof s.note === 'boolean' ? s.note : true;
+  return {
+    // 省略 = 跟随「资料卡·备注」；一旦手动勾过就变成显式值（不再跟随）
+    note: typeof s.titleNote === 'boolean' ? s.titleNote : note,
+    reason: s.titleReason === true,
+  };
 }
 
 export interface RenderParams {
@@ -232,6 +255,7 @@ export function resolveParams(raw?: Partial<RenderParams>, fallbackText?: { titl
   const p = raw ?? {};
   const d = (p.durations ?? {}) as Partial<Durations>;
   const show = (p.detailShow ?? {}) as Partial<DetailShow>;
+  const titleCard = titleCardShow(show);
   return {
     title: str(p.title) || str(fallbackText?.title),
     brandTitle: str(p.brandTitle),
@@ -256,6 +280,8 @@ export function resolveParams(raw?: Partial<RenderParams>, fallbackText?: { titl
       endingIndex: typeof show.endingIndex === 'boolean' ? show.endingIndex : true,
       endingYear: typeof show.endingYear === 'boolean' ? show.endingYear : true,
       endingStats: typeof show.endingStats === 'boolean' ? show.endingStats : false,
+      titleNote: titleCard.note,
+      titleReason: titleCard.reason,
     },
 
     bgColor: str(p.bgColor),

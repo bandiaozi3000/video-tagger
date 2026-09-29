@@ -392,6 +392,13 @@ public class RecommendService {
         show.put("endingIndex", detailShow == null || detailShow.get("endingIndex") == null || detailShow.get("endingIndex"));
         show.put("endingYear", detailShow == null || detailShow.get("endingYear") == null || detailShow.get("endingYear"));
         show.put("endingStats", detailShow != null && Boolean.TRUE.equals(detailShow.get("endingStats")));
+        // 片名卡（银幕式）自己的两个开关（2026-09-29 用户：「推荐片名卡备注自定义勾选是否显示」）：
+        //   titleNote 省略 = **跟随「资料卡·备注」**（老草稿零变化）；titleReason 省略 = 不显示（新内容不自己冒出来）。
+        // ⚠️ 这里也是**白名单**，新开关必须一起透传 —— 否则编辑器里勾了、导出却不生效（预览走本地补丁，两边会不一致）。
+        show.put("titleNote", detailShow != null && detailShow.get("titleNote") != null
+                ? detailShow.get("titleNote")
+                : (detailShow == null || detailShow.get("note") == null || detailShow.get("note")));
+        show.put("titleReason", detailShow != null && Boolean.TRUE.equals(detailShow.get("titleReason")));
         p.put("detailShow", show);
         p.put("bgColor", bgColor == null ? "" : bgColor.trim());
         p.put("bgImages", bgImages == null ? List.of() : bgImages);

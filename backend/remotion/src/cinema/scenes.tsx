@@ -5,6 +5,7 @@ import { assetUrl } from '../asset-url';
 import { pad2 } from '../scenes/parts';
 import { parseRichText, RichInline } from '../rich-text';
 import type { RenderParams } from '../params';
+import { titleCardShow } from '../params';
 import type { PocClip, PocMedia } from '../types';
 import { BigNumber, BigTitle, CinemaEntrance, Facts, LowerThird, NoteQuote, Rule, useEnterCinema } from './parts';
 import { clipDurationLabel, clipSourceLine } from './time';
@@ -521,6 +522,12 @@ export function TitleCard({ scene, plan, assetBaseUrl }: SceneProps) {
   const noteDelay = Math.round(plan.fps * 0.55);
   const noteRaw = interpolate(frame, [noteDelay, noteDelay + Math.round(plan.fps * 0.45)], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const noteIn = 1 - Math.pow(1 - noteRaw, 3);
+  // 「推荐理由」（每部手写那句）：比备注早一点进（0.42s 起），片名卡最短 1s 也装得下
+  const reasonDelay = Math.round(plan.fps * 0.42);
+  const reasonRaw = interpolate(frame, [reasonDelay, reasonDelay + Math.round(plan.fps * 0.4)], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const reasonIn = 1 - Math.pow(1 - reasonRaw, 3);
+  // 两个开关同源于 `titleCardShow`（编辑器勾选状态与渲染共用同一函数，见 `src/params.ts`）
+  const titleCard = titleCardShow(params.detailShow);
 
   return (
     <CinemaEntrance prevAccent={scene.prevAccent}>
@@ -562,9 +569,29 @@ export function TitleCard({ scene, plan, assetBaseUrl }: SceneProps) {
           <div style={{ marginTop: Math.round(height * 0.032) }}>
             <Facts media={media} size={Math.round(height * CINEMA_LAYOUT.metaRatio)} color={CINEMA_COLOR.muted} />
           </div>
-          {/* 备注（= 用户手写的推荐语）：接「备注」开关 + 引语块样式（渲染在 parts.tsx 的 NoteQuote）
-              + 与片段屏同语言的出场动画（淡入 + 上浮） */}
-          {params.detailShow.note ? (
+          {/* 推荐理由（用户 2026-09-29：「推荐片名卡备注自定义勾选是否显示」）：
+              用**该部主色**、最多两行，压在备注上方 —— 与备注（引语块）区分开：一条是"你写的推荐语"，一条是"资料里的备注"。 */}
+          {titleCard.reason && media.reason?.trim() ? (
+            <div style={{
+              marginTop: Math.round(height * 0.03),
+              maxWidth: Math.round(height * 0.03 * 16),
+              fontFamily: CINEMA_FONT.body,
+              fontSize: Math.round(height * 0.03),
+              lineHeight: 1.5,
+              letterSpacing: Math.round(height * 0.0012),
+              color: accent,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              opacity: reasonIn.toFixed(3),
+              transform: `translateY(${((1 - reasonIn) * Math.round(height * 0.016)).toFixed(1)}px)`,
+            }}>
+              {media.reason.trim()}
+            </div>
+          ) : null}
+          {/* 备注（= 媒体备注字段）：引语块样式 + 出场动画（parts.tsx 的 NoteQuote）。开关：`titleCard.note` */}
+          {titleCard.note ? (
             <NoteQuote text={media.description ?? ''} accent={accent} width={width} height={height}
                        size={0.029} maxLines={3} color="#ffffff"
                        style={{

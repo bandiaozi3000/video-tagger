@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PARAMS, MAX_SEGMENT_SEC, resolveParams, resolveStyle, resolveTheme, speedToFrames } from '../src/params';
+import { DEFAULT_PARAMS, MAX_SEGMENT_SEC, resolveParams, resolveStyle, resolveTheme, speedToFrames, titleCardShow } from '../src/params';
 
 describe('resolveParams', () => {
   it('缺省时与 Java 默认值一致', () => {
@@ -85,5 +85,31 @@ describe('DEFAULT_PARAMS', () => {
     expect(DEFAULT_PARAMS.groupBy).toBe('');
     expect(DEFAULT_PARAMS.groupSort).toBe('date-desc');
     expect(DEFAULT_PARAMS.perScreen).toBe(1);
+  });
+});
+
+describe('片名卡开关（titleCardShow：备注 / 推荐理由）', () => {
+  it('「备注」省略时跟随「详情显示·备注」→ 老草稿行为不变', () => {
+    expect(titleCardShow({ note: true }).note).toBe(true);
+    expect(titleCardShow({ note: false }).note).toBe(false);
+    expect(titleCardShow(undefined).note).toBe(true);
+  });
+
+  it('「备注」一旦显式勾过，就不再跟随', () => {
+    expect(titleCardShow({ note: true, titleNote: false }).note).toBe(false);
+    expect(titleCardShow({ note: false, titleNote: true }).note).toBe(true);
+  });
+
+  it('「推荐理由」默认关（以前填过的理由不该突然出现在成片里）', () => {
+    expect(titleCardShow({}).reason).toBe(false);
+    expect(titleCardShow({ note: true }).reason).toBe(false);
+    expect(titleCardShow({ titleReason: true }).reason).toBe(true);
+  });
+
+  it('resolveParams 把结果写进 detailShow（渲染侧直接读，Java 侧同一套语义）', () => {
+    expect(resolveParams({ detailShow: { note: false } as never }).detailShow.titleNote).toBe(false);
+    expect(resolveParams({ detailShow: { note: false, titleNote: true } as never }).detailShow.titleNote).toBe(true);
+    expect(resolveParams({ detailShow: { titleReason: true } as never }).detailShow.titleReason).toBe(true);
+    expect(resolveParams(undefined, undefined).detailShow.titleReason).toBe(false);
   });
 });
