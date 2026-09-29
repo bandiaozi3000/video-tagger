@@ -870,3 +870,134 @@ done   # 然后在脚本里统计：总行 / 唯一 / 重复 / 年份块序列
 - **旧代命名**：`{mediaId}.{ext}`，其中 `[\/:*?"<>|]` 被换成 `-`（`toSafeDownloadId`）。旧缓存仍在，**两代都要试，v2 优先**（与 Animeko 自己的 `restoredHttpDownloadId` 偏好一致）。
 - 唯一真源：`AnimekoCacheLocator.engineFileCandidates()`；**黄金样例**（真实三元组）：零之使魔 双月骑士 / subjectId=1103 / episodeId=2957 → `http-v2-73b20a95fd2079401ccab838451d77bdb046220e4139cb44780b7bf8e0884415.mp4`，见 `AnimekoCacheLocatorTest.httpV2NamingHit`。
 - 排查这条路别乱猜哈希：文件名 ↔ 真实 URL 的对应只在 Animeko 自己的 `data/logs/app.log`（`Preparing to download with id=http-v2-…, url=…`），公式去 Animeko 源码 `HttpMediaCacheEngine` 找；sha256(uri)/sha256(mediaId) 这类猜测全部 miss。
+
+## §42 片段素材准备：**帧率不再触发重编码** + 跨会话素材缓存（2026-09-29 用户拍板）
+
+- **现象**：银幕式（时间轴 24fps）每次进编辑器都要「重新准备素材」，一个片段（29.97fps 产物）等 2 分钟以上；`data/recommend-previews` 攒到 113 个会话目录 / 2.5GB。
+- **根因两条（实测）**：
+  1. `RecommendClipSourceService.export()` **读的是字段 `targetFps`**（`videotagger.render.fps`，默认 30），不是调用方传下来的 `timelineFps`（银幕式 24）→ 银幕式重编码出来的产物是 **30fps**，既没对齐时间轴、又每个会话白转一遍。证据：同一会话目录里 23.98 的片段是直通（只在 24 时间轴下会直通），29.97 的那份却是 30fps。
+  2. 会话目录 per-token、**没有跨会话缓存**，判定依据又是源产物（帧率永远不变）→ 每个新会话都从头转一遍，永不收敛。
+- **处置**：
+  - **帧率不再进 `playable()` 判定**（只判编解码能不能被浏览器播）。依据是 2026-09-20 自己的实测结论：**把内容重新封成时间轴帧率消不掉顿挫**（靠重复帧），真解是让**时间轴跟着素材走**（银幕式 24）。既然转帧率买不到东西，就不该为它付整段重编码。29.97 素材直接按原帧率进 24 时间轴。
+  - `export()` 的 `-r` **必须用调用方传的 `timelineFps`**（重编码只发生在编解码不可播时，比如 HEVC/AV1 源）。
+  - **跨会话素材缓存** `data/recommend-clip-cache/`（`videotagger.recommend-clip-cache-dir` 可改，可整目录删）：命中即直链/复制，零重编码。缓存键 = `clipId + 起止 ms + videoAssetId + videoFp + 时间轴 fps`（凡影响产物字节的都进键；重新物化会新建 asset 行 → 不会拿旧产物顶新的）。写缓存走「唯一临时名 + 原子改名」，多标签页同时准备不会互相踩。
+  - 本机 **D: 卷不支持硬链**（实测 `ERROR_INVALID_FUNCTION`）→ 自动退回复制（184MB 约 0.5s，对比重编码 ~140s）。首次失败后置位不再重试。
+- **实测数字**（真机 ffmpeg + 用户真实产物 `asset-45.mp4` 184MB/29.97fps/10:45）：
+  - 修前：每个新会话重编码 ≈ 2.3 分钟（`libx264 -preset fast -crf 20` 实测 60s 素材 = 13s），产物还是 30fps；
+  - 修后：直通零重编码，第一次会话 944ms、第二次（缓存命中）444ms，输出字节与产物完全一致；强制重编码分支产物帧率 = **24.0**。
+- **排查路标**：怀疑这类问题时**直接量会话目录里 `media/clip-*.mp4` 的帧率**，和「同一会话里不同片段帧率不一致」自相矛盾的现象对一眼就能定位。
+
+## §43 本地源支持**手动登记外部路径**（2026-09-29 用户拍板「自己下好资源，只让系统认到路径」）
+
+- **需求原话**：用户自己下载资源，不想走 BT/Jellyfin，「只是让这个场景能识别到关联的资源路径即可」。
+- **处置**：`VideoAssetPathService.trustedPath(root, storagePath)` = **storagePath 的唯一解析口径**。
+  - 相对路径 → 必须留在受管根内，越界返回 `null`；
+  - **绝对路径 → 直接放行**（文件在受管目录之外，就是用户手下的资源）。
+- **5 个调用点**（新代码**不许**再自己 `root.resolve(storagePath)` —— 绝对路径会被 `resolve` 顶掉、随后 `startsWith(root)` 判越界 → 静默变「无本地源」）：
+  `EpisodeReviewService.assetFilePath()`（主链：面板/本地回顾/播放）、`EpisodeReviewService.deleteSource()`、
+  `MaterializationService.fileOf()`（片段素材求值/裁剪）、`ClipMaterializationService.materialize()`、
+  `RecommendClipSourceService.reusableArtifact()`。
+  另有两处只做 `isRegularFile(resolve(...))` 的存在性探测（`AssetLightsController.fileExists`、`MaterializeAutoController`），
+  绝对路径本来就能过 → **未改**（灯亮、批量判断天然生效）。
+- **入口**：集详情左栏「本地源」面板底部「📁 登记本地文件」→ 复用既有 `POST /api/episodes/{id}/video-assets`，
+  body 固定 `{assetType:'UPLOADED', assetRole:'PRIMARY', availabilityState:'AVAILABLE', storagePath, displayName}`。
+  `UPLOADED` **早就在** C1 本地池（`VideoAssetMapper.selectByFingerprint`）和 `MaterializationService.isC1()` 的白名单里 —— 所以后端只差路径放行 + 前端入口。
+- **四个必须记住的坑**：
+  1. `availabilityState` 必须显式传 `AVAILABLE`：默认 `UNCHECKED`，`localAsset()` 会跳过 → 面板照样显示「无本地源」，看起来像没生效。
+  2. `assetRole: 'PRIMARY'` 决定 `listByEpisode` 排序（PRIMARY 最前），否则可能被同集其它 AVAILABLE 资产抢先。
+  3. **「删除本地源」对外部路径只解除关联、不删磁盘文件**：`VideoAssetService.resolveStorageFile` 对越界路径返回 `null` → `Files.deleteIfExists` 被跳过。这是**要的行为**（系统不动用户手下的文件），UI 文案已改成中性说明。
+  4. **播放 MIME 统一走 `util/VideoMimeTypes.of(file)`**（2026-09-29 由「扩展名表」升级）：已知扩展名直取，**扩展名不认时嗅探文件头** —— offset 4 起为 `ftyp`（ISO BMFF）就发 `video/mp4`。
+     - 起因：B 站下载器产出的 `.flv` **其实是 mp4 内核**（实测 `major_brand: isom`、H.264 High + AAC、`Packed by Bilibili XCoder`）→ 旧版按扩展名判 → 集与片段的「本地回顾」**双双 409**（用户报「四叶游戏 31 集已关联但打不开」）。
+     - 真 flv 容器（头 3 字节 `FLV`）嗅不出来 → 照旧 409，**不假装能播**；`avi/wmv` 同理（登了记能剪、不能预览，前端登记时会 toast 告知，别当 bug 修）。
+     - 两个播放端点（`EpisodeController.review-source`、`ClipMaterializationController.play-source`）**共用它**，别再各写一份扩展名表。
+- **诊断增强**：登记过资产但文件不在场时，`resolve()` 不再只说「无本地源」，而是回「已登记本地源但文件不在（路径被移动/删除？）：<路径>」（`missingRegisteredAsset()`）。
+- **信任模型**：绝对路径**不设白名单根** —— 本机单用户应用，写入端只有本机 UI，与既有 `/api/shell/open-folder`（同样任意路径）同模型；`trustedPath` 上有 `ponytail:` 注释标了收紧点。**别为此加一层自欺欺人的白名单**，但若将来出现远程访问/多用户，先收紧这一处。
+- **验收口径**：`VideoAssetPathServiceTest`（放行绝对 / 拒相对越界 / 反斜杠归一）+ `EpisodeReviewServiceTest.externalAbsolutePathAssetIsTrusted` + `MaterializationServiceTest.externalAbsoluteSourceIsTrusted`。
+
+---
+
+## §44 封面工坊（制作投稿封面）（2026-09-29 用户拍板并实施）
+
+**入口 = 一个按钮两个 tab**（用户：「和导出清单并入一个按钮」「点设置封面会弹出一个 tab」）：
+推荐编辑器「候选库」工具栏上那个按钮现在叫 **`📋 导出`** → 弹窗顶部 `[📋 导出清单] [🖼 设置封面]`。
+清单 tab 的内容与行为**一字未改**（原本它自己占一个弹窗，现在只降级成 tab 里的内容）；封面 tab 三栏 = 参数 / 预览 / 素材。
+**别把两者再拆回两个入口** —— 它们吃同一份草稿上下文（已选媒体、标题、片段）。
+
+**唯一真源 = `editor/cover/`**（`cover-model.ts` 参数模型 + `cover-css.ts` 样式 + `CoverCanvas.tsx` 画布）：
+预览是这棵 DOM 按比例缩放，导出是把它 `outerHTML` 抓下来交给后端 Chrome 截图。
+→ **不要**在后端另写一套版式（两份必然漂移），也**不要**在画布上挂交互/状态（抓下来就是最终画面）。
+字体声明共用一份：前端用 `/fonts`（WebConfig 映射），导出用占位符 `__CV_FONT_BASE__` → 后端换成 `file://` 目录。
+
+**版式 20 套**（`LAYOUTS` 写死在代码里，不入库、不做配置）：V3 基础 4 + V4 网格 9 + V5 非网格 7。
+- **不做**「破格出血 BLEED」（要抠图 = 新依赖，用户明确先不做）
+- **不做**「分镜条 STORYBOARD」（要同一片段的 4 个时刻，而素材只有片段封面 —— 4 张会是同一张）
+- 张数不够 → **自动降级**到装得下的版式（不留空框）；`按张数自动选` 的映射在 `AUTO_PICK`
+- 定制的 7 套（T08/T09/T13/T15/T16/T17/T18/T20）不走通用网格，改它们要看 `CoverCanvas` 的 `switch`
+
+**文字系统**：字体 = **普惠 115 Black**（主标题，用户选定「按图片字体就行」）+ 思源（副标题，`NotoSansSC-VF.ttf` 已入库 17MB）+ Mona（数字）；
+处理 = 普通压底 / **R8 双层重影**（用户选定的默认，偏移 0~8px，**0 = 关掉**）/ 竖排；
+位置 = 九宫 + 对齐 + x/y 微调 + **安全区校验**（右下 400×150 时长角标 / 右上遮罩 / 16:10 裁剪丢左右各 160px → 左边距下限 200px）；
+**只有标题与副标题两级文字**，年份/集数/等级角标一律不加（用户明确要求）。
+红线：图片填充字与挖空字在 320px 缩略图下必糊（实测），**不得用于主标题**。
+
+**素材管线（重要）**：
+1. 只用**已勾选片段的封面**（`covers/clip/{clipId}.jpg`）；预览用 320px 缩略图，**导出自动升级到 `-xl.jpg`**（1280 宽）。
+   ⚠️ `-xl` 是**打开过片段详情页才生成**的 → 没打开过的片段导出的封面会明显发虚。要彻底解决就在导出前抽帧（`ClipFrameGrabber` 已有此能力，属可选增强）。
+2. 统一裁切：`.cv-inner` 放大 1.4286× 后偏置 = 可见窗口取源图**中间那条（去掉顶部 10% + 底部 20%）**，横向顺带吃掉 15%（正好落在 16:10 裁剪线内）。
+   **别改成居中裁剪** —— 原片内嵌名牌/字幕就压在上下这两条里。
+3. 统一调色 `saturate(.88) contrast(1.06) brightness(.97)` + 14% 冷黑罩（让多张拼图像一套作品）。
+
+**出图 = Chrome headless**（`CoverRenderService`，零新依赖；不是 Remotion —— 那套是逐帧视频）：
+```
+chrome --headless=new --disable-gpu --user-data-dir=<每次新建> --allow-file-access-from-files \
+       --window-size=1920,1080 --virtual-time-budget=10000 --screenshot=<绝对路径> file:///<页面>
+```
+- **`--user-data-dir` 必须给**：不给的话 Chrome 会复用已存在实例（默认 profile 被占），`--screenshot` 被静默忽略 → 第 2 张开始没有任何文件产出（2026-09-29 实测，连跑 19 次只出 1 张）。
+- `--screenshot` **只吃绝对路径**；字体/图片必须与被渲页面同源（所以字体必须放项目内，别引 `C:\Windows\Fonts`）。
+- 危险标记（`<script` / `on*=` / `javascript:`）直接拒绝；PNG 截图 → ImageIO 转 JPEG q0.9（**要显式转 RGB**，PNG 带 alpha 直写 JPEG 会出彩边）。
+- 成品落 `covers/make/{名字}-{时间戳}.jpg`（复用既有 `/covers/**` 静态映射）。
+
+**存储**：`cover_template` 表（Flyway **V42**）= 用户「常用模板」（只存参数，**不含具体片段**，每次重勾）；
+内置 20 套版式不入库。**生成的封面不入库**（只有文件）—— 参数随草稿保存（`EditorConfig.cover`，稀疏字段，**逐键合并**），所以「回到上次设置」靠草稿回填。
+封面参数**不参与视频渲染**（渲染侧与 Java 侧都不读它；`RecommendExportRequest` 没有这个字段，靠 Jackson 忽略未知字段）。
+
+**验收证据（2026-09-29）**：后端 `mvn clean test` **479 全绿**（新增 `CoverRenderServiceTest` 6 + 前端 `cover-model` 14 + `CoverCanvas` 9）；
+20 套版式真实出图逐张眼查（`.tmp/cover-render/all20.png` + `t320.png` 320px 判定表，**当场抓到两个 bug**：T08 纯色栏没渲染、`-xl` 升级逻辑写反）；
+接口端到端 `POST /api/cover/export` → 2.2s / 1920×1080 / 260KB JPEG（`.tmp/export-check3.jpg`）。
+
+## §45 解除片段↔资产绑定**必须用显式 SQL**：MyBatis-Plus `updateById` 忽略 null（2026-09-29 用户报「本地登记后准备素材报错」）
+
+- **现象**：片段已登记本地源（求值 PRESENT、面板显示素材在场），点「准备素材」却报错。
+- **根因两条（均实测）**：
+  1. **悬空引用**：`VideoAssetService.deleteLocal()` / `MaterializationService.deleteSource()` 里写的是
+     `clip.setVideoAssetId(null); clipMapper.updateById(clip);`。MyBatis-Plus 的 `updateById` **默认忽略 null 字段**，
+     所以这句**从来没生效过**：资产行删了，`clips.video_asset_id` 仍指着它。实测：`clip 201 → video_asset_id=58`，
+     而 `video_asset` 表里 58 已不存在。
+     （同一坑在 `Media.deletedAt` 上踩过一次，那边靠 `@TableField(updateStrategy = FieldStrategy.IGNORED)` 绕开。）
+  2. **两个入口口径不一致**：`ClipMaterializationService.plan()` 只看 `clip.getVideoAssetId()`，查不到就 `SOURCE_REQUIRED`；
+     而 `MaterializationService.evaluateSource()`/`resolveC1()` 还会按 `episodeId` 命中该集可用资产（以及 channel_hints 线索）
+     → 求值说「TRIM_LOCAL_ASSET 素材在场」、裁剪说「需要本地资产」。
+- **修法**：
+  - 新增 `ClipMapper.clearVideoAsset(id, materialState)`（显式 `UPDATE clips SET video_asset_id = NULL, ...`），
+    两处解除绑定都改走它；**别再写 `setVideoAssetId(null)` + `updateById`**。
+  - `plan()` 在绑定查不到/不可用时**回退**到 `assetMapper.selectAvailable(episodeId)`，
+    且只认本地源类型（`LOCAL_ORIGINAL` / `DOWNLOADED` / `UPLOADED`，产物 `GENERATED_CLIP` 不得当源）——与 `resolveC1` 同口径。
+- **只读排查探针**：`GET /api/clips/{id}/material/plan` 直接给出 `strategy` + `sourceAssetId`。
+  修前 `{"strategy":"SOURCE_REQUIRED","sourceAssetId":58}`（悬空）→ 修后 `{"strategy":"TRIM_LOCAL_ASSET","sourceAssetId":59}`。
+- **通用教训（本仓第二次踩）**：凡是要把字段**写回 NULL**（解除引用、清时间戳、撤软删），`updateById` 一律不可用 ——
+  要么显式 `@Update`，要么在实体上标 `FieldStrategy.IGNORED`。
+
+---
+
+## §46 片名卡显示开关：备注 / 推荐理由（银幕式）（2026-09-29 用户拍板）
+
+用户原话：「推荐片名卡备注自定义勾选是否显示」→ 确认后按「复用已有推荐理由输入框」+「不加别的开关」实施。
+
+- **两个独立开关**（右侧参数面板「时长与显示 → 片名卡（银幕式）」）：
+  - **备注** = 片名卡显示媒体的备注字段。**省略时跟随「详情显示·备注」**（老草稿零变化，当年片名卡就是跟着那个开关的）；一旦手动点过就成显式值、不再跟随。
+  - **推荐理由（自定义）** = 片名卡显示**每部手写那句**（`MediaMark.reason`，≤30 字）。**默认关** —— 以前填过的理由不该突然出现在成片里。
+- **唯一真源 = `src/params.ts` 的 `titleCardShow()`**：编辑器勾选状态与渲染侧都由它算，别在两边各写一遍。
+- ⚠️ **`RecommendService` 的 `detailShow` 是白名单透传**（那里先建 `show` map 再逐键 put）：**新增开关必须同步那段 Java**，
+  否则就是"编辑器勾了、导出不生效"（预览走本地补丁 `applyLocalParams`，导出走后端组装，两边不一致是这类开关最容易踩的坑 —— 那段代码里本来就有这条注释警告）。
+- 视觉分工：**推荐理由**用该部主色、最多两行、压在**备注（引语块）**上方 —— 一条是"你写的推荐语"，一条是"资料里的备注"，不靠颜色也分得清。
+- 相关事实：`MediaMark.reason` 另外**已经**被章节/网格卡（`src/scenes/Cards.tsx`）渲染，片名卡这边是新增的第二处消费点，不是替换。

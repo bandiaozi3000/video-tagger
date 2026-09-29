@@ -70,3 +70,17 @@
 - 推荐视频渲染：`chapter`（含 `stream`/`overview` 回退）走 **Remotion**（`backend/remotion`，需先在该目录 `npm install`；可用 `RENDER_REMOTION_DIR` 覆盖）；`clip` 样式仍走旧 Puppeteer `render.js`。**导出崩溃 `Target closed` 的第一嫌疑 = props 里塞了二进制**（封面内联 base64 → 实测 119MB 必崩）：导出走 `"url"` 模式 + 渲染脚本 `--covers-root` 托管 `/covers/**`，**别把封面改回内联**；分块切点两种模板都按段边界（`boundaryFrames`）→ 改这块前必读 `docs/rules.md` §40。`RENDER_FFPROBE_PATH` 不配则按 ffmpeg 同目录探测（探不到时会先试一次混合再回退，会多一条 WARN）。Player 预览页需先在 `backend/remotion` 跑 `npm run build:player`（产出 `dist-player/`，已 gitignore；产物不存在时 `/preview` 自动回退旧 HTML）。
 - **推荐视频分组 = 两级（2026-09-26 用户拍板并实施）**：一级 `groupBy`（不分组/年份/分类/收藏夹），二级**固定按推荐等级**（`强推→推荐→值得一看→一般`，未标等级那群垫最后、**组名不加后缀**），开关 `tierGroup` **默认开**；整组没标等级就不切（老草稿零变化）。**「本组核心」区已按用户要求整块删除**，第 1 档靠分组 + 卡片标识；结尾改成**按全局等级分组回顾**（`全片回顾 · <档名>` 题头页 + **`RECAP_LIST` 分页小卡墙**：12×3 = 36 张/页，卡片 = 封面 / 标题 / `年份 · 集数`，页 = 错峰入场 + 停留→下一页；**页时长由页数算出、停留挂已有参数 `endingScrollSpeed`（100 → 5s）、时间轴上拖不动**；**「其它」（未标等级）也单独出一段**「全片回顾 · 其它」（题头常量 `UNMARKED_RECAP_TITLE`；用户 2026-09-26 定名），空档（如「一般」0 部）不出页）。**结尾（落款）封面墙已封顶为两行且「第 1 档优先 + 同档内按草稿 `seed` 洗牌」**（`endingWallCount()` / `endingWallCovers()`；封顶前 222 部会铺 21 行、把「感谢观看」顶出画面 —— 用户报过）。另外**章节页缩略图排超过能摆的张数就横滚**（不再是 `.slice(0,8)` 直接丢）。**改这块前必读 `docs/rules.md` §33 与 §36**（§36 含：档内顺序靠 `groups` 展平而非另写排序、卡内文字区按两行标题给预算、集数那行在窄卡里会超宽、章节页缩略图横滚、结尾封面墙封顶与选人规则；以及：章节页只挂每个一级组第一子组、`mediaOfGroup` 按 `parentName` 合并、sting 挂点改到 `GROUP_INTRO`、Java 参数表末尾新增 `Boolean tierGroup` → 导出需重启后端）。
 - **推荐时间轴帧率按模板形态（2026-09-20 用户拍板）**：`RecommendService.fpsOf(groupStyle)` → **银幕式 = 24fps**（番剧素材实测清一色 23.976；24fps 时间轴下逐帧都落在真帧上，不再每 5 帧补一帧，且素材零重编码直通），**其余模板 = 30fps**（旧行为一字不动）。预览（`RecommendController`）与导出（`RecommendVideoService`）两个调用点都必须用 `fpsOf`，片段准备 `RecommendClipSourceService.prepare(..., fps)` 也要传同一个值（其 0.05 容差让 23.976 直通）。**判“帧节奏是否均匀”只能用帧间差**（`tblend=all_mode=difference,signalstats` 的 YAVG），**不能用 md5**（h264 重编码会把同内容像素改写 ±1 → 假阴性）。
+
+### 封面工坊（2026-09-29 实施）
+
+- **入口 = 一个按钮两个 tab**：推荐编辑器「候选库」工具栏那个按钮（现名 `📋 导出`）→ 弹窗 `[📋 导出清单] [🖼 设置封面]`。清单 tab 内容与行为不变，只是从独立弹窗降级成 tab。
+- **唯一真源 = `backend/remotion/editor/cover/`**（`cover-model.ts` 参数 + `cover-css.ts` 样式 + `CoverCanvas.tsx` 画布）：预览是这棵 DOM 缩放，导出把它 `outerHTML` 交给后端 Chrome 截图。**别在后端另写一套版式**。
+- 20 套版式写死代码（不做配置）；不做「破格出血」（要抠图）与「分镜条」（素材只有片段封面）。
+- 出图 `CoverRenderService`（Chrome headless + ImageIO → JPEG）：**`--user-data-dir` 必须每次新建**（否则第 2 张起静默无产出）、`--screenshot` 只吃绝对路径、字体走 `__CV_FONT_BASE__` 占位符换成 `file://`。
+- 素材 = 已勾选片段的封面；导出自动升级 `covers/clip/{id}-xl.jpg`（1280 宽），**`-xl` 只在打开过片段详情页后才存在**，缺了会发虚。
+- 存储：`cover_template`（Flyway **V42**）= 常用模板（只存参数）；生成的封面**不入库**（文件在 `covers/make/`），参数随草稿 `EditorConfig.cover`（稀疏、逐键合并、不参与视频渲染）。
+- 改这块前必读 `docs/rules.md` §44（含上面所有实测坑与验收证据）。
+
+- **别在用户 IDEA 实例开着时跑 `mvn clean`**（2026-09-29 我踩过）：devtools 会在 `target/classes` 被删的瞬间重启上下文 → 卡死，请求全挂 `CLOSE_WAIT`，只能重启实例。要跑测试用 `-Dtest=XXX` 不 clean，或先问用户。
+
+- **片名卡显示开关（2026-09-29）**：右侧「时长与显示 → 片名卡（银幕式）」两个独立勾选 —— **备注**（省略时跟随「详情显示·备注」，老草稿零变化）、**推荐理由（自定义）**（显示每部手写那句，默认关）。判定同源于 `src/params.ts` 的 `titleCardShow()`；新增开关**必须同步 `RecommendService` 的 detailShow 白名单**（否则编辑器勾了、导出不生效）。详见 `docs/rules.md` §46。
