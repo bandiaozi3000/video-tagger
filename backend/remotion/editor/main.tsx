@@ -60,6 +60,10 @@ function App() {
   const [filter, setFilter] = React.useState<CandidateFilter>(defaultFilter);
   const [variants, setVariants] = React.useState<Variant[]>([]);
   const draftReady = React.useRef(false);
+  /** 最近一次**已写入**草稿的载荷：卸载补写时比对它，避免重复 PUT 或漏写。 */
+  const savedRef = React.useRef<string | null>(null);
+  /** 最新的草稿载荷（每次改动同步更新，不联网）。 */
+  const latestPayload = React.useRef<string | null>(null);
   /** 底部提示条。带动作按钮时（如「重载候选库」）留 8s 让人点得到，否则 2.6s 自动消失。 */
   const [toast, setToast] = React.useState<{ message: string; label?: string; run?: () => void } | null>(null);
   const [frame, setFrame] = React.useState(0);
@@ -132,13 +136,31 @@ function App() {
 
   React.useEffect(() => {
     if (!draftReady.current) return;
+    // 最新载荷（给下面的卸载兜底用）：每次改动只更新 ref，不发网络
+    latestPayload.current = JSON.stringify(buildPayload(config, filter, variants));
     const timer = window.setTimeout(() => {
-      api.saveDraft(JSON.stringify(buildPayload(config, filter, variants)))
+      const payload = latestPayload.current!;
+      savedRef.current = payload;
+      api.saveDraft(payload)
         .then(() => setSavedAt(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })))
         .catch(() => undefined);
     }, 1000);
     return () => window.clearTimeout(timer);
   }, [config, filter, variants]);
+
+  /**
+   * 卸载前补写一次（空依赖 → 只在**真的卸载**时跑）。
+   *
+   * 为什么需要：「双击候选进详情」会让宿主 `showView` 离开 recommend → 编辑器**立即卸载**，
+   * 而防抖定时器被 clear 掉就等于把这 1s 里的改动丢了；回来重新挂载读的是草稿 → 用户看到的是「回退了」。
+   */
+  React.useEffect(() => () => {
+    const payload = latestPayload.current;
+    if (payload && savedRef.current !== payload) {
+      savedRef.current = payload;
+      api.saveDraft(payload).catch(() => undefined);
+    }
+  }, []);
 
 
   /**

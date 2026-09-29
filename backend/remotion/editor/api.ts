@@ -75,7 +75,11 @@ export interface EditorConfig {
   /** 片名卡时长（秒，1-5，默认 2）——独立可调，拖片名卡只改它（2026-09-20）。 */
   titleSec: number;
   endingSec: number;
-  detailShow: { status: boolean; note: boolean; tag: boolean; endingWall?: boolean; endingPaging?: boolean; endingList?: boolean; endingIndex?: boolean; endingYear?: boolean; endingStats?: boolean };
+  detailShow: { status: boolean; note: boolean; tag: boolean; endingWall?: boolean; endingPaging?: boolean; endingList?: boolean; endingIndex?: boolean; endingYear?: boolean; endingStats?: boolean;
+    /** 片名卡（银幕式）备注：省略 = 跟随 `note`（老草稿零变化）。 */
+    titleNote?: boolean;
+    /** 片名卡显示「推荐理由」（每部手写那句）：省略 = 不显示。 */
+    titleReason?: boolean };
   bgColor: string;
   bgImages: string[];
   bgRotationSec: number;
@@ -108,6 +112,11 @@ export interface EditorConfig {
   format: string;
   resolution: string;
   mediaClips: Record<string, MediaClips>;
+  /**
+   * 封面工坊参数（2026-09-29）：**稀疏存**（老草稿没这个键），随草稿保存 → 下次打开弹窗回填上次选择。
+   * 它**不参与视频渲染**：只进 `EditorConfig` 的持久化，渲染侧与 Java 侧都不会读。
+   */
+  cover?: CoverConfig | null;
 }
 
 export interface MissingClip {
@@ -163,6 +172,8 @@ export interface ClipBrief {
   note?: string | null;
   timestampSec?: number | null;
   endSec?: number | null;
+  /** 片段封面（`/covers/clip/{id}.jpg`；`/api/clips/media/{id}` 返回完整 Clip，带回这个字段）。 */
+  coverPath?: string | null;
 }
 
 /** 候选筛选条件（系列化：可随模板保存，套用时重算候选媒体）。
@@ -266,6 +277,19 @@ export interface ExportTask {
   active?: boolean;
 }
 
+/** 封面工坊的参数（**类型单一真源在 `editor/cover/cover-model.ts`**，那边带钳位与安全区校验）。 */
+export type { CoverConfig } from './cover/cover-model';
+import type { CoverConfig } from './cover/cover-model';
+
+/** 常用模板（`/api/cover/templates`）。 */
+export interface CoverTemplate {
+  id: number;
+  name: string;
+  config: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /** 统一的 JSON 请求（非 2xx → 抛带中文原因的错误）。 */
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -358,4 +382,12 @@ export const api = {
   deleteTask: (id: number) => fetch(`/api/recommend/video/tasks/${id}`, { method: 'DELETE' }).then(() => undefined),
   openTask: (id: number, folder: boolean) =>
     fetch(`/api/recommend/video/tasks/${id}/open${folder ? '?folder=true' : ''}`, { method: 'POST' }).then(() => undefined),
+
+  /** 封面工坊：出图（后端用 Chrome headless 截图 → JPEG）。 */
+  coverExport: (body: { html: string; css: string; name: string }) =>
+    postJson<{ url: string; path: string; width: number; height: number; bytes: number }>('/api/cover/export', body),
+  coverTemplates: () => json<CoverTemplate[]>('/api/cover/templates'),
+  coverSaveTemplate: (name: string, config: string) => postJson<{ id: number }>('/api/cover/templates', { name, config }),
+  coverDeleteTemplate: (id: number) =>
+    fetch(`/api/cover/templates/${id}`, { method: 'DELETE' }).then(() => undefined),
 };

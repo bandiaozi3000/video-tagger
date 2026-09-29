@@ -7,6 +7,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { api, type CandidateFilter, type ClipBrief, type EditorConfig, type MediaBrief, type MediaClips, type MediaExportRow, type MediaFormatBrief, type MediaMark } from './api';
 import { confirmDialog } from './confirm';
+import { CoverTab } from './cover/CoverTab';
 import { buildListText, DEFAULT_TOGGLES, prepareRows, type ExportToggles } from './export-list';
 
 /** ExportToggles 里的布尔开关（sortBy 是枚举，不走 checkbox 助手）。 */
@@ -18,7 +19,7 @@ import {
   type MarkupKind,
 } from '../src/rich-text';
 import { RECOMMEND_TIERS, cycleTier, tierLook, toggleTier } from '../src/tier';
-import { resolveParams, resolveTheme } from '../src/params';
+import { resolveParams, resolveTheme, titleCardShow } from '../src/params';
 import { defaultFilter, fileToBase64, fileToDataUri, loadGroupOpen, parsePayload, rollSeed, saveGroupOpen } from './state';
 import { THEME_PRESETS } from '../src/theme';
 
@@ -47,6 +48,19 @@ function tierLookOf(tier: number | undefined) {
 }
 
 const cls = (...names: (string | false | undefined)[]) => names.filter(Boolean).join(' ');
+
+/**
+ * 双击卡片进「媒体详情」（2026-09-29 用户要求）。
+ *
+ * 为什么要搭桥：编辑器是 ESM 模块，宿主 `app.js` 是**普通脚本**（`openMediaDetail` 就在 window 上），
+ * 而且两者**同页挂载**（不是 iframe，见 `index.html` 的注释）—— 所以直接取宿主全局是最短路径。
+ * 宿主那侧 `openMediaDetail` 会 `pushView('media-detail')` 入栈，所以详情页的「← 返回媒体」按一下就回到工作台。
+ * 没有宿主时（编辑器单独跑 / 单测）静默忽略。
+ */
+function openHostMediaDetail(mediaId: number): void {
+  const host = (window as unknown as { openMediaDetail?: (id: number) => void }).openMediaDetail;
+  host?.(mediaId);
+}
 
 /**
  * 对象轴/参数分组：受控折叠（开关状态由 `InspectorPane` 持有并持久化）。
@@ -1001,7 +1015,38 @@ function movedOpening(order: number[], index: number, delta: number): number[] {
  *
  * 文本生成在 `export-list.ts`（纯函数 + 单测）；这里只管取数、勾选与导出动作。
  */
-function ExportListDialog({ config, filter, onClose }: {
+/**
+ * 「导出」弹窗（2026-09-29 用户拍板）：**一个按钮两个 tab** —— 导出清单 / 设置封面。
+ *
+ * 为什么合并：两者都吃同一份草稿上下文（已选媒体、标题、片段），分成两个入口反而要多跳一次。
+ * 清单 tab 的内容与行为一字未改（原来它自己占一个弹窗，现在只降级成 tab 里的内容）。
+ */
+function ExportDialog({ config, filter, onClose, patch }: {
+  config: EditorConfig;
+  filter: CandidateFilter;
+  onClose: () => void;
+  patch: Patch;
+}) {
+  const [tab, setTab] = React.useState<'list' | 'cover'>('list');
+  return (
+    <div className="vt-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className={cls('vt-panel', 'vt-export-panel', tab === 'cover' && 'vt-cover-panel')}
+           onMouseDown={(event) => event.stopPropagation()}>
+        <div className="vt-export-tabs">
+          <button type="button" className={cls('vt-tab', tab === 'list' && 'on')} onClick={() => setTab('list')}>📋 导出清单</button>
+          <button type="button" className={cls('vt-tab', tab === 'cover' && 'on')} onClick={() => setTab('cover')}>🖼 设置封面</button>
+          <span className="sp" />
+          <button type="button" className="btn-mini" onClick={onClose}>关闭</button>
+        </div>
+        {tab === 'list'
+          ? <ExportListTab config={config} filter={filter} onClose={onClose} />
+          : <CoverTab config={config} patch={patch} />}
+      </div>
+    </div>
+  );
+}
+
+function ExportListTab({ config, filter, onClose }: {
   config: EditorConfig;
   filter: CandidateFilter;
   onClose: () => void;
@@ -1079,10 +1124,8 @@ function ExportListDialog({ config, filter, onClose }: {
   );
 
   return (
-    <div className="vt-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className="vt-panel vt-export-panel" onMouseDown={(event) => event.stopPropagation()}>
-        <h3>📋 导出清单</h3>
-        <div className="vt-export-row">
+    <>
+      <div className="vt-export-row">
           <span className="vt-export-label">清单</span>
           <label className="vt-inline"><input type="radio" checked={scope === 'candidate'} onChange={() => setScope('candidate')} />候选（当前筛选）</label>
           <label className="vt-inline"><input type="radio" checked={scope === 'selected'} onChange={() => setScope('selected')} />已选（推荐顺序）</label>
@@ -1126,8 +1169,7 @@ function ExportListDialog({ config, filter, onClose }: {
           <button type="button" className="btn-mini" disabled={rows.length === 0} onClick={download}>下载 .txt</button>
           <button type="button" className="btn-mini" onClick={onClose}>关闭</button>
         </div>
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -1293,7 +1335,13 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
     const clipCount = config.mediaClips[String(item.id)]?.order.length ?? 0;
     return (
       <div key={item.id} className={cls('vt-media-card', selected.has(item.id) && 'selected', picked === item.id && 'picked')} draggable
+           title="双击进入媒体详情"
            onClick={() => onSelect({ kind: 'media', mediaId: item.id, title: item.title })}
+           onDoubleClick={(event) => {
+             // 双击卡上的勾选框/按钮不该跳走（它们自己有单击动作）
+             if ((event.target as HTMLElement).closest('input,button')) return;
+             openHostMediaDetail(item.id);
+           }}
            onDragStart={(event) => {
              draggedId.current = item.id;
              event.dataTransfer.setData('text/vt-media', String(item.id));
@@ -1506,11 +1554,11 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
         ) : null}
         {outsideSelected > 0 ? <span className="vt-tabs-note">{outsideSelected} 部不在当前筛选内</span> : null}
         <span className="sp" />
-        <button type="button" className="btn-mini" title="导出候选/已选清单文本（可复制或下载）"
-                onClick={() => setExportOpen(true)}>📋 导出清单</button>
+        <button type="button" className="btn-mini" title="导出清单 / 设置封面"
+                onClick={() => setExportOpen(true)}>📋 导出</button>
       </div>
 
-      {exportOpen ? <ExportListDialog config={config} filter={filter} onClose={() => setExportOpen(false)} /> : null}
+      {exportOpen ? <ExportDialog config={config} filter={filter} patch={patch} onClose={() => setExportOpen(false)} /> : null}
 
       {tab === 'candidates' ? (
         <>
@@ -1687,6 +1735,11 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
             const item = list.find((value) => value.id === id);
             return (
               <li key={id} draggable
+                  title="双击进入媒体详情"
+                  onDoubleClick={(event) => {
+                    if ((event.target as HTMLElement).closest('input,button')) return;
+                    openHostMediaDetail(id);
+                  }}
                   onDragStart={(event) => {
                     draggedId.current = id;
                     event.dataTransfer.setData('text/vt-media', String(id));
@@ -2117,6 +2170,18 @@ export function InspectorPane({ config, patch, mediaBriefs, missing, selection, 
               onChange={(event) => patch({ detailShow: { ...config.detailShow, note: event.target.checked } })} />备注</label>
             <label className="vt-inline"><input type="checkbox" checked={config.detailShow.tag}
               onChange={(event) => patch({ detailShow: { ...config.detailShow, tag: event.target.checked } })} />标签</label>
+          </span>
+        </Field>
+        {/* 片名卡（银幕式）：备注 / 推荐理由 两个**独立**开关（2026-09-29 用户：「推荐片名卡备注自定义勾选是否显示」）。
+            「备注」没勾过时**跟随上面的「详情显示·备注」**（老草稿行为不变），一旦点过就变成显式值；
+            「推荐理由」默认关 —— 以前填过的理由不该突然出现在成片里。
+            勾选状态与渲染侧同源于 `titleCardShow`（`src/params.ts`），别在两边各写一遍。 */}
+        <Field label="片名卡" hint="银幕式">
+          <span className="vt-inline-group">
+            <label className="vt-inline"><input type="checkbox" checked={titleCardShow(config.detailShow).note}
+              onChange={(event) => patch({ detailShow: { ...config.detailShow, titleNote: event.target.checked } })} />备注</label>
+            <label className="vt-inline"><input type="checkbox" checked={titleCardShow(config.detailShow).reason}
+              onChange={(event) => patch({ detailShow: { ...config.detailShow, titleReason: event.target.checked } })} />推荐理由（自定义）</label>
           </span>
         </Field>
         {/* 结尾（落款）左侧：2026-09-20 用户「显示序号 名称 年份即可，或者做成可配置」→ 默认名单+序号+年份，统计可选 */}

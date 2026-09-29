@@ -1188,3 +1188,71 @@ body:has(#view-recommend:not([hidden])) .site-footer { display: none; }
 .vt-confirm-btns { display: flex; justify-content: flex-end; gap: 8px; }
 .vt-confirm-btns .btn-mini { padding: 5px 14px; }
 .vt-confirm-btns .vt-danger { background: rgba(251, 113, 133, .18); border-color: rgba(251, 113, 133, .5); color: #ffb3c1; }
+
+/* ---------- 🖼 设置封面（2026-09-29）----------
+   与「📋 导出清单」共用同一个弹窗（两个 tab）；封面 tab 要放"参数 / 预览 / 素材"三栏，所以弹窗加宽。
+   画布本身的样式不在这里 —— 那在 `editor/cover/cover-css.ts`（预览与导出**共用同一份**，别搬到这来）。 */
+.vt-export-tabs { display: flex; align-items: center; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.vt-export-panel.vt-cover-panel { width: min(1560px, 97vw); height: auto; max-height: 92vh; }
+/* 三栏：中栏弹性（预览宽度跟着它量）；两侧有上下限，窗窄时先挤中栏，不把素材栏挤出屏幕 */
+.vt-cover { flex: 1 1 auto; min-height: 0; display: grid;
+  grid-template-columns: minmax(300px, 344px) minmax(0, 1fr) minmax(228px, 296px); gap: 16px; }
+.vt-cover-left, .vt-cover-right { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+.vt-cover-mid { min-width: 0; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.vt-cover-head { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--text-faint); }
+.vt-cover-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }
+.vt-cover-input { width: 100%; padding: 7px 10px; border-radius: 10px; font-size: 12.5px;
+  border: 1px solid var(--border); background: var(--surface-2); color: inherit; font-family: inherit; }
+textarea.vt-cover-input { resize: vertical; line-height: 1.45; }
+.vt-cover-row .vt-cover-input { flex: 1 1 120px; }
+.vt-cover-layouts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.vt-cover-layout { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 8px;
+  border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: inherit;
+  font-size: 12px; font-family: inherit; text-align: left; cursor: pointer; }
+.vt-cover-layout small { color: var(--text-faint); font-size: 10.5px; }
+.vt-cover-layout.on { border-color: transparent; background: var(--grad); color: #fff; }
+.vt-cover-layout.on small { color: rgba(255, 255, 255, .8); }
+.vt-cover-layout.off { opacity: .42; }
+.vt-cover-anchors { display: grid; grid-template-columns: repeat(3, 30px); gap: 5px; }
+.vt-cover-anchor { width: 30px; height: 26px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface-2); color: inherit; font-size: 13px; cursor: pointer; }
+.vt-cover-anchor.on { border-color: transparent; background: var(--grad); color: #fff; }
+.vt-cover-fx { padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface-2); color: inherit; font-size: 12px; font-family: inherit; cursor: pointer; }
+.vt-cover-fx.on { border-color: transparent; background: var(--grad); color: #fff; }
+.vt-cover-row input[type="range"] { width: 96px; vertical-align: middle; }
+.vt-cover-row input[type="color"] { width: 34px; height: 24px; padding: 0; border: 1px solid var(--border);
+  border-radius: 7px; background: var(--surface-2); }
+.vt-cover-templates { display: flex; flex-wrap: wrap; gap: 6px; }
+.vt-cover-tag { display: inline-flex; align-items: center; border-radius: 999px; overflow: hidden;
+  border: 1px solid var(--border); background: var(--surface-2); }
+.vt-cover-tag-apply { padding: 4px 10px; border: 0; background: none; color: inherit; font-size: 12px;
+  font-family: inherit; cursor: pointer; }
+.vt-cover-tag-del { padding: 4px 8px; border: 0; background: none; color: var(--text-faint); cursor: pointer; }
+.vt-cover-viewport { position: relative; overflow: hidden; width: 100%; aspect-ratio: 16 / 9; flex: none;
+  border-radius: 12px; border: 1px solid var(--border); background: #000; }
+.vt-cover-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-faint); }
+.vt-cover-warn { padding: 6px 10px; border-radius: 9px; font-size: 12px;
+  background: rgba(53, 214, 242, .12); color: #9fe6f5; }
+.vt-cover-warn.bad { background: rgba(251, 113, 133, .14); color: var(--red, #fb7185); }
+.vt-cover-actions { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+.vt-cover-go { background: var(--grad); border-color: transparent; color: #fff; }
+.vt-cover-download { padding: 5px 12px; border-radius: 999px; background: var(--grad); color: #fff;
+  font-size: 12px; text-decoration: none; }
+.vt-cover-toast { font-size: 12px; color: var(--green, #4ade80); }
+.vt-cover-media { min-width: 0; }
+.vt-cover-media-title { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+.vt-cover-media-title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-cover-media-title i { margin-left: auto; font-style: normal; color: var(--text-faint); font-size: 11px; }
+.vt-cover-clips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.vt-cover-clip { position: relative; padding: 0; border-radius: 9px; overflow: hidden; cursor: pointer;
+  border: 2px solid transparent; background: var(--surface-2); aspect-ratio: 16 / 9; }
+.vt-cover-clip img { width: 100%; height: 100%; object-fit: cover; display: block; background: var(--surface-2); }
+.vt-cover-clip.on { border-color: #35d6f2; }
+.vt-cover-clip-no { position: absolute; left: 4px; top: 4px; min-width: 16px; height: 16px; border-radius: 999px;
+  background: var(--grad); color: #fff; font-size: 10px; line-height: 16px; text-align: center; }
+.vt-cover-clip-title { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 5px; font-size: 10px;
+  font-style: normal; text-align: left; color: #fff; background: linear-gradient(to top, rgba(0,0,0,.85), rgba(0,0,0,0));
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 素材列表容器（上面那条 media-title/clips 规则替换时误删过，补回来） */
+.vt-cover-clip-list { display: flex; flex-direction: column; gap: 10px; min-width: 0; }

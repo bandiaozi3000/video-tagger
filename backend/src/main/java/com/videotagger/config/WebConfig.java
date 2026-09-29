@@ -20,6 +20,8 @@ public class WebConfig implements WebMvcConfigurer {
     private final String clipImageDir;
     private final String recommendPreviewDir;
     private final String editorDir;
+    /** 封面工坊的字体目录（编辑器预览用 http://localhost:8080/fonts/**；导出时由后端换成 file://）。 */
+    private final String fontDir;
 
     public WebConfig(@Value("${videotagger.cover-dir:data/covers}") String coverDir,
                      @Value("${videotagger.site-dir:data/site}") String siteDir,
@@ -34,6 +36,24 @@ public class WebConfig implements WebMvcConfigurer {
         this.clipImageDir = Paths.get(clipImageDir).toAbsolutePath() + "/";
         this.recommendPreviewDir = Paths.get("data/recommend-previews").toAbsolutePath() + "/";
         this.editorDir = resolveBuildDir(remotionDir, "dist-editor") + "/";
+        // 字体：编辑器预览直接引 /fonts/**（导出走 file://，见 CoverRenderService）
+        this.fontDir = resolvePublicDir(remotionDir, "fonts") + "/";
+    }
+
+    /** Remotion `public/` 下的子目录（字体等）：同样是 IDE（cwd=项目根）与 mvn（cwd=backend）两种启动都要命中。 */
+    private static java.nio.file.Path resolvePublicDir(String remotionDir, String sub) {
+        for (Path candidate : List.of(
+                Paths.get(remotionDir),
+                Paths.get("..").resolve(remotionDir),
+                Paths.get(remotionDir).toAbsolutePath(),
+                Paths.get("backend/remotion"),
+                Paths.get("../backend/remotion"))) {
+            Path dir = candidate.resolve("public").resolve(sub);
+            if (java.nio.file.Files.isDirectory(dir)) {
+                return dir.toAbsolutePath().normalize();
+            }
+        }
+        return Paths.get(remotionDir).toAbsolutePath().resolve("public").resolve(sub);
     }
 
     /** Remotion 前端构建产物目录（编辑器）：IDE（cwd=项目根）与 mvn（cwd=backend）两种启动方式都要能命中。 */
@@ -56,6 +76,8 @@ public class WebConfig implements WebMvcConfigurer {
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         registry.addResourceHandler("/covers/**")
                 .addResourceLocations("file:" + coverDir);
+        registry.addResourceHandler("/fonts/**")
+                .addResourceLocations("file:" + fontDir);
         registry.addResourceHandler("/site/bg/**")
                 .addResourceLocations("file:" + siteBgDir);
         registry.addResourceHandler("/exports/**")

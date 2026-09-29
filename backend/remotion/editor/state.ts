@@ -5,8 +5,9 @@
  * （缺省值 + 钳位都在那里）。服务端只负责"媒体/片段/BGM 这些需要 DB 与素材的部分"，
  * 纯参数改动直接补进 `input.params` → 即时生效，不走网络（设计规格 §6.1）。
  */
-import type { CandidateFilter, EditorConfig, MediaMark, PresetPayload, Variant } from './api';
+import type { CandidateFilter, CoverConfig, EditorConfig, MediaMark, PresetPayload, Variant } from './api';
 import type { MultiMediaPocInput } from '../src/types';
+import { mergeCoverConfig } from './cover/cover-model';
 
 const STORAGE_KEY = 'vt-recommend-editor-config';
 
@@ -232,6 +233,10 @@ export function parsePayload(json: string | null | undefined): PresetPayload | n
       config.mediaMarks = marks;
     }
     delete (config as { featuredIds?: unknown }).featuredIds;
+    // 封面参数：**对象必须逐键合并**（整个替换会让新版加的字段全丢）；老草稿没有这个键 → 保持稀疏
+    if (config.cover) {
+      config.cover = mergeCoverConfig(config.cover as Partial<CoverConfig>);
+    }
     return {
       version: 2,
       config,
