@@ -43,7 +43,7 @@ public class CoverService {
     private static final Logger log = LoggerFactory.getLogger(CoverService.class);
     private static final long MAX_BYTES = 10L * 1024 * 1024;
     private static final Set<String> IMAGE_EXT = Set.of("jpg", "png", "webp");
-    /** 外部（Bangumi）封面缓存子目录：`covers/ext/{mediaId}.{ext}`，与用户自己的封面分开。 */
+    /** 外部（Bangumi）封面缓存子目录：`covers/ext/{mediaId}-{urlHash}.{ext}`，与用户自己的封面分开。 */
     private static final String EXT_DIR = "ext";
 
     private final MediaMapper mediaMapper;
@@ -93,30 +93,68 @@ public class CoverService {
     }
 
     /**
-     * Bangumi（`external_work.cover_url`）封面**缓存**：落到 `covers/ext/{mediaId}.{ext}`，返回 `/covers/ext/...`。
+     * Bangumi（`external_work.cover_url`）封面**缓存**：落到 `covers/ext/{mediaId}-{urlHash}.{ext}`，返回 `/covers/ext/...`。
      *
      * 与 {@link #saveFromUrl} 的区别：**不写 DB**（`media.cover_path` 不动）——
      * 用途只是“这部没本地封面时，推荐视频借一张外部封面显示”，不是替用户补封面（用户 2026-09-20 拍板）。
      * 已缓存直接复用（幂等，不会每次预览都联网）；无 URL / 下载失败 → null（调用方退到占位块）。
+     *
+     * ⚠️ **文件名必须带来源 URL 的哈希**（2026-09-26 修，用户报「库里换了封面、视频里依旧没变」）：
+     * 以前文件名叫 `{mediaId}.{ext}`，命中就 return，**来源 URL 换了它也不知道** ——
+     * 于是视频永远停在第一次下到的那张图；而媒体页用的是远端 URL（`app.js` 的 `mediaCoverSources`）
+     * → 两边不一致。现在 URL 一变就是新文件，视频立刻换新，并顺手清掉同 mediaId 的旧文件（含老命名）。
      */
     public String ensureExternalCover(Long mediaId, String imageUrl) {
         if (mediaId == null || imageUrl == null || imageUrl.isBlank()) {
             return null;
         }
         Path dir = coverDir.resolve(EXT_DIR);
+        String key = externalCoverKey(mediaId, imageUrl);
         for (String ext : IMAGE_EXT) {
-            Path cached = dir.resolve(mediaId + "." + ext);
+            Path cached = dir.resolve(key + "." + ext);
             if (Files.isRegularFile(cached)) {
                 return "/covers/" + EXT_DIR + "/" + cached.getFileName();
             }
         }
         try {
             Downloaded image = download(imageUrl);
-            write(dir, mediaId + "." + image.ext(), image.bytes());
-            return "/covers/" + EXT_DIR + "/" + mediaId + "." + image.ext();
+            String fileName = key + "." + image.ext();
+            write(dir, fileName, image.bytes());
+            removeStaleExternalCovers(dir, mediaId, fileName);
+            return "/covers/" + EXT_DIR + "/" + fileName;
         } catch (Exception e) {
             log.warn("媒体 {} 外部封面缓存失败（不影响渲染，退占位块）: {}", mediaId, e.getMessage());
             return null;
+        }
+    }
+
+    /** 外部封面缓存的文件名主干：`{mediaId}-{来源 URL 的 8 位哈希}`（URL 变 → 文件名变 → 不吃陈旧缓存）。 */
+    static String externalCoverKey(Long mediaId, String imageUrl) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(imageUrl.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return mediaId + "-" + java.util.HexFormat.of().formatHex(digest).substring(0, 8);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            return mediaId + "-" + Integer.toHexString(imageUrl.hashCode());
+        }
+    }
+
+    /**
+     * 清掉同一个媒体下过期的外部封面（老命名 `{id}.{ext}` + 别的 URL 哈希），刚写下的那个文件除外。
+     *
+     * 删不掉（Windows 上文件被占用）就留着 —— 缓存文件本来就不进任何主链路。
+     */
+    private void removeStaleExternalCovers(Path dir, Long mediaId, String keepFileName) {
+        for (String glob : new String[] {mediaId + ".*", mediaId + "-*"}) {
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, glob)) {
+                for (Path path : stream) {
+                    if (!path.getFileName().toString().equals(keepFileName)) {
+                        Files.deleteIfExists(path);
+                    }
+                }
+            } catch (IOException e) {
+                log.warn("清理过期外部封面失败（不影响渲染）: {}", e.getMessage());
+            }
         }
     }
 

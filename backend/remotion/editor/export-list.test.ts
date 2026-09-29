@@ -64,6 +64,17 @@ describe('清单文本：按年份分组', () => {
   it('没年份的归到「年份未知」且排最后', () => {
     expect(text.trimEnd().endsWith('3. 某部没年份的')).toBe(true);
   });
+
+  // 2026-09-27：以前组顺序写死成年份倒序 → 分组一开「年份 ↑」就不生效（用户报「排序不生效」）
+  it('组顺序跟随排序：年份 ↑ 时组标题升序，「年份未知」仍排最后', () => {
+    const asc = buildListText(rows, toggles({ groupByYear: true, sortBy: 'year-asc' }));
+    expect(asc.split('\n').filter((line) => line.startsWith('【'))).toEqual(['【2000】', '【2003】', '【年份未知】']);
+  });
+
+  it('不排序 + 分组：组顺序沿用年份倒序（组内保持传入顺序）', () => {
+    const none = buildListText(rows, toggles({ groupByYear: true, sortBy: 'none' }));
+    expect(none.split('\n').filter((line) => line.startsWith('【'))).toEqual(['【2003】', '【2000】', '【年份未知】']);
+  });
 });
 
 describe('清单文本：边界', () => {

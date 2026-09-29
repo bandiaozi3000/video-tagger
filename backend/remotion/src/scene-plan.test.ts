@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { bgmGainAt, bgmTimeline } from '../src/bgm';
-import { CORE_KICKER, FEATURED_RECAP_TITLE, buildScenePlan, groupMedia, hasOriginalAudioAt } from '../src/scene-plan';
+import { ENDING_WALL_ROWS, FEATURED_RECAP_TITLE, RECAP_PREFIX, UNMARKED_RECAP_TITLE, buildScenePlan, endingWallCovers, endingWallCount, groupMedia, hasOriginalAudioAt, mediaOfGroup, sceneLabel } from '../src/scene-plan';
 import type { MultiMediaPocInput, PocMedia } from '../src/types';
 import { DEFAULT_PARAMS, resolveParams } from '../src/params';
+import { recapPages, recapSeconds } from '../src/recap';
 
 function media(id: number, order: number, year: number, clips = 0, group?: string): PocMedia {
   return {
@@ -73,6 +74,9 @@ describe('buildScenePlan', () => {
       'MEDIA_CLIP',
       'GROUP_INTRO',
       'MEDIA_INFO',
+      // 默认样例两部都没标等级 → 结尾回顾只出「其它」那一段（题头页 + 卡墙）
+      'GROUP_INTRO',
+      'RECAP_LIST',
       'COLLECTION_ENDING',
     ]);
     expect(plan.scenes[2].groupName).toBe('2024 年');
@@ -97,7 +101,8 @@ describe('buildScenePlan', () => {
     const sum = plan.scenes.reduce((acc, s) => acc + s.durationInFrames, 0);
     expect(plan.durationInFrames).toBe(sum);
     // 2s 开场 + 3s 资料卡 + 两个 4s 片段 + 3s 资料卡 + 1s 结尾（30fps）
-    expect(plan.durationInFrames).toBe(60 + 90 + 120 + 120 + 90 + 30);
+    // + 结尾回顾（本样例不分年份所以没有年份章节页）：1s 题头页 + 7s 卡墙（2 部一页 = 错峰 0.5s + 停留 6.5s）
+    expect(plan.durationInFrames).toBe(60 + 90 + 120 + 120 + 90 + (30 + 210) + 30);
   });
 
   it('帧率/分辨率由参数驱动', () => {
@@ -158,100 +163,241 @@ describe('BGM 时间轴与 ducking', () => {
   });
 });
 
-describe('★ 重点项（A+C+D，2026-09-26 用户拍板）', () => {
-  it('核心 ≤2 部：组章节页后**紧跟逐部满屏**（MEDIA_INFO）', () => {
-    const a = { ...media(1, 1, 2020, 0, '2020 年'), featured: true };
-    const b = media(2, 2, 2020, 0, '2020 年');
-    const plan = buildScenePlan(input({
-      media: [a, b],
-      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
-    } as Partial<MultiMediaPocInput>));
-    const types = plan.scenes.map((s) => s.type);
-    const groupAt = types.indexOf('GROUP_INTRO');
-    expect(groupAt).toBeGreaterThan(-1);
-    // 组章节页 → 核心满屏（不是先给群像）
-    expect(types[groupAt + 1]).toBe('MEDIA_INFO');
-    const core = plan.scenes[groupAt + 1];
-    expect(core.mediaId).toBe(1);
-    expect(core.kicker).toBe(CORE_KICKER);
-    expect(core.numberFrom).toBe(1);
+describe('推荐等级二级分组 + 「本组核心」下线（2026-09-26 用户：「按推荐等级接着分组」「本组核心这块去掉」）', () => {
+  const ranked = (id: number, tier: number | undefined, year = 2020): PocMedia =>
+    ({ ...media(id, id, year, 0, `${year} 年`), tier });
+
+  it('二级分组：同一年按 强推→推荐→值得一看→一般 切成子组，未标等级那群垫最后**不加后缀**，空档不生成', () => {
+    const groups = groupMedia(input({ media: [ranked(1, 2), ranked(2, 0), ranked(3, 3), ranked(4, undefined)] }),
+      'year', 'date-desc', true);
+    expect(groups.map((g) => g.name)).toEqual(['2020 年 · 强推', '2020 年 · 值得一看', '2020 年 · 一般', '2020 年']);
+    expect(groups.map((g) => g.media.map((m) => m.mediaId))).toEqual([[2], [1], [3], [4]]);
+    // 子组沿用一级组下标（同一年共用一个强调色）；只有第一个子组带 firstOfParent（章节页只插一页）
+    expect(groups.map((g) => g.index)).toEqual([0, 0, 0, 0]);
+    expect(groups.map((g) => g.firstOfParent)).toEqual([true, false, false, false]);
+    expect(groups.map((g) => g.parentName)).toEqual(['2020 年', '2020 年', '2020 年', '2020 年']);
   });
 
-  it('核心 ≥3 部：组章节页后**紧跟一屏大卡**（MEDIA_GRID + 金色题头）', () => {
-    const list = [1, 2, 3, 4].map((i) => ({ ...media(i, i, 2020, 0, '2020 年'), featured: i <= 3 }));
+  it('整组没有任何等级标注 → 不切（老草稿结构零变化）', () => {
+    const groups = groupMedia(input({ media: [ranked(1, undefined), ranked(2, undefined)] }), 'year', 'date-desc', true);
+    expect(groups.map((g) => g.name)).toEqual(['2020 年']);
+    expect(groups[0].firstOfParent).toBe(true);
+  });
+
+  it('关掉二级分组 → 不切，且第 1 档仍被 coreFirst 提到组内最前', () => {
+    const groups = groupMedia(input({ media: [ranked(1, undefined), ranked(2, 0)] }), 'year', 'date-desc', false);
+    expect(groups.map((g) => g.name)).toEqual(['2020 年']);
+    expect(groups[0].media.map((m) => m.mediaId)).toEqual([2, 1]);
+  });
+
+  it('一级「不分组」时二级仍生效：组名就是档名', () => {
+    const groups = groupMedia(input({ media: [ranked(1, 0), ranked(2, 1)] }), '', 'date-desc', true);
+    expect(groups.map((g) => g.name)).toEqual(['强推', '推荐']);
+    expect(groups.every((g) => g.index === -1)).toBe(true);
+  });
+
+  it('越界/小数脏数据归入未标等级那群（组名不加后缀），不新开档位', () => {
+    const groups = groupMedia(input({ media: [ranked(1, 9), { ...ranked(2, 0.4) }] }), 'year', 'date-desc', true);
+    expect(groups.map((g) => g.name)).toEqual(['2020 年 · 强推', '2020 年']);
+  });
+
+  it('未标等级那群虽然与一级组同名，章节页仍按**整年**取成员（不能只数到未标那批）', () => {
+    const plan = buildScenePlan(input({
+      media: [ranked(1, 0, 2020), ranked(2, undefined, 2020), ranked(3, undefined, 2020)],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+    } as Partial<MultiMediaPocInput>));
+    const intro = plan.scenes.find((s) => s.type === 'GROUP_INTRO' && s.groupName === '2020 年')!;
+    expect(mediaOfGroup(plan, intro.groupName).map((m) => m.mediaId)).toEqual([1, 2, 3]);
+  });
+
+  it('场景：每档连续成群、章节页仍每年一页（标题=年份）、不再有「本组核心」题头', () => {
+    const plan = buildScenePlan(input({
+      media: [ranked(1, 1, 2020), ranked(2, 0, 2020), ranked(3, 1, 2020), ranked(4, 0, 2019)],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+    } as Partial<MultiMediaPocInput>));
+    expect(plan.scenes.filter((s) => s.type === 'GROUP_INTRO' && !s.groupName?.startsWith(RECAP_PREFIX)).map((s) => s.groupName)).toEqual(['2020 年', '2019 年']);
+    expect(plan.scenes.some((s) => s.kicker !== undefined)).toBe(false);
+    const grids = plan.scenes.filter((s) => s.type === 'MEDIA_GRID' && !s.groupName?.startsWith(RECAP_PREFIX));
+    expect(grids.map((s) => s.mediaIds)).toEqual([[2], [1, 3], [4]]);
+    expect(grids.map((s) => s.groupName)).toEqual(['2020 年 · 强推', '2020 年 · 推荐', '2019 年 · 强推']);
+  });
+
+  it('章节页按一级组名取**整年**成员（二级分组后仍能报「共 N 部」+ 缩略图）', () => {
+    const plan = buildScenePlan(input({
+      media: [ranked(1, 0, 2020), ranked(2, 1, 2020)],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+    } as Partial<MultiMediaPocInput>));
+    const intro = plan.scenes.find((s) => s.type === 'GROUP_INTRO')!;
+    expect(intro.groupName).toBe('2020 年');
+    expect(mediaOfGroup(plan, intro.groupName).map((m) => m.mediaId)).toEqual([1, 2]);
+  });
+
+  it('结尾回顾：一档一页题头 + **一段分页卡墙**（不再按资料屏切片），最后一档是「其它」', () => {
+    const plan = buildScenePlan(input({
+      media: [ranked(1, 0, 2020), ranked(2, 1, 2019), ranked(3, 2, 2020), ranked(4, undefined, 2019)],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+    } as Partial<MultiMediaPocInput>));
+    const recaps = plan.scenes.filter((s) => s.type === 'GROUP_INTRO' && s.groupName?.startsWith(RECAP_PREFIX));
+    expect(recaps.map((s) => s.groupName)).toEqual([
+      `${RECAP_PREFIX}强推`, `${RECAP_PREFIX}推荐`, `${RECAP_PREFIX}值得一看`, `${RECAP_PREFIX}${UNMARKED_RECAP_TITLE}`,
+    ]);
+    // 题头页自带本档媒体（不属任何分组，按组名查不到 → 靠 mediaIds 才能报对「共 N 部」）
+    expect(recaps.map((s) => s.mediaIds)).toEqual([[1], [2], [3], [4]]);
+    const lists = plan.scenes.filter((s) => s.type === 'RECAP_LIST');
+    expect(lists.map((s) => s.mediaIds)).toEqual([[1], [2], [3], [4]]);
+    // 清单紧跟在自己那页题头后面；回顾里**不再有网格屏**（用户：「结尾回顾太长了」）
+    lists.forEach((list) => expect(plan.scenes[plan.scenes.indexOf(list) - 1].type).toBe('GROUP_INTRO'));
+    expect(plan.scenes.filter((s) => s.type === 'MEDIA_GRID' && s.groupName?.startsWith(RECAP_PREFIX))).toEqual([]);
+    expect(plan.scenes.findIndex((s) => s.type === 'COLLECTION_ENDING')).toBeGreaterThan(plan.scenes.indexOf(lists[lists.length - 1]));
+  });
+
+  it('清单**档内按年份**排（等级 → 年份）：展平「年份为主序」的 groups 再按档过滤', () => {
+    const plan = buildScenePlan(input({
+      media: [ranked(1, 0, 2020), ranked(2, 0, 2019), ranked(3, 1, 2019)],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', groupSort: 'date-asc', perScreen: 10 },
+    } as Partial<MultiMediaPocInput>));
+    const lists = plan.scenes.filter((s) => s.type === 'RECAP_LIST');
+    expect(lists.map((s) => s.mediaIds)).toEqual([[2, 1], [3]]);
+  });
+
+  it('卡墙时长由**页数**决定（36 张/页），不再一部一屏 7 秒', () => {
+    const list = [ranked(1, 0, 2019), ranked(2, 0, 2020), ranked(3, 0, 2020), ranked(4, 0, 2021)];
     const plan = buildScenePlan(input({
       media: list,
-      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', groupSort: 'date-asc', perScreen: 4 },
     } as Partial<MultiMediaPocInput>));
-    const groupAt = plan.scenes.findIndex((s) => s.type === 'GROUP_INTRO');
-    const core = plan.scenes[groupAt + 1];
-    expect(core.type).toBe('MEDIA_GRID');
-    expect(core.kicker).toBe(CORE_KICKER);
-    expect(core.mediaIds).toEqual([1, 2, 3]);           // 只装核心项
-    expect(core.numberFrom).toBe(1);
+    const scene = plan.scenes.find((s) => s.type === 'RECAP_LIST')!;
+    expect(scene.durationInFrames).toBe(Math.round(recapSeconds(recapPages(list), DEFAULT_PARAMS.endingScrollSpeed) * DEFAULT_PARAMS.fps));
+    // 旧口径 = 每部按一屏资料 7 秒（`durations.detail`）→ 新口径必须显著更短，否则「结尾跟整片一样长」没修好
+    expect(scene.durationInFrames).toBeLessThan(list.length * DEFAULT_PARAMS.durations.detail * DEFAULT_PARAMS.fps);
   });
 
-  it('核心项排到组内最前，群像序号按**组内**从 1 数', () => {
-    // ids 顺序故意把核心项放在后面 —— 靠分组时重排把它提到最前
-    const list = [media(1, 1, 2020, 0, '2020 年'), { ...media(2, 2, 2020, 0, '2020 年'), featured: true }, media(3, 3, 2020, 0, '2020 年')];
+  it('未标等级的也出一段「全片回顾 · 其它」（用户 2026-09-26：「其它」段没看到总结）；空档不生成页', () => {
     const plan = buildScenePlan(input({
-      media: list,
+      media: [ranked(1, 0, 2020), ranked(2, undefined, 2019), ranked(3, undefined, 2020)],
       params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
     } as Partial<MultiMediaPocInput>));
-    // 群像网格（非核心场景）里的第一项应当是核心项 2，且序号从 1 开始
-    const grid = plan.scenes.find((s) => s.type === 'MEDIA_GRID' && !s.kicker);
-    expect(grid?.mediaIds?.[0]).toBe(2);
-    expect(grid?.numberFrom).toBe(1);
+    // 1/2 档没人 → 不出；其它那 2 部要出，且排在最后
+    expect(plan.scenes.filter((s) => s.type === 'GROUP_INTRO' && s.groupName?.startsWith(RECAP_PREFIX)).map((s) => s.groupName))
+      .toEqual([`${RECAP_PREFIX}强推`, `${RECAP_PREFIX}${UNMARKED_RECAP_TITLE}`]);
+    expect(plan.scenes.filter((s) => s.type === 'RECAP_LIST').map((s) => s.mediaIds)).toEqual([[1], [3, 2]]);
   });
 
-  it('D：结尾前有「全片核心回顾」章节页 + 只含核心项的网格', () => {
+  it('一个等级都没标 → 现在**只有**其它那一段（不再是“不产生回顾页”）', () => {
     const plan = buildScenePlan(input({
-      media: [
-        { ...media(1, 1, 2020, 0, '2020 年'), featured: true },
-        media(2, 2, 2020, 0, '2020 年'),
-        { ...media(3, 3, 2019, 0, '2019 年'), featured: true },
-      ],
+      media: [ranked(1, undefined, 2020), ranked(2, undefined, 2019)],
       params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
     } as Partial<MultiMediaPocInput>));
-    const recapAt = plan.scenes.findIndex((s) => s.type === 'GROUP_INTRO' && s.groupName === FEATURED_RECAP_TITLE);
-    expect(recapAt).toBeGreaterThan(-1);
-    // 回顾章节页之后必须紧跟一格网格，里面**只**放核心项，且在结尾之前
-    expect(plan.scenes[recapAt + 1].type).toBe('MEDIA_GRID');
-    expect(plan.scenes[recapAt + 1].mediaIds).toEqual([1, 3]);
-    expect(plan.scenes[recapAt + 1].numberFrom).toBe(1);
-    expect(plan.scenes.findIndex((s) => s.type === 'COLLECTION_ENDING')).toBeGreaterThan(recapAt);
+    expect(plan.scenes.filter((s) => s.type === 'RECAP_LIST').map((s) => s.mediaIds)).toEqual([[1, 2]]);
+    expect(plan.scenes.some((s) => s.groupName === `${RECAP_PREFIX}${UNMARKED_RECAP_TITLE}`)).toBe(true);
   });
 
-  it('无重点项时不产生多余资料卡', () => {
+  it('关掉二级分组 → 结尾退回「全片核心回顾」**只收第 1 档**（其它不进）', () => {
     const plan = buildScenePlan(input({
-      media: [media(1, 1, 2020, 0, '2020 年'), media(2, 2, 2020, 0, '2020 年')],
-      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+      media: [ranked(1, 0, 2020), ranked(2, 1, 2020)],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10, tierGroup: false },
+    } as Partial<MultiMediaPocInput>));
+    const recap = plan.scenes.find((s) => s.type === 'GROUP_INTRO' && s.groupName === FEATURED_RECAP_TITLE);
+    expect(recap?.mediaIds).toEqual([1]);
+    expect(plan.scenes.filter((s) => s.type === 'RECAP_LIST').map((s) => s.mediaIds)).toEqual([[1]]);
+    expect(plan.scenes.some((s) => s.groupName?.startsWith(RECAP_PREFIX))).toBe(false);
+  });
+
+  it('关掉二级分组：只出第 1 档，其它那段也不出（那是二级分组形态下的东西）', () => {
+    const plan = buildScenePlan(input({
+      media: [ranked(1, 0, 2020), ranked(2, 1, 2020), ranked(3, undefined, 2020)],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10, tierGroup: false },
+    } as Partial<MultiMediaPocInput>));
+    expect(plan.scenes.filter((s) => s.type === 'RECAP_LIST').map((s) => s.mediaIds)).toEqual([[1]]);
+  });
+
+  it('结尾封面墙封顶：全量铺会把标题/「感谢观看」挤出画面（222 部 = 21 行 ≈ 3600px）', () => {
+    const width = 1920;
+    const height = 1080;
+    const wallRatio = 0.14;
+    const count = endingWallCount({ width, height, wallRatio });
+    const gap = width * 0.011;
+    const perRow = Math.max(1, Math.floor((width * 0.78 + gap) / (height * wallRatio * 0.7 + gap)));
+    const rows = Math.ceil(count / perRow);
+    expect(rows).toBeLessThanOrEqual(ENDING_WALL_ROWS);
+    // 墙高必须给画幅留出地方（标题/文案/THE END 都在它上面居中）
+    expect(rows * (height * wallRatio + gap)).toBeLessThan(height * 0.5);
+  });
+
+  it('结尾封面墙选人：**第 1 档优先 + 同档内按 seed 洗牌**（用户 2026-09-26：「第一档然后随机展示就行」）', () => {
+    // 第 1 档 5 部 + 第 2 档 7 部；取 4 张 → 应全是第 1 档
+    const first = [1, 2, 3, 4, 5].map((id) => ranked(id, 0, 2020));
+    const rest = [11, 12, 13, 14, 15, 16, 17].map((id) => ranked(id, 1, 2020));
+    const pick = endingWallCovers([...first, ...rest], { count: 4, seed: 7 });
+    expect(pick).toHaveLength(4);
+    expect(pick.every((m) => m.tier === 0)).toBe(true);
+    expect(new Set(pick.map((m) => m.mediaId)).size).toBe(4);            // 不重复
+    // 确定性：同一 seed 两次一模一样；换 seed 会换一批（逐帧并行渲染，同一帧不能摆成两样）
+    expect(endingWallCovers([...first, ...rest], { count: 4, seed: 7 }).map((m) => m.mediaId))
+      .toEqual(pick.map((m) => m.mediaId));
+    expect(endingWallCovers([...first, ...rest], { count: 4, seed: 99 }).map((m) => m.mediaId))
+      .not.toEqual(pick.map((m) => m.mediaId));
+    // 洗牌确实发生：不是原顺序的前 4 个
+    expect(pick.map((m) => m.mediaId)).not.toEqual([1, 2, 3, 4]);
+  });
+
+  it('结尾封面墙选人：第 1 档不够就拿下一档补满（未标等级的垫最后）', () => {
+    const pick = endingWallCovers(
+      [ranked(1, 0, 2020), ranked(2, 0, 2020), ranked(3, 1, 2020), ranked(4, undefined, 2020)],
+      { count: 4, seed: 3 },
+    );
+    expect(pick.map((m) => m.mediaId).slice(0, 2).sort()).toEqual([1, 2]); // 第 1 档占前排
+    expect(pick.map((m) => m.mediaId)).toContain(3);                      // 第 2 档补位
+    expect(pick[pick.length - 1].mediaId).toBe(4);                        // 未标等级的排最后
+  });
+
+  it('无第 1 档且不开二级分组 → 不产生多余资料卡', () => {
+    const plan = buildScenePlan(input({
+      media: [ranked(1, undefined, 2020), ranked(2, undefined, 2020)],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10, tierGroup: false },
     } as Partial<MultiMediaPocInput>));
     expect(plan.scenes.filter((s) => s.type === 'MEDIA_INFO')).toHaveLength(0);
   });
+});
 
-  it('D：结尾前有「全片重点回顾」章节页 + 重点项的网格', () => {
+describe('推荐序号与组部数（用户 2026-09-26：「下面数量展示应该根据推荐顺序从1往后加」「只是当前页面而不是该组所有」）', () => {
+  const ranked = (id: number, tier: number, year: number): PocMedia =>
+    ({ ...media(id, id, year, 0, `${year} 年`), tier });
+
+  it('底部序号 = 成片里的推荐顺序（跨组连续），不是 Java 的请求 order', () => {
     const plan = buildScenePlan(input({
-      media: [
-        { ...media(1, 1, 2020, 0, '2020 年'), featured: true },
-        media(2, 2, 2020, 0, '2020 年'),
-        { ...media(3, 3, 2019, 0, '2019 年'), featured: true },
-      ],
-      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+      media: [ranked(1, 0, 2023), ranked(2, 0, 2023), ranked(3, 1, 2022)],
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 2, tierGroup: true },
     } as Partial<MultiMediaPocInput>));
-    const recapAt = plan.scenes.findIndex((s) => s.type === 'GROUP_INTRO' && s.groupName === FEATURED_RECAP_TITLE);
-    expect(recapAt).toBeGreaterThan(-1);
-    // 回顾章节页之后必须紧跟一格网格，里面**只**放重点项，且在结尾之前
-    expect(plan.scenes[recapAt + 1].type).toBe('MEDIA_GRID');
-    expect(plan.scenes[recapAt + 1].mediaIds).toEqual([1, 3]);
-    expect(plan.scenes.findIndex((s) => s.type === 'COLLECTION_ENDING')).toBeGreaterThan(recapAt);
+    const grids = plan.scenes.filter((s) => s.type === 'MEDIA_GRID' && !s.groupName?.startsWith(RECAP_PREFIX));
+    expect(grids.map((s) => s.numberFrom)).toEqual([1, 3]);        // 2023 强推两屏：1-2、3-3
+    expect(sceneLabel(plan, grids[0], plan.mediaIndex.size)).toBe('1-2 / 3');
+    expect(sceneLabel(plan, grids[1], plan.mediaIndex.size)).toBe('3-3 / 3');
   });
 
-  it('无核心项时不产生「全片核心回顾」章节', () => {
+  it('组标题行报**整组**部数（当前屏只装了其中一部分）', () => {
+    const media9 = Array.from({ length: 5 }, (_, i) => ranked(i + 1, 0, 2023));
     const plan = buildScenePlan(input({
-      media: [media(1, 1, 2020, 0, '2020 年')],
-      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 10 },
+      media: media9,
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 3, tierGroup: true },
     } as Partial<MultiMediaPocInput>));
-    expect(plan.scenes.some((s) => s.groupName === FEATURED_RECAP_TITLE)).toBe(false);
+    const grids = plan.scenes.filter((s) => s.type === 'MEDIA_GRID' && !s.groupName?.startsWith(RECAP_PREFIX));
+    expect(grids.map((s) => s.mediaIds?.length)).toEqual([3, 2]);
+    expect(grids.map((s) => s.groupSize)).toEqual([5, 5]);
+    expect(grids.map((s) => s.groupTopCount)).toEqual([5, 5]);
+    // 序号仍然连续（第二屏从 4 开始）
+    expect(grids.map((s) => s.numberFrom)).toEqual([1, 4]);
+  });
+
+  it('关掉二级分组时，混合屏的组标题胶囊也报整组里第 1 档的数量', () => {
+    const list = [ranked(1, 0, 2023), ranked(2, 0, 2023), ranked(3, 1, 2023), ranked(4, 2, 2023)];
+    const plan = buildScenePlan(input({
+      media: list,
+      params: { ...DEFAULT_PARAMS, groupBy: 'year', perScreen: 2, tierGroup: false },
+    } as Partial<MultiMediaPocInput>));
+    const first = plan.scenes.find((s) => s.type === 'MEDIA_GRID')!;
+    expect(first.mediaIds).toEqual([1, 2]);      // coreFirst 把第 1 档提到最前
+    expect(first.groupSize).toBe(4);
+    expect(first.groupTopCount).toBe(2);
   });
 });

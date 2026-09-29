@@ -114,11 +114,11 @@ class RecommendServiceTest {
                                List<RecommendService.BgmTrack> bgmTracks, List<String> bgmPaths,
                                Map<Long, List<RecommendClipSourceService.PreparedClip>> clips, String preset) {
         return service.buildRenderInput(ids, "标题", bgmTracks, "副标题", "50", groupBy, style,
-                List.of(), List.of(), "序言", service.normalizeDurations(null, null, null, null, null, null),
+                List.of(), Map.of(), "序言", service.normalizeDurations(null, null, null, null, null, null),
                 "结尾标题", "结尾文案", "", List.of(), 8, 100, 0, 50,
                 "序言标题", "date-desc", 50, 50, 100, 1, 8, "品牌", 1, null, preset,
                 clips == null ? Map.of() : clips, "embed", 30, 1280, 720, bgmPaths,
-                rel -> rel.startsWith("bgm-") ? 42.5 : 3.5, 20260920, 100, null, null, 60);
+                rel -> rel.startsWith("bgm-") ? 42.5 : 3.5, 20260920, 100, null, null, 60, null);
     }
 
     /** 主题预设写入参数区；未指定 → 基线 `starlit`。 */
@@ -233,14 +233,15 @@ class RecommendServiceTest {
     }
 
     @Test
-    void 显示时长归一化到默认区间() {
-        RecommendService.Durations d = service.normalizeDurations(999, 0, null, 1, 99, 99);
-        assertEquals(20, d.opening());
-        assertEquals(1, d.intro());
-        assertEquals(5, d.group());
-        assertEquals(3, d.detail());
-        assertEquals(10, d.ending());
-        assertEquals(5, d.title(), "片名卡 1-5s，超上限回落到 5");
+    void 显示时长只限下限不封顶() {
+        // 2026-09-26 用户拍板：显示时长不设 (旧上限 20/10/10/15/5/10 已废)，只留下限 + MAX_SEGMENT_SEC=600 防手滑。
+        RecommendService.Durations d = service.normalizeDurations(999, 0, null, 1, 9999, 99);
+        assertEquals(600, d.opening(), "开场 999 → 只被防手滑上限 600 截");
+        assertEquals(1, d.intro(), "序言 0 → 下限 1");
+        assertEquals(5, d.group(), "章节 null → 默认 5");
+        assertEquals(3, d.detail(), "资料 1 → 下限 3");
+        assertEquals(600, d.ending(), "结尾 9999 → 防手滑上限 600");
+        assertEquals(99, d.title(), "片名卡不再回落到 5");
     }
 
     @Test

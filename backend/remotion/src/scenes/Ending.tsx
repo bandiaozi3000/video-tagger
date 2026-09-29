@@ -5,6 +5,7 @@ import { riseIn, staggerFrames, useEnter } from '../animation';
 import type { RenderParams } from '../params';
 import type { Theme } from '../theme';
 import type { MultiMediaPocInput, PocMedia } from '../types';
+import { endingWallCount, endingWallCovers } from '../scene-plan';
 import { GradientTitle } from './parts';
 
 /** 结尾：THE END + 标题 + 文案 + 封面墙（封面逐个上浮，替代旧模板的 `transition-delay: i*45ms`）。 */
@@ -17,7 +18,11 @@ export function Ending({ input, params, theme, assetBaseUrl, beatFrames }: {
   beatFrames: number;
 }) {
   const { width, height, fps } = useVideoConfig();
-  const covers = input.media.filter((media) => media.coverAssetPath);
+  // 封面墙：**封顶**（见 `endingWallCount`）+ **第 1 档优先、同档内按草稿 seed 洗牌**（见 `endingWallCovers`）
+  const covers = endingWallCovers(
+    input.media.filter((media) => media.coverAssetPath),
+    { count: endingWallCount({ width, height, wallRatio: theme.layout.wallRatio }), seed: params.seed },
+  );
   const kickerIn = useEnter(0, theme);
   const titleIn = useEnter(staggerFrames(theme, 1, fps), theme);
   const textIn = useEnter(staggerFrames(theme, 2, fps), theme);

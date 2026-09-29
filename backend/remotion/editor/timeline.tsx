@@ -41,7 +41,7 @@ export type DurationChange = (key: DurationKey, seconds: number) => void;
  *   · 把手的 `click` 一律 `stopPropagation()`，否则拖完会顺带触发底色块的"跳段 + 选中"；
  *   · `perPx` 由调用方给（时间轴 = 总秒/轨宽，胶片条 = 5s/卡宽），因为两边**宽度语义不同**。
  */
-function useDurationDrag(onChange: DurationChange) {
+function useDurationDrag(onChange: DurationChange, onCommit?: () => void) {
   const dragRef = React.useRef<{ key: DurationKey; x: number; seconds: number; perPx: number } | null>(null);
   const [dragging, setDragging] = React.useState<DurationKey | null>(null);
 
@@ -72,6 +72,7 @@ function useDurationDrag(onChange: DurationChange) {
     }
     dragRef.current = null;
     setDragging(null);
+    onCommit?.();   // 松手 = 把这次拖拽的结果应用到预览（手动渲染模型下的例外，用户 2026-09-26）
   };
 
   return { startDrag, moveDrag, endDrag, dragging };
@@ -84,6 +85,7 @@ const COLORS: Record<Scene['type'], string> = {
   MEDIA_INFO: 'rgba(200,206,230,.28)',
   MEDIA_GRID: 'rgba(200,206,230,.28)',
   MEDIA_CLIP: 'rgba(255,143,184,.5)',
+  RECAP_LIST: 'rgba(79,195,247,.35)',
   COLLECTION_ENDING: 'rgba(255,209,102,.5)',
 };
 
@@ -160,7 +162,7 @@ const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.fl
 
 /* ============================ 时间轴（32px 条） ============================ */
 
-export function Timeline({ plan, frame, selection, missingByClip, missingByMedia, mediaCount, onSeek, onSelect, onDurationChange }: {
+export function Timeline({ plan, frame, selection, missingByClip, missingByMedia, mediaCount, onSeek, onSelect, onDurationChange, onDurationCommit }: {
   plan: ScenePlan;
   frame: number;
   selection: Selection;
@@ -171,10 +173,12 @@ export function Timeline({ plan, frame, selection, missingByClip, missingByMedia
   onSelect: (selection: Selection) => void;
   /** 拖动类别边界 = 改该类秒数（总长跟着变）。 */
   onDurationChange: DurationChange;
+  /** 松手时调：手动渲染模型下拖拽算显式操作，松手即应用（见 `useDurationDrag`）。 */
+  onDurationCommit?: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
   const trackRef = React.useRef<HTMLDivElement>(null);
-  const { startDrag, moveDrag, endDrag, dragging } = useDurationDrag(onDurationChange);
+  const { startDrag, moveDrag, endDrag, dragging } = useDurationDrag(onDurationChange, onDurationCommit);
   const total = Math.max(1, plan.durationInFrames);
   const activeIndex = plan.scenes.findIndex((scene) => frame >= scene.fromFrame && frame < scene.fromFrame + scene.durationInFrames);
   const activeScene = plan.scenes[activeIndex];
@@ -312,7 +316,7 @@ function ThumbTrigger({ index, root, onVisible }: {
   return <span ref={ref} className="vt-thumb-trigger" />;
 }
 
-export function Filmstrip({ input, plan, frame, selection, missingByClip, missingByMedia, onSeek, onSelect, onDurationChange, onDropClip }: {
+export function Filmstrip({ input, plan, frame, selection, missingByClip, missingByMedia, onSeek, onSelect, onDurationChange, onDurationCommit, onDropClip }: {
   input: MultiMediaPocInput;
   plan: ScenePlan;
   frame: number;
@@ -323,6 +327,8 @@ export function Filmstrip({ input, plan, frame, selection, missingByClip, missin
   onSelect: (selection: Selection) => void;
   /** 拖每张卡上的时长牌 = 改该卡所属类别的秒数（总长跟着变）。 */
   onDurationChange: DurationChange;
+  /** 松手时调：见 `Timeline` 同名属性。 */
+  onDurationCommit?: () => void;
   /**
    * 缺素材的卡片上直接「移除」该片段（用户 2026-09-20：「能在时间轴上面的片段卡上直接移除吗」）。
    * 只改草稿的 `mediaClips`，不动素材库。
@@ -330,7 +336,7 @@ export function Filmstrip({ input, plan, frame, selection, missingByClip, missin
   onDropClip: (mediaId: number, clipId: number) => void;
 }) {
   const scrollerRef = React.useRef<HTMLDivElement>(null);
-  const { startDrag, moveDrag, endDrag, dragging } = useDurationDrag(onDurationChange);
+  const { startDrag, moveDrag, endDrag, dragging } = useDurationDrag(onDurationChange, onDurationCommit);
   const counts = countByKey(plan.scenes);
   /** 卡的宽度不随时长变（用户 2026-09-20 定），所以拖拽用固定手感：**拖过一个卡宽 = 5s**。 */
   const perPxOf = (element: HTMLElement): number => 5 / Math.max(40, element.parentElement?.getBoundingClientRect().width ?? element.getBoundingClientRect().width);

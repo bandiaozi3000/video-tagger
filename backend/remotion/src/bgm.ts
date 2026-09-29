@@ -1,6 +1,5 @@
 import { interpolate } from 'remotion';
 import type { RenderParams } from './params';
-import { CORE_KICKER } from './scene-plan';
 
 /**
  * BGM 时间轴与增益曲线（帧为单位）——UI 与音频共用同一份计算，避免"条上显示的"和"听到的"不一致。
@@ -22,6 +21,9 @@ export interface BgmRangeSpec {
 }
 
 const SEGMENTS: readonly BgmRangeSegment[] = ['opening', 'cards', 'ending'];
+
+/** `all` 模式最多铺多少条槽（防 `durationSec` 脏值把循环跑飞；正常片子几十条就到顶）。 */
+const MAX_BGM_SLOTS = 500;
 
 /**
  * 解析 `params.bgmRange`：接受 `all` / `none` / 逗号集合（大小写与顺序无关，未知项丢弃）。
@@ -53,6 +55,8 @@ export interface BgmSlot {
   durationInFrames: number;
   /** 从曲子第几秒开始放（各窗口接着往下走；结尾固定用曲子后半段）。 */
   startFromSec?: number;
+  /** 曲子总长（秒，Java 侧 ffprobe 探得）—— BGM 条要按它显示“曲子自身”的进度；缺省 → 条退回窗口口径。 */
+  durationSec?: number;
   /** 段自身的头尾淡入淡出（秒）：只有「不铺满全片」的范围才需要，否则段末会硬切。 */
   edgeFadeSec: number;
 }
@@ -66,16 +70,21 @@ export function bgmTimeline(params: RenderParams, plan: BgmPlanLike): BgmSlot[] 
   const fps = plan.fps;
   const total = plan.durationInFrames;
   if (spec.mode === 'all') {
-    // 旧行为：一首接一首铺满，无段边淡入淡出（铺满全片本来就没有段边界）
+    // 旧行为：一首接一首**铺满全片**，无段边淡入淡出（铺满全片本来就没有段边界）。
+    // ⚠️ 2026-09-26 修：以前只把曲目列表走**一遍** —— 曲目总长 < 片长时就变成「全程只有前几分钟有音乐」
+    // （实测：200s 曲子 + 1000s 片子 → 4 分钟后全静音；曲长探不到时才恰好铺满，所以一直没被发现）。
+    // 现在**轮流循环铺到片尾**；`MAX_BGM_SLOTS` 只是防脏值（durationSec 极小）把循环跑飞。
     const fallbackSec = total / fps / Math.max(1, tracks.length);
     const slots: BgmSlot[] = [];
     let cursor = 0;
-    tracks.forEach((track) => {
+    for (let i = 0; i < MAX_BGM_SLOTS && cursor < total; i++) {
+      const track = tracks[i % tracks.length];
       const seconds = track.durationSec ?? fallbackSec;
+      if (!(seconds > 0)) break;
       const frames = Math.max(1, Math.round(seconds * fps));
-      slots.push({ name: track.name, assetPath: track.assetPath, fromFrame: cursor, durationInFrames: frames, edgeFadeSec: 0 });
+      slots.push({ name: track.name, assetPath: track.assetPath, fromFrame: cursor, durationInFrames: frames, durationSec: track.durationSec, edgeFadeSec: 0 });
       cursor += frames;
-    });
+    }
     return slots;
   }
 
@@ -168,6 +177,7 @@ function sequentialSlots(
       fromFrame: overlapFrom,
       durationInFrames: overlapTo - overlapFrom,
       startFromSec: startFromSecAt(track, overlapFrom, fps),
+      durationSec: track.durationSec,
       edgeFadeSec,
     });
     if (cursor >= to) break;
@@ -191,8 +201,71 @@ function secondHalfSlot(
     fromFrame: from,
     durationInFrames: Math.max(1, Math.round(seconds * fps)),
     startFromSec: half,
+    durationSec: track.durationSec,
     edgeFadeSec,
   }];
+}
+
+/**
+ * 当前帧哪首在响（`bgmTimeline` 的下标）；**静音段（曲与曲 / 窗口与窗口之间的空隙）返回 -1**。
+ *
+ * 为什么要单独判：以前找不到活动 slot 时回退到第 0 条/最后一条，于是「BGM 只在开头+结尾」的片子里，
+ * 中间十几分钟也会挂一条音乐条，上面写着一个毫无意义的位置（实测：300s 时显示「1:25 ↻」）。
+ * 没音乐就不显示条，与「条上显示的 = 听到的」这条底线一致。
+ */
+export function bgmSlotIndexAt(frame: number, slots: BgmSlot[]): number {
+  // 用**该条自己的尾巴**判定，不能用「下一条的起点」—— 后者会让条在空隙里一直挂着（旧 bug）
+  return slots.findIndex((slot) => frame >= slot.fromFrame && frame < slot.fromFrame + slot.durationInFrames);
+}
+
+/**
+ * BGM 条上显示什么（用户 2026-09-26：「音乐条进度显示有问题，显示的是视频进度」）。
+ *
+ * 口径 = **这首曲子自己的位置**（像音乐播放器），不是全片/窗口的位置：
+ *   · 进度条 = 曲内位置 ÷ **曲长**；
+ *   · 左边时间 = 曲内位置（循环后归零 + 条上标 ↻）；
+ *   · 右边时间 = **曲长**（不是窗口长）。
+ *
+ * 旧口径（已修）用的是「窗口 + 绝对视频时间」：在 `bgmRange=all` + 单曲（或曲长探不到）时，窗口就是全片，
+ * 于是条上显示的就字面上是视频进度（用户看出来的就是这个）。
+ *
+ * ⚠️ 未验证：第二遍之后的位置假设为**从头（0s）循环**（与浏览器原生 `<audio loop>` 一致）；
+ * 若 Remotion 实际是“回到 `startFromSec` 再来”，那么仅当窗口比剩余曲长还长时，条会比声音多算 `startFromSec`。
+ */
+export interface BgmBadgeState {
+  /** 进度条比例 0~1。 */
+  progress: number;
+  /** 当前曲内位置（秒）。 */
+  positionSec: number;
+  /** “/”右边的总长（秒）：曲长优先，探不到则退回窗口长。 */
+  totalSec: number;
+  /** 已经循环过几遍（> 0 → 条上标 ↻）。 */
+  loops: number;
+}
+
+export function bgmBadgeState(frame: number, slot: BgmSlot, fps: number): BgmBadgeState {
+  const elapsedSec = Math.max(0, frame - slot.fromFrame) / fps;          // 还没轮到这首 → 0（条上显示它的起播位置）
+  const playedSec = (slot.startFromSec ?? 0) + elapsedSec;
+  const trackSec = slot.durationSec != null && slot.durationSec > 0 ? slot.durationSec : null;
+  if (trackSec === null) {
+    // 曲长探不到（ffprobe 失败 / 旧草稿）→ 只能按窗口算，至少不会显示成 100%
+    const windowSec = Math.max(1, slot.durationInFrames) / fps;
+    const capped = Math.min(elapsedSec, windowSec);
+    return { progress: capped / windowSec, positionSec: capped, totalSec: windowSec, loops: 0 };
+  }
+  const loops = Math.floor(playedSec / trackSec);
+  const positionSec = playedSec - loops * trackSec;
+  return { progress: positionSec / trackSec, positionSec, totalSec: trackSec, loops };
+}
+
+/**
+ * 给 Remotion `<Audio startFrom>` 的值：**单位是帧，不是秒**（`startFrom` 已改名 `trimBefore`，文档写明“in frames”）。
+ *
+ * 为什么单独拎出来：`BgmSlot.startFromSec` 是秒，直接传进去会被当成帧（结尾“后半段”实际只跳到第 3.7 秒）——
+ * 这条单位坑靠一个函数 + 单测钉住，别再各处手写换算。
+ */
+export function bgmStartFromFrames(slot: BgmSlot, fps: number): number {
+  return Math.round((slot.startFromSec ?? 0) * fps);
 }
 
 /**
@@ -250,9 +323,9 @@ export interface StingSlot {
 export function stingTimeline(params: RenderParams, plan: BgmPlanLike): StingSlot[] {
   if (!params.stingPath) return [];
   return (plan.scenes ?? [])
-    // 银幕式的片名卡（TITLE）与 chapter 的**组首「本组核心」区**（2026-09-26 用户选 ④ 音画同步：
-    // 金色扫光 + ★ 弹入与音效同帧落下）。注：chapter 之前**完全没有** sting 挂点。
-    .filter((scene) => scene.type === 'TITLE' || scene.kicker === CORE_KICKER)
+    // 银幕式的片名卡（TITLE）与 chapter 的**章节页**（GROUP_INTRO：年份页 + 结尾「全片回顾 · X」页）。
+    // 2026-09-26 二级分组改造：原来挂的是 chapter「本组核心」区（那整块已按用户要求删除）→ 改挂章节页。
+    .filter((scene) => scene.type === 'TITLE' || scene.type === 'GROUP_INTRO')
     .map((scene) => ({ fromFrame: scene.fromFrame, durationInFrames: scene.durationInFrames }));
 }
 

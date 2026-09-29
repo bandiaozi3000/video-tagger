@@ -102,6 +102,8 @@ public class RecommendVideoService {
     private final String nodePath;
     private final String ffmpegPath;
     private final String remotionDir;
+    /** 封面根（`/covers/**` 的物理目录）：渲染时由本地素材服务托管，props 里只放短路径。 */
+    private final String coverDir;
     private final MediaProbe mediaProbe;
 
     @Autowired
@@ -111,6 +113,7 @@ public class RecommendVideoService {
                                  @Value("${videotagger.render.node-path}") String nodePath,
                                  @Value("${videotagger.render.ffmpeg-path}") String ffmpegPath,
                                  @Value("${videotagger.render.remotion-dir:backend/remotion}") String remotionDir,
+                                 @Value("${videotagger.cover-dir:data/covers}") String coverDir,
                                  @Value("${videotagger.render.timeout-minutes:1440}") long timeoutMinutes,
                                  @Value("${videotagger.render.stale-minutes:30}") long staleMinutes) {
         this.recommendService = recommendService;
@@ -119,28 +122,19 @@ public class RecommendVideoService {
         this.nodePath = nodePath;
         this.ffmpegPath = ffmpegPath;
         this.remotionDir = remotionDir;
+        this.coverDir = Paths.get(coverDir).toAbsolutePath().toString();
         this.renderTimeoutMinutes = timeoutMinutes > 0 ? timeoutMinutes : 1440;
         this.renderStaleMinutes = staleMinutes > 0 ? staleMinutes : 30;
     }
 
     /** 测试/无片段场景用的简化构造（clipSourceService 为空 → 不支持片段）。 */
     public RecommendVideoService(RecommendService recommendService, String nodePath, String ffmpegPath) {
-        this(recommendService, null, new MediaProbe(ffmpegPath, ""), nodePath, ffmpegPath, "backend/remotion", 1440, 30);
+        this(recommendService, null, new MediaProbe(ffmpegPath, ""), nodePath, ffmpegPath, "backend/remotion", "data/covers", 1440, 30);
     }
 
-    public Path render(List<Long> ids, String resolution) {
-        return render(ids, null, null, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null, null, null, null, null, null, null, null, null, null);
-    }
-
-    /** 渲染推荐媒体为视频（无 BGM）。 */
+    /** 简化重载（无 BGM / 无片段）：测试与「只校验参数」的路径用；tierGroup 传 null = Remotion 侧默认开。 */
     public Path render(List<Long> ids, String title, String format, String resolution) {
-        return render(ids, title, format, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null, null, null, null, null, null, null, null, null, null);
-    }
-
-    /** 渲染推荐媒体为视频（单曲 BGM，兼容旧签名）。 */
-    public Path render(List<Long> ids, String title, String format, String resolution, String bgmPath) {
-        return render(ids, title, format, resolution,
-                bgmPath == null || bgmPath.isBlank() ? null : List.of(bgmPath), null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null, null, null, null, null, null, null, null, null, null);
+        return render(ids, title, format, resolution, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 8, 100, 0, 50, null, null, 50, 50, 100, 1, 8, null, 1, null, null, null, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -162,7 +156,7 @@ public class RecommendVideoService {
      */
     public Path render(List<Long> ids, String title, String format, String resolution, List<String> bgmPaths,
                        List<RecommendService.BgmTrack> bgmTracks, String groupBy, String groupStyle,
-                       String subtitle, String coverSize, List<Long> openingIds, List<Long> featuredIds, String intro,
+                       String subtitle, String coverSize, List<Long> openingIds, Map<Long, RecommendService.MediaMark> mediaMarks, String intro,
                        RecommendService.Durations durations, String endingTitle, String endingText,
                        String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
                        String prologueTitle,
@@ -171,17 +165,17 @@ public class RecommendVideoService {
                        Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
                        Map<String, Boolean> detailShow, Integer seed, Integer clipVolume, String bgmRange,
                        String stingPath, Integer stingVolume, java.nio.file.Path workDir,
-                       RenderCallbacks callbacks) {
+                       RenderCallbacks callbacks, Boolean tierGroup) {
         return render(ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle,
-                subtitle, coverSize, openingIds, featuredIds, intro, durations, endingTitle, endingText, bgColor,
+                subtitle, coverSize, openingIds, mediaMarks, intro, durations, endingTitle, endingText, bgColor,
                 bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort,
                 openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, null, null, seed, clipVolume, bgmRange,
-                stingPath, stingVolume, workDir, callbacks);
+                stingPath, stingVolume, workDir, callbacks, tierGroup);
     }
 
     public Path render(List<Long> ids, String title, String format, String resolution, List<String> bgmPaths,
                        List<RecommendService.BgmTrack> bgmTracks, String groupBy, String groupStyle,
-                       String subtitle, String coverSize, List<Long> openingIds, List<Long> featuredIds, String intro,
+                       String subtitle, String coverSize, List<Long> openingIds, Map<Long, RecommendService.MediaMark> mediaMarks, String intro,
                        RecommendService.Durations durations, String endingTitle, String endingText,
                        String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
                        String prologueTitle,
@@ -191,7 +185,7 @@ public class RecommendVideoService {
                        Map<String, Boolean> detailShow, String preset,
                        Map<Long, RecommendMediaClips> requestedClips, Integer seed, Integer clipVolume, String bgmRange,
                        String stingPath, Integer stingVolume, java.nio.file.Path workDir,
-                       RenderCallbacks callbacks) {
+                       RenderCallbacks callbacks, Boolean tierGroup) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
@@ -224,10 +218,10 @@ public class RecommendVideoService {
                 preparedClips = result.byMedia();
             }
             return renderWithRemotion(work, ids, title, fmt, wh, bgmPaths, bgmTracks, groupBy, groupStyle,
-                    openingIds, featuredIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
+                    openingIds, mediaMarks, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
                     bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed,
                     endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset, preparedClips,
-                    subtitle, coverSize, seed, clipVolume, bgmRange, stingPath, stingVolume, callbacks);
+                    subtitle, coverSize, seed, clipVolume, bgmRange, stingPath, stingVolume, callbacks, tierGroup);
         } catch (IOException e) {
             throw new IllegalStateException("渲染准备失败: " + e.getMessage(), e);
         } finally {
@@ -243,7 +237,7 @@ public class RecommendVideoService {
      */
     private Path renderWithRemotion(Path work, List<Long> ids, String title, String fmt, int[] wh,
                                     List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
-                                    String groupBy, String groupStyle, List<Long> openingIds, List<Long> featuredIds, String intro,
+                                    String groupBy, String groupStyle, List<Long> openingIds, Map<Long, RecommendService.MediaMark> mediaMarks, String intro,
                                     RecommendService.Durations durations, String endingTitle, String endingText,
                                     String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity,
                                     Integer bgBlur, Integer bgBrightness, String prologueTitle, String groupSort,
@@ -252,7 +246,7 @@ public class RecommendVideoService {
                                     Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips,
                                     String subtitle, String coverSize, Integer seed, Integer clipVolume, String bgmRange,
                                     String stingSource, Integer stingVolume,
-                                    RenderCallbacks callbacks) throws IOException {
+                                    RenderCallbacks callbacks, Boolean tierGroup) throws IOException {
         Path remotion = resolveRemotionDir();
         if (remotion == null) {
             throw new IllegalStateException("未找到 Remotion 工程（期望 <remotion-dir>/scripts/render-recommend.ts，"
@@ -289,13 +283,13 @@ public class RecommendVideoService {
         }
 
         String inputJson = recommendService.buildRenderInput(ids, title, audioTracks, subtitle, coverSize, groupBy,
-                groupStyle, openingIds, featuredIds, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
+                groupStyle, openingIds, mediaMarks, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
                 bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed, bgmScale,
-                bgmX, bgmY, brandTitle, perScreen, detailShow, preset, preparedClips, "embed",
+                bgmX, bgmY, brandTitle, perScreen, detailShow, preset, preparedClips, "url",
                 RecommendService.fpsOf(groupStyle), wh[0], wh[1],
                 bgmRelPaths,
                 rel -> mediaProbe.durationSeconds(work.resolve(rel).toAbsolutePath().toString()),
-                seed, clipVolume, bgmRange, stingRel, stingVolume);
+                seed, clipVolume, bgmRange, stingRel, stingVolume, tierGroup);
         Path inputFile = work.resolve("render-input.json");
         Files.writeString(inputFile, inputJson, StandardCharsets.UTF_8);
         Path out = uniqueExportName(title, fmt);
@@ -532,6 +526,10 @@ public class RecommendVideoService {
         cmd.add("--input"); cmd.add(inputFile.toAbsolutePath().toString());
         cmd.add("--output"); cmd.add(output.toAbsolutePath().toString());
         cmd.add("--asset-root"); cmd.add(work.toAbsolutePath().toString());
+        // 封面根（2026-09-27）：封面以根相对 `/covers/**` 出现在 props 里，由渲染脚本的本地素材服务托管。
+        // 以前是 Java 把封面 base64 内联进 props（223 部 Bangumi 高清封面 ≈ 87MB → base64 119MB）
+        // → Remotion 给页面注入 props 时 Chrome 直接挂（`Target closed`）。
+        cmd.add("--covers-root"); cmd.add(coverDir);
         cmd.add("--format"); cmd.add(fmt);
         if (frames != null) {
             cmd.add("--frames"); cmd.add(frames[0] + "-" + frames[1]);

@@ -53,16 +53,23 @@ public interface VideoExportTaskMapper extends BaseMapper<VideoExportTaskRow> {
     int updateChunks(@Param("id") long id, @Param("done") int done, @Param("total") int total,
                      @Param("stage") String stage, @Param("now") long now);
 
-    /** 只改实时状态文案（准备素材阶段用）。 */
-    @Update("UPDATE video_export_task SET stage_text = #{stage}, updated_at = #{now} WHERE id = #{id} AND status = RUNNING")
+    /** 只改实时状态文案（准备素材阶段用）。
+     *  ⚠️ 2026-09-27 修：这里原本写的是 `status = RUNNING`（**缺引号**）→ MySQL 报
+     *  `Unknown column 'RUNNING' in 'where clause'` → 这条陈述从来没写库成功过，
+     *  表现是 UI 上「准备素材 3/11 / 渲染第 N/M 块」永远为空（异常被 onStage 吞成一条 WARN）。*/
+    @Update("UPDATE video_export_task SET stage_text = #{stage}, updated_at = #{now} WHERE id = #{id} AND status = 'RUNNING'")
     int updateStage(@Param("id") long id, @Param("stage") String stage, @Param("now") long now);
 
     @Update("UPDATE video_export_task SET boundary_frames = #{json}, updated_at = #{now} WHERE id = #{id}")
     int setBoundaryFrames(@Param("id") long id, @Param("json") String json, @Param("now") long now);
 
     /** 暂停：只从 RUNNING 推进（渲染线程每块渲完会查状态，看到非 RUNNING 就停在块边界）。 */
-    @Update("UPDATE video_export_task SET status = 'PAUSED', message = '已暂停（已完成块保留，可继续）', updated_at = #{now} WHERE id = #{id} AND status = 'RUNNING'")
+    @Update("UPDATE video_export_task SET status = 'PAUSED', message = '已请求暂停：当前块渲完后停（已完成块保留）', updated_at = #{now} WHERE id = #{id} AND status = 'RUNNING'")
     int pauseTask(@Param("id") long id, @Param("now") long now);
+
+    /** 只改文案（不挑状态）：暂停落地后把“已完成 x/y 块”写进去（2026-09-27）。 */
+    @Update("UPDATE video_export_task SET message = #{message}, updated_at = #{now} WHERE id = #{id}")
+    int updateMessage(@Param("id") long id, @Param("message") String message, @Param("now") long now);
 
     /** 终态：只从 PENDING/RUNNING 推进，已经取消或结束的不被覆盖。 */
     @Update("UPDATE video_export_task SET status = #{status}, message = #{message}, file_path = #{filePath},"

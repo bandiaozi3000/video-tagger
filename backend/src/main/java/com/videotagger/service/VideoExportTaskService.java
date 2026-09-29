@@ -42,15 +42,22 @@ public class VideoExportTaskService {
     /** 进度写库节流：10s 或 1% 变化才写（渲染脚本 4s 一上报，逐条写库太吵）。 */
     private static final long PROGRESS_WRITE_INTERVAL_MS = 10_000;
 
+    /** 当前占着串行渲染线程的任务 id（0 = 空）：DTO 里标 `active`，UI 才能说清“谁在占队列”。 */
+    private final java.util.concurrent.atomic.AtomicLong activeTaskId = new java.util.concurrent.atomic.AtomicLong(0);
+
     /** 一条视频导出任务记录（**API DTO**，形状保持不变；DB 行见 `VideoExportTaskRow`）。 */
     public record VideoExportTask(long id, String title, int mediaCount, String status, String message,
                                   String filePath, String format, long createdAt, long finishedAt, int progress,
-                                  int chunksDone, int chunksTotal, String stageText, String boundaryFrames) {
+                                  int chunksDone, int chunksTotal, String stageText, String boundaryFrames,
+                                  /** 此刻**真的占着串行渲染线程**的是不是它（2026-09-27）。
+                                   *  为什么需要：暂停只在块边界生效 → 一个 PAUSED 任务可能仍在渲当前块，
+                                   *  而它会把后面的 PENDING 任务堵住；UI 不标明“谁在占”就完全看不出为何排队不动。 */
+                                  boolean active) {
 
         /** 兼容旧构造（没有进度/分块信息时按 0/空）。 */
         public VideoExportTask(long id, String title, int mediaCount, String status, String message,
                                String filePath, String format, long createdAt, long finishedAt) {
-            this(id, title, mediaCount, status, message, filePath, format, createdAt, finishedAt, 0, 0, 0, null, null);
+            this(id, title, mediaCount, status, message, filePath, format, createdAt, finishedAt, 0, 0, 0, null, null, false);
         }
     }
 
@@ -79,7 +86,7 @@ public class VideoExportTaskService {
     public VideoExportTask create(List<Long> ids, String title, String format, String resolution,
                                   List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
                                   String groupBy, String groupStyle, String subtitle, String coverSize,
-                                  List<Long> openingIds, List<Long> featuredIds, String intro, RecommendService.Durations durations,
+                                  List<Long> openingIds, Map<Long, RecommendService.MediaMark> mediaMarks, String intro, RecommendService.Durations durations,
                                   String endingTitle, String endingText, String bgColor, List<String> bgImages,
                                   Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
                                   String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
@@ -87,7 +94,7 @@ public class VideoExportTaskService {
                                   Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
                                   Map<String, Boolean> detailShow, String preset,
                                   Map<Long, RecommendMediaClips> requestedClips, Integer seed, Integer clipVolume, String bgmRange,
-                                  String stingPath, Integer stingVolume) {
+                                  String stingPath, Integer stingVolume, Boolean tierGroup) {
         long now = System.currentTimeMillis();
         VideoExportTaskRow row = new VideoExportTaskRow();
         row.setTitle(title == null || title.isBlank() ? "推荐视频" : title);
@@ -102,11 +109,11 @@ public class VideoExportTaskService {
         long id = row.getId();
         /* 走 self 代理调用，@Async 才切到 videoExportExecutor 顺序渲染；直接 this.runAsync 会同步阻塞 POST */
         self.runAsync(id, ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle,
-                subtitle, coverSize, openingIds, featuredIds, intro, durations, endingTitle, endingText, bgColor, bgImages,
+                subtitle, coverSize, openingIds, mediaMarks, intro, durations, endingTitle, endingText, bgColor, bgImages,
                 bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle,
                 groupSort, openingSpeed, endingScrollSpeed,
                 bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset, requestedClips, seed, clipVolume, bgmRange,
-                stingPath, stingVolume);
+                stingPath, stingVolume, tierGroup);
         return toDto(mapper.selectById(id));
     }
 
@@ -114,7 +121,7 @@ public class VideoExportTaskService {
     public void runAsync(long id, List<Long> ids, String title, String format, String resolution,
                          List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
                          String groupBy, String groupStyle, String subtitle, String coverSize,
-                         List<Long> openingIds, List<Long> featuredIds, String intro, RecommendService.Durations durations,
+                         List<Long> openingIds, Map<Long, RecommendService.MediaMark> mediaMarks, String intro, RecommendService.Durations durations,
                          String endingTitle, String endingText, String bgColor, List<String> bgImages,
                                   Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
                          String prologueTitle, String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
@@ -122,26 +129,33 @@ public class VideoExportTaskService {
                          Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
                          Map<String, Boolean> detailShow, String preset,
                          Map<Long, RecommendMediaClips> requestedClips, Integer seed, Integer clipVolume, String bgmRange,
-                                  String stingPath, Integer stingVolume) {
+                                  String stingPath, Integer stingVolume, Boolean tierGroup) {
         long now = System.currentTimeMillis();
         Path work = workDirOf(id);
+        activeTaskId.set(id);
         try {
             mapper.setWorkDir(id, work.toString(), now);
             mapper.markRunning(id, now);
             Path out = videoService.render(ids, title, format, resolution, bgmPaths, bgmTracks,
-                    groupBy, groupStyle, subtitle, coverSize, openingIds, featuredIds, intro, durations,
+                    groupBy, groupStyle, subtitle, coverSize, openingIds, mediaMarks, intro, durations,
                     endingTitle, endingText, bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle,
                     groupSort, openingSpeed, endingScrollSpeed,
                     bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset, requestedClips, seed, clipVolume, bgmRange,
-                    stingPath, stingVolume, work, callbacks(id));
+                    stingPath, stingVolume, work, callbacks(id), tierGroup);
             boolean wasCancelled = cancelled.remove(id);
             mapper.finishIfActive(id, "DONE", null, out.toString(), System.currentTimeMillis());
             log.info("视频导出任务 {} 完成: {}{}", id, out, wasCancelled ? "（渲染结束前收到过取消请求，产物仍已产出）" : "");
             /* 工作目录**默认保留**（2026-09-21 用户拍板）：里面有分块产物与冻结输入，
                是"只重渲某一块"的唯一依据；删任务时才连块带成品一起清。 */
         } catch (RecommendVideoService.RenderPausedException e) {
-            // 暂停（用户拍板 Q2：块边界停）：**保留工作目录与已完成块**，状态留给 pause()/cancel() 写
+            // 暂停（用户拍板 Q2：块边界停）：**保留工作目录与已完成块**，状态留给 pause()/cancel() 写。
+            // 这里补一次文案：暂停请求期间线程还在渲当前块，message 得说清“已完成几块”（2026-09-27）。
             log.info("视频导出任务 {} 已暂停: {}", id, e.getMessage());
+            try {
+                mapper.updateMessage(id, e.getMessage(), System.currentTimeMillis());
+            } catch (RuntimeException ignored) {
+                // 任务可能刚被删（本轮就出过：删除时线程还在跑）→ 写不进去不影响任何事
+            }
         } catch (Exception e) {
             long end = System.currentTimeMillis();
             if (cancelled.remove(id)) {
@@ -152,6 +166,7 @@ public class VideoExportTaskService {
                 mapper.finishIfActive(id, "ERROR", e.getMessage() == null ? "导出失败" : e.getMessage(), null, end);
             }
         } finally {
+            activeTaskId.compareAndSet(id, 0);
             progressMark.remove(id);
             /* 清理 BGM 临时文件 */
             if (bgmPaths != null) {
@@ -245,7 +260,7 @@ public class VideoExportTaskService {
 
     /** 任务列表（按创建时间倒序）。 */
     public List<VideoExportTask> list() {
-        return mapper.listRecent(50).stream().map(VideoExportTaskService::toDto).toList();
+        return mapper.listRecent(50).stream().map(this::toDto).toList();
     }
 
     public VideoExportTask get(long id) {
@@ -316,6 +331,7 @@ public class VideoExportTaskService {
         }
         Path work = Path.of(row.getWorkDir());
         String fmt = row.getFormat() == null ? "MP4" : row.getFormat();
+        activeTaskId.set(id);
         try {
             Path target = overwrite && row.getFilePath() != null ? Path.of(row.getFilePath()) : null;
             Path out = videoService.resumeFromWorkDir(work, fmt, callbacks(id), target);
@@ -332,6 +348,7 @@ public class VideoExportTaskService {
                         System.currentTimeMillis());
             }
         } finally {
+            activeTaskId.compareAndSet(id, 0);
             progressMark.remove(id);
         }
     }
@@ -357,7 +374,14 @@ public class VideoExportTaskService {
         return true;
     }
 
-    /** 杀渲染子进程：校验进程名含 node，避免 Windows 上 pid 复用杀到无关进程。 */
+    /**
+     * 杀渲染子进程**整棵树**（2026-09-27 修）：
+     *  - 校验进程名含 node（Windows 上 pid 会被复用，别杀到无关进程）；
+     *  - **子先父后**：Java 起的 tsx 进程下面还挂着真正渲染的 node（`tsx/dist/preflight`）与一串
+     *    `chrome-headless-shell`，只杀父进程它们会继续烧 CPU；
+     *  - 最后 `destroyForcibly` + 最多等 2s 真退出 —— 删工作目录前必须确保已停止落盘
+     *    （真实事故 2026-09-27：暂停后删除任务时子进程还在写 `chunk-000.mp4`，目录被抽走、串行队列被白占）。
+     */
     private void killChild(Long pid) {
         if (pid == null || pid <= 0) {
             return;
@@ -369,13 +393,25 @@ public class VideoExportTaskService {
                     log.warn("pid {} 不是 node 进程（{}），跳过终止", pid, cmd);
                     return;
                 }
-                handle.destroy();
-                if (handle.isAlive()) {
-                    handle.destroyForcibly();
-                }
+                List<ProcessHandle> family = new ArrayList<>(handle.descendants().toList());
+                family.add(handle);
+                family.forEach(ProcessHandle::destroy);
+                family.forEach(child -> {
+                    waitExit(child, 2);
+                    if (child.isAlive()) child.destroyForcibly();
+                });
             });
         } catch (RuntimeException e) {
             log.warn("终止渲染子进程 {} 失败: {}", pid, e.getMessage());
+        }
+    }
+
+    /** 等进程退出（超时当作“还在”，由调用方决定强制）。 */
+    private static void waitExit(ProcessHandle handle, int seconds) {
+        try {
+            handle.onExit().get(seconds, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception ignored) {
+            // 超时/被中断都算“还没退”，调用方会 destroyForcibly
         }
     }
 
@@ -426,6 +462,9 @@ public class VideoExportTaskService {
         if ("PENDING".equals(row.getStatus()) || "RUNNING".equals(row.getStatus())) {
             throw new IllegalStateException("任务正在排队/渲染中，请先取消再删除");
         }
+        /* PAUSED 也可能还有子进程在跑（暂停只在块边界生效）→ **先杀树再动目录**：
+           否则线程继续渲、工作目录被抽走 → 白占串行队列 + 留下没人清的孤儿块产物（2026-09-27 事故）。 */
+        killChild(row.getChildPid());
         mapper.deleteById(id);
         if (row.getWorkDir() != null && !row.getWorkDir().isBlank()) {
             deleteWorkDir(Path.of(row.getWorkDir()));
@@ -536,7 +575,8 @@ public class VideoExportTaskService {
         }
     }
 
-    private static VideoExportTask toDto(VideoExportTaskRow row) {
+    /** DTO 组装（**实例方法**：要读 activeTaskId 才知道此刻谁占着渲染线程）。 */
+    private VideoExportTask toDto(VideoExportTaskRow row) {
         return new VideoExportTask(row.getId(),
                 row.getTitle() == null ? "推荐视频" : row.getTitle(),
                 row.getMediaCount() == null ? 0 : row.getMediaCount(),
@@ -550,6 +590,7 @@ public class VideoExportTaskService {
                 row.getChunksDone() == null ? 0 : row.getChunksDone(),
                 row.getChunksTotal() == null ? 0 : row.getChunksTotal(),
                 row.getStageText(),
-                row.getBoundaryFrames());
+                row.getBoundaryFrames(),
+                activeTaskId.get() == row.getId());
     }
 }

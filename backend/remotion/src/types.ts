@@ -8,6 +8,7 @@ export type SceneType =
   | 'MEDIA_INFO'
   | 'MEDIA_GRID'
   | 'MEDIA_CLIP'
+  | 'RECAP_LIST'
   | 'COLLECTION_ENDING';
 
 export interface PocClip {
@@ -54,15 +55,12 @@ export interface PocMedia {
   /** 分组名（由 Java 侧按 `groupBy` 计算，含"未分组/未知年份"等兜底文案）；无分组时缺省。 */
   group?: string;
   /**
-   * 重点项（用户在编辑器里手动 ★ 勾选；Java 侧按 `featuredIds` 置位）。
-   *
-   * 语义（2026-09-26 用户拍板「A+C+D」）：
-   *   - 组内群像网格上带 ★ 角标与强调描边（A）；
-   *   - 本组网格放完后，**逐部**补一幕资料卡（C，复用 MEDIA_INFO）；
-   *   - 全片结尾前再把各组的重点汇总成「全片重点回顾」章节（D）。
-   * 组内数量**不设上限**（用户要自由选），但每部会吃掉 `durations.detail` 秒。
+   * 推荐等级名次（0 = 最强 = 「强推」；缺省 = 最低档 = 默认卡片）。卡片视觉见 `src/tier.tsx`。
+   * **它接管了旧的 `featured`**：第 1 档 = 组首核心区 + 组内排最前 + 结尾全片回顾（见 `scene-plan.ts` 的 `isCore`）。
    */
-  featured?: boolean;
+  tier?: number;
+  /** 推荐理由（用户手写一句；资料卡/网格卡上都作高亮条显示，clamp 防溢出）。 */
+  reason?: string;
   /** 从封面实测提取的主色（`CoverService.accentColorForPath`，「银幕式」模板的"每部一色"）。 */
   accentColor?: string;
   clips: PocClip[];
@@ -79,6 +77,11 @@ export interface MultiMediaPocInput {
   title: string;
   subtitle?: string;
   intro?: string;
+  /**
+   * 推荐等级名单（**全局设置**里的有序数组，index 0 = 最强；由 Java 侧读站点设置塞进来）。
+   * 缺省 = `['强推','推荐','还行']`；卡片视觉只按名次走（见 `src/tier.tsx`）。
+   */
+  tiers?: string[];
   /** 素材基址（渲染时为本机资源服务，预览时为 `/recommend-previews/{token}`）。 */
   assetBaseUrl?: string;
   media: PocMedia[];
@@ -88,33 +91,45 @@ export interface MultiMediaPocInput {
 export interface Scene {
   type: SceneType;
   mediaId?: number;
-  /** MEDIA_GRID 用：本屏展示的媒体。 */
+  /**
+   * MEDIA_GRID 用：本屏展示的媒体；**GROUP_INTRO 用**：本页展示的媒体（结尾回顾页靠它报「共 N 部」+ 缩略图排）；
+   * **RECAP_LIST 用**：这一档的**全部**成员（清单行序 = 数组序）。
+   */
   mediaIds?: number[];
   clipId?: number;
-  /** GROUP_INTRO 用：组名与组序（强调色轮转依据）。 */
+  /** GROUP_INTRO / MEDIA_GRID 用：组名与组序（强调色轮转依据）。
+   *  二级分组时 GROUP_INTRO 存**一级组名**（年份），MEDIA_GRID 存**子组名**（`2013 年 · 强推`）。 */
   groupName?: string;
   groupIndex?: number;
   /**
-   * MEDIA_GRID / MEDIA_INFO 用：**本地序号起点**（1 基）。
+   * MEDIA_GRID / MEDIA_INFO 用：**推荐序号**（1 基，跨组连续，= 成片里第几次露脸）。
    *
    * ⚠️ 不用 `PocMedia.order`（那是 Java 侧按请求顺序编的**全局**序号，1..N）：
-   * 画面是按分组重排的，两者不同源 —— 全局号在第二组起就是 88…159，
-   * 重点回顾里更是 03/128/402 乱跳（用户 2026-09-26 报「数量排一会 500 一会几十」）。
-   * 现在按**组内**从 1 数；重点回顾按回顾顺序从 1 数。
+   * 画面是按分组重排的，两者不同源 —— 旧写法下底部进度条会显「88-95 / 226」这类看不懂的数
+   * （用户 2026-09-26：「下面数量展示应该根据推荐顺序从1往后加」）。
+   * 结尾回顾**不用**这个字段（`RECAP_LIST` 每行只报番剧名与集数，没有序号）。
    */
   numberFrom?: number;
+  /** 组名行里的「共 N 部」= **整组**（子组）部数，不是当前屏的部数（用户 2026-09-26）。 */
+  groupSize?: number;
+  /** 组标题行那枚第 1 档胶囊里的数字 = **整组**里第 1 档的部数（0 = 不挂胶囊）。 */
+  groupTopCount?: number;
   /** MEDIA_GRID 用：本屏的题头（如「本组核心」）；缺省用组名行。 */
   kicker?: string;
   fromFrame: number;
   durationInFrames: number;
 }
 
-/** 一组推荐媒体（分组维度由 Java 侧计算；排序与兼底在 scene-plan）。 */
+/** 一组推荐媒体（分组维度由 Java 侧计算；排序、二级切分与兜底在 scene-plan）。 */
 export interface GroupPlan {
-  /** 组名；无分组时为空串。 */
+  /** 组名（二级分组时形如 `2013 年 · 强推`）；无分组时为空串。 */
   name: string;
-  /** 组序（强调色轮转依据）；无分组 -1。 */
+  /** 组序（强调色轮转依据）；无分组 -1。**二级子组沿用一级组的下标**（同一年共用一个强调色）。 */
   index: number;
+  /** 一级组名（二级分组时 = 年份；未二级分组时与 `name` 相同）——章节页标题与整年取成员都用它。 */
+  parentName?: string;
+  /** 是否本一级组的**第一个**子组（章节页只在它前面插一页；未二级分组时恒为 true）。 */
+  firstOfParent?: boolean;
   media: PocMedia[];
 }
 

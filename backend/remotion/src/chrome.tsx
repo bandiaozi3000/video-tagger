@@ -1,7 +1,7 @@
 import React from 'react';
 import { AbsoluteFill, Img, interpolate, random, useCurrentFrame, useVideoConfig } from 'remotion';
 import { assetUrl } from './asset-url';
-import { bgmTimeline } from './bgm';
+import { bgmBadgeState, bgmSlotIndexAt, bgmTimeline } from './bgm';
 import { hasBackdrop, type RenderParams } from './params';
 import { bgFilter, type Theme } from './theme';
 import type { ScenePlan } from './types';
@@ -244,20 +244,17 @@ export function Trackbar({ label, theme, plan }: { label: string; theme: Theme; 
   );
 }
 
-/** BGM 条：真实曲名 + 真实时间轴进度（无播放/静音按钮——成片里点不到；预览的交互由 Player 提供）。 */
+/** BGM 条：真实曲名 + **曲子自身**的时间轴进度（无播放/静音按钮——成片里点不到；预览的交互由 Player 提供）。 */
 export function BgmBadge({ params, theme, plan }: { params: RenderParams; theme: Theme; plan: ScenePlan }) {
   const frame = useCurrentFrame();
   const { height, width } = useVideoConfig();
   const slots = bgmTimeline(params, plan);
   if (slots.length === 0) return null;
-  const index = Math.max(0, slots.findIndex((slot, i) => frame >= slot.fromFrame && (i === slots.length - 1 || frame < slots[i + 1].fromFrame)));
+  const index = bgmSlotIndexAt(frame, slots);
+  if (index < 0) return null;                                     // 静音段（窗口之间）→ 不显示音乐条
   const slot = slots[index];
-  const isLast = index === slots.length - 1;
-  const elapsed = frame - slot.fromFrame;
-  // 最后一首在片长内循环播放（与音频行为一致）：进度按循环取模，而不是停在 100%
-  const progress = isLast
-    ? Math.min(1, (elapsed % Math.max(1, slot.durationInFrames)) / Math.max(1, slot.durationInFrames))
-    : Math.min(1, Math.max(0, elapsed / Math.max(1, slot.durationInFrames)));
+  // 曲子自身的位置/进度（旧口径是窗口 + 绝对视频时间，见 `bgmBadgeState` 注释）
+  const state = bgmBadgeState(frame, slot, plan.fps);
   const mmss = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
   const barWidth = Math.round(width * 0.12);
   return (
@@ -287,11 +284,10 @@ export function BgmBadge({ params, theme, plan }: { params: RenderParams; theme:
       <span style={{ color: theme.colors.pink }}>♪</span>
       <span style={{ color: theme.colors.gold, letterSpacing: 1 }}>{slot.name}</span>
       <div style={{ width: barWidth, height: 3, borderRadius: 999, overflow: 'hidden', background: 'rgba(255,255,255,.12)' }}>
-        <span style={{ display: 'block', height: '100%', width: `${progress * 100}%`, background: `linear-gradient(90deg,${theme.colors.pink},${theme.colors.gold})` }} />
+        <span style={{ display: 'block', height: '100%', width: `${state.progress * 100}%`, background: `linear-gradient(90deg,${theme.colors.pink},${theme.colors.gold})` }} />
       </div>
       <span style={{ fontFamily: theme.font.mono, fontSize: Math.round(height * 0.017) }}>
-        {mmss(isLast && elapsed > slot.durationInFrames ? elapsed / plan.fps : (slot.fromFrame + progress * slot.durationInFrames) / plan.fps)} / {mmss(slot.durationInFrames / plan.fps)}
-        {isLast && elapsed > slot.durationInFrames ? ' ↻' : ''}
+        {mmss(state.positionSec)} / {mmss(state.totalSec)}{state.loops > 0 ? ' ↻' : ''}
       </span>
     </div>
   );

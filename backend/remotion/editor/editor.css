@@ -154,6 +154,15 @@ body:has(#view-recommend:not([hidden])) .site-footer { display: none; }
 .vt-field-control textarea,
 .vt-field-control select { width: 100%; }
 .vt-field textarea { min-height: 72px; resize: vertical; line-height: 1.6; }
+/* 简介：textarea 上方一排标记按钮 + 下方预算条（语法与预算口径见 src/rich-text.tsx） */
+.vt-rich-edit { width: 100%; display: flex; flex-direction: column; gap: 6px; }
+.vt-rich-bar { display: flex; flex-wrap: wrap; gap: 6px; }
+.vt-rich-bar .btn-mini { padding: 2px 10px; }
+.vt-rich-budget { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--text-faint); line-height: 1.5; }
+.vt-rich-budget .note { color: #ffb86b; }
+/* 会被裁切 = 错误态（只靠字号自动缩放到下限仍放不下），比“字变小”严重一级 */
+.vt-rich-budget.bad { color: #ff7b7b; }
+.vt-rich-budget.bad span:first-child { color: #ff7b7b; }
 .vt-field-control input[type="range"] { flex: 1 1 120px; accent-color: var(--pink); height: 18px; }
 .vt-field > .vt-hint { flex: 1 1 100%; margin-left: 102px; }
 /* 选中对象相关的字段加青色竖线（对象轴联动） */
@@ -194,10 +203,11 @@ body:has(#view-recommend:not([hidden])) .site-footer { display: none; }
 .vt-tab.on i { color: var(--pink); }
 
 .vt-filterbar { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-.vt-search-row { display: flex; align-items: center; gap: 8px; }
+/* 换行：搜索 + 筛选 + 按年份 + 排序 + 只看已勾选 一行塞不下（2026-09-26） */
+.vt-search-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .vt-search-input {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 130px;
+  min-width: 130px;
   height: 36px;
   padding: 0 10px;
   border-radius: 10px;
@@ -300,6 +310,16 @@ body:has(#view-recommend:not([hidden])) .site-footer { display: none; }
 }
 .vt-year-count { font-size: 11.5px; color: var(--text-faint); }
 .vt-group-btn.active { color: var(--pink); border-color: var(--pink); }
+/* 候选排序：与旁边 .btn-mini 同尺寸同质感（宿主全局 select 只给了暗色弹层与箭头） */
+.vt-sort-sel {
+  height: 36px;
+  padding: 0 30px 0 12px;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong);
+  background-color: rgba(255, 255, 255, .05);
+  color: var(--text-dim);
+  font-size: 12px;
+}
 .vt-media-card {
   position: relative;
   padding: 6px;
@@ -350,14 +370,17 @@ body:has(#view-recommend:not([hidden])) .site-footer { display: none; }
 
 .vt-drop-opening {
   padding: 12px;
-  border: 1px dashed rgba(255, 209, 102, .45);
+  /* 常态不再用虚线（用户 2026-09-27：以为是「划痕 / 一圈金虚线 ⇒ 整个名单看着被圈住」）。
+     它常驻显示，虚线边框会被误读成渲染瑕疵 → 常态给一条几乎看不见的暖色实线，
+     真正的拖放反馈放到 .over（拖到上面才亮金虚线）。 */
+  border: 1px solid rgba(255, 209, 102, .16);
   border-radius: 12px;
   font-size: 12px;
   color: #ffd166;
   text-align: center;
   transition: all .15s;
 }
-.vt-drop-opening.over { background: rgba(255, 209, 102, .16); border-color: rgba(255, 209, 102, .9); }
+.vt-drop-opening.over { background: rgba(255, 209, 102, .16); border: 1px dashed rgba(255, 209, 102, .9); }
 .vt-selected-obj { display: flex; flex-direction: column; gap: 15px; }
 .vt-clip-panel { display: flex; flex-direction: column; gap: 10px; }
 .vt-clip-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
@@ -816,6 +839,9 @@ body:has(#view-recommend:not([hidden])) .site-footer { display: none; }
   left: 50%;
   bottom: 28px;
   transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 9px 16px;
   border-radius: 999px;
   background: rgba(20, 18, 34, .96);
@@ -824,6 +850,19 @@ body:has(#view-recommend:not([hidden])) .site-footer { display: none; }
   z-index: 950;
   box-shadow: 0 12px 30px rgba(0, 0, 0, .45);
 }
+
+/* toast 里的动作按钮（如「重载候选库」）：与小圆角胶囊同色系，不抢眼但要看得见 */
+.vt-toast button {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(167, 139, 250, .5);
+  background: rgba(167, 139, 250, .16);
+  color: var(--text, #edeaf7);
+  font-size: 12px;
+  cursor: pointer;
+}
+.vt-toast button:hover { background: rgba(167, 139, 250, .3); }
 
 /* 右栏正在编辑的媒体：卡片左侧亮竖线（与 Inspector 的 hl 竖线同一语义） */
 .vt-media-card.picked { border-color: var(--cyan); box-shadow: 0 0 0 1px rgba(53, 214, 242, .35); }
@@ -985,32 +1024,26 @@ body:has(#view-recommend:not([hidden])) .site-footer { display: none; }
 
 /* ★ 重点（2026-09-26 A+C+D）：右下角的可反选开关 —— 标记后组内群像会带 ★ 角标，
    之后还会给它单独一幕资料卡，结尾汇总成「全片重点回顾」 */
-.vt-star-badge {
+/* 候选卡上的推荐等级胶囊（点一下切下一档；具体色由 JS 按名次给，见 src/tier.tsx） */
+.vt-tier-badge {
   position: absolute;
   right: 6px;
   bottom: 6px;
   z-index: 2;
   height: 20px;
-  padding: 0 7px;
+  padding: 0 8px;
   border-radius: 7px;
   border: 1px solid var(--border-strong);
   background: rgba(4, 4, 12, .78);
   color: var(--text-dim);
   font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .5px;
   font-family: inherit;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity .15s, color .15s, border-color .15s;
+  transition: filter .15s, border-color .15s;
 }
-.vt-media-card:hover .vt-star-badge { opacity: 1; }
-.vt-star-badge.has {
-  opacity: 1;
-  color: #241226;
-  background: linear-gradient(135deg, #ffd166, var(--pink));
-  border-color: rgba(255, 255, 255, .35);
-  font-weight: 800;
-  box-shadow: 0 4px 14px rgba(255, 77, 141, .35);
-}
+.vt-tier-badge:hover { filter: brightness(1.12); border-color: rgba(255,255,255,.35); }
 
 /* 推荐顺序行里的 🎬：已加入开场秀就置灰（移出请在开场秀名单里点 ✕） */
 .vt-selected-btns .btn-mini:disabled { opacity: .35; cursor: default; }
@@ -1136,6 +1169,8 @@ body:has(#view-recommend:not([hidden])) .site-footer { display: none; }
 
 /* 导出任务：中断/取消态（2026-09-21 持久化之后新增的两个终态） */
 .vt-task-interrupted { color: #ffd166; }
+/* 排队 / 收尾当前块（2026-09-27）：以前 PENDING 与「暂停但线程还在渲当前块」在 UI 上完全看不出谁占着渲染线程 */
+.vt-task-queued { color: #9aa0b4; }
 .vt-task-cancelled { color: #9aa0b4; }
 .vt-task-btns .btn-mini:disabled { opacity: 0.45; cursor: not-allowed; }
 

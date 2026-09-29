@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PARAMS, resolveParams, resolveStyle, resolveTheme, speedToFrames } from '../src/params';
+import { DEFAULT_PARAMS, MAX_SEGMENT_SEC, resolveParams, resolveStyle, resolveTheme, speedToFrames } from '../src/params';
 
 describe('resolveParams', () => {
   it('缺省时与 Java 默认值一致', () => {
@@ -18,10 +18,14 @@ describe('resolveParams', () => {
     const p = resolveParams({ coverSize: 999, bgmScale: 10, durations: { opening: 99, intro: 0, detail: 1, group: 0, ending: 99 } as never });
     expect(p.coverSize).toBe(100);
     expect(p.bgmScale).toBe(50);
-    expect(p.durations.opening).toBe(20);
+    // 显示时长**只留下限、上不封顶**（2026-09-26 用户：「无限制可自由发挥」）→ 只有手滑兑底 600s
+    expect(p.durations.opening).toBe(99);
     expect(p.durations.intro).toBe(1);
     expect(p.durations.detail).toBe(3);
-    expect(p.durations.ending).toBe(10);
+    expect(p.durations.ending).toBe(99);
+    const big = resolveParams({ durations: { opening: 99999, ending: 99999 } as never });
+    expect(big.durations.opening).toBe(MAX_SEGMENT_SEC);
+    expect(big.durations.ending).toBe(MAX_SEGMENT_SEC);
   });
 
   it('文案回退到输入顶层字段', () => {

@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { api, type CandidateFilter, type ClipBrief, type EditorConfig, type MediaBrief, type MediaClips, type MediaExportRow, type MediaFormatBrief } from './api';
+import { api, type CandidateFilter, type ClipBrief, type EditorConfig, type MediaBrief, type MediaClips, type MediaExportRow, type MediaFormatBrief, type MediaMark } from './api';
 import { confirmDialog } from './confirm';
 import { buildListText, DEFAULT_TOGGLES, prepareRows, type ExportToggles } from './export-list';
 
@@ -13,10 +13,38 @@ import { buildListText, DEFAULT_TOGGLES, prepareRows, type ExportToggles } from 
 type BooleanToggleKey = { [K in keyof ExportToggles]: ExportToggles[K] extends boolean ? K : never }[keyof ExportToggles];
 import { attachWithSource, dropAllMissing, withoutClip } from './clip-refs';
 import { endingPlayback, endingRowsPerPage, LIST_MAX } from '../src/cinema/ending';
+import {
+  estimateIntroHeight, fitIntroSize, INTRO_LAYOUT, parseRichText, plainLength, RichInline, TONE_LABEL, TONES, toggleLinePrefix, wrapInline,
+  type MarkupKind,
+} from '../src/rich-text';
+import { RECOMMEND_TIERS, cycleTier, tierLook, toggleTier } from '../src/tier';
+import { resolveParams, resolveTheme } from '../src/params';
 import { defaultFilter, fileToBase64, fileToDataUri, loadGroupOpen, parsePayload, rollSeed, saveGroupOpen } from './state';
 import { THEME_PRESETS } from '../src/theme';
 
 type Patch = (patch: Partial<EditorConfig>) => void;
+
+/**
+ * 每部媒体的推荐标注（等级 + 理由）读写。**等级名单写死在 `src/tier.tsx`，不做配置**。
+ * 稀疏存：没有等级也没理由 → 就把这条键删掉，老草稿里不存在这个字段也能跑。
+ */
+function markOf(config: EditorConfig, mediaId: number): MediaMark {
+  return config.mediaMarks?.[String(mediaId)] ?? {};
+}
+
+function patchMark(config: EditorConfig, patch: Patch, mediaId: number, next: Partial<MediaMark>): void {
+  const key = String(mediaId);
+  const merged: MediaMark = { ...markOf(config, mediaId), ...next };
+  const marks = { ...config.mediaMarks };
+  if (merged.tier === undefined && !merged.reason?.trim()) delete marks[key];
+  else marks[key] = merged;
+  patch({ mediaMarks: marks });
+}
+
+/** 等级名次 → 展示名/胶囊色（与渲染侧**同一份** `tierLook`，不另写一套）。 */
+function tierLookOf(tier: number | undefined) {
+  return tierLook(tier, [...RECOMMEND_TIERS]);
+}
 
 const cls = (...names: (string | false | undefined)[]) => names.filter(Boolean).join(' ');
 
@@ -289,6 +317,13 @@ export function Toolbar({ config, patch, onExport, onExportAll, variantCount, on
     </header>
   );
 }
+
+/** 三种语义色的按钮提示（给用户讲清"什么时候用哪个"，而不是让他猜颜色）。 */
+const TONE_TITLE: Record<(typeof TONES)[number], string> = {
+  accent: '重点：用 == == 包住（金色，放片名/数字/结论）',
+  warn: '提醒：用 !! !! 包住（红色，放叠甲/避雷/注意）',
+  info: '信息：用 ++ ++ 包住（青色，放来源/补充说明）',
+};
 
 /** 参数搜索索引：只指向**稳定标题**的组（对象组随选中变，不列）。 */
 const PARAM_INDEX: { label: string; group: string }[] = [
@@ -1079,7 +1114,7 @@ function ExportListDialog({ config, filter, onClose }: {
               <option value="none">不排序</option>
             </select>
           </label>
-          {toggles.groupByYear && toggles.sortBy !== 'none' ? <span className="vt-hint">（分组时排序不生效）</span> : null}
+          {toggles.groupByYear && toggles.sortBy !== 'none' ? <span className="vt-hint">（分组时排序作用于组顺序）</span> : null}
           {deduped ? <span className="vt-hint">去重后 {shown} 部（原 {rows.length} 部）</span> : null}
         </div>
         {error ? <p className="vt-export-error">取数失败：{error}</p> : null}
@@ -1096,9 +1131,11 @@ function ExportListDialog({ config, filter, onClose }: {
   );
 }
 
-export function BasketPane({ config, patch, filter, onFilter, onSelect, highlightMediaId, mediaBriefs }: {
+export function BasketPane({ config, patch, filter, onFilter, onSelect, highlightMediaId, mediaBriefs, notify }: {
   config: EditorConfig;
   patch: Patch;
+  /** 宿主 toast（候选项翻页撞上重复条目时报警 + 给一个重载按钮，不再静默少几部）。 */
+  notify: (message: string, action?: { label: string; run: () => void }) => void;
   /** 候选筛选（提升到编辑器层：可随模板保存、套用时重算候选）。 */
   filter: CandidateFilter;
   onFilter: (filter: CandidateFilter) => void;
@@ -1126,15 +1163,28 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   const bulkBtn = React.useRef<HTMLButtonElement>(null);
   const [clipMedia, setClipMedia] = React.useState<MediaBrief | null>(null);
   const [loading, setLoading] = React.useState(false);
+  /** 列表镜像：翻页 effect 只依赖 `query`，读 `list` 会拿到过期闭包，所以用 ref 取"当前已加载"。 */
+  const listRef = React.useRef<MediaBrief[]>([]);
+  listRef.current = list;
   const [tab, setTab] = React.useState<'candidates' | 'selected'>('candidates');
   /** 候选按首播年份分组（用户 2026-09-26 要求）。默认关 —— 不开时保持原来的 id 倒序。 */
   const [groupByYear, setGroupByYear] = React.useState(false);
+  /** 候选排序（用户 2026-09-26）：默认 id 倒序；年份可在**不分组**时单独排。 */
+  const [sortOrder, setSortOrder] = React.useState<'default' | 'year-desc' | 'year-asc'>('default');
+  /** 只看已勾选（用户 2026-09-26）：候选收窄到 config.ids，其它筛选维度照常 AND。 */
+  const [onlySelected, setOnlySelected] = React.useState(false);
   const pageSize = 30;
+  /** 只看已选时按 ids 取数：**一次取满**（已选是手挑的小集合，分页只会剩个永远点不完的按钮）。 */
+  const onlyIds = onlySelected ? config.ids : null;
 
   // filter 是对象：用序列化签名做依赖，直接依赖引用会无限重取。
-  // 分组开关也并进签名：切分组 = 换一次请求序列（回第 1 页 + 换排序），
-  // 复用已有的「页码与签名绑成原子状态」机制，不另写一套重置逻辑。
-  const filterKey = JSON.stringify({ ...filter, __groupByYear: groupByYear });
+  // 分组 / 只看已选 / 排序也并进签名：切一下 = 换一次请求序列（回第 1 页 + 换排序），
+  // 复用已有的「页码与签名绑成原子状态」机制，不另写一套重置逻辑。只看已选时把 ids 也算进去 ——
+  // 否则取消勾选的卡片不会当场消失。
+  const filterKey = JSON.stringify({
+    ...filter, __groupByYear: groupByYear, __onlySelected: onlySelected, __sort: sortOrder,
+    __ids: onlySelected ? config.ids.join(',') : '',
+  });
   const idsKey = config.ids.join(',');
   const activeKeys = FILTER_DIMS.map((d) => d.key).filter((key) => isDimActive(filter, key));
   const subOptions = React.useMemo(() => flattenSubcategories(formats), [formats]);
@@ -1181,16 +1231,54 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
     let cancelled = false;
     setLoading(true);
     const at = query.page;
-    Promise.all([
-      // 分组时按年份降序取（否则年份交错，分组无意义）；不分组保持默认（id 倒序）
-      api.media({ limit: pageSize, offset: (at - 1) * pageSize, filter, sort: groupByYear ? 'year' : undefined, order: 'desc' }),
-      api.mediaCount(filter),
-    ])
-      .then(([items, count]) => {
-        if (cancelled) return;
-        setTotal(count);
-        setList((current) => (at === 1 ? items : [...current, ...items.filter((item) => !current.some((seen) => seen.id === item.id))]));
-      })
+    /**
+     * 取一页并拼上；`retried` = 本 offset 已重取过一次。
+     *
+     * 为什么非要校验：拼列表只能靠"页"对齐（offset = (at-1)*pageSize）。一旦某一页返回的
+     * 行与前面重了/少了（后端排序并列抖动、集合在会话中被改写、或某页请求失败而页码照样前进），
+     * 旧写法是**静默按 id 去重丢掉**，于是列表永远少几部、年份段错位，只有整页重载才能恢复
+     * （用户 2026-09-26 报「候选某年只显示 5 部，与收藏夹数量不符，强刷就好」）。
+     * 现在同一 offset 重取一次；再撞上就明确报出来，别让人以为库里就这么多。
+     */
+    const load = async (retried: boolean): Promise<void> => {
+      // 排序唯一出口：分组必须按年份排（否则年份交错、分段无意义）；不分组时由排序选项决定。
+      const sort = groupByYear || sortOrder !== 'default' ? 'year' : undefined;
+      const order = sortOrder === 'year-asc' ? 'asc' : 'desc';
+      // 已选被清空（还在「只看已选」里）：直接空列表。留意后端 `Math.max(limit,1)` 会把 limit=0 抬成 1，
+      // 靠 limit 取空是取不到的。
+      if (onlyIds && onlyIds.length === 0) { setList([]); setTotal(0); return; }
+      const [items, count] = await Promise.all([
+        api.media({
+          limit: onlyIds ? onlyIds.length : pageSize,
+          offset: onlyIds ? 0 : (at - 1) * pageSize,
+          // 没选排序时干脆不带 order：后端缺省就是 id 倒序（也免得多一个无意义的 query 参数）
+          filter, sort, order: sort ? order : undefined, ids: onlyIds ?? undefined,
+        }),
+        onlyIds ? Promise.resolve(0) : api.mediaCount(filter),
+      ]);
+      if (cancelled) return;
+      // 只看已选：命中数 = 实际条数（被后端筛掉的已删媒体不会让「加载更多」永远点不完）
+      setTotal(onlyIds ? items.length : count);
+      // 末页天然不足 30 条：只有"拿满页却有重复"才算异常。
+      // 重复分两种，都要当场看出来：① 与已加载的撞（后端翻页重叠/集合被改写）② 页内自己撞；
+      // 两者都不该被静默吞掉，也都不该把同一张卡插两遍。
+      const known = new Set(listRef.current.map((seen) => seen.id));
+      const fresh = items.filter((item) => (known.has(item.id) ? false : (known.add(item.id), true)));
+      const duplicated = at > 1 && fresh.length < items.length;
+      if (duplicated && !retried) {
+        await load(true);
+        return;
+      }
+      if (duplicated) {
+        notify('候选加载出现重复条目，已重试仍未对齐', {
+          label: '重载候选库',
+          // 清空后回第 1 页：整条请求序列重来（当前 seq 不变，所以不用碰 filterKey）
+          run: () => { setList([]); setQuery((current) => ({ ...current, page: 1 })); },
+        });
+      }
+      setList((current) => (at === 1 ? items : [...current, ...fresh]));
+    };
+    load(false)
       .catch(() => undefined)
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
@@ -1228,21 +1316,19 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
                   onClick={(event) => { event.stopPropagation(); patch({ openingIds: [...config.openingIds, item.id] }); }}>
             {config.openingIds.includes(item.id) ? '🎬 开场秀 ✓' : '🎬 开场秀'}
           </button>
-          {/* ★ 重点（2026-09-26 A+C+D）：**可反选**的手动开关；组内数量不设上限 */}
+          {/* 推荐等级：点一下**循环**下一档：未标 → 强推 → 推荐 → 值得一看 → 一般 → 未标（可取消，用户 2026-09-26 报「只能勾选不能取消」）；细节仍可在右侧「当前媒体」改 */}
           <button type="button"
-                  className={cls('vt-star-badge', config.featuredIds.includes(item.id) && 'has')}
-                  title={config.featuredIds.includes(item.id)
-                    ? '已标为重点 ★（再点取消）—— 本组群像后会给它单独一幕资料卡，结尾还会汇总成「全片重点回顾」'
-                    : '标为重点 ★（本组群像后单独一幕资料卡 + 结尾重点回顾）'}
+                  className={cls('vt-tier-badge', tierLookOf(markOf(config, item.id).tier).decorated && 'has')}
+                  style={{ background: tierLookOf(markOf(config, item.id).tier).badgeBackground, color: tierLookOf(markOf(config, item.id).tier).badgeText,
+                           opacity: tierLookOf(markOf(config, item.id).tier).decorated ? 1 : 0.55 }}
+                  title={`推荐等级：${markOf(config, item.id).tier === undefined ? '未标' : tierLookOf(markOf(config, item.id).tier).name}（点击循环：未标 → 强推 → 推荐 → 值得一看 → 一般 → 未标）`}
                   onClick={(event) => {
                     event.stopPropagation();
-                    patch({
-                      featuredIds: config.featuredIds.includes(item.id)
-                        ? config.featuredIds.filter((id) => id !== item.id)
-                        : [...config.featuredIds, item.id],
-                    });
+                    const current = markOf(config, item.id).tier;
+                    // 循环里**包含 undefined**（取消），所以最后一档再点一下就回到未标
+                    patchMark(config, patch, item.id, { tier: cycleTier(current) });
                   }}>
-            {config.featuredIds.includes(item.id) ? '★ 重点 ✓' : '★ 重点'}
+            {markOf(config, item.id).tier === undefined ? '未标' : tierLookOf(markOf(config, item.id).tier).name}
           </button>
         </div>
         <div className="vt-media-title" title={item.title}>{item.title}</div>
@@ -1280,6 +1366,21 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
 
   const selected = React.useMemo(() => new Set(config.ids), [config.ids]);
   const [dropZone, setDropZone] = React.useState<'list' | 'opening' | null>(null);
+
+  /**
+   * 拖拽结束兜底（2026-09-27）：`dragover` 把 `.over`（虚线高亮）点亮后，
+   * 只要**松手位置不在那两个容器上**（拖到别的面板 / 窗口外 / 拖拽被取消），
+   * `dragleave` 就不会来 → 虚线框残留不走。收尾交给全局 `dragend` / `drop`。
+   */
+  React.useEffect(() => {
+    const clear = () => setDropZone(null);
+    window.addEventListener('dragend', clear);
+    window.addEventListener('drop', clear);
+    return () => {
+      window.removeEventListener('dragend', clear);
+      window.removeEventListener('drop', clear);
+    };
+  }, []);
 
   /** 拖拽载荷：被拖的媒体 id（HTML5 DnD 在编辑器内部只传 id，不需要序列化对象）。 */
   const draggedId = React.useRef<number | null>(null);
@@ -1366,7 +1467,8 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
       <div className="vt-colhead">
         <h3>候选库</h3>
         <span className="vt-colhead-meta">
-          {loading && list.length === 0 ? '…' : `${total} 部`}
+          {/* 未加载完时把"已加载"一并写出来：只印 total 会被误读成"这一年只有这么多" */}
+          {loading && list.length === 0 ? '…' : hasMore ? `已加载 ${list.length} / ${total} 部` : `${total} 部`}
           {activeKeys.length > 0 ? ` · 筛选中 ${activeKeys.length}` : ''}
         </span>
         <span className="sp" />
@@ -1427,8 +1529,20 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
                   ＋ 筛选{activeKeys.length > 0 ? <i>{activeKeys.length}</i> : null}
                 </button>
                 <button type="button" className={cls('btn-mini', 'vt-group-btn', groupByYear && 'active')}
-                        title={groupByYear ? '取消按年份分组（恢复默认排序）' : '按首播年份分组（分组时按年份从新到旧排序）'}
+                        title={groupByYear ? '取消按年份分组' : '按首播年份分组（组内顺序跟排序选项）'}
                         onClick={() => setGroupByYear((value) => !value)}>📅 按年份</button>
+                <select className="vt-sort-sel" value={sortOrder} title="候选排序"
+                        onChange={(event) => setSortOrder(event.target.value as typeof sortOrder)}>
+                  <option value="default">默认排序</option>
+                  <option value="year-desc">年份 ↓ 新→旧</option>
+                  <option value="year-asc">年份 ↑ 旧→新</option>
+                </select>
+                <button type="button" className={cls('btn-mini', 'vt-group-btn', onlySelected && 'active')}
+                        disabled={config.ids.length === 0}
+                        title={onlySelected
+                          ? '显示全部候选'
+                          : `只看已勾选的 ${config.ids.length} 部（其它筛选条件照常生效）`}
+                        onClick={() => setOnlySelected((value) => !value)}>✓ 已勾选</button>
               </div>
 
               {activeKeys.length > 0 ? (
@@ -1466,18 +1580,25 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
 
             <div className="vt-media-grid">
         {groupByYear
-          ? yearRuns(list).map((run, runIndex, all) => (
-              <React.Fragment key={run.year ?? 'unknown'}>
-                <div className="vt-year-head">
-                  <span className="vt-year-num">{run.year ?? '未知年份'}</span>
-                  {/* 最后一段可能在无限滚动中还没取完 → 标"已加载"，避免当成该年总数 */}
-                  <span className="vt-year-count">
-                    {hasMore && runIndex === all.length - 1 ? `已加载 ${run.items.length} 部` : `${run.items.length} 部`}
-                  </span>
-                </div>
-                {run.items.map(renderCard)}
-              </React.Fragment>
-            ))
+          /*
+           * 年份段与卡片**平铺成同一层**（不再包 Fragment）：
+           * 包一层 Fragment 时，从「分组 31 段」切回「平铺 196 张」会留下幽灵节点
+           * （实测：state 里 list=196，grid 里却是 206 张卡 + 6 个旧年份段，DOM 永远对不上 state，
+           * 排序切换后读到的还是旧那张表）—— 平铺后每个子节点都是显式 key 的兄弟节点，
+           * 年份段用 `y<年份>` 前缀避开媒体 id（本库真有 1887/2002/2018/2061 这类 id）。
+           */
+          ? yearRuns(list).flatMap((run, runIndex, all) => [
+              /* key 带 runIndex：列表**还没换成年份序**的瞬态里，同一年会拆出多个连续段（id 序下年份是散开的），
+                 只拿年份当 key 就是重复 key → React 又会把上一个瞬态的年份段残留下来（实测 45 个段）。 */
+              <div className="vt-year-head" key={`y${run.year ?? 'none'}#${runIndex}`}>
+                <span className="vt-year-num">{run.year ?? '未知年份'}</span>
+                {/* 最后一段可能在无限滚动中还没取完 → 标"已加载"，避免当成该年总数 */}
+                <span className="vt-year-count">
+                  {hasMore && runIndex === all.length - 1 ? `已加载 ${run.items.length} 部` : `${run.items.length} 部`}
+                </span>
+              </div>,
+              ...run.items.map(renderCard),
+            ])
           : list.map(renderCard)}
       </div>
             {!loading && list.length === 0 ? (
@@ -1648,6 +1769,57 @@ export function InspectorPane({ config, patch, mediaBriefs, missing, selection, 
   const bgmInput = React.useRef<HTMLInputElement>(null);
   const stingInput = React.useRef<HTMLInputElement>(null);
   const bgInput = React.useRef<HTMLInputElement>(null);
+  /** 简介的富文本插入（工具栏按钮）：需要拿到 textarea 的选区才能"包住选中的字"。 */
+  const introInput = React.useRef<HTMLTextAreaElement>(null);
+  const restoreCaret = (start: number, end: number) => {
+    // 受控 textarea 的值要等 React 重渲后才新 → 下一帧回填选区（无选区时选中占位文字，直接打字就替换）
+    window.requestAnimationFrame(() => {
+      const el = introInput.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(start, end);
+    });
+  };
+  const insertMarkup = (kind: MarkupKind) => {
+    const box = introInput.current;
+    const start = box ? box.selectionStart : config.intro.length;
+    const end = box ? box.selectionEnd : config.intro.length;
+    const next = wrapInline(config.intro, start, end, kind);
+    patch({ intro: next.value });
+    restoreCaret(next.start, next.end);
+  };
+  /** 块级标记（`## ` / `- `）加在**当前行行首**，再点一次摘掉。 */
+  const toggleMarkupLine = (prefix: string) => {
+    const box = introInput.current;
+    const caret = box ? box.selectionStart : config.intro.length;
+    const next = toggleLinePrefix(config.intro, caret, prefix);
+    patch({ intro: next.value });
+    restoreCaret(next.start, next.start);
+  };
+  /**
+   * 序言屏预算：与渲染侧**同一份常量/同一个估行器**（`src/rich-text.tsx`）——
+   * 否则"约 N 行"会骗人。行数超限 = 渲染侧会收字号；连下限都放不下 = 会被裁。
+   */
+  const introBudget = React.useMemo(() => {
+    if (rendered === null) return null;
+    const theme = resolveTheme(rendered.input);
+    // 画幅从 params 解析（编辑器手里的 rendered 只有 input，没有 plan）
+    const frame = resolveParams(rendered.input.params, rendered.input);
+    const blocks = parseRichText(config.intro);
+    const base = Math.round(frame.height * theme.layout.bodyRatio * 1.15);
+    const maxWidth = Math.round(frame.width * INTRO_LAYOUT.maxWidthRatio);
+    const budget = Math.round(frame.height * INTRO_LAYOUT.maxHeightRatio);
+    const fitted = fitIntroSize(blocks, base, maxWidth, budget);
+    return {
+      chars: plainLength(config.intro),
+      blocks: blocks.length,
+      scale: base === 0 ? 100 : Math.round((fitted / base) * 100),
+      lines: base === 0 ? 0 : estimateIntroHeight(blocks, fitted, maxWidth) / (fitted * INTRO_LAYOUT.lineHeight),
+      maxLines: fitted === 0 ? 0 : budget / (fitted * INTRO_LAYOUT.lineHeight),
+      clipped: estimateIntroHeight(blocks, fitted, maxWidth) > budget + 1,
+      readable: config.introSec * 5,
+    };
+  }, [config.intro, config.introSec, rendered]);
   /**
    * 分组开关：默认只开「当前对象」那组（和「素材缺失」）；用户点过的开关**记在本机**（localStorage），
    * 切对象/切 tab/刷新后保持 —— 但不进草稿与模板（那是内容，不是视图偏好）。
@@ -1804,6 +1976,25 @@ export function InspectorPane({ config, patch, mediaBriefs, missing, selection, 
              open={groupOpen('object')} onToggle={toggleGroup} forceOpen={focusGroup}>
         {selectedMedia ? (
           <div className="vt-selected-obj">
+            <Field label="推荐等级" hl hint="再点一次同一档 = 取消（未标等级）；不标的垫在组最后、也不进结尾回顾">
+              <span className="vt-inline-group">
+                {RECOMMEND_TIERS.map((name, rank) => {
+                  const on = markOf(config, selectedMedia.mediaId).tier === rank;
+                  return (
+                    <button key={name} type="button" className={cls('btn-mini', on && 'active')}
+                            title={on ? '再点一次取消这一档' : undefined}
+                            style={on ? { background: tierLookOf(rank).badgeBackground, color: tierLookOf(rank).badgeText, borderColor: 'transparent' } : undefined}
+                            onClick={() => patchMark(config, patch, selectedMedia.mediaId,
+                                                    { tier: toggleTier(markOf(config, selectedMedia.mediaId).tier, rank) })}>{name}</button>
+                  );
+                })}
+              </span>
+            </Field>
+            <Field label="推荐理由" hint="一句话（≤30 字）；网格卡最多两行，超出自动省略号">
+              <input value={markOf(config, selectedMedia.mediaId).reason ?? ''} maxLength={30}
+                     placeholder="例：年度最佳，情绪压满"
+                     onChange={(event) => patchMark(config, patch, selectedMedia.mediaId, { reason: event.target.value })} />
+            </Field>
             <Field label="片内顺序（选中对象）" hl>
               <span className="vt-inline">
                 #{selectedMedia.order}
@@ -1837,8 +2028,30 @@ export function InspectorPane({ config, patch, mediaBriefs, missing, selection, 
                onChange={(event) => patch({ brandTitle: event.target.value })} /></Field>
         <Field label="副标题"><input value={config.subtitle} maxLength={40}
                onChange={(event) => patch({ subtitle: event.target.value })} /></Field>
-        <Field label="简介" hint="填写后出现序言页">
-          <textarea rows={3} value={config.intro} onChange={(event) => patch({ intro: event.target.value })} />
+        <Field label="简介" hint={`填写后出现序言页${rendered?.input.style === 'cinema' ? '（银幕式只有一行位，只显示第一块）' : ''}。行首：## 小标题 / - 条目；行内：**加粗**、==重点==、!!提醒!!、++信息++`}>
+          <div className="vt-rich-edit">
+            <div className="vt-rich-bar">
+              <button type="button" className="btn-mini" title="行首加 `## `（小标题）／再点取消" onClick={() => toggleMarkupLine('## ')}>小标题</button>
+              <button type="button" className="btn-mini" title="行首加 `- `（条目）／再点取消" onClick={() => toggleMarkupLine('- ')}>条目</button>
+              <button type="button" className="btn-mini" title="用 ** ** 包住选中的字（没选中就插占位文字）" onClick={() => insertMarkup('bold')}>加粗</button>
+              {TONES.map((tone) => (
+                <button key={tone} type="button" className="btn-mini" title={TONE_TITLE[tone]}
+                        onClick={() => insertMarkup(tone)}>{TONE_LABEL[tone]}</button>
+              ))}
+            </div>
+            <textarea ref={introInput} rows={3} value={config.intro}
+                      onChange={(event) => patch({ intro: event.target.value })} />
+            {introBudget ? (
+              <div className={cls('vt-rich-budget', introBudget.clipped && 'bad')}>
+                <span>{introBudget.chars} 字 · {introBudget.blocks} 块 · 约 {Math.round(introBudget.lines)} 行 / 上限 {Math.floor(introBudget.maxLines)} 行</span>
+                <span>* 字号 {introBudget.scale}%{introBudget.scale < 100 ? '（内容偏多，成片会自动缩小）' : ''}</span>
+                {introBudget.clipped ? <span>内容过长，成片会被裁切 —— 删减到约 {Math.round(introBudget.readable)} 字内</span> : null}
+                {!introBudget.clipped && introBudget.chars > introBudget.readable
+                  ? <span className="note">序言 {config.introSec} 秒 ≈ 易读 {introBudget.readable} 字，现在偏多（观众可能来不及读）</span>
+                  : null}
+              </div>
+            ) : null}
+          </div>
         </Field>
         <Field label="序言标题"><input value={config.prologueTitle} maxLength={40}
                onChange={(event) => patch({ prologueTitle: event.target.value })} /></Field>
@@ -1856,6 +2069,14 @@ export function InspectorPane({ config, patch, mediaBriefs, missing, selection, 
             <option value="subcategory">按分类</option>
             <option value="collection">按收藏夹</option>
           </select>
+        </Field>
+        <Field label="按推荐等级再分组">
+          <label className="vt-inline">
+            <input type="checkbox" checked={config.tierGroup}
+                   onChange={(event) => patch({ tierGroup: event.target.checked })} />
+            同一分组内按 强推 → 推荐 → 值得一看 → 一般 依次成群（未标等级的垫最后）
+          </label>
+          <span className="vt-hint">前一级选了「不分组」也生效（等于全片按等级分组）；这一年里一个等级都没标时不切，结构保持原样；关掉就退回旧结构（结尾也只回顾第 1 档）</span>
         </Field>
         <Field label="分组排序">
           <select value={config.groupSort} onChange={(event) => patch({ groupSort: event.target.value })}>
@@ -1875,13 +2096,14 @@ export function InspectorPane({ config, patch, mediaBriefs, missing, selection, 
       </Group>
 
       <Group id="timing" kicker="Timing" title="时长与显示" open={groupOpen('timing')} onToggle={toggleGroup} forceOpen={focusGroup}>
-        <Field label="显示时长（秒）" hint="开场 / 序言 / 章节 / 资料卡 / 片名卡 / 结尾">
+        <Field label="显示时长（秒）" hint="开场 / 序言 / 章节 / 资料卡 / 片名卡 / 结尾（上不封顶，可自由发挥；下限保留是为了别出空段）">
           <span className="vt-durations">
-            {([['openingSec', '开场', 2, 20], ['introSec', '序言', 1, 10], ['groupSec', '章节', 1, 10], ['detailSec', '资料', 3, 15], ['titleSec', '片名卡', 1, 5], ['endingSec', '结尾', 1, 10]] as const)
-              .map(([key, label, min, max]) => (
+            {/* 2026-09-26 用户：「显示时长无限制可自由发挥」→ 去掉 HTML `max`（旧上限：20/10/10/15/10/5 秒） */}
+            {([['openingSec', '开场', 2], ['introSec', '序言', 1], ['groupSec', '章节', 1], ['detailSec', '资料', 3], ['titleSec', '片名卡', 1], ['endingSec', '结尾', 1]] as const)
+              .map(([key, label, min]) => (
                 <label key={key} className="vt-duration">
                   <span>{label}</span>
-                  <input type="number" min={min} max={max} value={config[key]}
+                  <input type="number" min={min} value={config[key]}
                          onChange={(event) => patch({ [key]: Number(event.target.value) } as Partial<EditorConfig>)} />
                 </label>
               ))}

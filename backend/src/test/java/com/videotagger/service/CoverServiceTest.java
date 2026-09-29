@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -98,7 +99,8 @@ class CoverServiceTest {
             String first = coverService.ensureExternalCover(7130L, url);
             String second = coverService.ensureExternalCover(7130L, url);
 
-            assertEquals("/covers/ext/7130.jpg", first);
+            // 文件名带来源 URL 哈希（URL 变 → 换新文件，见下一个用例）
+            assertTrue(first.startsWith("/covers/ext/7130-") && first.endsWith(".jpg"), first);
             assertEquals(first, second, "第二次必须直接命中缓存");
             assertEquals(1, hits.get(), "缓存命中后不得再联网");
             // 缓存出来的封面必须能被 embed 路径读成 data URI（成片渲染靠这条）
@@ -110,13 +112,69 @@ class CoverServiceTest {
         }
     }
 
+    /**
+     * 用户 2026-09-26 报的 bug：库里换了封面（`external_work.cover_url` 变了），视频里那张**一直没变** ——
+     * 因为老实现文件名叫 `{mediaId}.{ext}`，命中就 return，来源 URL 换了也不知道。
+     * 这里把两件事一起锁住：新 URL 不吃旧缓存；换 URL 后旧文件被清掉（不残留多份）。
+     */
+    @Test
+    void ensureExternalCoverFollowsChangedSourceUrl() throws IOException {
+        byte[] oldBody = "old-cover".getBytes(StandardCharsets.UTF_8);
+        byte[] newBody = "brand-new-cover".getBytes(StandardCharsets.UTF_8);
+        java.util.concurrent.atomic.AtomicInteger hits = new java.util.concurrent.atomic.AtomicInteger();
+        // 同一个本地假 Bangumi，路径不同 = 不同 URL（命中缓存就不该再联网）
+        byte[] served = oldBody;
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            hits.incrementAndGet();
+            byte[] body = exchange.getRequestURI().getPath().contains("new") ? newBody : oldBody;
+            exchange.getResponseHeaders().add("Content-Type", "image/jpeg");
+            exchange.sendResponseHeaders(200, body.length);
+            try (var out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        server.start();
+        try {
+            int port = server.getAddress().getPort();
+            String oldUrl = "http://127.0.0.1:" + port + "/old.jpg";
+            String newUrl = "http://127.0.0.1:" + port + "/new.jpg";
+            // 先造一个老命名的缓存（模拟线上已经存在的 `covers/ext/{id}.jpg`）
+            Files.createDirectories(tmp.resolve("ext"));
+            Files.write(tmp.resolve("ext/7131.jpg"), "stale-legacy".getBytes(StandardCharsets.UTF_8));
+
+            String before = coverService.ensureExternalCover(7131L, oldUrl);
+            String after = coverService.ensureExternalCover(7131L, newUrl);
+
+            assertTrue(after.startsWith("/covers/ext/7131-"), after);
+            assertNotEquals(before, after, "来源 URL 变了就必须换文件（不吃旧缓存）");
+            assertEquals(newBody.length, (int) Files.size(tmp.resolve("ext/" + after.substring("/covers/ext/".length()))),
+                    "新封面必须是新图，不是旧字节");
+            assertEquals(2, hits.get(), "两个不同 URL 各下一张（第二次是换 URL，不是重复下载）");
+            org.junit.jupiter.api.Assertions.assertFalse(Files.exists(tmp.resolve("ext/7131.jpg")), "老命名残留要被清掉");
+            assertEquals(1, Files.list(tmp.resolve("ext")).filter(p -> p.getFileName().toString().startsWith("7131")).count(),
+                    "同一媒体只留一份外部封面缓存");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void externalCoverKeyIsStablePerUrl() {
+        String a = CoverService.externalCoverKey(7L, "http://x/1.jpg");
+        assertEquals(a, CoverService.externalCoverKey(7L, "http://x/1.jpg"));
+        assertNotEquals(a, CoverService.externalCoverKey(7L, "http://x/2.jpg"));
+        assertTrue(a.startsWith("7-"));
+    }
+
     @Test
     void ensureExternalCoverUsesExtensionFromContentType() throws IOException {
         com.sun.net.httpserver.HttpServer server = coverServer(new java.util.concurrent.atomic.AtomicInteger(), 200, "image/png", new byte[] {1, 2, 3});
         try {
             String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/x";
-            assertEquals("/covers/ext/42.png", coverService.ensureExternalCover(42L, url));
-            assertTrue(coverService.base64ForCoverPath("/covers/ext/42.png").startsWith("data:image/png;base64,"));
+            String path = coverService.ensureExternalCover(42L, url);
+            assertTrue(path.startsWith("/covers/ext/42-") && path.endsWith(".png"), path);
+            assertTrue(coverService.base64ForCoverPath(path).startsWith("data:image/png;base64,"));
         } finally {
             server.stop(0);
         }

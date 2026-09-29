@@ -41,7 +41,7 @@ export interface ExportToggles {
   groupByYear: boolean;
   /** 去重：同系列只留本体，不显示 OVA / 第二季等派生条目。 */
   dedupe: boolean;
-  /** 排序：默认按年份倒排（新→旧）；分组开启时按年分组自带倒序，此项不影响组内。 */
+  /** 排序：默认按年份倒排（新→旧）；分组开启时它作用于**组顺序**（组内保持传入顺序）。 */
   sortBy: 'none' | 'year-desc' | 'year-asc';
 }
 
@@ -121,7 +121,10 @@ export function buildListText(rows: ExportRow[], toggles: ExportToggles, headerT
     prepared.forEach((row, index) => lines.push(line(row, index)));
     return joinLines(lines);
   }
-  // 按年份分组（年份倒序，组内保持传入顺序）
+  // 按年份分组（组顺序**跟随 `sortBy`**：升/降；不排序时沿用年份倒序，组内保持传入顺序）
+  // 2026-09-27 修：这里以前写死 `Number(b) - Number(a)` → 分组一开「年份 ↑」就不生效（UI 还挂了一句
+  // 「分组时排序不生效」自我交代）。同一件事在成片那边（`src/scene-plan.ts` 的 `groupMedia`）是生效的，
+  // 两处口径终于对齐。
   const groups = new Map<string, ExportRow[]>();
   const order: string[] = [];
   for (const row of prepared) {
@@ -132,10 +135,11 @@ export function buildListText(rows: ExportRow[], toggles: ExportToggles, headerT
     }
     groups.get(key)!.push(row);
   }
+  const desc = toggles.sortBy !== 'year-asc';
   order.sort((a, b) => {
     if (a === '年份未知') return 1;
     if (b === '年份未知') return -1;
-    return Number(b) - Number(a);
+    return desc ? Number(b) - Number(a) : Number(a) - Number(b);
   });
   let index = 0;
   order.forEach((key, position) => {

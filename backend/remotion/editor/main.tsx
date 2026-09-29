@@ -60,11 +60,14 @@ function App() {
   const [filter, setFilter] = React.useState<CandidateFilter>(defaultFilter);
   const [variants, setVariants] = React.useState<Variant[]>([]);
   const draftReady = React.useRef(false);
-  const [toast, setToast] = React.useState<string | null>(null);
+  /** 底部提示条。带动作按钮时（如「重载候选库」）留 8s 让人点得到，否则 2.6s 自动消失。 */
+  const [toast, setToast] = React.useState<{ message: string; label?: string; run?: () => void } | null>(null);
   const [frame, setFrame] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
   const [rate, setRate] = React.useState(1);
   const [savedAt, setSavedAt] = React.useState<string | null>(null);
+  /** 已应用到预览的配置快照（`{signature, config}`）：见 `appliedConfig` /「应用并渲染」。 */
+  const [applied, setApplied] = React.useState<{ signature: string; config: EditorConfig } | null>(null);
   const [selection, setSelection] = React.useState<Selection>({ kind: 'global' });
   const [rangeScene, setRangeScene] = React.useState<number | null>(null);
   const tokenRef = React.useRef<string | null>(null);
@@ -95,9 +98,9 @@ function App() {
     patch({ [DURATION_FIELD[key]]: seconds } as Partial<EditorConfig>);
   }, [patch]);
 
-  const notify = (message: string) => {
-    setToast(message);
-    window.setTimeout(() => setToast((value) => (value === message ? null : value)), 2600);
+  const notify = (message: string, action?: { label: string; run: () => void }) => {
+    setToast({ message, label: action?.label, run: action?.run });
+    window.setTimeout(() => setToast((value) => (value?.message === message ? null : value)), action ? 8000 : 2600);
   };
 
   // —— 草稿（服务端会话暂存为准；1s 防抖写入）——
@@ -177,6 +180,19 @@ function App() {
   const lastCheckRef = React.useRef(0);
   const signature = sessionSignature(config);
   const idsKey = config.ids.join(',');
+  /**
+   * 上次建会话时用的「片段集」指纹（`null` = 还没建过）。
+   *
+   * 片段素材（`preparedClips`）只能由后端准备，所以片段集一变**必须**重建会话；
+   * 但重建时机从「一改就重建」改成「**点「应用并渲染」才重建**」（用户 2026-09-26：
+   * 「片段更改信息仍是直接渲染，一并归入手动渲染」）。
+   */
+  const clipsKey = JSON.stringify(config.mediaClips);
+  const appliedClipsKeyRef = React.useRef<string | null>(null);
+  // 会话签名一变（选片/等级/BGM/形态）→ 自动应用一次快照；普通参数改动留在 config 里等按钮
+  React.useEffect(() => {
+    setApplied((current) => (current && current.signature === signature ? current : { signature, config }));
+  }, [signature]);   // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => {
     if (config.ids.length === 0) {
       setRemoteInput(null);
@@ -184,6 +200,8 @@ function App() {
       return;
     }
     let cancelled = false;
+    // 与下面真正发出请求时用的是**同一份 config**（闭包），所以成功回报时也记这枚指纹
+    const requestClipsKey = JSON.stringify(config.mediaClips);
     const timer = window.setTimeout(() => {
       const run = async () => {
         try {
@@ -194,6 +212,8 @@ function App() {
           if (cancelled) return;
           tokenRef.current = response.token;
           lastFingerprintRef.current = (response.input as { metaFingerprint?: string } | null)?.metaFingerprint ?? null;
+          // 这次会话是按**当时的**片段集建的 → 记下来，供「应用并渲染」判断要不要重建
+          appliedClipsKeyRef.current = requestClipsKey;
           setRemoteInput(response.input);
           setMissing(response.missing || []);
         } catch (error) {
@@ -214,9 +234,22 @@ function App() {
     if (token) void api.deleteSession(token).catch(() => undefined);
   }, []);
 
+  /**
+   * **手动渲染**（用户 2026-09-26：「右侧一更改信息就会重新渲染，太卡，加个按钮手动渲染」）。
+   *
+   * 右侧改参数只改 `config`（便宜：不碰 Player）；Player / 时间轴 / 预估时长吃的是**已应用快照** `appliedConfig`。
+   * 例外：**会话签名变化**（选片/片段/等级/BGM/模板形态）本来就会重建 `remoteInput` → 自动应用一次，
+   * 否则预览会和素材对不上（那些字段的值来自后端 input）。
+   */
+  const appliedConfig = applied && applied.signature === signature ? applied.config : config;
+  const dirty = appliedConfig !== config;
+  /** 最新 config 的 ref：拖拽松手那一瞬的 React 闭包可能还是上一帧的（同一次事件里连发 move+up 更明显）→ 一切以 ref 为准。 */
+  const configRef = React.useRef(config);
+  configRef.current = config;
+
   const rendered: Rendered | null = React.useMemo(() => {
     if (!remoteInput || remoteInput.media.length === 0) return null;
-    const input = applyLocalParams(remoteInput, config, config.ids.length);
+    const input = applyLocalParams(remoteInput, appliedConfig, appliedConfig.ids.length);
     // 形态路由：cinema 走新计划与新合成（旧 chapter/clip 一行未改）。
     // 计划对象在此处按 `ScenePlan` 视图共享给时间轴/胶片条——它们只读
     // fromFrame / durationInFrames / mediaId / clipId / fps 这几个共同字段。
@@ -224,7 +257,20 @@ function App() {
       ? (buildCinemaPlan(input) as unknown as ScenePlan)
       : buildScenePlan(input);
     return { input, plan, frameCount: plan.durationInFrames };
-  }, [remoteInput, config]);
+  }, [remoteInput, appliedConfig]);
+
+  const applyNow = () => {
+    // 用 ref 里的最新 config + 现算签名：拖拽松手时闭包可能比 config 旧（否则会把旧值当成“已应用”，按钮一直脏）
+    const latest = configRef.current;
+    setApplied({ signature: sessionSignature(latest), config: latest });
+    // 片段集变了 → 光换快照不够：片段素材得后端重新准备 → 顺手重建会话（**只在手动应用时**，见 clipsKey 注释）
+    if (JSON.stringify(latest.mediaClips) !== appliedClipsKeyRef.current) {
+      setReloadTick((value) => value + 1);
+      notify('已应用改动，正在按新片段重建预览');
+      return;
+    }
+    notify('已应用改动，重渲预览');
+  };
 
   /**
    * 当前草稿的段边界帧（只银幕式有）：给任务面板做「只重渲某块」的安全校验用。
@@ -379,10 +425,14 @@ function App() {
 
   const onExport = async () => {
     if (!(await confirmMissing())) return;
+    // 导出前把未应用的改动应用掉（用户 2026-09-26「按你的改」）：导出提交的是实时 config，
+    // 不应用就会出现「成片有改动、预览还是旧的」；这里顺手把快照对齐并提示。
+    const appliedDirty = dirty;
+    if (appliedDirty) setApplied({ signature, config });
     try {
       setBusy(true);
       const response = await api.exportVideo(config);
-      notify(`已提交导出任务 #${response.taskId}（队列串行执行）`);
+      notify(`已提交导出任务 #${response.taskId}（队列串行执行）${appliedDirty ? ' · 已先应用未应用的改动' : ''}`);
       setTasksOpen(true);
     } catch (error) {
       notify(error instanceof Error ? error.message : '导出失败');
@@ -445,7 +495,7 @@ function App() {
 
       <div className={immersive ? 'vt-body stage-only' : 'vt-body'}>
         <BasketPane config={config} patch={patch} filter={filter} onFilter={setFilter} onSelect={setSelection}
-                    mediaBriefs={mediaBriefs}
+                    notify={notify} mediaBriefs={mediaBriefs}
                     highlightMediaId={selection.kind === 'media' || selection.kind === 'clip' ? selection.mediaId : undefined} />
 
         <section className="panel vt-col">
@@ -520,6 +570,13 @@ function App() {
                 <span className="vt-frame">帧 {frame} / {rendered?.frameCount ?? 0}</span>
               </div>
               <div className="right">
+                {/* 手动渲染（用户 2026-09-26）：右侧改参数不再自动重渲预览，改成显式按钮 */}
+                <button type="button" className={dirty ? 'vt-toggle on' : 'vt-toggle'}
+                        disabled={!rendered}
+                        title="把右侧改动应用到预览（不点就不重渲）"
+                        onClick={applyNow}>
+                  {dirty ? '● 应用并渲染' : '⟳ 应用并渲染'}
+                </button>
                 <button type="button" className={rangeScene !== null ? 'vt-toggle on' : 'vt-toggle'}
                         disabled={!rendered}
                         title="只循环当前段（范围预览）"
@@ -551,6 +608,7 @@ function App() {
                   if (rangeScene !== null && next.sceneIndex !== undefined) setRangeScene(next.sceneIndex);
                 }}
                 onDurationChange={changeDuration}
+                onDurationCommit={applyNow}
                 onDropClip={dropClip}
               />
             ) : null}
@@ -570,6 +628,7 @@ function App() {
                   if (rangeScene !== null && next.sceneIndex !== undefined) setRangeScene(next.sceneIndex);
                 }}
                 onDurationChange={changeDuration}
+                onDurationCommit={applyNow}
               />
             ) : null}
           </div>
@@ -607,7 +666,15 @@ function App() {
           }}
         />
       ) : null}
-      {toast ? <div className="vt-toast">{toast}</div> : null}
+      {toast ? (
+        <div className="vt-toast">
+          {toast.message}
+          {toast.label && toast.run ? (
+            <button type="button"
+                    onClick={() => { const run = toast.run!; setToast(null); run(); }}>{toast.label}</button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -615,6 +682,8 @@ function App() {
 /** 导出任务面板：轮询任务列表（阶段 1 只做状态/打开目录/删除）。 */
 function TaskPanel({ onClose, notify, currentBoundaries }: { onClose: () => void; notify: (message: string) => void; currentBoundaries: number[] }) {
   const [tasks, setTasks] = React.useState<ExportTask[]>([]);
+  /** 此刻占着串行渲染线程的任务（后端 DTO 的 `active`）—— 用来解释“为什么排队不动”。 */
+  const activeTaskId = tasks.find((task) => task.active)?.id ?? null;
 
   const refresh = React.useCallback(() => {
     api.tasks().then(setTasks).catch(() => undefined);
@@ -644,6 +713,13 @@ function TaskPanel({ onClose, notify, currentBoundaries }: { onClose: () => void
               <span className="vt-task-title">#{task.id} {task.title} · {task.mediaCount} 部 · {task.format}</span>
               {/* 进度与耗时（2026-09-20）：RUNNING 显示块进度 + 百分比 + 预计还需，其余显示总时长 */}
               <span className="vt-task-time">
+                {/* 2026-09-27：以前 PENDING 与「暂停但还在收尾当前块」在 UI 上完全看不出谁占着渲染线程 */}
+                {task.status === 'PENDING' ? (
+                  <em className="vt-task-queued">{activeTaskId ? `排队中 · 正在渲 #${activeTaskId}` : '排队中 · 等待渲染线程'}</em>
+                ) : null}
+                {task.status === 'PAUSED' && task.active ? (
+                  <em className="vt-task-queued">正在收尾当前块（块边界才停）</em>
+                ) : null}
                 {task.stageText ? <em className="vt-task-stage">{task.stageText}</em> : null}
                 {task.chunksTotal && task.chunksTotal > 0
                   ? `已完成 ${task.chunksDone ?? 0}/${task.chunksTotal} 块 · `
@@ -656,7 +732,10 @@ function TaskPanel({ onClose, notify, currentBoundaries }: { onClose: () => void
               <span className="vt-task-btns">
                 {task.status === 'RUNNING' ? (
                   <button type="button" className="btn-mini" title="当前块渲完后停（已完成块保留）"
-                          onClick={() => void api.pauseTask(task.id).then(refresh)}>暂停</button>
+                          onClick={() => void api.pauseTask(task.id).then(() => {
+                            notify(`已请求暂停：#${task.id} 当前块渲完才停（已完成 ${task.chunksDone ?? 0}/${task.chunksTotal || '?'} 块）`);
+                            refresh();
+                          })}>暂停</button>
                 ) : null}
                 {task.status === 'PAUSED' || task.status === 'INTERRUPTED' ? (
                   <button type="button" className="btn-mini" title="从工作目录里已有的块之后接着渲"

@@ -66,7 +66,7 @@ public class RecommendController {
                                          String bgmName, String bgmBase64, String groupBy, String groupStyle,
                                          String subtitle, String coverSize,
                                          List<RecommendService.BgmTrack> bgmTracks,
-                                         List<Long> openingIds, List<Long> featuredIds, String intro,
+                                         List<Long> openingIds, Map<Long, RecommendService.MediaMark> mediaMarks, String intro,
                                          Integer openingSec, Integer introSec, Integer groupSec,
                                          Integer detailSec, Integer endingSec,
                                          String endingTitle, String endingText,
@@ -84,7 +84,9 @@ public class RecommendController {
                                          String bgmRange,
                                          Integer titleSec,
                                          List<RecommendService.BgmTrack> stingTracks,
-                                         Integer stingVolume) {
+                                         Integer stingVolume,
+                                         /** 一级分组内再按推荐等级分群（null = 旧前端 / 未传 → Remotion 侧默认开）。 */
+                                         Boolean tierGroup) {
     }
 
     /**
@@ -144,7 +146,7 @@ public class RecommendController {
                 body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec(), body.titleSec());
         int[] wh = RecommendVideoService.pixelsOf(body.resolution());
         String inputJson = recommendService.buildRenderInput(body.ids(), body.title(), tracks,
-                body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.featuredIds(), body.intro(),
+                body.subtitle(), body.coverSize(), body.groupBy(), body.groupStyle(), body.openingIds(), body.mediaMarks(), body.intro(),
                 dur, body.endingTitle(), body.endingText(), body.bgColor(), body.bgImages(), body.bgRotationSec(),
                 body.bgOpacity(), body.bgBlur(), body.bgBrightness(), body.prologueTitle(), body.groupSort(),
                 body.openingSpeed(), body.endingScrollSpeed(), body.bgmScale(), body.bgmX(), body.bgmY(),
@@ -155,7 +157,8 @@ public class RecommendController {
                 body.clipVolume(),
                 body.bgmRange(),
                 stingRel,
-                body.stingVolume());
+                body.stingVolume(),
+                body.tierGroup());
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("token", session.token());
         Map<String, Object> input = objectMapper.readValue(inputJson, new TypeReference<Map<String, Object>>() { });
@@ -212,12 +215,12 @@ public class RecommendController {
         VideoExportTaskService.VideoExportTask t = exportTaskService.create(
                 body.ids(), body.title(), fmt, body.resolution(), bgmPaths, bgmTracks,
                 body.groupBy(), body.groupStyle(), body.subtitle(), body.coverSize(),
-                body.openingIds(), body.featuredIds(), body.intro(), dur, body.endingTitle(), body.endingText(),
+                body.openingIds(), body.mediaMarks(), body.intro(), dur, body.endingTitle(), body.endingText(),
                 body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(),
                 body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(),
                 body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(),
                 body.detailShow(), body.preset(), body.mediaClips(), body.seed(), body.clipVolume(), body.bgmRange(),
-                stingPath, body.stingVolume());
+                stingPath, body.stingVolume(), body.tierGroup());
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("taskId", t.id());
         resp.put("status", t.status());

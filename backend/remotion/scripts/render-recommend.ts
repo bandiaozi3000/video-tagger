@@ -20,6 +20,7 @@ import { bundle } from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
 import type { MultiMediaPocInput } from '../src/types';
 import { buildCinemaPlan } from '../src/cinema/plan';
+import { buildScenePlan } from '../src/scene-plan';
 import { startAssetServer } from './asset-server';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
@@ -34,6 +35,9 @@ async function main(): Promise<void> {
   const inputPath = argument('--input');
   const outputPath = argument('--output');
   const assetRoot = argument('--asset-root');
+  // 封面根（2026-09-27）：封面以根相对 `/covers/**` 出现在 props 里（与浏览器预览同一套路径），
+  // 由本地素材服务托管。不传 = 不挂载（旧的 POC/单跑脚本仍可用）。
+  const coversRoot = argument('--covers-root');
   const format = (argument('--format') ?? 'mp4').toLowerCase();
   const concurrency = Number(argument('--concurrency') ?? '2');
   const framesArg = argument('--frames');
@@ -49,11 +53,31 @@ async function main(): Promise<void> {
 
   const input = JSON.parse(await fs.readFile(path.resolve(inputPath), 'utf8')) as MultiMediaPocInput;
   await fs.access(assetRoot);
+  // props 体积看守（2026-09-27）：内联 base64 封面曾把 props 推到 119MB → Chrome 直接 Target closed，
+  // 而报错里只有一句 CDP 异常、看不出真因。这行 warn 让下次一眼可见（正常 path 模式只有 1~2MB）。
+  {
+    const bytes = (await fs.stat(path.resolve(inputPath))).size;
+    if (bytes > 32 * 1024 * 1024) {
+      console.log(JSON.stringify({ warn: `inputProps 过大（${(bytes / 1048576).toFixed(1)}MB）—— 极可能撑死 Chrome（Target closed），检查封面是否又被内联成 base64` }));
+    }
+  }
 
   // 形态选合成：银幕式走新 composition，其余沿用旧 composition（旧链路不动）
   const compositionId = input.style === 'cinema' ? 'MultiMediaRecommendCinema' : COMPOSITION_ID;
-  const assetServer = await startAssetServer(path.resolve(assetRoot));
-  const renderInput: MultiMediaPocInput = { ...input, assetBaseUrl: assetServer.baseUrl };
+  const assetServer = await startAssetServer(path.resolve(assetRoot), coversRoot ? path.resolve(coversRoot) : undefined);
+  /**
+   * 根相对封面（`/covers/**`）必须写成**素材服务的绝对地址**：Remotion 的页面挂在它**自己内部的 server** 上
+   * （端口随机），`/covers/...` 会打到那个 server → 404。
+   * 以前靠「封面内联 base64」绕开这个问题，代价是 props 膨胀到 119MB → Chrome 直接挂（2026-09-27）。
+   */
+  const assetOrigin = new URL(assetServer.baseUrl).origin;
+  const renderInput: MultiMediaPocInput = {
+    ...input,
+    assetBaseUrl: assetServer.baseUrl,
+    media: input.media.map((media) => (media.coverAssetPath && media.coverAssetPath.startsWith('/covers/')
+      ? { ...media, coverAssetPath: assetOrigin + media.coverAssetPath }
+      : media)),
+  };
   const startedAt = Date.now();
 
   try {
@@ -63,16 +87,15 @@ async function main(): Promise<void> {
   const frameRange: [number, number] | undefined = framesArg
     ? (framesArg.split('-').map((v) => Number(v.trim())) as [number, number])
     : undefined;
-  // 段边界帧（银幕式）：Java 按"段边界 + 目标块长"贪心切块，让切点落在转场处而不是片子中间。
+  // 段边界帧：Java 按“段边界 + 目标块长”贪心切块，让切点落在转场处而不是片子中间。
   // 用与渲染同一份 plan（同一输入 → 时长确定，seed 只影响摆位不影响时长）→ 边界与成片一致。
+  // 2026-09-27：**章节式也补上**（之前在只有银幕式分支 → 章节式只能按固定 2 分钟切，切点可能把一个章节/片段拦腰截断）。
   let boundaryFrames: number[] | null = null;
-  if (input.style === 'cinema') {
-    const plan = buildCinemaPlan(renderInput);
-    if (plan.durationInFrames !== composition.durationInFrames) {
-      console.log(JSON.stringify({ warn: 'plan 与 composition 总帧数不一致', plan: plan.durationInFrames, composition: composition.durationInFrames }));
-    }
-    boundaryFrames = [0, ...plan.scenes.map((scene) => scene.fromFrame + scene.durationInFrames)];
+  const plan = input.style === 'cinema' ? buildCinemaPlan(renderInput) : buildScenePlan(renderInput);
+  if (plan.durationInFrames !== composition.durationInFrames) {
+    console.log(JSON.stringify({ warn: 'plan 与 composition 总帧数不一致', plan: plan.durationInFrames, composition: composition.durationInFrames }));
   }
+  boundaryFrames = [0, ...plan.scenes.map((scene) => scene.fromFrame + scene.durationInFrames)];
   console.log(JSON.stringify({ composition: true, durationInFrames: composition.durationInFrames, fps: composition.fps, width: composition.width, height: composition.height, range: frameRange ?? null, boundaryFrames }));
   if (probeOnly) return;
     await fs.mkdir(path.dirname(path.resolve(outputPath)), { recursive: true });

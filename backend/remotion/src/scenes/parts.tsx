@@ -105,30 +105,6 @@ export function Poster({ src, theme, radius, contain = false }: { src?: string; 
   );
 }
 
-/** 封面角标（片段推荐 / 资料推荐）。 */
-export function PosterFlag({ text, theme, size }: { text: string; theme: Theme; size: number }) {
-  return (
-    <span
-      style={{
-        position: 'absolute',
-        left: Math.round(size * 0.8),
-        top: Math.round(size * 0.8),
-        zIndex: 3,
-        fontSize: size,
-        letterSpacing: 1,
-        padding: `${Math.round(size * 0.35)}px ${Math.round(size * 1.1)}px`,
-        borderRadius: 999,
-        color: '#ffd9a6',
-        background: 'rgba(255,143,77,.14)',
-        border: '1px solid rgba(255,143,77,.35)',
-        backdropFilter: 'blur(4px)',
-        fontFamily: theme.font.body,
-      }}
-    >
-      {text}
-    </span>
-  );
-}
 
 /** 大号描边序号（视觉语言：透明填充 + 描边）。 */
 export function OutlineNumber({ text, theme, size, style }: { text: string; theme: Theme; size: number; style?: React.CSSProperties }) {

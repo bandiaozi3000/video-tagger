@@ -56,6 +56,15 @@ public class RecommendService {
     public record Durations(int opening, int intro, int group, int detail, int ending, int title) {
     }
 
+    /**
+     * 每部媒体的**用户标注**：推荐等级名次 + 推荐理由（对应编辑器 `EditorConfig.mediaMarks`）。
+     *
+     * <p>`tier` 是**名次**（0 = 最强 = 「强推」；名单写死在 Remotion 侧 `RECOMMEND_TIERS`，后端不参与配置）；
+     * 缺省/null = 最低档（默认卡片）。`tier == 0` 接管了原来的 ★ 重点（组首核心区 + 结尾全片回顾）。
+     */
+    public record MediaMark(Integer tier, String reason) {
+    }
+
     private final MediaService mediaService;
     private final MediaMapper mediaMapper;
     private final MediaCollectionMapper mediaCollectionMapper;
@@ -99,14 +108,19 @@ public class RecommendService {
 
     /** 显示时长归一化：空/越界 → 默认（开局 10 / 序言 5 / 章节 5 / 详情 10 / 结尾 5）。 */
     public Durations normalizeDurations(Integer opening, Integer intro, Integer group, Integer detail, Integer ending, Integer title) {
+        // 只留下限、上不封顶（用户 2026-09-26：「显示时长无限制可自由发挥」）；`MAX_SEGMENT_SEC` 防手滑。
+        // 与 Remotion 侧 `src/params.ts` 的同名常量保持一致（两处改一起改）。
         return new Durations(
-                clamp(opening, 2, 20, 10),
-                clamp(intro, 1, 10, 5),
-                clamp(group, 1, 10, 5),
-                clamp(detail, 3, 15, 10),
-                clamp(ending, 1, 10, 5),
-                clamp(title, 1, 5, 2));
+                clamp(opening, 2, MAX_SEGMENT_SEC, 10),
+                clamp(intro, 1, MAX_SEGMENT_SEC, 5),
+                clamp(group, 1, MAX_SEGMENT_SEC, 5),
+                clamp(detail, 3, MAX_SEGMENT_SEC, 10),
+                clamp(ending, 1, MAX_SEGMENT_SEC, 5),
+                clamp(title, 1, MAX_SEGMENT_SEC, 2));
     }
+
+    /** 单段时长的兑底上限（秒）：仅防手滑，不是产品限制。 */
+    private static final int MAX_SEGMENT_SEC = 600;
 
     private Durations normalizeDurations(Durations d) {
         return d == null ? new Durations(10, 5, 5, 10, 5, 2) : d;
@@ -219,7 +233,7 @@ public class RecommendService {
      * @param probeSeconds  素材时长探测（入参为工作目录相对的素材路径，返回秒）
      */
     public String buildRenderInput(List<Long> ids, String title, List<BgmTrack> bgmTracks, String subtitle,
-                                  String coverSize, String groupBy, String groupStyle, List<Long> openingIds, List<Long> featuredIds,
+                                  String coverSize, String groupBy, String groupStyle, List<Long> openingIds, Map<Long, RecommendService.MediaMark> mediaMarks,
                                   String intro, Durations durations, String endingTitle, String endingText,
                                   String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity,
                                   Integer bgBlur, Integer bgBrightness, String prologueTitle, String groupSort,
@@ -231,7 +245,8 @@ public class RecommendService {
                                   List<String> bgmAssetPaths,
                                   java.util.function.ToDoubleFunction<String> probeSeconds,
                                   Integer seed,
-                                  Integer clipVolume, String bgmRange, String stingPath, Integer stingVolume) {
+                                  Integer clipVolume, String bgmRange, String stingPath, Integer stingVolume,
+                                  Boolean tierGroup) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
@@ -296,9 +311,13 @@ public class RecommendService {
             // 分组名（Remotion 侧据此排章节页与组序）
             String groupName = groupOf(d, groupBy, groupCtx);
             if (groupName != null) view.put("group", groupName);
-            // 重点项（2026-09-26 用户拍板 A+C+D）：编辑器手动 ★ 勾选 → 置位后由 scene-plan
-            // 负责「网格上带 ★ 角标 / 本组网格后逐部补资料卡 / 结尾汇总成重点回顾」。
-            if (featuredIds != null && featuredIds.contains(d.id())) view.put("featured", true);
+            // 推荐等级 + 推荐理由（2026-09-26 用户拍板：等级取代 ★ 重点）
+            //   tier 名次交给 Remotion：`tier == 0` = 原 ★ 重点（组首核心区 + 结尾全片回顾）
+            MediaMark mark = mediaMarks == null ? null : mediaMarks.get(d.id());
+            if (mark != null) {
+                if (mark.tier() != null) view.put("tier", mark.tier());
+                if (mark.reason() != null && !mark.reason().isBlank()) view.put("reason", mark.reason().trim());
+            }
 
             // 片段行：PreparedClip 只带渲染必需字段，tag / 所属集号得回查原始行
             Map<Long, Clip> clipRows = new HashMap<>();
@@ -424,6 +443,8 @@ public class RecommendService {
         p.put("height", height);
         // 分组/每屏：Remotion 侧已消费（章节页 + 一屏 N 部网格），不再是「透传但不生效」
         p.put("groupBy", groupBy == null ? "" : groupBy);
+        // 一级分组内再按推荐等级分群（用户 2026-09-26）；null（老前端 / 未传）= 交给 Remotion 侧默认开
+        p.put("tierGroup", tierGroup);
         p.put("groupSort", groupSort == null || groupSort.isBlank() ? "date-desc" : groupSort);
         p.put("perScreen", perScreen == null ? 1 : Math.max(1, Math.min(10, perScreen)));
         p.put("preset", preset == null || preset.isBlank() ? "starlit" : preset.trim());

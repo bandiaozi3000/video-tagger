@@ -39,6 +39,16 @@ export interface BgmTrackInput {
   base64?: string;
 }
 
+/**
+ * 每部媒体的**用户标注**：推荐等级名次 + 推荐理由。
+ * 稀疏存（缺键 = 最低档 / 无理由），所以老草稿/模板/导出 payload 零迁移。
+ * 等级名单写死在 `src/tier.tsx` 的 `RECOMMEND_TIERS`，**不做配置**（2026-09-26 用户拍板）。
+ */
+export interface MediaMark {
+  tier?: number;
+  reason?: string;
+}
+
 export interface EditorConfig {
   ids: number[];
   title: string;
@@ -49,6 +59,8 @@ export interface EditorConfig {
   endingTitle: string;
   endingText: string;
   groupBy: string;
+  /** 一级分组内再按推荐等级分群（默认开；关掉=旧结构）。 */
+  tierGroup: boolean;
   groupStyle: string;
   groupSort: string;
   perScreen: number;
@@ -85,7 +97,8 @@ export interface EditorConfig {
    * 手动 ★ 重点（2026-09-26 用户拍板 A+C+D）：组内群像后逐部补一幕资料卡，
    * 结尾再汇总成「全片重点回顾」；组内数量**不设上限**（自由选）。
    */
-  featuredIds: number[];
+  /** 每部媒体的推荐等级 + 推荐理由（键 = mediaId 字符串；与 `mediaClips` 同构）。 */
+  mediaMarks: Record<string, MediaMark>;
   /** 片段原声音量（0 = 全静音；默认 100 保持现状）。 */
   clipVolume: number;
   /** 中景摆位随机种子（🎲 重排 写入；同一份草稿预览与成片一致）。 */
@@ -248,6 +261,9 @@ export interface ExportTask {
   stageText?: string | null;
   /** 段边界帧 JSON（如 `[0,165,300,…]`）：局部重渲前的安全校验基准。 */
   boundaryFrames?: string | null;
+  /** 此刻**真的占着串行渲染线程**的是不是它（2026-09-27）。
+   *  暂停只在块边界生效 → PAUSED 也可能还在渲当前块并把后面的 PENDING 堵住，UI 靠这个说清“谁在占”。 */
+  active?: boolean;
 }
 
 /** 统一的 JSON 请求（非 2xx → 抛带中文原因的错误）。 */

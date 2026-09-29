@@ -1,5 +1,6 @@
 import type { MultiMediaPocInput } from './types';
 import { themeOfPreset, type TemplateStyle } from './theme';
+import { RECOMMEND_TIERS } from './tier';
 
 /**
  * 推荐模板参数契约。
@@ -70,6 +71,10 @@ export interface RenderParams {
   prologueTitle: string;
   endingTitle: string;
   endingText: string;
+  /**
+   * 推荐等级名单：**写死不做配置**（2026-09-26 用户拍板）。卡片视觉只按名次走（见 `src/tier.tsx`）。
+   */
+  tiers: string[];
 
   // —— 版式 ——
   /** 0-100（Java `normalizeCoverSize`），默认 50。 */
@@ -127,6 +132,8 @@ export interface RenderParams {
   // —— 分组与选择 ——
   /** `year` / `subcategory` / `collection` / 空（不分屏）。 */
   groupBy: string;
+  /** 一级分组内**再按推荐等级分群**（用户 2026-09-26：「按年份分组后再支持按推荐等级接着分组」；默认开）。 */
+  tierGroup: boolean;
   /** `date-asc` / `date-desc` / `none`。 */
   groupSort: string;
   /** 每屏展示 N 部（1 = 逐部资料卡；≥2 = 一屏 N 卡网格）。 */
@@ -145,6 +152,7 @@ export const DEFAULT_PARAMS: RenderParams = {
   prologueTitle: '',
   endingTitle: '',
   endingText: '',
+  tiers: [...RECOMMEND_TIERS],
 
   coverSize: 50,
   detailShow: { status: true, note: true, tag: true, endingWall: true, endingPaging: false, endingList: true, endingIndex: true, endingYear: true, endingStats: false },
@@ -180,6 +188,7 @@ export const DEFAULT_PARAMS: RenderParams = {
   seed: 0,
 
   groupBy: '',
+  tierGroup: true,
   groupSort: 'date-desc',
   perScreen: 1,
   openingIds: [],
@@ -190,6 +199,12 @@ export const DEFAULT_PARAMS: RenderParams = {
 export function hasBackdrop(p: RenderParams): boolean {
   return p.bgColor.trim() !== '' || p.bgImages.length > 0;
 }
+
+/**
+ * 单段显示时长的**兑底**上限（秒）：仅防手滑（填 999999 会渲几十小时），不是产品限制。
+ * 与 Java `RecommendService.normalizeDurations` 的上限保持一致（两处改一起改）。
+ */
+export const MAX_SEGMENT_SEC = 600;
 
 const clamp = (v: unknown, min: number, max: number, dft: number): number => {
   const n = typeof v === 'number' && Number.isFinite(v) ? v : dft;
@@ -225,6 +240,9 @@ export function resolveParams(raw?: Partial<RenderParams>, fallbackText?: { titl
     prologueTitle: str(p.prologueTitle),
     endingTitle: str(p.endingTitle),
     endingText: str(p.endingText),
+    tiers: Array.isArray(p.tiers) && p.tiers.length > 0
+      ? p.tiers.map((name) => String(name ?? '').trim()).filter(Boolean)
+      : [...RECOMMEND_TIERS],
 
     coverSize: clamp(p.coverSize ?? 50, 0, 100, 50),
     detailShow: {
@@ -269,14 +287,15 @@ export function resolveParams(raw?: Partial<RenderParams>, fallbackText?: { titl
     openingSpeed: clamp(p.openingSpeed, 0, 100, 50),
     endingScrollSpeed: clamp(p.endingScrollSpeed, 0, 100, 50),
 
-    // Java normalizeDurations：opening 2-20 / intro 1-10 / group 1-10 / detail 3-15 / ending 1-10 / title 1-5
+    // 各段时长：**只留下限、上不封顶**（用户 2026-09-26：「显示时长无限制可自由发挥」）。
+    // `MAX_SEGMENT_SEC` 是防手滑的兑底（填 999999 会让渲染跑几十小时），不是产品上限。
     durations: {
-      opening: clamp(d.opening, 2, 20, 10),
-      intro: clamp(d.intro, 1, 10, 5),
-      group: clamp(d.group, 1, 10, 5),
-      detail: clamp(d.detail, 3, 15, 10),
-      ending: clamp(d.ending, 1, 10, 5),
-      title: clamp(d.title, 1, 5, 2),
+      opening: clamp(d.opening, 2, MAX_SEGMENT_SEC, 10),
+      intro: clamp(d.intro, 1, MAX_SEGMENT_SEC, 5),
+      group: clamp(d.group, 1, MAX_SEGMENT_SEC, 5),
+      detail: clamp(d.detail, 3, MAX_SEGMENT_SEC, 10),
+      ending: clamp(d.ending, 1, MAX_SEGMENT_SEC, 5),
+      title: clamp(d.title, 1, MAX_SEGMENT_SEC, 2),
     },
 
     clipVolume: clamp(p.clipVolume ?? 100, 0, 100, 100),
@@ -286,6 +305,7 @@ export function resolveParams(raw?: Partial<RenderParams>, fallbackText?: { titl
     seed: Number.isFinite(p.seed) ? Math.trunc(p.seed as number) : 0,
 
     groupBy: str(p.groupBy),
+    tierGroup: typeof p.tierGroup === 'boolean' ? p.tierGroup : true,
     groupSort: str(p.groupSort) || 'date-desc',
     perScreen: clamp(p.perScreen ?? 1, 1, 10, 1),
     openingIds: Array.isArray(p.openingIds) ? p.openingIds.filter((v): v is number => typeof v === 'number') : [],

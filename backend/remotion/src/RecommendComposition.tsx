@@ -5,6 +5,7 @@ import { Backdrop, BgmBadge, Clouds, Stars, TopLine, Topbar, Trackbar } from './
 import { resolveTheme, speedToFrames } from './params';
 import { buildScenePlan, mediaForScene, mediaOfGroup, sceneLabel } from './scene-plan';
 import { ClipScene, GridScreen, MediaInfo } from './scenes/Cards';
+import { RecapList } from './scenes/RecapList';
 import { Ending } from './scenes/Ending';
 import { GroupIntro } from './scenes/GroupIntro';
 import { Intro } from './scenes/Intro';
@@ -83,12 +84,19 @@ function SceneView({ scene, input, params, theme, assetBaseUrl, plan }: {
     return <Ending input={input} params={params} theme={theme} assetBaseUrl={assetBaseUrl} beatFrames={endingBeat} />;
   }
   if (scene.type === 'GROUP_INTRO') {
-    const media = mediaOfGroup(plan, scene.groupName);
+    // 结尾回顾页自带 `mediaIds`（不属任何分组，按组名查不到）；年份页则按一级组名取整年成员
+    const media = scene.mediaIds
+      ? scene.mediaIds.map((id) => plan.mediaIndex.get(id)).filter((item): item is NonNullable<typeof item> => Boolean(item))
+      : mediaOfGroup(plan, scene.groupName);
     return <GroupIntro name={scene.groupName ?? ''} index={scene.groupIndex ?? 0} media={media} theme={theme} assetBaseUrl={assetBaseUrl} />;
+  }
+  if (scene.type === 'RECAP_LIST') {
+    const media = (scene.mediaIds ?? []).map((id) => plan.mediaIndex.get(id)).filter((item): item is NonNullable<typeof item> => Boolean(item));
+    return <RecapList media={media} params={params} theme={theme} assetBaseUrl={assetBaseUrl} groupName={scene.groupName} />;
   }
   if (scene.type === 'MEDIA_GRID') {
     const media = (scene.mediaIds ?? []).map((id) => plan.mediaIndex.get(id)).filter((item): item is NonNullable<typeof item> => Boolean(item));
-    return <GridScreen media={media} params={params} theme={theme} assetBaseUrl={assetBaseUrl} numberFrom={scene.numberFrom} kicker={scene.kicker} />;
+    return <GridScreen media={media} params={params} theme={theme} assetBaseUrl={assetBaseUrl} kicker={scene.kicker} groupName={scene.groupName} groupSize={scene.groupSize} groupTopCount={scene.groupTopCount} />;
   }
   const media = mediaForScene(plan, scene);
   if (!media) throw new Error(`场景媒体不存在: ${scene.mediaId}`);

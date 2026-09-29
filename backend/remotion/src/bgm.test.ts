@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bgmGainAt, bgmSlotGainAt, bgmTimeline, stingGainAt, stingTimeline } from './bgm';
+import { bgmBadgeState, bgmGainAt, bgmSlotGainAt, bgmSlotIndexAt, bgmStartFromFrames, bgmTimeline, stingGainAt, stingTimeline } from './bgm';
 import { resolveParams } from './params';
 import type { ScenePlan } from './types';
 
@@ -18,11 +18,26 @@ function params(range: string, durationSec = 20) {
 }
 
 describe('BGM 播放范围（用户 2026-09-20：只在开头和结尾放）', () => {
-  it('全程：从 0 铺满，且不加段边淡入淡出（旧行为一行未改）', () => {
+  it('全程：从 0 **轮流铺满全片**（曲目跑完接着从头来），且不加段边淡入淡出', () => {
+    // 60s 计划 + 单首 20s 曲 → 铺 3 遍（2026-09-26 修：以前只铺一遍 → 40s 后就静音）
     const slots = bgmTimeline(params('all'), plan());
-    expect(slots).toHaveLength(1);
-    expect(slots[0].fromFrame).toBe(0);
-    expect(slots[0].edgeFadeSec).toBe(0);
+    expect(slots).toHaveLength(3);
+    expect(slots.map((s) => [s.fromFrame, s.durationInFrames])).toEqual([[0, 600], [600, 600], [1200, 600]]);
+    expect(slots.every((s) => s.edgeFadeSec === 0)).toBe(true);
+    expect(slots.every((s) => s.startFromSec === undefined)).toBe(true);   // 每遍都从头放
+  });
+
+  it('全程：曲目列表轮流铺（两首 20s 曲 = 一遍 40s）→ 最后一首超出片尾', () => {
+    const slots = bgmTimeline(params('all'), plan());
+    const two = bgmTimeline(resolveParams({
+      title: 't',
+      durations: { opening: 10, intro: 5, group: 5, detail: 10, ending: 5 },
+      bgmTracks: [{ name: 'a.mp3', durationSec: 20 }, { name: 'b.mp3', durationSec: 20 }],
+      bgmRange: 'all',
+    } as never), plan());
+    expect(two.map((s) => s.name)).toEqual(['a.mp3', 'b.mp3', 'a.mp3']);   // 60s 计划：a(0-20) b(20-40) a(40-60)
+    expect(two.map((s) => s.fromFrame)).toEqual([0, 600, 1200]);
+    expect(slots.length).toBeGreaterThan(1);
   });
 
   it('仅开场：只覆盖开场窗口（10s = 300 帧），窗口外不生成序列', () => {
@@ -99,8 +114,9 @@ describe('多选集合（用户 2026-09-20：「多选」）', () => {
   });
 
   it('未知值当 all（不会因为漏传 / 脏值突然静音）', () => {
-    expect(bgmTimeline(params(''), plan())).toHaveLength(1);
+    expect(bgmTimeline(params(''), plan()).length).toBeGreaterThan(1);   // all = 铺满全片（多遍）
     expect(bgmTimeline(params('nonsense'), plan())[0].fromFrame).toBe(0);
+    expect(bgmTimeline(params('nonsense'), plan()).at(-1)!.fromFrame).toBe(1200);   // 最后一槽落在 40s 处，铺到片尾
   });
 
   it('片名卡：每张卡一个 slot，且**逐张往下接**（每条起点都在前一条之后）', () => {
@@ -168,5 +184,68 @@ describe('转场音乐（甲：只在片名卡响一次）', () => {
     // BGM 走全程：片名卡那一帧应已被压到 bgmDuckTo，开场那一帧仍是基准
     expect(bgmGainAt(0, p, plan1)).toBeCloseTo(p.bgmGain, 3);
     expect(bgmGainAt(320, p, plan1)).toBeCloseTo(p.bgmDuckTo, 3);
+  });
+});
+
+describe('BGM 条显示 = 曲子自身的位置/进度（用户 2026-09-26：「显示的是视频进度」）', () => {
+  const slot = (over: Partial<import('./bgm').BgmSlot> = {}) => ({
+    name: 'a.mp3', fromFrame: 0, durationInFrames: 6000, durationSec: 200, edgeFadeSec: 0, ...over,
+  });
+
+  it('进度与时间都按**曲长**算（不是窗口长、不是全片时间）', () => {
+    // 30fps：第 1500 帧 = 窗口内 50s；曲长 200s
+    expect(bgmBadgeState(1500, slot(), 30)).toEqual({ progress: 0.25, positionSec: 50, totalSec: 200, loops: 0 });
+  });
+
+  it('结尾那种“从后半段起放”：位置从 startFromSec 开始算', () => {
+    const state = bgmBadgeState(0, slot({ fromFrame: 1650, durationInFrames: 150, startFromSec: 100 }), 30);
+    expect(state.positionSec).toBe(100);
+    expect(state.progress).toBe(0.5);
+  });
+
+  it('窗口比曲子长 → 按循环取模并标 ↻（不是停在 100%）', () => {
+    // 曲长 10s、窗口 20s：第 450 帧(15s) → 第二遍的第 5s
+    const state = bgmBadgeState(450, slot({ durationSec: 10, durationInFrames: 600 }), 30);
+    expect(state).toEqual({ progress: 0.5, positionSec: 5, totalSec: 10, loops: 1 });
+  });
+
+  it('曲子还没轮到 → 显示起播位置而不是负数 / 全片时间', () => {
+    const state = bgmBadgeState(0, slot({ fromFrame: 300 }), 30);
+    expect(state.positionSec).toBe(0);
+    expect(state.progress).toBe(0);
+  });
+
+  it('曲长探不到（ffprobe 失败 / 旧草稿）→ 退回窗口口径，不会崩、不会显示成 NaN', () => {
+    const state = bgmBadgeState(300, slot({ durationSec: undefined, durationInFrames: 600 }), 30);
+    expect(state).toEqual({ progress: 0.5, positionSec: 10, totalSec: 20, loops: 0 });
+  });
+
+  it('`<Audio startFrom>` 的单位是**帧**：秒 → 帧由 bgmStartFromFrames 统一换算', () => {
+    // 结尾“后半段”曲长 200s（30fps 下共 6000 帧）→ 从第 100s 起 = 第 3000 帧
+    expect(bgmStartFromFrames({ name: 'a', fromFrame: 1650, durationInFrames: 150, startFromSec: 100, durationSec: 200, edgeFadeSec: 0 }, 30)).toBe(3000);
+    expect(bgmStartFromFrames({ name: 'a', fromFrame: 0, durationInFrames: 150, edgeFadeSec: 0 }, 30)).toBe(0);
+  });
+});
+
+describe('BGM 条只在有音乐时出现（静音段不挂条）', () => {
+  const slots = [
+    { name: 'a.mp3', fromFrame: 0, durationInFrames: 300, durationSec: 10, edgeFadeSec: 0 },
+    { name: 'b.mp3', fromFrame: 1500, durationInFrames: 300, durationSec: 10, edgeFadeSec: 0 },
+  ];
+
+  it('窗口内 → 指向对应那首', () => {
+    expect(bgmSlotIndexAt(0, slots)).toBe(0);
+    expect(bgmSlotIndexAt(299, slots)).toBe(0);
+    expect(bgmSlotIndexAt(1500, slots)).toBe(1);
+    expect(bgmSlotIndexAt(1799, slots)).toBe(1);
+  });
+
+  it('两窗口之间（10~50s）与片尾之后 → -1（旧代码会挂上第一条并显示假位置）', () => {
+    expect(bgmSlotIndexAt(600, slots)).toBe(-1);
+    expect(bgmSlotIndexAt(1800, slots)).toBe(-1);
+  });
+
+  it('一条都没有 → -1', () => {
+    expect(bgmSlotIndexAt(0, [])).toBe(-1);
   });
 });

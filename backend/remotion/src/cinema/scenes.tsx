@@ -3,6 +3,7 @@ import { Img, OffthreadVideo, getRemotionEnvironment, interpolate, useCurrentFra
 import { riseIn } from '../animation';
 import { assetUrl } from '../asset-url';
 import { pad2 } from '../scenes/parts';
+import { parseRichText, RichInline } from '../rich-text';
 import type { RenderParams } from '../params';
 import type { PocClip, PocMedia } from '../types';
 import { BigNumber, BigTitle, CinemaEntrance, Facts, LowerThird, NoteQuote, Rule, useEnterCinema } from './parts';
@@ -490,7 +491,8 @@ export function Settle({ scene, plan, assetBaseUrl }: SceneProps) {
         </div>
         {intro ? (
           <div style={{ ...riseIn(subIn, height * 0.02), marginTop: Math.round(height * 0.022), maxWidth: '44ch', fontFamily: CINEMA_FONT.body, fontSize: Math.round(height * 0.028), lineHeight: 1.55, color: '#e8e6e2', textShadow: '0 3px 18px rgba(0,0,0,.95)', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-            {intro}
+            {/* 银幕式只有一行位（clamp 1）：取**第一块**，但保留里面的语义色/加粗渲染 */}
+            <RichInline spans={(parseRichText(intro)[0]?.spans) ?? []} boldColor="#ffffff" />
           </div>
         ) : null}
       </div>

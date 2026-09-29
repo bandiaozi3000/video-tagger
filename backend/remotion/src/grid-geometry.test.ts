@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { gridGeometry } from './scenes/Cards';
-import { openingCardSize } from './scenes/Opening';
+import { gridGeometry, gridRows } from './scenes/Cards';
+import { openingCardSize, openingReveal } from './scenes/Opening';
 import { CHAPTER_THEME, CLIP_THEME, type Theme } from './theme';
 
 /**
@@ -75,4 +75,57 @@ describe('openingCardSize：开场封面卡必须是竖版', () => {
       }
     }
   }
+});
+
+/**
+ * 行内张数：**不再交给 flex-wrap 自己捣**。
+ *
+ * 用户 2026-09-26 报「卡片数量如果显示10，真实为7的话，会显示上6下1，不友好，应该是上4下3这种」——
+ * 原因是卡片比列宽窄时 flex 一行能塞进比 `columns` 更多的卡。现在由 `gridRows` 明确切行。
+ */
+describe('gridRows：一屏切行要均匀（7 部 = 上4下3，不是上6下1）', () => {
+  const cases: [number, number, number[]][] = [
+    [1, 1, [1]],
+    [2, 2, [2]],
+    [4, 4, [4]],
+    [6, 6, [6]],
+    [7, 4, [4, 3]],
+    [8, 4, [4, 4]],
+    [9, 5, [5, 4]],
+    [10, 5, [5, 5]],
+    [12, 6, [6, 6]],
+    [13, 7, [7, 6]],
+  ];
+  for (const [count, columns, expected] of cases) {
+    it(`${count} 部 / ${columns} 列 → ${expected.join('+')}`, () => {
+      const rows = gridRows(count, columns);
+      expect(rows).toEqual(expected);
+      expect(rows.reduce((a, b) => a + b, 0)).toBe(count);
+      // 每行张数最多相差 1（“均匀”的判据）
+      expect(Math.max(...rows) - Math.min(...rows)).toBeLessThanOrEqual(1);
+    });
+  }
+
+  it('每屏几何给的 columns 与 gridRows 对得上（1~10 部）', () => {
+    for (const frame of FRAMES) {
+      for (let count = 1; count <= 10; count += 1) {
+        const g = gridGeometry(CHAPTER_THEME, frame.w, frame.h, count);
+        expect(gridRows(count, g.columns).reduce((a, b) => a + b, 0)).toBe(count);
+      }
+    }
+  });
+});
+
+describe('openingReveal：显影前 35% 不显示（封面自带亮边不能单独跳出来）', () => {
+  it('前 35% 恒为 0', () => {
+    for (const p of [0, 0.1, 0.2, 0.35]) expect(openingReveal(p)).toBe(0);
+  });
+  it('末尾正好到 1，且单调不减', () => {
+    expect(openingReveal(1)).toBeCloseTo(1, 6);
+    let prev = -1;
+    for (let p = 0; p <= 1.0001; p += 0.01) { const v = openingReveal(p); expect(v).toBeGreaterThanOrEqual(prev); prev = v; }
+  });
+  it('中途已经明显出现（>0.5 时至少 0.23）', () => {
+    expect(openingReveal(0.5)).toBeGreaterThan(0.2);
+  });
 });

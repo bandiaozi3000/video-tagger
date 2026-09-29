@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatElapsed, sessionSignature, taskProgressLabel } from './state';
+import { defaultConfig, defaultFilter, formatElapsed, parsePayload, sessionSignature, taskProgressLabel } from './state';
 import type { EditorConfig } from './api';
 
 /** 造一个最小可用的配置（只填签名关心的字段）。 */
@@ -16,6 +16,12 @@ function config(over: Partial<EditorConfig> = {}): EditorConfig {
 }
 
 describe('会话重建签名', () => {
+  it('**片段集变化不再进签名**（2026-09-26：片段改动也走「应用并渲染」，由编辑器在应用时显式重建会话）', () => {
+    const before = sessionSignature(config());
+    const withClip = sessionSignature(config({ mediaClips: { '1': { order: [7] } } } as Partial<EditorConfig>));
+    expect(withClip).toBe(before);
+  });
+
   it('换/删转场音必须重建会话（否则预览里永远不生效——2026-09-20 实测踩到）', () => {
     const before = sessionSignature(config());
     const added = sessionSignature(config({ stingTracks: [{ name: 'whoosh.wav', base64: 'AAAA' }] }));
@@ -53,5 +59,23 @@ describe('导出任务的耗时与预计剩余', () => {
   it('结束的任务报总时长', () => {
     expect(taskProgressLabel({ status: 'DONE', progress: 100, createdAt: 0, finishedAt: 754_000 }, 999_999))
       .toBe('共 12 分 34 秒');
+  });
+});
+
+describe('parsePayload：老草稿迁移（★ 重点 → 第 1 档）', () => {
+  const base = { version: 2, filter: defaultFilter(), variants: [], config: { ...defaultConfig(), ids: [7, 8], intro: 'x' } };
+
+  it('featuredIds 搬成 mediaMarks[..].tier = 0，并丢掉旧字段', () => {
+    const legacy = { ...base, config: { ...base.config, featuredIds: [7] } };
+    const parsed = parsePayload(JSON.stringify(legacy));
+    expect(parsed?.config.mediaMarks['7']).toEqual({ tier: 0 });
+    expect((parsed?.config as { featuredIds?: unknown }).featuredIds).toBeUndefined();
+  });
+
+  it('已有 mediaMarks 时不覆盖新数据（只是丢掉旧字段）', () => {
+    const both = { ...base, config: { ...base.config, featuredIds: [7], mediaMarks: { 8: { tier: 2 } } } };
+    const parsed = parsePayload(JSON.stringify(both));
+    expect(parsed?.config.mediaMarks['7']).toBeUndefined();
+    expect(parsed?.config.mediaMarks['8']).toEqual({ tier: 2 });
   });
 });

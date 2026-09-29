@@ -5,7 +5,7 @@
  * （缺省值 + 钳位都在那里）。服务端只负责"媒体/片段/BGM 这些需要 DB 与素材的部分"，
  * 纯参数改动直接补进 `input.params` → 即时生效，不走网络（设计规格 §6.1）。
  */
-import type { CandidateFilter, EditorConfig, PresetPayload, Variant } from './api';
+import type { CandidateFilter, EditorConfig, MediaMark, PresetPayload, Variant } from './api';
 import type { MultiMediaPocInput } from '../src/types';
 
 const STORAGE_KEY = 'vt-recommend-editor-config';
@@ -21,6 +21,8 @@ export function defaultConfig(): EditorConfig {
     endingTitle: '',
     endingText: '',
     groupBy: 'none',
+    /** 一级分组内再按推荐等级分群（用户 2026-09-26：「按年份分组后再支持按推荐等级接着分组」）。 */
+    tierGroup: true,
     groupStyle: 'chapter',
     groupSort: 'date-desc',
     perScreen: 1,
@@ -48,7 +50,7 @@ export function defaultConfig(): EditorConfig {
     bgmY: 8,
     bgmRange: 'all',
     openingIds: [],
-    featuredIds: [],
+    mediaMarks: {},
     clipVolume: 100,
     seed: rollSeed(),
     preset: 'starlit',
@@ -112,15 +114,17 @@ export function saveGroupOpen(groups: Record<string, boolean>): void {
 export function sessionSignature(config: EditorConfig): string {
   return JSON.stringify({
     ids: config.ids,
-    clips: config.mediaClips,
+    // ⚠️ `clips`（`config.mediaClips`）**故意不在签名里**（用户 2026-09-26：「片段更改信息仍是直接渲染，一并归入手动渲染」）：
+    //    改片段只改 config，点「应用并渲染」时才重建会话（片段素材必须后端重新准备，
+    //    见 `main.tsx` 的 `appliedClipsKeyRef` 比对 + `setReloadTick`）。
     groupBy: config.groupBy,
     // ⚠️ `groupStyle` 必须在内：**主色（accentColor）只有银幕式才由后端计算**（2026-09-26 起），
     // 且它就在渲染输入里 —— 不把模板形态并进签名，chapter ↔ cinema 互切时不会重取输入，
     // 银幕式会拿不到主色而退到兜底色。
     groupStyle: config.groupStyle,
-    // `featuredIds` 也在内：★ 重点会**改变场景结构**（组内补资料卡 + 结尾重点回顾），
+    // `mediaMarks` 也在内：推荐等级第 1 档会**改变场景结构**（组首核心区 + 结尾全片回顾），
     // 后端得重算 scene-plan。
-    featured: config.featuredIds,
+    marks: config.mediaMarks,
     bgm: config.bgmTracks.map((t) => `${t.name}:${t.base64?.length ?? 0}`),
     sting: config.stingTracks.map((t) => `${t.name}:${t.base64?.length ?? 0}`),
   });
@@ -177,6 +181,7 @@ export function applyLocalParams(input: MultiMediaPocInput, config: EditorConfig
         title: config.titleSec,
       },
       groupBy: config.groupBy,
+      tierGroup: config.tierGroup,
       groupSort: config.groupSort,
       perScreen: config.perScreen,
       openingIds: validOpening,
@@ -213,9 +218,23 @@ export function parsePayload(json: string | null | undefined): PresetPayload | n
     const value = JSON.parse(json) as Partial<PresetPayload> & { ids?: unknown };
     if (!value || typeof value !== 'object') return null;
     if (value.version !== 2 || !value.config) return null;   // 旧结构（v0.28 之前）不兼容
+    const stored = value.config as EditorConfig & { featuredIds?: unknown };
+    const config: EditorConfig = { ...defaultConfig(), ...stored };
+    /**
+     * 迁移（2026-09-26「等级取代 ★」）：老草稿/模板里的 `featuredIds`（★ 重点）语义与「第 1 档」等价
+     * → 搬成 `mediaMarks[id].tier = 0`，然后**丢掉旧字段**（否则会跟着草稿一直存下去）。
+     * 只在没有新数据时搬（新数据优先）；搬完就是普通草稿，不需再跑一次。
+     */
+    const legacy = Array.isArray(stored.featuredIds) ? stored.featuredIds.map(Number).filter(Number.isFinite) : [];
+    if (legacy.length > 0 && Object.keys(config.mediaMarks ?? {}).length === 0) {
+      const marks: Record<string, MediaMark> = { ...(config.mediaMarks ?? {}) };
+      for (const id of legacy) marks[String(id)] = { ...marks[String(id)], tier: 0 };
+      config.mediaMarks = marks;
+    }
+    delete (config as { featuredIds?: unknown }).featuredIds;
     return {
       version: 2,
-      config: { ...defaultConfig(), ...(value.config as EditorConfig) },
+      config,
       filter: { ...defaultFilter(), ...(value.filter ?? {}) },
       variants: Array.isArray(value.variants) ? value.variants : [],
     };

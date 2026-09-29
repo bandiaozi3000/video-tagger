@@ -135,6 +135,9 @@ try {
     await tab.evaluate(() => document.querySelector('#recommend-editor-root .vt-chip-clear')?.click());
     await sleep(1200);
   }
+  // 基线就位：清完筛选后再等列表真的渲染出来（后端在忙时 1200ms 可能不够 ——
+  // 实测过一次 cards=0 的假阴性，后面全部检查项跟着一起翻车）
+  await waitFor(async () => (await cards()) > 0, 6000);
   const keyword = (await tab.evaluate(() => document.querySelector('#recommend-editor-root .vt-media-title')?.textContent?.trim() ?? '')).slice(0, 2);
   const total0 = await headTotal();
   console.log(`（起始共 ${total0raw}${hadChips ? ' → 清除草稿筛选后' : ''} 共 ${total0}）`);
@@ -252,6 +255,80 @@ try {
   const url5 = new URL(lastMedia('/api/media?'));
   check('点 chip ✕ → 该维度参数消失', urlBefore !== url5.toString().replace(/^/, '') && !url5.searchParams.get('status') && (await chips()).length === chipsBefore - 1,
     `before=${urlBefore.search} after=${url5.search} chips ${chipsBefore}→${(await chips()).length}`);
+
+  // ⑪ 只看已勾选（2026-09-26）：候选收窄到 config.ids，一次取满、无「加载更多」
+  const selCount = await selectedCount();
+  const toggleSelectedOnly = () => tab.evaluate(() => {
+    const btn = [...document.querySelectorAll('#recommend-editor-root .vt-search-row button')]
+      .find((el) => (el.textContent || '').includes('已勾选'));
+    btn?.click();
+  });
+  if (selCount > 0) {
+    const before = mediaReqs.length;
+    await toggleSelectedOnly();
+    await waitFor(async () => new URL(lastMedia('/api/media?')).searchParams.get('ids') !== null, 4000);
+    await sleep(600);
+    const scoped = new URL(lastMedia('/api/media?'));
+    const scopedCards = await cards();
+    const meta1 = await headTotal();
+    check('只看已勾选 → 请求带 ids（条目数 = 已选数）',
+      (scoped.searchParams.get('ids') || '').split(',').length === selCount, `ids 条目 ${(scoped.searchParams.get('ids') || '').split(',').length} 已选 ${selCount}`);
+    check('只看已勾选 → 卡片数 = 命中数、无分页',
+      scopedCards > 0 && scopedCards <= selCount && meta1 === `${scopedCards} 部`
+      && (await tab.evaluate(() => document.querySelectorAll('#recommend-editor-root .vt-loadmore button').length)) === 0,
+      `cards=${scopedCards} meta=${meta1} 已选=${selCount} 请求 ${mediaReqs.length - before} 次`);
+    // 组合：只看已勾选 × 按年份分组（用户截图里就是分组开着的状态）
+    await tab.evaluate(() => {
+      const btn = [...document.querySelectorAll('#recommend-editor-root .vt-search-row button')]
+        .find((el) => (el.textContent || '').includes('按年份'));
+      btn?.click();
+    });
+    await waitFor(async () => {
+      const q = new URL(lastMedia('/api/media?')).searchParams;
+      return q.get('ids') !== null && q.get('sort') === 'year';
+    }, 4000);
+    await sleep(600);
+    const grouped = await tab.evaluate(() => ({
+      years: document.querySelectorAll('#recommend-editor-root .vt-year-head').length,
+      cards: document.querySelectorAll('#recommend-editor-root .vt-media-card').length,
+    }));
+    check('只看已勾选 + 按年份分组 → 有年份段且有卡片', grouped.years > 0 && grouped.cards > 0, JSON.stringify(grouped));
+    await tab.evaluate(() => {
+      const btn = [...document.querySelectorAll('#recommend-editor-root .vt-search-row button')]
+        .find((el) => (el.textContent || '').includes('按年份'));
+      btn?.click();
+    });
+    await waitFor(async () => new URL(lastMedia('/api/media?')).searchParams.get('sort') === null, 4000);
+    await sleep(400);
+    await toggleSelectedOnly();
+    await waitFor(async () => new URL(lastMedia('/api/media?')).searchParams.get('ids') === null, 4000);
+    await sleep(600);
+    check('再点一次 → 回到全库候选', (await headTotal()).includes('已加载'), `${await headTotal()} 卡片 ${await cards()}`);
+    check('关闭分组/只看已选后无 sort/ids 残留',
+      [...new URL(lastMedia('/api/media?')).searchParams.keys()].every((k) => k === 'limit' || k === 'offset'),
+      new URL(lastMedia('/api/media?')).search);
+  } else {
+    check('只看已勾选：草稿无已选，跳过（先手动勾几部）', false, `已选 ${selCount}`);
+  }
+
+  // ⑫ 独立排序：年份 ↑（不分组也能排）
+  const readYears = () => tab.evaluate(() => [...document.querySelectorAll('#recommend-editor-root .vt-media-year')].map((e) => Number(e.textContent)));
+  /** 年份升序（长度 > 1；`—` 会被 Number 成 NaN，比较为 false → 当年份缺失时不会假通过）。 */
+  const ascending = (years) => years.length > 1 && years.every((y, i) => i === 0 || years[i - 1] <= y);
+  await tab.select('#recommend-editor-root .vt-sort-sel', 'year-asc');
+  await waitFor(async () => {
+    const q = new URL(lastMedia('/api/media?')).searchParams;
+    return q.get('sort') === 'year' && q.get('order') === 'asc';
+  }, 4000);
+  // 等**列表真的换完**：只等请求发出会读到上一版列表（实测过一次假阴性：读到默认序 2008→2000）
+  const ascOk = await waitFor(async () => ascending(await readYears()), 5000);
+  const ascYears = await readYears();
+  const asc = new URL(lastMedia('/api/media?'));
+  check('选「年份 ↑」→ 请求 sort=year&order=asc，且首卡最旧',
+    asc.searchParams.get('sort') === 'year' && asc.searchParams.get('order') === 'asc' && ascOk,
+    `${asc.search} 年份 ${ascYears[0]}…${ascYears[ascYears.length - 1]} 名单前5 ${ascYears.slice(0, 5)}`);
+  await tab.select('#recommend-editor-root .vt-sort-sel', 'default');
+  await waitFor(async () => new URL(lastMedia('/api/media?')).searchParams.get('sort') === null, 4000);
 
   // 收尾：清干净，不给草稿留测试残留
   await tab.evaluate(() => document.querySelector('#recommend-editor-root .vt-chip-clear')?.click());

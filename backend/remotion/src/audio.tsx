@@ -1,7 +1,7 @@
 import React from 'react';
 import { Audio, Sequence } from 'remotion';
 import { assetUrl } from './asset-url';
-import { bgmSlotGainAt, bgmTimeline, stingGainAt, stingTimeline } from './bgm';
+import { bgmSlotGainAt, bgmStartFromFrames, bgmTimeline, stingGainAt, stingTimeline } from './bgm';
 import type { RenderParams } from './params';
 import type { ScenePlan } from './types';
 
@@ -27,8 +27,10 @@ export function BgmAudio({ params, plan, assetBaseUrl }: { params: RenderParams;
             <Audio
               src={assetUrl(slot.assetPath!, assetBaseUrl)}
               loop
-              // 结尾段从曲子后半段起放（用户选「乙」）；缺省 0 = 从头
-              startFrom={slot.startFromSec}
+              // 结尾段从曲子后半段起放（用户选「乙」）；缺省 0 = 从头。
+              // ⚠️ Remotion 的 `startFrom`（现名 `trimBefore`）单位是**帧**，我们存的是秒 → 必须 ×fps
+              // （2026-09-26 修：以前直接传秒，结尾“后半段”实际只前进到第 3.7 秒）
+              startFrom={bgmStartFromFrames(slot, plan.fps)}
               // volume 回调拿到的是**本 Sequence 内**的帧，故需加回起始偏移换算成全局帧
               volume={(localFrame) => bgmSlotGainAt(slot.fromFrame + localFrame, slot, params, plan)}
             />

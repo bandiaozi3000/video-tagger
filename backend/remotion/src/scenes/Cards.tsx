@@ -5,7 +5,8 @@ import { riseIn, staggerFrames, useEnter } from '../animation';
 import type { RenderParams } from '../params';
 import { glowOf, type Theme } from '../theme';
 import type { PocClip, PocMedia } from '../types';
-import { Chip, GradientTitle, OutlineNumber, Poster, PosterFlag, pad2 } from './parts';
+import { Chip, GradientTitle, OutlineNumber, Poster, pad2 } from './parts';
+import { reasonTextStyle, tierCardFrame, tierLook, TierBadge, TierCardRing, TierHalo } from '../tier';
 
 /** 资料卡尺寸：海报宽取"内容区比例"与"画幅高上限"的较小者，任何画幅下都不溢出。 */
 function posterBox(theme: Theme, width: number, height: number, heightRatio?: number) {
@@ -31,6 +32,9 @@ export function MediaInfo({ media, params, theme, assetBaseUrl, kicker, number }
   const { width, height, fps, durationInFrames } = useVideoConfig();
   const glow = glowOf(theme, media.order - 1);
   const poster = posterBox(theme, width, height);
+  // 推荐等级：名次→视觉由 `src/tier.tsx` 统一给（彩虹/金/青/默认）
+  const look = tierLook(media.tier, params.tiers);
+  const tierPulse = look.rainbow ? (Math.sin((frame / Math.max(1, fps)) * Math.PI * 2) + 1) / 2 : 0;
   // 核心卡：封面慢推镜，让停留期间画面“活着”
   const push = interpolate(frame, [0, Math.max(1, durationInFrames)], [1, 1.05], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const kickerIn = useEnter(0, theme);
@@ -43,13 +47,17 @@ export function MediaInfo({ media, params, theme, assetBaseUrl, kicker, number }
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: width * theme.layout.gapRatio, padding: `0 ${(width - poster.contentW) / 2}px` }}>
       <div style={{ position: 'relative', width: poster.width, height: poster.height, flex: 'none', transform: `scale(${push.toFixed(4)})` }}>
-        {params.detailShow.status ? <PosterFlag text={media.clips.length > 0 ? '片段推荐' : '资料推荐'} theme={theme} size={size.chip} /> : null}
+        <TierHalo look={look} frame={frame} fps={fps} radius={Math.round(height * 0.026)} />
         <Poster src={media.coverAssetPath ? assetUrl(media.coverAssetPath, assetBaseUrl) : undefined} theme={theme} radius={Math.round(height * 0.026)} />
+        {/* 等级胶囊：与网格卡统一 → **贴封面右上角**（2026-09-26 用户要求） */}
+        {look.decorated ? (
+          <span style={{ position: 'absolute', right: Math.round(height * 0.022), top: Math.round(height * 0.022), display: 'inline-flex' }}>
+            <TierBadge look={look} fontFamily={theme.font.body} size={size.chip} pulse={tierPulse} />
+          </span>
+        ) : null}
       </div>
       <div style={{ position: 'relative', width: poster.contentW * (1 - theme.layout.posterColumnRatio), display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-        <div style={{ ...riseIn(kickerIn, height * 0.025), fontFamily: theme.font.mono, fontSize: size.chip, letterSpacing: 3, color: theme.colors.sky, fontWeight: 600, marginBottom: Math.round(height * 0.016) }}>
-          PICK NO.{pad2(number ?? media.order)}
-        </div>
+        {/* 「PICK NO.xx」序号已下线（与网格卡的序号胶囊同一决定：用户 2026-09-26「没啥用」） */}
         {kicker ? (
           <div style={{ ...riseIn(kickerIn, height * 0.025), marginBottom: Math.round(height * 0.014),
                         fontFamily: theme.font.display, fontSize: Math.round(size.chip * 1.25), fontWeight: 800, letterSpacing: 4,
@@ -61,6 +69,41 @@ export function MediaInfo({ media, params, theme, assetBaseUrl, kicker, number }
         <div style={{ ...riseIn(titleIn, height * 0.03) }}>
           <GradientTitle text={media.title} theme={theme} size={size.title} />
         </div>
+        {/*
+         * 推荐理由（2026-09-26）：放标题与简介之间，左侧一条**等级色竖线** + 小一号引用体。
+         * 为什么放这：塞进简介位置会被长简介挤掉；塞进网格小卡会撑破卡片（§27 的两次教训）。
+         * clamp 2 行 → 再长也只是省略号，不破版；没填就不出现（现有版式零影响）。
+         */}
+        {media.reason?.trim() ? (
+          <div
+            style={{
+              ...riseIn(noteIn, height * 0.025),
+              display: 'flex',
+              gap: Math.round(height * 0.016),
+              marginTop: Math.round(height * 0.022),
+              maxWidth: '52ch',
+              textAlign: 'left',
+            }}
+          >
+            <div style={{ flex: 'none', width: Math.max(2, Math.round(height * 0.005)), borderRadius: 999, background: look.barBackground }} />
+            <p
+              style={{
+                margin: 0,
+                fontFamily: theme.font.body,
+                fontWeight: look.decorated ? 800 : 400,
+                fontSize: Math.round(size.body * 0.94),
+                lineHeight: 1.8,
+                ...(look.decorated ? reasonTextStyle(look) : { color: theme.colors.muted }),
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}
+            >
+              {media.reason.trim()}
+            </p>
+          </div>
+        ) : null}
         {params.detailShow.note && media.description ? (
           <p
             style={{
@@ -116,8 +159,21 @@ export function MediaInfo({ media, params, theme, assetBaseUrl, kicker, number }
  *   3. **少部时卡片宽由封面比例反推**：不按列宽硬撑，避免 3 部时又高又窄。
  *   4. **底部单独留白**（`bottomPadRatio`）：画面底部有进度条 chrome，两行时最后一行会被它压住
  *      （居中留白不够用），所以下方给得比上方多。
+ *   5. **推荐理由最多两行**（`textRatio` 已含两行预算）：用户 2026-09-26「推荐理由能否根据字数换行」——
+ *      一行放不下就折行，超过两行省略号；预算按**两行**给，免得每屏封面高度跳来跳去。
+ *   6. **每行卡片数由 `columns` 明确切分**（`gridRows`）：之前交给 flex-wrap 自己捣，卡片比列宽窄时
+ *      一行会塞进比 `columns` 更多的卡 → 7 部显成「上6下1」（用户 2026-09-26 点名要「上4下3」）。
  */
-const GRID = { padRatio: 0.03, bottomPadRatio: 0.085, labelRatio: 0.055, textRatio: 0.1, maxCoverRatio: 0.62, maxColumns: 6 };
+const GRID = { padRatio: 0.03, bottomPadRatio: 0.085, labelRatio: 0.055, textRatio: 0.165, maxCoverRatio: 0.62, maxColumns: 6 };
+
+/** 按 `columns` 把一屏切成每行几张（7 部 → `[4,3]`；10 部 → `[5,5]`）。导出供单测。 */
+export function gridRows(count: number, columns: number): number[] {
+  const rows = Math.ceil(count / Math.max(1, columns));
+  const perRow = Math.ceil(count / Math.max(1, rows));
+  const out: number[] = [];
+  for (let left = count; left > 0; left -= perRow) out.push(Math.min(perRow, left));
+  return out;
+}
 
 /** 网格屏几何。导出供单测断言「永不溢出画幅」与「卡片比例不极端」。 */
 export function gridGeometry(theme: Theme, width: number, height: number, count: number) {
@@ -150,21 +206,32 @@ export function gridGeometry(theme: Theme, width: number, height: number, count:
  * 全部**帧驱动** —— `animation.ts` 硬禁 CSS 过渡/keyframes：Remotion 逐帧渲染时帧会乱序或重复，
  * 靠浏览器实时时钟的动画会闪烁且不可复现。
  */
-export function GridScreen({ media, params, theme, assetBaseUrl, numberFrom = 1, kicker }: {
+export function GridScreen({ media, params, theme, assetBaseUrl, kicker, groupName, groupSize, groupTopCount }: {
   media: PocMedia[];
   params: RenderParams;
   theme: Theme;
   assetBaseUrl: string;
-  /** **本地序号起点**（1 基）：组内从 1 数，重点回顾按回顾顺序数。 */
-  numberFrom?: number;
   /** 题头（如「本组核心」）；给了就渲染成金色题头行（含金色扫光），不给则用组名行。 */
   kicker?: string;
+  /** 组名行文案。二级分组时是**子组名**（`2013 年 · 强推`），不传就退到媒体自带的年份。 */
+  groupName?: string;
+  /** 组名行里的「共 N 部」用**整组**部数（不传退到当前屏；用户 2026-09-26：「只是当前页面而不是该组所有」）。 */
+  groupSize?: number;
+  /** 第 1 档胶囊的数字用**整组**里第 1 档的部数（不传 = 当前屏统计）。 */
+  groupTopCount?: number;
 }) {
   const frame = useCurrentFrame();
   const { width, height, fps, durationInFrames } = useVideoConfig();
   const g = gridGeometry(theme, width, height, media.length);
-  const group = media[0]?.group;
-  const featuredCount = media.filter((item) => item.featured).length;
+  const group = groupName || media[0]?.group;
+  // 「本组最强档几部」：★ 下线后，这里改成报 **第 1 档**（名次 0）的数量与档名。
+  // 数字取**整组**（用户 2026-09-26：「推荐等级数量只是当前页面而不是该组所有」）；
+  // 二级分组后同屏通常已是同一档（组名里就写着），只在**混合屏**才额外挂这枚胶囊，否则就是重复播报。
+  const topTier = tierLook(0, params.tiers);
+  const total = groupSize ?? media.length;
+  const topAll = groupTopCount ?? media.filter((item) => item.tier === 0).length;
+  // 整组都是同一档（含全部第 1 档）→ 组名已经报过档位，不再重复挂胶囊
+  const topCount = params.tiers.length > 1 && topAll > 0 && topAll < total ? topAll : 0;
   const size = { title: Math.round(height * 0.024), body: Math.round(height * 0.02), chip: Math.round(height * 0.017) };
   // 金色扫光：一条高光带 0 → 0.9s 从左扫到右（核心题头用）
   const sweep = interpolate(frame, [0, Math.round(fps * 0.9)], [-1, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
@@ -190,30 +257,38 @@ export function GridScreen({ media, params, theme, assetBaseUrl, numberFrom = 1,
         </div>
       ) : group ? (
         <div style={{ height: Math.round(g.labelH), display: 'flex', alignItems: 'center', gap: Math.round(width * 0.012), fontFamily: theme.font.mono, fontSize: size.chip, letterSpacing: 6, color: theme.colors.sky }}>
-          {/* 序号已经是组内的，这里只报“共 N 部”——不再报全局区间（那时是 88-159 这类看不懂的数） */}
-          <span>{group} · 共 {media.length} 部</span>
-          {featuredCount > 0 ? (
-            <span style={{ letterSpacing: 1, color: theme.colors.gold, border: `1px solid ${theme.colors.gold}66`, borderRadius: 999, padding: '1px 8px', fontSize: Math.round(size.chip * 0.92) }}>
-              ★ 核心 {featuredCount}
+          {/* 组名行报的是**整组**部数（用户 2026-09-26：「只是当前页面而不是该组所有」） */}
+          <span>{group} · 共 {total} 部</span>
+          {topCount > 0 ? (
+            <span style={{ letterSpacing: 1, color: topTier.accent, border: `1px solid ${topTier.accent}66`, borderRadius: 999, padding: '1px 8px', fontSize: Math.round(size.chip * 0.92) }}>
+              {topTier.rainbow ? '✦' : '·'} {topTier.name} {topCount}
             </span>
           ) : null}
         </div>
       ) : null}
-      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignContent: 'center', gap: g.gap, width: g.contentW }}>
-        {media.map((item, index) => (
-          <GridCard key={item.mediaId} item={item} index={index} number={numberFrom + index} params={params} theme={theme}
-                    assetBaseUrl={assetBaseUrl} width={g.cardW} height={g.cardH} coverH={g.coverH} size={size} />
-        ))}
-      </div>
+      {/* 行内张数由 `g.columns` 明确切分：7 部 = 上4下3（用户 2026-09-26 点名），不再交给 flex-wrap 捣出「上6下1」 */}
+      {(() => {
+        let cursor = 0;
+        return gridRows(media.length, g.columns).map((count, rowIndex) => {
+          const row = media.slice(cursor, cursor + count);
+          cursor += count;
+          return (
+            <div key={rowIndex} style={{ display: 'flex', justifyContent: 'center', gap: g.gap }}>
+              {row.map((item, index) => (
+                <GridCard key={item.mediaId} item={item} index={index} params={params} theme={theme}
+                          assetBaseUrl={assetBaseUrl} width={g.cardW} height={g.cardH} coverH={g.coverH} size={size} />
+              ))}
+            </div>
+          );
+        });
+      })()}
     </div>
   );
 }
 
-function GridCard({ item, index, number, params, theme, assetBaseUrl, width, height, coverH, size }: {
+function GridCard({ item, index, params, theme, assetBaseUrl, width, height, coverH, size }: {
   item: PocMedia;
   index: number;
-  /** **本地序号**（组内从 1 数）。 */
-  number: number;
   params: RenderParams;
   theme: Theme;
   assetBaseUrl: string;
@@ -235,35 +310,38 @@ function GridCard({ item, index, number, params, theme, assetBaseUrl, width, hei
   const push = interpolate(frame, [0, Math.max(1, durationInFrames)], [1, 1.05], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   // ★ 呼吸微光：sin 驱动（确定性；硬禁则里禁的是 Math.random）
   const breathe = 0.55 + 0.45 * Math.sin((frame / fps) * 2.2);
-  const glowAlpha = Math.round(18 + breathe * 40).toString(16).padStart(2, '0');
   const meta = [item.year ? `${item.year} 年` : '', item.episodeCount ? `${item.episodeCount} 集` : ''].filter(Boolean).join(' · ');
   const pad = Math.round(Math.min(width, height) * 0.06);
+  // 推荐等级：名次→视觉由 `src/tier.tsx` 统一给（彩虹/金/青/默认）。小卡不放推荐理由（§27：会撑破卡片）
+  const look = tierLook(item.tier, params.tiers);
+  const cardFrame = tierCardFrame(look, breathe);
+  const cardRadius = Math.round(height * 0.055);
   return (
     <div
       style={{
         position: 'relative',
         width,
         height,
-        borderRadius: Math.round(height * 0.055),
+        borderRadius: cardRadius,
         overflow: 'hidden',
         // 底色用竖向渐变（比纯色“厚”），描边极低对比，外阴影把卡片从背景里抬起来；
-        // A 方案：核心项换成品牌色描边 + **呼吸微光**，在群像里一眼可辨
+        // 等级卡：按名次换描边 + 光晕（彩虹档多层异色阴影 = “彩虹光晕”，见 `tierCardFrame`）
         background: 'linear-gradient(180deg, rgba(30,28,52,.92), rgba(14,13,24,.96))',
-        border: item.featured ? `1px solid ${theme.colors.pink}99` : '1px solid rgba(255,255,255,.10)',
-        boxShadow: item.featured
-          ? `0 18px 44px rgba(0,0,0,.55), 0 0 0 1px ${theme.colors.pink}55, 0 0 ${Math.round(22 + breathe * 20)}px ${theme.colors.pink}${glowAlpha}`
-          : '0 18px 44px rgba(0,0,0,.55)',
+        border: cardFrame.border,
+        boxShadow: cardFrame.boxShadow,
         display: 'flex',
         flexDirection: 'column',
         opacity: enter,
         transform: `translateY(${((1 - enter) * 36).toFixed(1)}px) scale(${(0.94 + enter * 0.06).toFixed(4)})`,
       }}
     >
-      {/* 顶部品牌色发丝线：一排卡片拉齐后像“整排精心排版”，而不是一堆图贴上去 */}
+      {/* 顶部发丝线：一排卡片拉齐后像“整排精心排版”，而不是一堆图贴上去；等级档换成该档色 */}
       <span style={{ position: 'absolute', left: 0, right: 0, top: 0, height: Math.max(2, Math.round(height * 0.006)),
-                     background: item.featured
-                       ? `linear-gradient(90deg, ${theme.colors.gold}, ${theme.colors.pink})`
-                       : `linear-gradient(90deg, ${theme.colors.sky}, ${theme.colors.pink} 60%, transparent)`, zIndex: 3 }} />
+                     background: look.rainbow
+                       ? 'linear-gradient(90deg,#ff6b6b,#ffd166,#4ade80,#4fc3f7,#a78bfa)'
+                       : look.decorated
+                         ? `linear-gradient(90deg, ${look.accent}, ${look.accent}55 60%, transparent)`
+                         : `linear-gradient(90deg, ${theme.colors.sky}, ${theme.colors.pink} 60%, transparent)`, zIndex: 3 }} />
       <div style={{ position: 'relative', height: coverH, flex: 'none', overflow: 'hidden' }}>
         {/* 封面：显影（grayscale/blur/brightness）+ 慢推镜。blur 会吃掉边缘 → 同步放大一点补回来 */}
         <div style={{ position: 'absolute', inset: 0,
@@ -271,31 +349,40 @@ function GridCard({ item, index, number, params, theme, assetBaseUrl, width, hei
                       transform: `scale(${((1.06 - develop * 0.06) * push).toFixed(4)})` }}>
           <Poster src={item.coverAssetPath ? assetUrl(item.coverAssetPath, assetBaseUrl) : undefined} theme={theme} radius={0} contain />
         </div>
-        {params.detailShow.status ? <PosterFlag text={item.clips.length > 0 ? '片段推荐' : '资料推荐'} theme={theme} size={size.chip} /> : null}
-        {/* 封面底部渐隐：与下方文字区自然衔接，不再是硬切一刀 */}
-        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: Math.round(coverH * 0.26),
-                      background: 'linear-gradient(180deg, transparent, rgba(10,9,18,.88))', pointerEvents: 'none' }} />
-        {/* 序号胶囊：**组内**序号（盘点语境里“本组第 N 部”才是信息） */}
-        <span style={{ position: 'absolute', right: pad * 0.6, bottom: pad * 0.5,
-                       padding: `${Math.round(size.chip * 0.24)}px ${Math.round(size.chip * 0.72)}px`,
-                       borderRadius: 999, fontFamily: theme.font.mono, fontSize: size.chip, fontWeight: 700,
-                       letterSpacing: 1, color: theme.colors.ink,
-                       background: 'rgba(8,8,16,.55)', border: '1px solid rgba(255,255,255,.16)', backdropFilter: 'blur(4px)' }}>
-          {pad2(number)}
-        </span>
-        {/* A 方案：核心角标（左上已被“资料推荐/片段推荐”占用 → 放右上），弹性落位 */}
-        {item.featured ? (
-          <span style={{ position: 'absolute', right: pad * 0.55, top: pad * 0.5,
-                         padding: `${Math.round(size.chip * 0.24)}px ${Math.round(size.chip * 0.7)}px`,
-                         borderRadius: 999, fontFamily: theme.font.body, fontSize: size.chip, fontWeight: 800,
-                         letterSpacing: 1, color: '#241226',
-                         background: `linear-gradient(135deg, ${theme.colors.gold}, ${theme.colors.pink})`,
-                         border: '1px solid rgba(255,255,255,.35)', boxShadow: `0 6px 18px ${theme.colors.pink}55`,
+        {/* 封面底部渐隐：与下方文字区自然衔接，不再是硬切一刀；同时给等级胶囊/推荐理由做底色 */}
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: Math.round(coverH * 0.34),
+                      background: 'linear-gradient(180deg, transparent, rgba(10,9,18,.9))', pointerEvents: 'none' }} />
+        {/* 序号胶囊已按用户 2026-09-26「没啥用」下线（组标题行已经报了「共 N 部」）*/}
+        {/* 等级角标：**右上**（“资料推荐”角标已下线，这里不再有碰撞）；弹性落位 */}
+        {look.decorated ? (
+          <span style={{ position: 'absolute', right: pad * 0.55, top: pad * 0.5, display: 'inline-flex',
                          opacity: star, transform: `scale(${star.toFixed(3)}) rotate(${((1 - star) * -14).toFixed(2)}deg)` }}>
-            ★ 核心
+            <TierBadge look={look} fontFamily={theme.font.body} size={size.chip} pulse={breathe} />
           </span>
         ) : null}
       </div>
+      {/* 推荐理由：**紧贴图片下方**（用户 2026-09-26 指定）—— **按字数折行，最多两行**，超出省略号
+          （用户同日：「推荐理由能否根据字数换行」）；
+          字体/字重/字距与等级胶囊同一套（body + 800 + letterSpacing 1），颜色与微光用该档色；不属装饰，最低档也照常显示。
+          两行的高度预算已并入 `GRID.textRatio`（`grid-geometry.test` 守着 perScreen 1~10 不溢出）。 */}
+      {item.reason?.trim() ? (
+        <div style={{ flex: 'none', padding: `${Math.round(size.chip * 0.3)}px ${pad}px`,
+                      textAlign: 'center',
+                      background: 'linear-gradient(180deg, rgba(255,255,255,.085), rgba(255,255,255,.02))',
+                      borderTop: '1px solid rgba(255,255,255,.10)', borderBottom: '1px solid rgba(255,255,255,.07)',
+                      overflow: 'hidden' }}>
+          {/* 文字单独一层 span：`reasonTextStyle` 在彩虹档给的是 `backgroundImage` 渐变字，
+              而条底的 `background` 简写会把 backgroundImage 重置掉 → 直接写在同一层时第 1 档的字会**变成透明不可见**
+              （用户 2026-09-26 报「推荐未出现」，截图里只剩一条空条）。拆成两层就不打架了。 */}
+          <span style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                         overflow: 'hidden', wordBreak: 'break-word',
+                         fontFamily: theme.font.body, fontSize: Math.round(size.chip * 1.06),
+                         fontWeight: 800, letterSpacing: 1, lineHeight: 1.45,
+                         ...reasonTextStyle(look) }}>
+            {item.reason.trim()}
+          </span>
+        </div>
+      ) : null}
       {/* 文字区：标题两行 + 一行元信息。
           网格屏**不放简介与标签** —— 它是「一眼扫过」的场景，长文归资料卡（MediaInfo）；
           之前塞 3 行简介 + 3 个标签把卡片撑到 586px/张，两行就溢出画幅了。 */}
@@ -307,6 +394,8 @@ function GridCard({ item, index, number, params, theme, assetBaseUrl, width, hei
           <div style={{ fontFamily: theme.font.mono, fontSize: size.chip, letterSpacing: 1, color: theme.colors.muted }}>{meta}</div>
         ) : null}
       </div>
+      {/* 彩虹内环压在所有内容之上（zIndex 4）—— 只在第 1 档出现 */}
+      <TierCardRing look={look} radius={cardRadius} />
     </div>
   );
 }

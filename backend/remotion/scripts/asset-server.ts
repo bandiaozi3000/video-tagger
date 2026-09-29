@@ -9,11 +9,29 @@ export function safePath(root: string, relative: string): string | null {
   return file.startsWith(`${root}${path.sep}`) ? file : null;
 }
 
-/** 本地静态资源服务：Remotion 通过 HTTP 读素材，不传 file://。 */
-export async function startAssetServer(root: string): Promise<{ baseUrl: string; close: () => Promise<void> }> {
+/** 本地静态资源服务：Remotion 通过 HTTP 读素材，不传 file://；封面走**根相对**的 `/covers/**`。
+ *
+ *  两个根：
+ *   - `root`      —— 素材根（片段 / BGM / sting / 兜底封面），路径为 `/assets/<相对路径>`
+ *   - `coversRoot` —— 封面根（可选），路径为**跟浏览器预览同一套语义**的 `/covers/**`
+ *
+ *  封面为什么不再内联：2026-09-27 实测 —— Java 的导出链路原先把封面转成 base64 塞进 inputProps，
+ *  223 部 Bangumi 高清封面 ≈ 87MB → base64 ≈ 119MB；Remotion 把这坨 props 注入页面时
+ *  Chrome 目标直接挂掉（`Page.addScriptToEvaluateOnNewDocument: Target closed`，把 props 灌到 120MB 必现）。
+ *  改成走这个 HTTP 根后，props 里只剩 `/covers/ext/xxx.jpg` 这样的短路径。
+ *
+ *  ⚠️ 两个根都先 `path.resolve` 规范化：`safePath` 拿 `path.resolve` 的结果做前缀比对，
+ *  传进来带正斜杠的根（`D:/x/y`）会与 `D:\x\y\...` 比不过 → 全量 400。
+ */
+export async function startAssetServer(root: string, coversRoot?: string): Promise<{ baseUrl: string; close: () => Promise<void> }> {
+  const assetRoot = path.resolve(root);
+  const coversBase = coversRoot ? path.resolve(coversRoot) : undefined;
   const server = http.createServer(async (request, response) => {
-    const relative = decodeURIComponent((request.url || '').replace(/^\/assets\/?/, ''));
-    const file = safePath(root, relative);
+    const url = (request.url || '').split('?')[0];
+    const coverMatch = /^\/covers\/(.+)$/.exec(url);
+    if (coverMatch && !coversBase) { response.statusCode = 404; response.end('covers not mounted'); return; }
+    const relative = decodeURIComponent(coverMatch ? coverMatch[1] : url.replace(/^\/assets\/?/, ''));
+    const file = safePath(coverMatch ? coversBase! : assetRoot, relative);
     if (!file) { response.statusCode = 400; response.end('invalid asset path'); return; }
     try {
       const body = await fs.readFile(file);
