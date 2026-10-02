@@ -316,15 +316,16 @@ public class MediaController {
     /**
      * 批量打标 / 移除（媒体页勾选模式）：body = `{mediaIds:[…], tagIds:[…], action:"add"|"remove"}`。
      * 一次事务 + 幂等；只处理显式传来的 id（不做「按筛选条件全库应用」）。
+     * `changed` = **真实变更的关联数**（**0 表示什么都没变**，前端据此说真话）。
      */
     @PostMapping("/tags/batch")
     public Map<String, Object> batchTags(@RequestBody Map<String, Object> body) {
         List<Long> mediaIds = longList(body.get("mediaIds"));
         List<Long> tagIds = longList(body.get("tagIds"));
         Object action = body.get("action");
-        int touched = tagLinkService.batchMediaTags(mediaIds, tagIds,
+        int changed = tagLinkService.batchMediaTags(mediaIds, tagIds,
                 action == null ? "add" : String.valueOf(action));
-        return Map.of("touched", touched);
+        return Map.of("changed", changed, "targets", mediaIds.size());
     }
 
     /** JSON 数字数组 → List<Long>。 */

@@ -6690,7 +6690,13 @@ async function submitBatchTag(action) {
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json().catch(() => ({}));
-        showToast(`${action === 'add' ? '已加标签' : '已移除标签'}「${picked.name}」· ${data.touched ?? ids.length} 部`);
+        const verb = action === 'add' ? '已加标签' : '已移除标签';
+        // 后端重启前旧实例不返回 changed/touched → 此时只说动作，**不瞎报 0 处**
+        const hasCount = data && (data.changed != null || data.touched != null);
+        const changed = Number(data && (data.changed != null ? data.changed : data.touched));
+        showToast(!hasCount ? `${verb}「${picked.name}」`
+            : changed === 0 ? `「${picked.name}」本来就是这个状态（${ids.length} 部都没有变化）`
+                : `${verb}「${picked.name}」· 实际变更 ${changed} 处`);
         batchTagModal.hidden = true;
         exitMediaBatchMode();
         loadMedia();

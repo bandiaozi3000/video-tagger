@@ -20,7 +20,7 @@ public interface EpisodeTagMapper extends BaseMapper<EpisodeTag> {
     void insertIgnore(@Param("episodeId") long episodeId, @Param("tagId") long tagId);
 
     @Delete("DELETE FROM episode_tag WHERE episode_id = #{episodeId} AND tag_id = #{tagId}")
-    void deleteLink(@Param("episodeId") long episodeId, @Param("tagId") long tagId);
+    int deleteLink(@Param("episodeId") long episodeId, @Param("tagId") long tagId);
 
     @Delete("DELETE FROM episode_tag WHERE episode_id = #{episodeId}")
     void deleteByEpisode(@Param("episodeId") long episodeId);

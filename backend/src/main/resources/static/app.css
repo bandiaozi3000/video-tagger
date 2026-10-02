@@ -634,6 +634,14 @@ mark.hl {
     z-index: 100; padding: 20px;
     animation: fadeOverlay .2s ease-out;
 }
+/*
+ * 通用确认 / 输入弹窗必须永远压在**业务弹窗之上**。
+ * 原因（2026-10-02 实踩）：受控词表会在「批量打标签」「给本集打标签」这类弹窗内部
+ * 再弹一个「是否新建词条」确认；而 #confirm-modal / #prompt-modal 在 DOM 里排得比它们**早**，
+ * 同 z-index 下会被后出现的业务弹窗盖住 → 看起来像“点了没反应”，还会诱使人重复点。
+ * 共用一层加 z-index 一次修好，不要在每个调用点打补丁。
+ */
+#confirm-modal, #prompt-modal { z-index: 120; }
 @keyframes fadeOverlay { from { opacity: 0; } }
 .modal {
     position: relative;

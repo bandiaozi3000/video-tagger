@@ -20,7 +20,7 @@ public interface MediaTagMapper extends BaseMapper<MediaTag> {
     int insertIgnore(@Param("mediaId") long mediaId, @Param("tagId") long tagId);
 
     @Delete("DELETE FROM media_tag WHERE media_id = #{mediaId} AND tag_id = #{tagId}")
-    void deleteLink(@Param("mediaId") long mediaId, @Param("tagId") long tagId);
+    int deleteLink(@Param("mediaId") long mediaId, @Param("tagId") long tagId);
 
     @Delete("DELETE FROM media_tag WHERE media_id = #{mediaId}")
     void deleteByMedia(@Param("mediaId") long mediaId);

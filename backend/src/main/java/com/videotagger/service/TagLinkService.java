@@ -115,7 +115,12 @@ public class TagLinkService {
         embeddingTaskService.enqueue(type, entityId);
     }
 
-    /** 批量打标 / 移除（媒体页勾选模式用；一次事务 + 幂等）。返回受影响的媒体数。 */
+    /**
+     * 批量打标 / 移除（媒体页勾选模式用；一次事务 + 幂等）。
+     *
+     * <p>返回值 = **真实变更行数**（新增/删除真正生效的关联数），不是“遍历过几部媒体”：
+     * 否则「从这些媒体移除」在本来就没打这个词时也会报“已移除 N 部”，是骗人的。
+     */
     @Transactional
     public int batchMediaTags(List<Long> mediaIds, List<Long> tagIds, String action) {
         if (mediaIds == null || mediaIds.isEmpty()) {
@@ -127,19 +132,22 @@ public class TagLinkService {
         }
         boolean remove = "remove".equalsIgnoreCase(action == null ? "" : action.trim());
         List<Long> targets = mediaIds.stream().filter(Objects::nonNull).distinct().toList();
-        int touched = 0;
+        int changed = 0;
         for (Long mediaId : targets) {
+            boolean touchedEntity = false;
             for (Long tagId : ids) {
-                if (remove) {
-                    mediaTagMapper.deleteLink(mediaId, tagId);
-                } else {
-                    mediaTagMapper.insertIgnore(mediaId, tagId);
-                }
+                int affected = remove
+                        ? mediaTagMapper.deleteLink(mediaId, tagId)
+                        : mediaTagMapper.insertIgnore(mediaId, tagId);
+                changed += affected;
+                touchedEntity = touchedEntity || affected > 0;
             }
-            embeddingTaskService.enqueue(EntityType.MEDIA, mediaId);
-            touched++;
+            // 只有真动了关联才重嵌（全 no-op 的媒体不必重算向量）
+            if (touchedEntity) {
+                embeddingTaskService.enqueue(EntityType.MEDIA, mediaId);
+            }
         }
-        return touched;
+        return changed;
     }
 
     /** 某实体自己挂的标签 id（**实体视角**，不含下级）。 */
