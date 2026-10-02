@@ -149,7 +149,9 @@ public class EpisodeService {
 
     public List<Clip> clips(Long id) {
         requireEpisode(id);
-        return clipMapper.listByEpisode(id);
+        List<Clip> clips = clipMapper.listByEpisode(id);
+        tagLinkService.decorate(clips);
+        return clips;
     }
 
     /** 删除集：级联删除其下片段（含封面/标签/向量）与集标签/集封面/集向量。 */

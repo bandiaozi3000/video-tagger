@@ -199,8 +199,12 @@ export interface CandidateFilter {
   /** 格式 code（`''` = 不筛） */
   format: string;
   subcategoryId: number | null;
-  tagId: number | null;
-  tagName: string;
+  /** 标签（多选；v0.31 受控词表：只存已存在词条的 id）。空数组 = 不筛。 */
+  tagIds: number[];
+  /** 与 tagIds 一一对应的名字（仅用于 chip 展示） */
+  tagNames: string[];
+  /** 多标签语义：AND = 每个标签各自命中（默认）；OR = 任一命中即可 */
+  tagMode: 'AND' | 'OR';
   /** WANT / WATCHING / DONE / PAUSED / DROPPED（`''` = 不筛） */
   status: string;
   /** `null` = 全部 / `1` = 已确认 / `0` = 待确认 —— 0 必须照发，不能用真值判断 */
@@ -216,7 +220,10 @@ export function filterParams(filter: CandidateFilter): URLSearchParams {
   if (filter.year) params.set('year', filter.year);
   if (filter.format) params.set('format', filter.format);
   if (filter.subcategoryId != null) params.set('subcategoryId', String(filter.subcategoryId));
-  if (filter.tagId != null) params.set('tagId', String(filter.tagId));
+  if (filter.tagIds.length > 0) {
+    params.set('tagIds', filter.tagIds.join(','));
+    params.set('tagMode', filter.tagMode);
+  }
   if (filter.status) params.set('status', filter.status);
   if (filter.confirmed != null) params.set('confirmed', String(filter.confirmed));
   return params;

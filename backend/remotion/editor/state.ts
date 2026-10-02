@@ -192,12 +192,30 @@ export function applyLocalParams(input: MultiMediaPocInput, config: EditorConfig
 }
 
 export function defaultFilter(): CandidateFilter {
-  return { q: '', collectionId: null, year: '', format: '', subcategoryId: null, tagId: null, tagName: '', status: '', confirmed: null };
+  return { q: '', collectionId: null, year: '', format: '', subcategoryId: null, tagIds: [], tagNames: [], tagMode: 'AND', status: '', confirmed: null };
 }
 
 /** 默认变体：短版 + 完整版（用户拍板的「同配置多版本」最小形态）。 */
 export function defaultVariants(): Variant[] {
   return [];
+}
+
+/**
+ * 旧载荷（v0.31 之前）里的标签是单值 `tagId/tagName`，现已改多选 `tagIds/tagNames/tagMode`。
+ * 能就地迁移的迁移，缺的用默认值补全 —— 不让老草稿/模板的标签条件静默丢失。
+ */
+function normalizeFilter(raw: unknown): CandidateFilter {
+  const merged = { ...defaultFilter(), ...((raw ?? {}) as Partial<CandidateFilter> & { tagId?: number | null; tagName?: string }) };
+  if (!Array.isArray(merged.tagIds)) merged.tagIds = [];
+  if (!Array.isArray(merged.tagNames)) merged.tagNames = [];
+  if (merged.tagIds.length === 0 && merged.tagId != null) {
+    merged.tagIds = [merged.tagId];
+    merged.tagNames = [merged.tagName || `标签 #${merged.tagId}`];
+  }
+  if (merged.tagMode !== 'OR') merged.tagMode = 'AND';
+  delete merged.tagId;
+  delete merged.tagName;
+  return merged;
 }
 
 /** 组装草稿/模板载荷（version=2）。 */
@@ -240,7 +258,7 @@ export function parsePayload(json: string | null | undefined): PresetPayload | n
     return {
       version: 2,
       config,
-      filter: { ...defaultFilter(), ...(value.filter ?? {}) },
+      filter: normalizeFilter(value.filter),
       variants: Array.isArray(value.variants) ? value.variants : [],
     };
   } catch {

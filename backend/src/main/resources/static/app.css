@@ -3447,3 +3447,7 @@ body.desktop-mode .site-footer { display: none; }
     border-radius: 4px;
     background: rgba(255, 255, 255, .08);
 }
+
+/* 筛选浮层：标签多选语义开关（全部匹配 / 任一匹配，v0.31） */
+.fp-mode { display: flex; gap: 6px; padding: 0 12px 8px; }
+.fp-mode .btn-mini.on { border-color: var(--accent); color: var(--accent); }

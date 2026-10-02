@@ -413,7 +413,7 @@ document.getElementById('prompt-modal-input').addEventListener('keydown', (e) =>
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('prompt-modal-ok').click(); }
 });
 document.getElementById('prompt-modal').addEventListener('click', (e) => { if (e.target && e.target.id === 'prompt-modal') { const c = promptModalCancel; closePromptModal(); if (c) c(); } });
-let mediaFilter = { q: '', status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', sort: '', order: 'desc', genres: [], season: '', tagId: '' };
+let mediaFilter = { q: '', status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', sort: '', order: 'desc', genres: [], season: '', tagIds: [], tagMode: 'AND' };
 let displayView = 'card';   // 全局视图偏好：card 卡片 / list 列表（媒体页/收藏夹/推荐页共用，单按钮切换）
 let collSelectedId = null;           // 收藏夹 tab：当前选中的收藏夹 id
 let collectionsCache = [];           // 收藏夹列表缓存（管理视图用）
@@ -728,7 +728,7 @@ function renderClipNote(clip) {
                 url: clip.url || '',
                 timestampSec: clip.timestampSec ?? 0,
                 endSec: clip.endSec != null ? clip.endSec : null,
-                tag: clip.tag || '',
+                tagIds: clip.tagIds || [],
                 note: ta.value.trim()
             };
             const resp = await fetch(`/api/clips/${clip.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -944,17 +944,19 @@ function openLocalVideoPlayer(blob, clip, ctx) {
             if (markStart == null) { statusEl.textContent = '先播到起点，点「⟦ 起点」'; return; }
             const tag = tagEl.value.trim();
             if (!tag) { statusEl.textContent = '标签必填'; tagEl.focus(); return; }
+            const pickedTag = await resolveTagId(tagEl);
+            if (!pickedTag) { statusEl.textContent = ''; return; }
             saveBtn.disabled = true;
             statusEl.textContent = isUpdate ? '更新本片段中…' : '保存片段中…';
             try {
                 const resp = isUpdate
                     ? await fetch(`/api/clips/${cutCtx.clipId}/playback-range`, {
                         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ startMs: markStart, endMs: markEnd, tag, note: noteEl.value.trim() })
+                        body: JSON.stringify({ startMs: markStart, endMs: markEnd, tagIds: [pickedTag.id], note: noteEl.value.trim() })
                     })
                     : await fetch(`/api/episodes/${cutCtx.episodeId}/clips`, {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ startMs: markStart, endMs: markEnd, tag, note: noteEl.value.trim() })
+                        body: JSON.stringify({ startMs: markStart, endMs: markEnd, tagIds: [pickedTag.id], note: noteEl.value.trim() })
                     });
                 const data = await resp.json().catch(() => ({}));
                 if (!resp.ok) throw new Error(data.message || `HTTP ${resp.status}`);
@@ -1244,7 +1246,9 @@ function closeBrowserRecording() {
 
 async function renderClipTags(clip, mediaId) {
     clipDetailTagsEl.innerHTML = '';
-    const names = (clip.tag || '').split(/[，,]/).map(s => s.trim()).filter(Boolean);
+    const names = (Array.isArray(clip.tagNames) && clip.tagNames.length)
+        ? clip.tagNames
+        : String(clip.tag || '').split(/[，,\s]+/).map(s => s.trim()).filter(Boolean);
     if (names.length === 0) {
         clipDetailTagsEl.innerHTML = '<span class="status">无标签</span>';
         return;
@@ -1476,10 +1480,13 @@ async function renderEpisodeDetailTags(ep) {
     input.placeholder = '+ 添加集标签';
     input.addEventListener('keydown', async (e) => {
         if (e.key === 'Enter' && input.value.trim()) {
+            const picked = await resolveTagId(input);
+            if (!picked) return;
+            input.value = '';
             await fetch(`/api/episodes/${ep.id}/tags`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tag: input.value.trim() })
+                body: JSON.stringify({ tagIds: [picked.id] })
             });
             loadEpisodeDetail(ep.id);
         }
@@ -1966,7 +1973,11 @@ function renderTimeline(clips) {
 function openEditModal(r) {
     editingClip = r;
     editTitle.value = r.title;
-    editTag.value = r.tag;
+    // v0.31：标签改成受控词表（名字 → tagId），多标签在这里只编辑第一个（不改时保存会原样保留全部）
+    const names = Array.isArray(r.tagNames) && r.tagNames.length
+        ? r.tagNames
+        : String(r.tag || '').split(/\s+/).filter(Boolean);
+    editTag.value = names.join(' ');
     editNote.value = r.note || '';
     editTime.value = toClockText(r.timestampSec);
     editEndTime.value = r.endSec != null ? toClockText(r.endSec) : '';
@@ -2017,6 +2028,24 @@ async function saveEdit() {
         (endSec != null && (!Number.isFinite(endSec) || endSec <= timestampSec)) || !payload.tag) {
         statusEl.textContent = '保存失败：时间戳（分:秒）或标签不合法';
         return;
+    }
+    // v0.31 受控词表：名字 → tagId（不存在则询问「新建并打上」）
+    // 名字没改（仍是原来的多个标签拼串）→ 原样保留原 tagIds，避免多标签被压缩成一个
+    const originalNames = Array.isArray(editingClip.tagNames) && editingClip.tagNames.length
+        ? editingClip.tagNames
+        : String(editingClip.tag || '').split(/\s+/).filter(Boolean);
+    let pickedTag = null;
+    if (editTag.value.trim() === originalNames.join(' ') && Array.isArray(editingClip.tagIds)) {
+        delete payload.tag;
+        payload.tagIds = editingClip.tagIds;
+    } else {
+        pickedTag = await resolveTagId(editTag);
+        if (!pickedTag) {
+            statusEl.textContent = '';
+            return;
+        }
+        delete payload.tag;
+        payload.tagIds = [pickedTag.id];
     }
     try {
         const resp = await fetch(`/api/clips/${editingClip.id}`, {
@@ -2164,7 +2193,7 @@ const MEDIA_DIMS = [
     { key: 'season', label: '季度' },
     { key: 'status', label: '状态' },
     { key: 'collectionId', label: '收藏夹' },
-    { key: 'tagId', label: '标签' },
+    { key: 'tagIds', label: '标签' },
 ];
 
 /** 季度：唯一真值 = external_work.season，与同步弹窗的段标签同口径（冬=1–3月）。 */
@@ -2239,7 +2268,7 @@ async function addCustomGenre(word) {
 function dimIsMulti(key) { return key === 'genres'; }
 
 function dimActive(key) {
-    if (key === 'genres') return (mediaFilter.genres || []).length > 0;
+    if (dimIsMulti(key)) return (mediaFilter[key] || []).length > 0;
     return String(mediaFilter[key] ?? '').trim() !== '';
 }
 
@@ -2265,7 +2294,7 @@ function dimValues(key) {
         case 'collectionId':
             list = mediaFilterDict.collections.map(c => ({ value: String(c.id), label: c.name, count: c.mediaCount }));
             break;
-        case 'tagId':
+        case 'tagIds':
             list = mediaFilterDict.tags.map(t => ({ value: String(t.tagId), label: t.name, count: t.count }));
             break;
         default: list = [];
@@ -2275,7 +2304,14 @@ function dimValues(key) {
 
 /** 维度当前值的中文展示（chip 与浮层左栏共用）。 */
 function dimLabel(key) {
-    if (key === 'genres') return (mediaFilter.genres || []).join('、');
+    if (dimIsMulti(key)) {
+        // 标签多选：文案里把语义（且 / 或）写出来，别让用户猜
+        const names = (mediaFilter[key] || []).map(v => {
+            const hit = dimValues(key).find(o => String(o.value) === String(v));
+            return hit ? hit.label : v;
+        });
+        return names.join(key === 'tagIds' && mediaFilter.tagMode === 'OR' ? ' 或 ' : ' 且 ');
+    }
     if (key === 'year') return `${mediaFilter.year} 年`;
     const raw = String(mediaFilter[key] ?? '');
     const hit = dimValues(key).find(o => String(o.value) === raw);
@@ -2288,7 +2324,7 @@ function renderFilterChips() {
     let n = 0;
     for (const d of MEDIA_DIMS) {
         if (!dimActive(d.key)) continue;
-        n += dimIsMulti(d.key) ? (mediaFilter.genres || []).length : 1;
+        n += dimIsMulti(d.key) ? (mediaFilter[d.key] || []).length : 1;
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'filter-chip';
@@ -2312,9 +2348,9 @@ function renderFilterChips() {
 /** 写一个维度的取值并立刻重查（value=null → 清掉该维度）。 */
 function setDim(key, value) {
     if (dimIsMulti(key)) {
-        const cur = mediaFilter.genres || [];
-        if (value == null) mediaFilter.genres = [];
-        else mediaFilter.genres = cur.includes(value) ? cur.filter(g => g !== value) : [...cur, value];
+        const cur = mediaFilter[key] || [];
+        if (value == null) mediaFilter[key] = [];
+        else mediaFilter[key] = cur.includes(value) ? cur.filter(g => g !== value) : [...cur, value];
     } else {
         mediaFilter[key] = value == null ? '' : String(value);
     }
@@ -2364,8 +2400,28 @@ function renderFilterPop() {
     if (!dim) return;
     const head = document.createElement('div');
     head.className = 'fp-vals-head';
-    head.textContent = dimIsMulti(dim.key) ? `${dim.label}（可多选，命中任一）` : dim.label;
+    head.textContent = dim.key === 'tagIds' ? '标签（可多选）'
+            : dimIsMulti(dim.key) ? `${dim.label}（可多选，命中任一）` : dim.label;
     valHost.appendChild(head);
+    // 标签多选语义开关（v0.31）：默认「全部匹配」（每个标签各自三级命中）
+    if (dim.key === 'tagIds') {
+        const seg = document.createElement('div');
+        seg.className = 'fp-mode';
+        for (const [mode, label] of [['AND', '全部匹配'], ['OR', '任一匹配']]) {
+            const mb = document.createElement('button');
+            mb.type = 'button';
+            mb.className = 'btn-mini' + (mediaFilter.tagMode === mode ? ' on' : '');
+            mb.textContent = label;
+            mb.addEventListener('click', () => {
+                mediaFilter.tagMode = mode;
+                renderFilterChips();
+                renderFilterPop();
+                loadMedia();
+            });
+            seg.appendChild(mb);
+        }
+        valHost.appendChild(seg);
+    }
 
     const body = document.createElement('div');
     body.className = 'fp-vals-body';
@@ -2378,7 +2434,7 @@ function renderFilterPop() {
     }
     for (const item of items) {
         const on = dimIsMulti(dim.key)
-            ? (mediaFilter.genres || []).includes(String(item.value))
+            ? (mediaFilter[dim.key] || []).includes(String(item.value))
             : String(mediaFilter[dim.key] ?? '') === String(item.value);
         const b = document.createElement('button');
         b.type = 'button';
@@ -2445,7 +2501,7 @@ function renderFilterPop() {
 }
 
 /** 按当前筛选/分页构造列表与 count 请求 URL（全部媒体/最近观看/收藏夹三分支）。
- *  format/subcategoryId/year/genres/season/tagId 全部后端过滤，保证分页总数与列表同条件。 */
+ *  format/subcategoryId/year/genres/season/tagIds 全部后端过滤，保证分页总数与列表同条件。 */
 function buildMediaUrls() {
     const base = new URLSearchParams({ limit: String(mediaPageSize), offset: String((mediaPage - 1) * mediaPageSize) });
     const addCommon = p => {
@@ -2455,7 +2511,10 @@ function buildMediaUrls() {
         if (mediaFilter.subcategoryId) p.set('subcategoryId', mediaFilter.subcategoryId);
         if (mediaFilter.unconfirmed) p.set('confirmed', '0');
         if (mediaFilter.year) p.set('year', mediaFilter.year);
-        if (mediaFilter.tagId) p.set('tagId', mediaFilter.tagId);
+        if (mediaFilter.tagIds && mediaFilter.tagIds.length) {
+            p.set('tagIds', mediaFilter.tagIds.join(','));
+            p.set('tagMode', mediaFilter.tagMode || 'AND');
+        }
         if (mediaFilter.season) p.set('season', mediaFilter.season);
         if (mediaFilter.genres && mediaFilter.genres.length) p.set('genres', mediaFilter.genres.join(','));
         if (mediaFilter.sort) p.set('sort', mediaFilter.sort);
@@ -3249,6 +3308,8 @@ function updateMediaBatchConfirm() {
     if (del) { del.textContent = `🗑 移入回收站(${n})`; del.disabled = n === 0; }
     const fav = document.getElementById('media-batch-fav-confirm');
     if (fav) { fav.textContent = `＋ 收藏夹(${n})`; fav.disabled = n === 0; }
+    const tagBtn = document.getElementById('media-batch-tag');
+    if (tagBtn) { tagBtn.textContent = `🏷 标签(${n})`; tagBtn.disabled = n === 0; }
 }
 
 function toggleMediaBatchMode() {
@@ -3796,10 +3857,13 @@ async function renderTagPool(d, container) {
     input.placeholder = '+ 添加标签';
     input.addEventListener('keydown', async (e) => {
         if (e.key === 'Enter' && input.value.trim()) {
+            const picked = await resolveTagId(input);
+            if (!picked) return;
+            input.value = '';
             await fetch(`/api/media/${d.id}/tags`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tag: input.value.trim() })
+                body: JSON.stringify({ tagIds: [picked.id] })
             });
             refreshMediaDetail();
         }
@@ -3915,10 +3979,13 @@ async function renderDetailTags(d) {
     input.placeholder = '+ 添加标签';
     input.addEventListener('keydown', async (e) => {
         if (e.key === 'Enter' && input.value.trim()) {
+            const picked = await resolveTagId(input);
+            if (!picked) return;
+            input.value = '';
             await fetch(`/api/media/${d.id}/tags`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tag: input.value.trim() })
+                body: JSON.stringify({ tagIds: [picked.id] })
             });
             refreshMediaDetail();
         }
@@ -6164,6 +6231,45 @@ async function resolveEpisodeMediaId(episodeId) {
     }
 }
 
+/**
+ * v0.31 受控词表：把输入框里的**名字**解析成 tagId。
+ *
+ * 规则（与后端一致：打标接口只收 tagId，不自动建词条）：
+ * - 词库里有同名 → 直接用；
+ * - 词库里没有 → 弹确认「先新建词条再打上」（**不静默造词**），确认后 POST /api/tags；
+ * - 用户取消 / 名为空 → 返回 null（调用方直接放弃本次保存）。
+ */
+async function resolveTagId(inputEl) {
+    const name = (inputEl && inputEl.value ? inputEl.value : '').trim();
+    if (!name) return null;
+    await ensureTagPool();
+    const hit = tagPoolByName.get(name);
+    if (hit) return { id: hit, name };
+    const ok = await confirmAsync({
+        title: '词库里还没有这个标签',
+        msg: `标签已改为受控词表：先新建词条「${name}」，再把它打上？`,
+        okText: '新建并打上',
+        danger: false
+    });
+    if (!ok) return null;
+    const resp = await fetch('/api/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    });
+    if (!resp.ok) {
+        showToast('新建词条失败', 3000);
+        return null;
+    }
+    const created = await resp.json().catch(() => null);
+    if (created && created.id) {
+        tagPoolByName.set(name, created.id);
+        return { id: created.id, name };
+    }
+    showToast('新建词条失败', 3000);
+    return null;
+}
+
 /** 给打标输入挂共享补全：mediaId 由 resolveMediaId() 惰性取（可为 async）。 */
 function attachTagSuggest(inputEl, resolveMediaId) {
     inputEl.setAttribute('list', 'tag-suggest-list');
@@ -6261,6 +6367,58 @@ document.getElementById('media-create').addEventListener('click', openCreateMedi
 document.getElementById('media-batch-op').addEventListener('click', toggleMediaBatchMode);
 document.getElementById('media-batch-cancel').addEventListener('click', toggleMediaBatchMode);
 document.getElementById('media-batch-confirm').addEventListener('click', () => openBatchDelModal([...mediaSelected]));
+
+/**
+ * 批量打标 / 移除（v0.31）：名称 → 受控词表 tagId → 一次事务端点。
+ * 只作用于**已勾选**的媒体（可跨页累积）；不做「按筛选条件全库应用」。
+ */
+document.getElementById('media-batch-tag').addEventListener('click', async () => {
+    const ids = [...mediaSelected];
+    if (ids.length === 0) return;
+    const name = await promptInput({
+        title: '批量打标签',
+        msg: `将作用于已勾选的 ${ids.length} 部媒体（词库受控：词条不存在会问你是否新建）`,
+        placeholder: '词条名，如：名场面',
+        okText: '下一步',
+        danger: false
+    });
+    if (!name || !String(name).trim()) return;
+    const probe = document.createElement('input');
+    probe.value = String(name).trim();
+    const picked = await resolveTagId(probe);
+    if (!picked) return;
+    const add = await confirmAsync({
+        title: `批量打标签（${ids.length} 部）`,
+        msg: `给这 ${ids.length} 部媒体加上「${picked.name}」？\n若要点「移除」，请在下一个弹窗里确认。`,
+        okText: '添加',
+        danger: false
+    });
+    let action = 'add';
+    if (!add) {
+        const rm = await confirmAsync({
+            title: '改为移除？',
+            msg: `从这 ${ids.length} 部媒体上移除「${picked.name}」？`,
+            okText: '移除',
+            danger: true
+        });
+        if (!rm) return;
+        action = 'remove';
+    }
+    try {
+        const resp = await fetch('/api/media/tags/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mediaIds: ids, tagIds: [picked.id], action })
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json().catch(() => ({}));
+        showToast(`${action === 'add' ? '已加标签' : '已移除标签'}「${picked.name}」· ${data.touched ?? ids.length} 部`);
+        exitMediaBatchMode();
+        loadMedia();
+    } catch (e) {
+        showToast('批量打标签失败：' + e.message, 3500);
+    }
+});
 /* ⋯ 更多下拉：收纳 同步番剧/补下封面/管理格式，点击外部关闭 */
 const mediaMoreMenu = document.getElementById('media-more-menu');
 document.getElementById('media-more-btn').addEventListener('click', (e) => {

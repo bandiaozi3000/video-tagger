@@ -764,14 +764,14 @@ export function TemplatePanel({ onClose, notify, payload, onApply }: {
 }
 
 /** 候选库筛选的维度定义（数组序 = chips 行与面板列表的固定序）。 */
-type FilterDim = 'collectionId' | 'year' | 'format' | 'subcategoryId' | 'tagId' | 'status' | 'confirmed';
+type FilterDim = 'collectionId' | 'year' | 'format' | 'subcategoryId' | 'tagIds' | 'status' | 'confirmed';
 
 const FILTER_DIMS: { key: FilterDim; label: string }[] = [
   { key: 'collectionId', label: '收藏夹' },
   { key: 'year', label: '年份' },
   { key: 'format', label: '格式' },
   { key: 'subcategoryId', label: '子分类' },
-  { key: 'tagId', label: '标签' },
+  { key: 'tagIds', label: '标签' },
   { key: 'status', label: '状态' },
   { key: 'confirmed', label: '档案' },
 ];
@@ -812,7 +812,8 @@ interface FilterDict {
 
 function isDimActive(filter: CandidateFilter, key: FilterDim): boolean {
   if (key === 'confirmed') return filter.confirmed != null;
-  if (key === 'collectionId' || key === 'subcategoryId' || key === 'tagId') return filter[key] != null;
+  if (key === 'tagIds') return filter.tagIds.length > 0;
+  if (key === 'collectionId' || key === 'subcategoryId') return filter[key] != null;
   return String(filter[key]).trim() !== '';
 }
 
@@ -823,7 +824,9 @@ function dimLabel(filter: CandidateFilter, key: FilterDim, dict: FilterDict): st
     case 'year': return `${filter.year} 年`;
     case 'format': return dict.formats.find((f) => f.code === filter.format)?.name ?? filter.format;
     case 'subcategoryId': return dict.subOptions.find((s) => s.id === filter.subcategoryId)?.label ?? `子分类 #${filter.subcategoryId}`;
-    case 'tagId': return filter.tagName || `标签 #${filter.tagId}`;
+    case 'tagIds': return filter.tagNames.length
+        ? filter.tagNames.join(filter.tagMode === 'OR' ? ' 或 ' : ' 且 ')
+        : `标签 #${filter.tagIds.join('/')}`;
     case 'status': return STATUS_OPTIONS.find((s) => s.value === filter.status)?.label ?? filter.status;
     case 'confirmed': return filter.confirmed === 1 ? '已确认' : '待确认';
   }
@@ -870,7 +873,7 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
 
   // 标签建议：250ms 防抖（不创建标签，只选既有）
   React.useEffect(() => {
-    if (dim !== 'tagId') return;
+    if (dim !== 'tagIds') return;
     const query = tagText.trim();
     if (!query) { setTagHits([]); return; }
     const timer = window.setTimeout(() => {
@@ -886,7 +889,19 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
       case 'year': next.year = value == null ? '' : String(value); break;
       case 'format': next.format = value == null ? '' : String(value); break;
       case 'subcategoryId': next.subcategoryId = value as number | null; break;
-      case 'tagId': next.tagId = value as number | null; break;
+      case 'tagIds': {
+        const id = value as number;
+        const idx = next.tagIds.indexOf(id);
+        if (idx >= 0) {
+          next.tagIds = next.tagIds.filter((t) => t !== id);
+          next.tagNames = next.tagNames.filter((_, i) => i !== idx);
+        } else {
+          const hit = tagHits.find((t) => t.id === id);
+          next.tagIds = [...next.tagIds, id];
+          next.tagNames = [...next.tagNames, hit?.name ?? `标签 #${id}`];
+        }
+        break;
+      }
       case 'status': next.status = value == null ? '' : String(value); break;
       case 'confirmed': next.confirmed = value as number | null; break;
     }
@@ -934,19 +949,25 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
             <button type="button" onClick={() => { setDim(null); setTagText(''); }}>‹ 返回</button>
             <span>{dimDef?.label}</span>
           </div>
-          {dim === 'tagId' ? (
+          {dim === 'tagIds' ? (
             <>
               <input className="vt-pop-search" placeholder="🔍 输入标签名…" value={tagText} autoFocus
                      onChange={(event) => setTagText(event.target.value)} />
+              <div className="vt-pop-mode">
+                {([['AND', '全部匹配'], ['OR', '任一匹配']] as const).map(([mode, label]) => (
+                  <button key={mode} type="button" className={cls('btn-mini', filter.tagMode === mode && 'on')}
+                          onClick={() => onFilter({ ...filter, tagMode: mode })}>{label}</button>
+                ))}
+              </div>
               <div className="vt-pop-body">
-                <button type="button" className={cls('vt-pop-item', filter.tagId == null && 'on')}
-                        onClick={() => { onFilter({ ...filter, tagId: null, tagName: '' }); setTagText(''); }}>
+                <button type="button" className={cls('vt-pop-item', filter.tagIds.length === 0 && 'on')}
+                        onClick={() => { onFilter({ ...filter, tagIds: [], tagNames: [] }); setTagText(''); }}>
                   <span>不限</span>
                 </button>
                 {tagHits.map((tag) => (
-                  <button key={tag.id} type="button" className={cls('vt-pop-item', filter.tagId === tag.id && 'on')}
-                          onClick={() => { onFilter({ ...filter, tagId: tag.id, tagName: tag.name }); setTagText(''); }}>
-                    <span>{tag.name}</span>
+                  <button key={tag.id} type="button" className={cls('vt-pop-item', filter.tagIds.includes(tag.id) && 'on')}
+                          onClick={() => pick('tagIds', tag.id)}>
+                    <span>{filter.tagIds.includes(tag.id) ? '☑' : '☐'} {tag.name}</span>
                   </button>
                 ))}
                 {tagText.trim() && tagHits.length === 0 ? <p className="vt-pop-note">没有这个标签（不会新建标签）</p> : null}
@@ -1256,7 +1277,7 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
       case 'year': next.year = ''; break;
       case 'format': next.format = ''; break;
       case 'subcategoryId': next.subcategoryId = null; break;
-      case 'tagId': next.tagId = null; next.tagName = ''; break;
+      case 'tagIds': next.tagIds = []; next.tagNames = []; break;
       case 'status': next.status = ''; break;
       case 'confirmed': next.confirmed = null; break;
     }
