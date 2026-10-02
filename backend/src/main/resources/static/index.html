@@ -1171,6 +1171,21 @@
     </div>
 </div>
 
+<!-- 批量打标签（v0.31）：输入框带词库自动提示（datalist），与单条打标同一套补全 -->
+<div id="batch-tag-modal" class="modal-overlay" hidden>
+    <div class="modal">
+        <h2>批量打标签</h2>
+        <div id="batch-tag-target" class="episode-tag-target"></div>
+        <label>标签<input id="batch-tag-input" autocomplete="off" placeholder="输入即提示词库里已有的；没有的词条会问你是否新建"></label>
+        <div id="batch-tag-hint" class="tag-add-preview"></div>
+        <div class="modal-actions">
+            <button id="batch-tag-cancel" type="button">取消</button>
+            <button id="batch-tag-remove" type="button">从这些媒体移除</button>
+            <button id="batch-tag-add" type="button">加到这些媒体</button>
+        </div>
+    </div>
+</div>
+
 <!-- 集封面：自选片段帧 / 上传兜底 -->
 <div id="episode-cover-modal" class="modal-overlay" hidden>
     <div class="modal modal-wide">

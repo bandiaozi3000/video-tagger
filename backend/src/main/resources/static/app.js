@@ -6645,41 +6645,43 @@ document.getElementById('media-batch-cancel').addEventListener('click', toggleMe
 document.getElementById('media-batch-confirm').addEventListener('click', () => openBatchDelModal([...mediaSelected]));
 
 /**
- * 批量打标 / 移除（v0.31）：名称 → 受控词表 tagId → 一次事务端点。
+ * 批量打标签（v0.31）：专用弹窗 + **词库自动提示**（datalist，与单条打标同一套补全）。
+ * 名称 → 受控词表 tagId（没有则问一句再新建）→ 一次事务端点。
  * 只作用于**已勾选**的媒体（可跨页累积）；不做「按筛选条件全库应用」。
  */
-document.getElementById('media-batch-tag').addEventListener('click', async () => {
-    const ids = [...mediaSelected];
-    if (ids.length === 0) return;
-    const name = await promptInput({
-        title: '批量打标签',
-        msg: `将作用于已勾选的 ${ids.length} 部媒体（词库受控：词条不存在会问你是否新建）`,
-        placeholder: '词条名，如：名场面',
-        okText: '下一步',
-        danger: false
-    });
-    if (!name || !String(name).trim()) return;
-    const probe = document.createElement('input');
-    probe.value = String(name).trim();
-    const picked = await resolveTagId(probe);
+const batchTagModal = document.getElementById('batch-tag-modal');
+const batchTagInput = document.getElementById('batch-tag-input');
+const batchTagHintEl = document.getElementById('batch-tag-hint');
+let batchTagIds = [];
+
+document.getElementById('media-batch-tag').addEventListener('click', () => {
+    batchTagIds = [...mediaSelected];
+    if (batchTagIds.length === 0) return;
+    document.getElementById('batch-tag-target').textContent = `将作用于已勾选的 ${batchTagIds.length} 部媒体`;
+    batchTagInput.value = '';
+    batchTagHintEl.innerHTML = '';
+    batchTagModal.hidden = false;
+    batchTagInput.focus();
+    // 词库惰性缓存：首开时拉一次，命中/新建的提示才准确
+    ensureTagPool().then(refreshBatchTagHint);
+});
+
+/** 输入即提示：命中词库 = 直接用；未命中 = 会问你是否新建（此处只预告，不弹窗） */
+function refreshBatchTagHint() {
+    const name = batchTagInput.value.trim();
+    batchTagHintEl.innerHTML = '';
+    if (!name) return;
+    const hit = tagPoolByName.has(name);
+    const chip = document.createElement('span');
+    chip.className = 'chip ' + (hit ? 'chip-ok' : 'chip-warn');
+    chip.textContent = hit ? `✓ 词库里已有「${name}」，将直接使用` : `⚠ 词库里没有「${name}」，保存时会问你是否新建`;
+    batchTagHintEl.appendChild(chip);
+}
+
+async function submitBatchTag(action) {
+    const picked = await resolveTagId(batchTagInput);
     if (!picked) return;
-    const add = await confirmAsync({
-        title: `批量打标签（${ids.length} 部）`,
-        msg: `给这 ${ids.length} 部媒体加上「${picked.name}」？\n若要点「移除」，请在下一个弹窗里确认。`,
-        okText: '添加',
-        danger: false
-    });
-    let action = 'add';
-    if (!add) {
-        const rm = await confirmAsync({
-            title: '改为移除？',
-            msg: `从这 ${ids.length} 部媒体上移除「${picked.name}」？`,
-            okText: '移除',
-            danger: true
-        });
-        if (!rm) return;
-        action = 'remove';
-    }
+    const ids = batchTagIds;
     try {
         const resp = await fetch('/api/media/tags/batch', {
             method: 'POST',
@@ -6689,12 +6691,26 @@ document.getElementById('media-batch-tag').addEventListener('click', async () =>
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json().catch(() => ({}));
         showToast(`${action === 'add' ? '已加标签' : '已移除标签'}「${picked.name}」· ${data.touched ?? ids.length} 部`);
+        batchTagModal.hidden = true;
         exitMediaBatchMode();
         loadMedia();
     } catch (e) {
         showToast('批量打标签失败：' + e.message, 3500);
     }
+}
+
+// 补全接线 + 输入提示（受控词表：候选只来自已存在词条，不会凭空造词）
+attachTagSuggest(batchTagInput, () => null);
+let batchTagHintTimer = null;
+batchTagInput.addEventListener('input', () => {
+    clearTimeout(batchTagHintTimer);
+    batchTagHintTimer = setTimeout(refreshBatchTagHint, 180);
 });
+batchTagInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitBatchTag('add'); } });
+document.getElementById('batch-tag-add').addEventListener('click', () => submitBatchTag('add'));
+document.getElementById('batch-tag-remove').addEventListener('click', () => submitBatchTag('remove'));
+document.getElementById('batch-tag-cancel').addEventListener('click', () => { batchTagModal.hidden = true; });
+batchTagModal.addEventListener('click', (e) => { if (e.target === batchTagModal) batchTagModal.hidden = true; });
 /* ⋯ 更多下拉：收纳 同步番剧/补下封面/管理格式，点击外部关闭 */
 const mediaMoreMenu = document.getElementById('media-more-menu');
 document.getElementById('media-more-btn').addEventListener('click', (e) => {
