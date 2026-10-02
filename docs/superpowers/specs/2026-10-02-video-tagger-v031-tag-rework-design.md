@@ -136,7 +136,7 @@ a.id IN (
   - 例：选 `名场面 AND 治愈` → A 片段的「名场面」+ B 集的「治愈」，同一个媒体下 → **算命中**。
 - 性能：本库 `media_tag` 173 行 / `episode_tag` 37 行 / `clip_tag` 25 行，量级上无所谓；索引 `idx_clips_episode` 已在。
 
-**纪律（§19 教训）**：`TAG_UNION` 谓词必须**同时**加到 5 条 SQL（`listFiltered` / `countFiltered` / `listByLatest` / `countLatest` / `listByCollection`）**+ `listExportRows`**。只加一部分 → "切到最近观看就静默忽略条件" = 静默错结果。
+**纪律（教训）**：`TAG_UNION` 谓词必须**同时**加到 5 条 SQL（`listFiltered` / `countFiltered` / `listByLatest` / `countLatest` / `listByCollection`）**+ `listExportRows`**。只加一部分 → "切到最近观看就静默忽略条件" = 静默错结果。
 
 ---
 

@@ -34,10 +34,11 @@ public class TagAdminService {
         this.embeddingTaskService = embeddingTaskService;
     }
 
-    /** 标签列表：q 按名过滤；mediaId != null 时按媒体维度返回；统一分页（内存切片，词条量级小）。 */
+    /** 标签列表：q 按名过滤；mediaId != null 时按媒体维度返回；统一分页（内存切片，词条量级小）。
+     *  v0.31：**实体视角** —— 只列该媒体**自己**挂的标签（不再带集/片段并集；三级并集只用于筛选与推荐渲染）。 */
     public PageResult<TagUsage> list(String q, Long mediaId, int page, int size) {
         List<TagUsage> all = mediaId != null
-                ? tagMapper.countByMedia(mediaId)
+                ? tagMapper.ownTagsOfMedia(mediaId)
                 : tagMapper.countGlobal();
         String query = q == null ? "" : q.trim().toLowerCase();
         List<TagUsage> filtered = query.isEmpty() ? all
@@ -49,9 +50,9 @@ public class TagAdminService {
         return new PageResult<>(new ArrayList<>(filtered.subList(from, to)), filtered.size());
     }
 
-    /** 某集内标签聚合：集本身 + 其下片段引用（集详情页标签池，refCount=集内引用总数）。 */
+    /** 某集内标签聚合（集详情页标签池）：**实体视角** —— 只算集自己挂的（v0.31 起不含其下片段）。 */
     public List<TagUsage> episodeStats(Long episodeId) {
-        return tagMapper.countByEpisode(episodeId);
+        return tagMapper.ownTagsOfEpisode(episodeId);
     }
 
     /** 改名：只改词表一行（`clip_tag` 等关联存的是 id，天然全链路生效 —— v0.31 起不再回写字符串列）。 */

@@ -53,6 +53,16 @@ public interface TagMapper extends BaseMapper<Tag> {
             + "ORDER BY media_count + episode_count + clip_count DESC, t.id")
     List<TagUsage> countGlobal();
 
+    /** **实体视角**：某媒体**自己**挂的标签 + 引用次数（v0.31：不带下级并集；筛选用媒体视角见 {@code MediaMapper.TAG_FILTER}）。 */
+    @Select("SELECT t.id, t.name, t.created_at, 1 AS media_count, 0 AS episode_count, 0 AS clip_count, 1 AS ref_count "
+            + "FROM tag t JOIN media_tag mt ON mt.tag_id = t.id WHERE mt.media_id = #{mediaId} ORDER BY t.id")
+    List<TagUsage> ownTagsOfMedia(@Param("mediaId") long mediaId);
+
+    /** **实体视角**：某集**自己**挂的标签 + 引用次数（不带其下片段）。 */
+    @Select("SELECT t.id, t.name, t.created_at, 0 AS media_count, 1 AS episode_count, 0 AS clip_count, 1 AS ref_count "
+            + "FROM tag t JOIN episode_tag et ON et.tag_id = t.id WHERE et.episode_id = #{episodeId} ORDER BY t.id")
+    List<TagUsage> ownTagsOfEpisode(@Param("episodeId") long episodeId);
+
     /** 某媒体范围内标签 + 该媒体内引用次数（media_tag ∪ 其下 episode_tag ∪ 其下 clip_tag）。 */
     @Select("SELECT t.id, t.name, t.created_at, 0 AS media_count, 0 AS episode_count, 0 AS clip_count, COUNT(*) AS ref_count "
             + "FROM tag t JOIN ("

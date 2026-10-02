@@ -108,10 +108,10 @@ public class MediaService {
     /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/来源/媒体标签/q 标题模糊筛选；ids 精确圈选（仅显示已勾选用）；offset 分页。 */
     /** 清单导出（候选按当前筛选 / 已选按 ids）：与 list 同一套条件，不分页、**无行数上限**。 */
     public List<MediaExportRow> listExport(String status, String format, Long subcategoryId, Integer confirmed,
-                                           Long collectionId, Integer year, String source, Long tagId, String q,
+                                           Long collectionId, Integer year, String source, List<Long> tagIds, String tagMode, String q,
                                            List<Long> ids, List<String> genres, String season) {
         List<MediaExportRow> rows = mediaMapper.listExportRows(status, format, subcategoryId, confirmed, collectionId,
-                year, source, tagId, q, ids, genresJson(genres), season);
+                year, source, tagIds, tagMode, q, ids, genresJson(genres), season);
         if (rows.isEmpty()) {
             return rows;
         }
@@ -144,31 +144,31 @@ public class MediaService {
      */
     public List<MediaSummary> list(int limit, int offset, String status, String format, Long subcategoryId,
                                    Integer confirmed, Long collectionId, String sort, String order, Integer year,
-                                   String source, Long tagId, String q, List<Long> ids,
+                                   String source, List<Long> tagIds, String tagMode, String q, List<Long> ids,
                                    List<String> genres, String season) {
         return mediaMapper.listFiltered(status, format, subcategoryId, confirmed, collectionId, sort, order, year,
-                source, tagId, q, ids, genresJson(genres), season,
+                source, tagIds, tagMode, q, ids, genresJson(genres), season,
                 Math.max(limit, 1), Math.max(offset, 0));
     }
 
     /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/format/子分类/confirmed/collectionId/year/source/q 筛选；offset 分页。 */
     public List<MediaSummary> recent(int limit, int offset, String status, String format, Long subcategoryId,
                                      Integer confirmed, Long collectionId, Integer year, String source, String q,
-                                     Long tagId, List<String> genres, String season) {
+                                     List<Long> tagIds, String tagMode, List<String> genres, String season) {
         return mediaMapper.listByLatest(Math.max(limit, 1), Math.max(offset, 0),
                 status, format, subcategoryId, confirmed, collectionId, year, source, q,
-                tagId, genresJson(genres), season);
+                tagIds, tagMode, genresJson(genres), season);
     }
 
     /** 带筛选的媒体总数：全部媒体/收藏夹分支走 countFiltered，最近观看分支（latest=true）走 countLatest。 */
     public long count(String status, String format, Long subcategoryId, Integer confirmed, Long collectionId,
-                      Integer year, String source, Long tagId, boolean latest, String q,
+                      Integer year, String source, List<Long> tagIds, String tagMode, boolean latest, String q,
                       List<String> genres, String season) {
         if (latest) {
             return mediaMapper.countLatest(status, format, subcategoryId, confirmed, collectionId, year, source, q,
-                    tagId, genresJson(genres), season);
+                    tagIds, tagMode, genresJson(genres), season);
         }
-        return mediaMapper.countFiltered(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, q,
+        return mediaMapper.countFiltered(status, format, subcategoryId, confirmed, collectionId, year, source, tagIds, tagMode, q,
                 genresJson(genres), season);
     }
 

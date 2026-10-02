@@ -6,6 +6,7 @@ import com.videotagger.service.MediaDetail;
 import com.videotagger.service.MediaRequest;
 import com.videotagger.service.MediaMatchCandidate;
 import com.videotagger.service.MediaService;
+import com.videotagger.service.TagLinkService;
 import com.videotagger.service.MediaExportRow;
 import com.videotagger.service.MediaSummary;
 import com.videotagger.service.CoverService;
@@ -29,6 +30,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/media")
@@ -38,6 +40,7 @@ public class MediaController {
     private final EpisodeService episodeService;
     private final CoverService coverService;
     private final AniListSyncService aniListSyncService;
+    private final TagLinkService tagLinkService;
     private final com.videotagger.service.HighlightProjectService highlightProjectService;
     private final com.videotagger.service.RelatedMediaService relatedMediaService;
 
@@ -47,20 +50,22 @@ public class MediaController {
 
     public MediaController(MediaService mediaService, EpisodeService episodeService, CoverService coverService,
                            AniListSyncService aniListSyncService) {
-        this(mediaService, episodeService, coverService, aniListSyncService, null, null);
+        this(mediaService, episodeService, coverService, aniListSyncService, null, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public MediaController(MediaService mediaService, EpisodeService episodeService, CoverService coverService,
                            AniListSyncService aniListSyncService,
                            com.videotagger.service.HighlightProjectService highlightProjectService,
-                                  com.videotagger.service.RelatedMediaService relatedMediaService) {
+                                  com.videotagger.service.RelatedMediaService relatedMediaService,
+                                  TagLinkService tagLinkService) {
         this.mediaService = mediaService;
         this.episodeService = episodeService;
         this.coverService = coverService;
         this.aniListSyncService = aniListSyncService;
         this.highlightProjectService = highlightProjectService;
         this.relatedMediaService = relatedMediaService;
+        this.tagLinkService = tagLinkService;
     }
 
     /**
@@ -76,12 +81,13 @@ public class MediaController {
                                           @RequestParam(required = false) Long collectionId,
                                           @RequestParam(required = false) Integer year,
                                           @RequestParam(required = false) String source,
-                                          @RequestParam(required = false) Long tagId,
+                                          @RequestParam(required = false) List<Long> tagIds,
+                                   @RequestParam(required = false) String tagMode,
                                           @RequestParam(required = false) String q,
                                           @RequestParam(required = false) List<Long> ids,
                                           @RequestParam(required = false) List<String> genres,
                                           @RequestParam(required = false) String season) {
-        return mediaService.listExport(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, q, ids, genres, season);
+        return mediaService.listExport(status, format, subcategoryId, confirmed, collectionId, year, source, tagIds, tagMode, q, ids, genres, season);
     }
 
     @GetMapping
@@ -96,12 +102,13 @@ public class MediaController {
                                    @RequestParam(required = false) String order,
                                    @RequestParam(required = false) Integer year,
                                    @RequestParam(required = false) String source,
-                                   @RequestParam(required = false) Long tagId,
+                                   @RequestParam(required = false) List<Long> tagIds,
+                                   @RequestParam(required = false) String tagMode,
                                    @RequestParam(required = false) String q,
                                    @RequestParam(required = false) List<Long> ids,
                                    @RequestParam(required = false) List<String> genres,
                                    @RequestParam(required = false) String season) {
-        return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, order, year, source, tagId, q, ids, genres, season);
+        return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, order, year, source, tagIds, tagMode, q, ids, genres, season);
     }
 
     /**
@@ -141,10 +148,11 @@ public class MediaController {
                                      @RequestParam(required = false) Integer year,
                                      @RequestParam(required = false) String source,
                                      @RequestParam(required = false) String q,
-                                     @RequestParam(required = false) Long tagId,
+                                     @RequestParam(required = false) List<Long> tagIds,
+                                   @RequestParam(required = false) String tagMode,
                                      @RequestParam(required = false) List<String> genres,
                                      @RequestParam(required = false) String season) {
-        return mediaService.recent(limit, offset, status, format, subcategoryId, confirmed, collectionId, year, source, q, tagId, genres, season);
+        return mediaService.recent(limit, offset, status, format, subcategoryId, confirmed, collectionId, year, source, q, tagIds, tagMode, genres, season);
     }
 
     /** 带筛选的媒体总数（分页页码导航用）；latest=true 时按「最近观看」口径只统计打过标记的媒体。 */
@@ -156,12 +164,13 @@ public class MediaController {
                       @RequestParam(required = false) Long collectionId,
                       @RequestParam(required = false) Integer year,
                       @RequestParam(required = false) String source,
-                      @RequestParam(required = false) Long tagId,
+                      @RequestParam(required = false) List<Long> tagIds,
+                                   @RequestParam(required = false) String tagMode,
                       @RequestParam(defaultValue = "false") boolean latest,
                       @RequestParam(required = false) String q,
                       @RequestParam(required = false) List<String> genres,
                       @RequestParam(required = false) String season) {
-        return mediaService.count(status, format, subcategoryId, confirmed, collectionId, year, source, tagId, latest, q, genres, season);
+        return mediaService.count(status, format, subcategoryId, confirmed, collectionId, year, source, tagIds, tagMode, latest, q, genres, season);
     }
 
     /** 库中已有的全部首播年份（年份筛选下拉选项）。 */
@@ -302,6 +311,30 @@ public class MediaController {
     @PostMapping("/{id}/tags")
     public void addTags(@PathVariable Long id, @RequestBody Map<String, List<Long>> body) {
         mediaService.addTags(id, body.get("tagIds"));
+    }
+
+    /**
+     * 批量打标 / 移除（媒体页勾选模式）：body = `{mediaIds:[…], tagIds:[…], action:"add"|"remove"}`。
+     * 一次事务 + 幂等；只处理显式传来的 id（不做「按筛选条件全库应用」）。
+     */
+    @PostMapping("/tags/batch")
+    public Map<String, Object> batchTags(@RequestBody Map<String, Object> body) {
+        List<Long> mediaIds = longList(body.get("mediaIds"));
+        List<Long> tagIds = longList(body.get("tagIds"));
+        Object action = body.get("action");
+        int touched = tagLinkService.batchMediaTags(mediaIds, tagIds,
+                action == null ? "add" : String.valueOf(action));
+        return Map.of("touched", touched);
+    }
+
+    /** JSON 数字数组 → List<Long>。 */
+    private static List<Long> longList(Object raw) {
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream().filter(Objects::nonNull)
+                .map(v -> v instanceof Number n ? n.longValue() : Long.valueOf(String.valueOf(v)))
+                .toList();
     }
 
     @DeleteMapping("/{id}/tags/{tagId}")

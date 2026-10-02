@@ -35,6 +35,26 @@ public interface MediaMapper extends BaseMapper<Media> {
     String SEASON_FILTER = "<if test='season != null'> AND a.id IN "
             + "(SELECT ews.media_id FROM external_work ews WHERE ews.season = #{season})</if>";
 
+    /* ── 标签筛选（v0.31 标签重做）──────────────────────────────
+       媒体视角 = **查询期三级并集**：媒体自己 ∪ 其下集 ∪ 其下片段，任一层命中即算。
+       三级不再落库同步（旧 TagSyncService 已删），所以并集只发生在这些 SQL 里。
+       谓词必须同时加进 5 条查询 + listExportRows，否则「切到最近观看就静默忽略条件」。
+       tagMode：默认 AND（每个标签各自三级命中）；OR = 任一标签命中即可。
+       实体视角（详情页标签池）只读本级关联表，不走这里。 */
+    String TAG_IDS = "<foreach collection='tagIds' item='tid' open='(' separator=',' close=')'>#{tid}</foreach>";
+    String TAG_UNION_ANY = "(SELECT media_id FROM media_tag WHERE tag_id IN " + TAG_IDS
+            + " UNION SELECT e.media_id FROM episode_tag et JOIN episode e ON e.id = et.episode_id WHERE et.tag_id IN " + TAG_IDS
+            + " UNION SELECT e.media_id FROM clip_tag ct JOIN clips c ON c.id = ct.clip_id "
+            + "JOIN episode e ON e.id = c.episode_id WHERE ct.tag_id IN " + TAG_IDS + ")";
+    String TAG_UNION_ONE = "(SELECT media_id FROM media_tag WHERE tag_id = #{tid}"
+            + " UNION SELECT e.media_id FROM episode_tag et JOIN episode e ON e.id = et.episode_id WHERE et.tag_id = #{tid}"
+            + " UNION SELECT e.media_id FROM clip_tag ct JOIN clips c ON c.id = ct.clip_id "
+            + "JOIN episode e ON e.id = c.episode_id WHERE ct.tag_id = #{tid})";
+    String TAG_FILTER = "<if test='tagIds != null and tagIds.size() > 0'>"
+            + "<choose><when test=\"tagMode == 'OR'\"> AND a.id IN " + TAG_UNION_ANY + "</when>"
+            + "<otherwise><foreach collection='tagIds' item='tid'> AND a.id IN " + TAG_UNION_ONE + "</foreach></otherwise>"
+            + "</choose></if>";
+
     @Select("SELECT * FROM media WHERE title = #{title} AND deleted_at IS NULL LIMIT 1")
     Media selectByTitle(@Param("title") String title);
 
@@ -91,7 +111,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
-            + "<if test='tagId != null'> AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
+            + TAG_FILTER
             + GENRE_FILTER
             + SEASON_FILTER
             + "</where>"
@@ -104,7 +124,7 @@ public interface MediaMapper extends BaseMapper<Media> {
                                     @Param("confirmed") Integer confirmed, @Param("collectionId") Long collectionId,
                                     @Param("year") Integer year, @Param("source") String source,
                                     @Param("q") String q,
-                                    @Param("tagId") Long tagId,
+                                    @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode,
                                     @Param("genresJson") String genresJson, @Param("season") String season);
 
     @Select("SELECT COUNT(*) FROM media WHERE deleted_at IS NULL")
@@ -127,7 +147,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
-            + "<if test='tagId != null'> AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
+            + TAG_FILTER
             + GENRE_FILTER
             + SEASON_FILTER
             + "</where>"
@@ -136,7 +156,7 @@ public interface MediaMapper extends BaseMapper<Media> {
                        @Param("subcategoryId") Long subcategoryId, @Param("confirmed") Integer confirmed,
                        @Param("collectionId") Long collectionId, @Param("year") Integer year,
                        @Param("source") String source,
-                       @Param("tagId") Long tagId, @Param("q") String q,
+                       @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode, @Param("q") String q,
                        @Param("genresJson") String genresJson, @Param("season") String season);
 
     /** 最近观看分支总数：与 listByLatest 同条件 + 仅统计打过标记的媒体。 */
@@ -156,7 +176,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
-            + "<if test='tagId != null'> AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
+            + TAG_FILTER
             + GENRE_FILTER
             + SEASON_FILTER
             + " AND EXISTS (SELECT 1 FROM clips c JOIN episode e ON e.id = c.episode_id WHERE e.media_id = a.id)"
@@ -166,7 +186,7 @@ public interface MediaMapper extends BaseMapper<Media> {
                      @Param("subcategoryId") Long subcategoryId, @Param("confirmed") Integer confirmed,
                      @Param("collectionId") Long collectionId, @Param("year") Integer year,
                      @Param("source") String source, @Param("q") String q,
-                     @Param("tagId") Long tagId,
+                     @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode,
                      @Param("genresJson") String genresJson, @Param("season") String season);
 
     /** 库中已有的全部首播年份（降序，供年份筛选下拉）。 */
@@ -256,7 +276,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
-            + "<if test='tagId != null'> AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
+            + TAG_FILTER
             + "<if test='ids != null and !ids.isEmpty()'> AND a.id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></if>"
             + GENRE_FILTER
             + SEASON_FILTER
@@ -267,7 +287,7 @@ public interface MediaMapper extends BaseMapper<Media> {
                                        @Param("subcategoryId") Long subcategoryId,
                                        @Param("confirmed") Integer confirmed, @Param("collectionId") Long collectionId,
                                        @Param("year") Integer year, @Param("source") String source,
-                                       @Param("tagId") Long tagId, @Param("q") String q,
+                                       @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode, @Param("q") String q,
                                        @Param("ids") List<Long> ids,
                                        @Param("genresJson") String genresJson, @Param("season") String season);
 
@@ -294,7 +314,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "<if test='year != null'> AND a.year = #{year}</if>"
             + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
-            + "<if test='tagId != null'> AND a.id IN (SELECT media_id FROM media_tag WHERE tag_id = #{tagId})</if>"
+            + TAG_FILTER
             + "<if test='ids != null and !ids.isEmpty()'> AND a.id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></if>"
             + GENRE_FILTER
             + SEASON_FILTER
@@ -325,7 +345,7 @@ public interface MediaMapper extends BaseMapper<Media> {
                                     @Param("sort") String sort, @Param("order") String order,
                                     @Param("year") Integer year,
                                     @Param("source") String source,
-                                    @Param("tagId") Long tagId,
+                                    @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode,
                                     @Param("q") String q,
                                     @Param("ids") List<Long> ids,
                                     @Param("genresJson") String genresJson, @Param("season") String season,
@@ -348,15 +368,18 @@ public interface MediaMapper extends BaseMapper<Media> {
     List<GenreCount> listGenreCounts(@Param("whitelist") List<String> whitelist);
 
     /**
-     * 媒体标签选项字典：**只列真正挂在媒体上的标签** + 各自媒体数（降序）。
+     * 媒体标签选项字典：**只列真正能筛出结果的标签** + 各自媒体数（降序）。
      *
-     * <p>不用 `/api/tags` 的全局标签池 —— 那里有大量只挂在集/片段上的标签，当筛选项就是一堆 0 结果的死选项。
+     * <p>v0.31：口径与筛选语义对齐 —— 筛选是「三级任一层命中即算」，所以字典也是
+     * 三级并集后数 `COUNT(DISTINCT media_id)`（否则只挂在片段上的标签在面板里根本列不出来）。
      */
-    @Select("SELECT t.id AS tagId, t.name AS name, COUNT(DISTINCT mt.media_id) AS count "
-            + "FROM media_tag mt "
-            + "JOIN tag t ON t.id = mt.tag_id "
-            + "JOIN media m ON m.id = mt.media_id AND m.deleted_at IS NULL "
-            + "GROUP BY t.id, t.name ORDER BY count DESC")
+    @Select("SELECT t.id AS tagId, t.name AS name, COUNT(DISTINCT x.media_id) AS count FROM ("
+            + "  SELECT mt.tag_id AS tag_id, mt.media_id AS media_id FROM media_tag mt"
+            + "  UNION SELECT et.tag_id, e.media_id FROM episode_tag et JOIN episode e ON e.id = et.episode_id"
+            + "  UNION SELECT ct.tag_id, e.media_id FROM clip_tag ct JOIN clips c ON c.id = ct.clip_id"
+            + "    JOIN episode e ON e.id = c.episode_id"
+            + ") x JOIN tag t ON t.id = x.tag_id JOIN media m ON m.id = x.media_id AND m.deleted_at IS NULL "
+            + "GROUP BY t.id, t.name ORDER BY count DESC, t.id")
     List<TagCount> listTagCounts();
 
     /** 媒体关键词召回：标题/别名/备注/作品标签命中。 */

@@ -137,7 +137,7 @@ export function segmentKeysOf(plan, input, assetPrint): string[]   // 与 plan.s
 - [ ] **场景 C（失败注入）**：渲染中途 `taskkill` 掉 node 子进程 → 期望任务 `ERROR`、**成品仍是旧版**（`mtime` 不变）、`inc-*` 目录保留。
 - [ ] **场景 D（无变化）**：不改草稿直接点增量 → `无需重渲（内容未变）`，成品不动。
 - [ ] 成品体检：`ffmpeg -i` → `Duration = durationInFrames/fps`（±0.1s）、分辨率/帧率/音轨齐全。
-- [ ] 文档：`docs/rules.md` §40 追加「增量更新」小节（含"必然全渲清单"与规范化键的坑）；worklog 当日新增增量五（含实测数字）；`AGENTS.md` 推荐视频那条补一句入口与坑。
+- [x] 文档：worklog 当日新增增量五（含实测数字）。**原计划的「`docs/rules.md` 追加『增量更新』小节」已于 2026-10-02 取消** —— 按用户新纪律，rules.md 只在用户明确要求时新增条目（规则内容见 git `769ed56`）。
 
 ---
 

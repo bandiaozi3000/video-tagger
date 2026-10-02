@@ -115,6 +115,33 @@ public class TagLinkService {
         embeddingTaskService.enqueue(type, entityId);
     }
 
+    /** 批量打标 / 移除（媒体页勾选模式用；一次事务 + 幂等）。返回受影响的媒体数。 */
+    @Transactional
+    public int batchMediaTags(List<Long> mediaIds, List<Long> tagIds, String action) {
+        if (mediaIds == null || mediaIds.isEmpty()) {
+            return 0;
+        }
+        List<Long> ids = validate(tagIds);
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        boolean remove = "remove".equalsIgnoreCase(action == null ? "" : action.trim());
+        List<Long> targets = mediaIds.stream().filter(Objects::nonNull).distinct().toList();
+        int touched = 0;
+        for (Long mediaId : targets) {
+            for (Long tagId : ids) {
+                if (remove) {
+                    mediaTagMapper.deleteLink(mediaId, tagId);
+                } else {
+                    mediaTagMapper.insertIgnore(mediaId, tagId);
+                }
+            }
+            embeddingTaskService.enqueue(EntityType.MEDIA, mediaId);
+            touched++;
+        }
+        return touched;
+    }
+
     /** 某实体自己挂的标签 id（**实体视角**，不含下级）。 */
     public List<Long> tagIdsOf(EntityType type, long entityId) {
         List<Tag> tags = switch (type) {
