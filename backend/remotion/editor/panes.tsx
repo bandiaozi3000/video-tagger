@@ -20,7 +20,7 @@ import {
 } from '../src/rich-text';
 import { RECOMMEND_TIERS, cycleTier, tierLook, toggleTier } from '../src/tier';
 import { resolveParams, resolveTheme, titleCardShow } from '../src/params';
-import { defaultFilter, fileToBase64, fileToDataUri, loadGroupOpen, parsePayload, rollSeed, saveGroupOpen } from './state';
+import { defaultFilter, fileToBase64, fileToDataUri, loadGroupOpen, parsePayload, readCustomGenres, rollSeed, saveCustomGenres, saveGroupOpen } from './state';
 import { THEME_PRESETS } from '../src/theme';
 
 type Patch = (patch: Partial<EditorConfig>) => void;
@@ -120,13 +120,25 @@ function Pop({ anchor, width = 300, onClose, children }: {
       onClose();
     };
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    /**
+     * 页面滚动 → 浮层脱锚，关掉。
+     * ⚠️ 必须把**浮层自己内部的滚动**排除（2026-10-02 用户报「滚轮滚不动、滚动条点不动」）：
+     * `scroll` 用捕获注册时，浮层自己滚也会冒到 window 上→ 开滚就关，滚轮与拖滚动条都被吃垫。
+     * 浮层本体是 `overflow:auto; max-height:420px`（题材/标签列表都靠它滚）。
+     * 媒体侧浮层压根没这个监听，才能正常滚。
+     */
+    const onScroll = (event: Event) => {
+      const target = event.target as Node | null;
+      if (target && ref.current?.contains(target)) return;
+      onClose();
+    };
     window.addEventListener('resize', onClose);
-    window.addEventListener('scroll', onClose, true);
+    window.addEventListener('scroll', onScroll, true);
     window.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onDown);
     return () => {
       window.removeEventListener('resize', onClose);
-      window.removeEventListener('scroll', onClose, true);
+      window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onDown);
     };
@@ -863,6 +875,8 @@ interface FilterDict {
   years: number[];
   /** 题材（与媒体页同一份字典：白名单 ∩ 实际 + 计数） */
   genres: { genre: string; count: number }[];
+  /** 带引用的标签（与媒体页同一接口 `/api/media/tags`：☐/☑ + 计数） */
+  tags: { tagId: number; name: string; count: number }[];
 }
 
 function isDimActive(filter: CandidateFilter, key: FilterDim): boolean {
@@ -910,19 +924,36 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
   initialDim: FilterDim | null;
 }) {
   const [dim, setDim] = React.useState<FilterDim | null>(initialDim);
+  /** 标签维度的搜索框：**空 = 列全部既有标签**（与媒体页同形），有词 = 在列表里过滤 */
   const [tagText, setTagText] = React.useState('');
-  const [tagHits, setTagHits] = React.useState<{ id: number; name: string }[]>([]);
+  /** 常驻自定义题材（localStorage，与媒体页同一份 key） */
+  const [customGenres, setCustomGenres] = React.useState<string[]>(() => readCustomGenres());
+  /** 常驻题材的媒体数（现探的，不落盘；不探则列表里显示不出数字） */
+  const [customCounts, setCustomCounts] = React.useState<Record<string, number>>({});
+  const [genreText, setGenreText] = React.useState('');
+  const [genreHint, setGenreHint] = React.useState('');
+  const [genreBusy, setGenreBusy] = React.useState(false);
 
-  // 标签建议：250ms 防抖（不创建标签，只选既有）
-  React.useEffect(() => {
-    if (dim !== 'tagIds') return;
-    const query = tagText.trim();
-    if (!query) { setTagHits([]); return; }
-    const timer = window.setTimeout(() => {
-      void api.tagSuggest(query).then(setTagHits).catch(() => setTagHits([]));
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [dim, tagText]);
+  /** 加常驻题材：库里查不到的词不收（防手滑打成 0 结果的死选项）——与媒体页同规则同文案。 */
+  const addCustomGenre = async () => {
+    const word = genreText.trim();
+    if (!word) return;
+    if (customGenres.includes(word)) { setGenreHint('已经是常驻了'); return; }
+    if (dict.genres.some((g) => g.genre === word)) { setGenreHint('列表里已经有这个词了'); return; }
+    setGenreBusy(true);
+    try {
+      const count = await api.mediaCount({ ...defaultFilter(), genres: [word] });
+      if (count === 0) { setGenreHint('库里没有这个题材（0 部），没添加'); return; }
+      setCustomCounts((current) => ({ ...current, [word]: count }));
+      setCustomGenres(saveCustomGenres([...customGenres, word]));
+      setGenreText('');
+      setGenreHint('');
+    } catch {
+      setGenreHint('计数探测失败，没添加');
+    } finally {
+      setGenreBusy(false);
+    }
+  };
 
   const pick = (key: FilterDim, value: string | number | null) => {
     const next: CandidateFilter = { ...filter };
@@ -954,7 +985,7 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
           next.tagIds = next.tagIds.filter((t) => t !== id);
           next.tagNames = next.tagNames.filter((_, i) => i !== idx);
         } else {
-          const hit = tagHits.find((t) => t.id === id);
+          const hit = dict.tags.find((t) => t.tagId === id);
           next.tagIds = [...next.tagIds, id];
           next.tagNames = [...next.tagNames, hit?.name ?? `标签 #${id}`];
         }
@@ -979,7 +1010,7 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
   };
 
   /** 多选维度的取值行（与媒体页一样：☐/☑ + 计数） */
-  const multiList = (items: { value: string | number; label: string }[], current: (string | number)[]) => (
+  const multiList = (items: { value: string | number; label: string; count?: number }[], current: (string | number)[]) => (
     <div className="vt-pop-body">
       <button type="button" className={cls('vt-pop-item', current.length === 0 && 'on')}
               onClick={() => dim && pick(dim, null)}>
@@ -990,6 +1021,8 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
                 className={cls('vt-pop-item', current.includes(item.value) && 'on')}
                 onClick={() => dim && pick(dim, item.value)}>
           <span>{current.includes(item.value) ? '☑' : '☐'} {item.label}</span>
+          {/* 计数跟媒体页一样摆右侧：一眼看出点下去还剩多少（0 的标签不列，见 /api/media/tags） */}
+          {item.count != null ? <small>{item.count}</small> : null}
         </button>
       ))}
     </div>
@@ -1041,25 +1074,74 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
           </div>
           {dim === 'tagIds' ? (
             <>
-              <input className="vt-pop-search" placeholder="🔍 输入标签名…" value={tagText} autoFocus
-                     onChange={(event) => setTagText(event.target.value)} />
               {modeSwitch('tagIds')}
+              {/* 搜索框固定在列表上方（媒体侧 `.fp-vals-head` 同位置）—— 摆到长列表下面等于让人滚到底才能搜 */}
+              <input className="vt-pop-search" placeholder="🔍 在列表里过滤…" value={tagText} autoFocus
+                     onChange={(event) => setTagText(event.target.value)} />
               <div className="vt-pop-body">
                 <button type="button" className={cls('vt-pop-item', filter.tagIds.length === 0 && 'on')}
                         onClick={() => { onFilter({ ...filter, tagIds: [], tagNames: [] }); setTagText(''); }}>
                   <span>不限</span>
                 </button>
-                {tagHits.map((tag) => (
-                  <button key={tag.id} type="button" className={cls('vt-pop-item', filter.tagIds.includes(tag.id) && 'on')}
-                          onClick={() => pick('tagIds', tag.id)}>
-                    <span>{filter.tagIds.includes(tag.id) ? '☑' : '☐'} {tag.name}</span>
-                  </button>
-                ))}
-                {tagText.trim() && tagHits.length === 0 ? <p className="vt-pop-note">没有这个标签（不会新建标签）</p> : null}
+                {/* 空搜索 = 列出全部**有引用**的标签（与媒体页同形，不再“只能纯手输”） */}
+                {dict.tags
+                  .filter((tag) => !tagText.trim() || tag.name.includes(tagText.trim()))
+                  .map((tag) => (
+                    <button key={tag.tagId} type="button" className={cls('vt-pop-item', filter.tagIds.includes(tag.tagId) && 'on')}
+                            onClick={() => pick('tagIds', tag.tagId)}>
+                      <span>{filter.tagIds.includes(tag.tagId) ? '☑' : '☐'} {tag.name}</span>
+                      <small>{tag.count}</small>
+                    </button>
+                  ))}
+                {tagText.trim() && !dict.tags.some((tag) => tag.name.includes(tagText.trim()))
+                  ? <p className="vt-pop-note">没有这个标签（不会新建标签）</p> : null}
               </div>
             </>
           ) : dim === 'genres'
-            ? <>{modeSwitch('genres')}{multiList(dict.genres.map((g) => ({ value: g.genre, label: g.genre })), filter.genres)}</>
+            ? (
+              <>
+                {modeSwitch('genres')}
+                {/* 常驻自定义题材：与媒体页同一份 localStorage，且可×移除（与媒体页同行为） */}
+                <div className="vt-pop-body">
+                  <button type="button" className={cls('vt-pop-item', filter.genres.length === 0 && 'on')}
+                          onClick={() => pick('genres', null)}>
+                    <span>不限</span>
+                  </button>
+                  {[
+                    ...customGenres.map((g) => ({ value: g, label: g, count: customCounts[g], custom: true })),
+                    ...dict.genres.filter((g) => !customGenres.includes(g.genre))
+                      .map((g) => ({ value: g.genre, label: g.genre, count: g.count, custom: false })),
+                  ].map((item) => {
+                    const row = (
+                      <button type="button" className={cls('vt-pop-item', filter.genres.includes(item.value) && 'on')}
+                              onClick={() => pick('genres', item.value)}>
+                        <span>{filter.genres.includes(item.value) ? '☑' : '☐'} {item.label}</span>
+                        {item.count != null ? <small>{item.count}</small> : null}
+                      </button>
+                    );
+                    /* 只有常驻词会多包一层：右侧挂 × 移除（与媒体页 `.fp-val-row` 同形） */
+                    return item.custom ? (
+                      <div className="vt-pop-row" key={item.value}>
+                        {row}
+                        <button type="button" className="vt-pop-del" title={`移除常驻题材「${item.label}」`}
+                                onClick={() => {
+                                  setCustomGenres(saveCustomGenres(customGenres.filter((g) => g !== item.value)));
+                                  if (filter.genres.includes(item.value)) pick('genres', item.value);
+                                }}>×</button>
+                      </div>
+                    ) : <React.Fragment key={item.value}>{row}</React.Fragment>;
+                  })}
+                </div>
+                <div className="vt-pop-add">
+                  <input className="vt-pop-add-input" placeholder="输入题材词加为常驻" value={genreText}
+                         onChange={(event) => { setGenreText(event.target.value); setGenreHint(''); }}
+                         onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void addCustomGenre(); } }} />
+                  <button type="button" className="vt-pop-add-btn" disabled={genreBusy}
+                          onClick={() => void addCustomGenre()}>＋ 常驻</button>
+                  {genreHint ? <span className="vt-pop-add-hint">{genreHint}</span> : null}
+                </div>
+              </>
+            )
             : dim === 'season'
               ? multiList(SEASON_OPTIONS.map((s) => ({ value: s.value, label: s.label })), filter.season)
               : dim === 'collectionIds'
@@ -1298,6 +1380,8 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   const [years, setYears] = React.useState<number[]>([]);
   /** 题材字典（与媒体页同一接口：白名单 ∩ 实际 + 计数） */
   const [genres, setGenres] = React.useState<{ genre: string; count: number }[]>([]);
+  /** 带引用的标签字典（与媒体页同一接口） */
+  const [tags, setTags] = React.useState<{ tagId: number; name: string; count: number }[]>([]);
 
   const [qText, setQText] = React.useState(filter.q);
   const [popOpen, setPopOpen] = React.useState(false);
@@ -1372,6 +1456,7 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
     api.collections().then(setCollections).catch(() => undefined);
     api.years().then(setYears).catch(() => undefined);
     api.genres().then(setGenres).catch(() => undefined);
+    api.mediaTags().then(setTags).catch(() => undefined);
 
   }, []);
 
@@ -1610,7 +1695,7 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
 
   const openClips = (media: MediaBrief) => setClipMedia(media);
 
-  const dict: FilterDict = { collections, years, genres };
+  const dict: FilterDict = { collections, years, genres, tags };
   const chipKeys = expandChips ? activeKeys : activeKeys.slice(0, 4);
   const loadedIds = list.map((item) => item.id);
   /** 右栏正在看的媒体（高亮它那张卡，两栏同步） */

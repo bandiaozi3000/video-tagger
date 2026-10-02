@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { defaultConfig, defaultFilter, formatElapsed, parsePayload, sessionSignature, taskProgressLabel } from './state';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { defaultConfig, defaultFilter, formatElapsed, parsePayload, readCustomGenres, saveCustomGenres, sessionSignature, taskProgressLabel } from './state';
 import { filterParams } from './api';
 import type { EditorConfig } from './api';
 
@@ -133,5 +133,31 @@ describe('筛选契约：与媒体页同源（2026-10-02 对齐后钉住）', ()
     // 旧字段不该留在新对象上（否则会跟着草稿一直存下去）
     expect((f as unknown as { collectionId?: unknown })?.collectionId).toBeUndefined();
     expect((f as unknown as { tagMode?: unknown })?.tagMode).toBeUndefined();
+  });
+});
+
+describe('常驻自定义题材（与媒体页共用同一份 localStorage）', () => {
+  const store = new Map<string, string>();
+  beforeEach(() => {
+    store.clear();
+    (globalThis as unknown as { localStorage: unknown }).localStorage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => { store.set(k, v); },
+    };
+  });
+
+  it('落盘去空去重，读回同一份；key 与媒体页一致', () => {
+    saveCustomGenres([' 赛博朋克 ', '赛博朋克', '', '  ', '机战']);
+    expect(store.get('vt-media-genres')).toBe('["赛博朋克","机战"]');
+    expect(readCustomGenres()).toEqual(['赛博朋克', '机战']);
+  });
+
+  it('内容坏了 / 不是数组 → 当空，不抛', () => {
+    store.set('vt-media-genres', '{不是 JSON');
+    expect(readCustomGenres()).toEqual([]);
+    store.set('vt-media-genres', '{"a":1}');
+    expect(readCustomGenres()).toEqual([]);
+    store.set('vt-media-genres', '["好的", 42, null, "  "]');
+    expect(readCustomGenres()).toEqual(['好的']);
   });
 });

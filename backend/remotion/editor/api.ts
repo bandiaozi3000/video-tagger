@@ -374,14 +374,10 @@ export const api = {
   /** 题材字典（与媒体页同一接口：白名单 ∩ 库内实际，带各自媒体数） */
   genres: () => json<{ genre: string; count: number }[]>('/api/media/genres'),
   collections: () => json<{ id: number; name: string }[]>('/api/collections'),
+  /** 带引用的标签字典（`/api/media/tags`）—— 与媒体页筛选面板**同一接口、同一语义**
+   *  （0 引用的标签不列，避免摆上点了必空的死选项）。 */
+  mediaTags: () => json<{ tagId: number; name: string; count: number }[]>('/api/media/tags'),
   formats: () => json<MediaFormatBrief[]>('/api/media-formats'),
-  /** 标签建议（筛选面板的搜索式选择器；只选既有标签，不创建）。 */
-  tagSuggest: async (q: string): Promise<{ id: number; name: string }[]> => {
-    const page = await json<{ items?: { id: number; name: string }[] }>(
-      `/api/tags/manage?q=${encodeURIComponent(q)}&size=20`,
-    );
-    return (page.items || []).map((tag) => ({ id: tag.id, name: tag.name }));
-  },
   clips: (mediaId: number) => json<ClipBrief[]>(`/api/clips/media/${mediaId}`),
   /** 同系列条目（本地有片段的视频类关联条目）→ 跨媒体借片段的来源列表。 */
   relatedMedia: (mediaId: number) => json<RelatedMedia[]>(`/api/media/${mediaId}/related`),

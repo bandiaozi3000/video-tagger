@@ -364,3 +364,28 @@ export function taskProgressLabel(
   if (pct >= 2 && pct < 100) parts.push(`预计还需 ${formatElapsed((elapsed * (100 - pct)) / pct)}`);
   return parts.join(' · ');
 }
+
+/**
+ * 常驻自定义题材（与媒体页**同一份 localStorage**，2026-10-02 用户要求两侧一致）。
+ *
+ * ⚠️ key 必须与 `app.js` 的 `CUSTOM_GENRES_KEY` 逐字相同 —— 编辑器与媒体页是**同源同页**，
+ * 共用这一份就是「推荐侧和媒体保持一致」：一边加的词，另一边打开就看得见。
+ */
+const CUSTOM_GENRES_KEY = 'vt-media-genres';
+
+/** 读常驻题材（localStorage 不可用/内容坏了都当空，不抛）。 */
+export function readCustomGenres(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CUSTOM_GENRES_KEY) || '[]');
+    return Array.isArray(raw) ? raw.filter((s): s is string => typeof s === 'string' && s.trim() !== '') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 写常驻题材：去空、去重后落盘，返回落盘后的列表。 */
+export function saveCustomGenres(list: string[]): string[] {
+  const uniq = [...new Set(list.map((s) => String(s).trim()).filter(Boolean))];
+  try { localStorage.setItem(CUSTOM_GENRES_KEY, JSON.stringify(uniq)); } catch { /* 隐私模式等写不进去，不炸 */ }
+  return uniq;
+}
