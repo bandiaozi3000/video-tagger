@@ -7,12 +7,15 @@ import com.videotagger.config.VectorProperties;
 import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.EpisodeMapper;
+import com.videotagger.mapper.TagMapper;
 import com.videotagger.util.UrlTimeParams;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -38,16 +41,18 @@ public class SearchService {
     private final ClipMapper clipMapper;
     private final MediaMapper mediaMapper;
     private final EpisodeMapper episodeMapper;
+    private final TagMapper tagMapper;
     private final EmbeddingClient embeddingClient;
     private final VectorStore vectorStore;
     private final VectorProperties vectorProps;
 
     public SearchService(ClipMapper clipMapper, MediaMapper mediaMapper, EpisodeMapper episodeMapper,
-                         EmbeddingClient embeddingClient, VectorStore vectorStore,
+                         TagMapper tagMapper, EmbeddingClient embeddingClient, VectorStore vectorStore,
                          VectorProperties vectorProps) {
         this.clipMapper = clipMapper;
         this.mediaMapper = mediaMapper;
         this.episodeMapper = episodeMapper;
+        this.tagMapper = tagMapper;
         this.embeddingClient = embeddingClient;
         this.vectorStore = vectorStore;
         this.vectorProps = vectorProps;
@@ -217,17 +222,18 @@ public class SearchService {
         if (target == null) {
             throw new NoSuchElementException("clip not found: " + id);
         }
-        List<String> tokens = Arrays.stream(target.getTag().trim().split("\\s+"))
-                .filter(t -> !t.isEmpty())
-                .toList();
-        List<Long> tagIds = tokens.isEmpty() ? List.of()
-                : clipMapper.findSimilarByTag(id, tokens, Math.max(limit * 3, 30));
+        List<TagMapper.ClipTagName> rows = tagMapper.namesByClipIds(List.of(id));
+        List<Long> tagIdsOfTarget = rows.stream().map(TagMapper.ClipTagName::tagId).toList();
+        List<String> tagNames = rows.stream().map(TagMapper.ClipTagName::name).toList();
+        String tagText = String.join(" ", tagNames);
+        List<Long> tagIds = tagIdsOfTarget.isEmpty() ? List.of()
+                : clipMapper.findSimilarByTag(id, tagIdsOfTarget, Math.max(limit * 3, 30));
 
         List<Long> vectorIds = List.of();
-        if (vectorProps.isEnabled() && embeddingClient.isConfigured() && !target.getTag().isBlank()) {
+        if (vectorProps.isEnabled() && embeddingClient.isConfigured() && !tagText.isBlank()) {
             try {
                 // 用目标片段的文本重新嵌入作为查询向量（同文本≈已存向量），ANN 后排除自身
-                String text = target.getTag() + (target.getNote() == null || target.getNote().isBlank()
+                String text = tagText + (target.getNote() == null || target.getNote().isBlank()
                         ? "" : " " + target.getNote());
                 float[] q = embeddingClient.embed(text);
                 vectorIds = vectorStore.search(EntityType.CLIP, q, Math.max(limit * 3, 30)).stream()
@@ -270,10 +276,19 @@ public class SearchService {
                 : mediaMapper.selectBatchIds(mediaIds).stream().collect(Collectors.toMap(Media::getId, Function.identity()));
         Map<Long, Episode> episodes = episodeIds.isEmpty() ? Map.of()
                 : episodeMapper.selectBatchIds(episodeIds).stream().collect(Collectors.toMap(Episode::getId, Function.identity()));
+        // 片段标签（v0.31：真源 = clip_tag；SearchResult.tag 仍是展示用字符串）
+        Map<Long, String> clipTags = new HashMap<>();
+        if (!clipIds.isEmpty()) {
+            Map<Long, List<String>> grouped = new HashMap<>();
+            for (TagMapper.ClipTagName row : tagMapper.namesByClipIds(clipIds)) {
+                grouped.computeIfAbsent(row.clipId(), k -> new ArrayList<>()).add(row.name());
+            }
+            grouped.forEach((clipId, names) -> clipTags.put(clipId, String.join(" ", names)));
+        }
 
         return keys.stream()
                 .map(k -> switch (k.type()) {
-                    case CLIP -> toClipResult(clips.get(k.id()), scores.get(k));
+                    case CLIP -> toClipResult(clips.get(k.id()), scores.get(k), clipTags.getOrDefault(k.id(), ""));
                     case MEDIA -> toMediaResult(medias.get(k.id()), scores.get(k));
                     case EPISODE -> toEpisodeResult(episodes.get(k.id()), scores.get(k));
                 })
@@ -281,13 +296,13 @@ public class SearchService {
                 .toList();
     }
 
-    private SearchResult toClipResult(Clip c, Double score) {
+    private SearchResult toClipResult(Clip c, Double score, String tagText) {
         if (c == null) {
             return null;
         }
         return new SearchResult(c.getId(), c.getTitle(), c.getUrl(),
                 UrlTimeParams.build(c.getUrl(), c.getTimestampSec()),
-                c.getTimestampSec(), c.getTag(), c.getNote(), score,
+                c.getTimestampSec(), tagText, c.getNote(), score,
                 "CLIP", null, c.getEpisodeId(), null, c.getCoverPath(), c.getDetailCoverPath(),
                 null, null, null, null, null, c.getCreatedAt());
     }
@@ -369,9 +384,14 @@ public class SearchService {
         }
         Map<Long, Clip> byId = clipMapper.selectBatchIds(topIds).stream()
                 .collect(Collectors.toMap(Clip::getId, Function.identity()));
+        Map<Long, List<String>> grouped = new HashMap<>();
+        for (TagMapper.ClipTagName row : tagMapper.namesByClipIds(topIds)) {
+            grouped.computeIfAbsent(row.clipId(), k -> new ArrayList<>()).add(row.name());
+        }
         return topIds.stream()
                 .filter(byId::containsKey)
-                .map(id -> toClipResult(byId.get(id), scores.get(id)))
+                .map(id -> toClipResult(byId.get(id), scores.get(id),
+                        String.join(" ", grouped.getOrDefault(id, List.of()))))
                 .filter(r -> r != null)
                 .toList();
     }

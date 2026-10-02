@@ -19,6 +19,7 @@ class SearchServiceTest {
     ClipMapper clipMapper;
     MediaMapper mediaMapper;
     EpisodeMapper episodeMapper;
+    com.videotagger.mapper.TagMapper tagMapper;
     EmbeddingClient embeddingClient;
     InMemoryVectorStore vectorStore;
     SearchService searchService;
@@ -28,9 +29,10 @@ class SearchServiceTest {
         clipMapper = mock(ClipMapper.class);
         mediaMapper = mock(MediaMapper.class);
         episodeMapper = mock(EpisodeMapper.class);
+        tagMapper = mock(com.videotagger.mapper.TagMapper.class);
         embeddingClient = mock(EmbeddingClient.class);
         vectorStore = new InMemoryVectorStore();
-        searchService = new SearchService(clipMapper, mediaMapper, episodeMapper, embeddingClient, vectorStore,
+        searchService = new SearchService(clipMapper, mediaMapper, episodeMapper, tagMapper, embeddingClient, vectorStore,
                 new VectorProperties());
     }
 
@@ -98,7 +100,7 @@ class SearchServiceTest {
         when(embeddingClient.isConfigured()).thenReturn(true);
         VectorProperties vp = new VectorProperties();
         vp.setEnabled(false);
-        SearchService disabled = new SearchService(clipMapper, mediaMapper, episodeMapper, embeddingClient, vectorStore, vp);
+        SearchService disabled = new SearchService(clipMapper, mediaMapper, episodeMapper, tagMapper, embeddingClient, vectorStore, vp);
 
         SearchResponse resp = disabled.search("战斗", 10, 0, "clip", null, null, null, null, null);
 
@@ -241,6 +243,9 @@ class SearchServiceTest {
 
     @Test
     void similarReturnsSameTagClips() {
+        when(tagMapper.namesByClipIds(anyList())).thenReturn(List.of(
+                new com.videotagger.mapper.TagMapper.ClipTagName(1L, 10L, "高燃"),
+                new com.videotagger.mapper.TagMapper.ClipTagName(1L, 11L, "战斗")));
         when(clipMapper.selectById(1L)).thenReturn(clip(1L, "高燃 战斗"));
         when(clipMapper.findSimilarByTag(eq(1L), anyList(), anyInt())).thenReturn(List.of(2L, 3L));
         when(clipMapper.selectBatchIds(anyCollection()))
@@ -254,6 +259,8 @@ class SearchServiceTest {
 
     @Test
     void similarExcludesSelf() {
+        when(tagMapper.namesByClipIds(anyList())).thenReturn(List.of(
+                new com.videotagger.mapper.TagMapper.ClipTagName(1L, 10L, "高燃")));
         when(clipMapper.selectById(1L)).thenReturn(clip(1L, "高燃"));
         when(clipMapper.findSimilarByTag(eq(1L), anyList(), anyInt())).thenReturn(List.of(2L, 1L));
         when(clipMapper.selectBatchIds(anyCollection()))

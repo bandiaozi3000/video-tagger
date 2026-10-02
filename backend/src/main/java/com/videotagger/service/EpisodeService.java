@@ -29,7 +29,7 @@ public class EpisodeService {
     private final CoverService coverService;
     private final ClipMapper clipMapper;
     private final ClipTagMapper clipTagMapper;
-    private final TagSyncService tagSyncService;
+    private final TagLinkService tagLinkService;
     private final ClipExportService clipExportService;
     private final HighlightProjectService highlightProjectService;
     private final VideoSourceEpisodeMapMapper videoSourceEpisodeMapMapper;
@@ -39,16 +39,16 @@ public class EpisodeService {
     public EpisodeService(EpisodeMapper episodeMapper, EpisodeTagMapper episodeTagMapper,
                           TagMapper tagMapper, EmbeddingTaskService embeddingTaskService,
                           CoverService coverService, ClipMapper clipMapper, ClipTagMapper clipTagMapper,
-                          TagSyncService tagSyncService) {
+                          TagLinkService tagLinkService) {
         this(episodeMapper, episodeTagMapper, tagMapper, embeddingTaskService, coverService, clipMapper,
-                clipTagMapper, tagSyncService, null, null, null, null, null);
+                clipTagMapper, tagLinkService, null, null, null, null, null);
     }
 
     @Autowired
     public EpisodeService(EpisodeMapper episodeMapper, EpisodeTagMapper episodeTagMapper,
                           TagMapper tagMapper, EmbeddingTaskService embeddingTaskService,
                           CoverService coverService, ClipMapper clipMapper, ClipTagMapper clipTagMapper,
-                          TagSyncService tagSyncService, ClipExportService clipExportService,
+                          TagLinkService tagLinkService, ClipExportService clipExportService,
                           HighlightProjectService highlightProjectService,
                           VideoSourceEpisodeMapMapper videoSourceEpisodeMapMapper,
                           VideoAssetService videoAssetService,
@@ -60,7 +60,7 @@ public class EpisodeService {
         this.coverService = coverService;
         this.clipMapper = clipMapper;
         this.clipTagMapper = clipTagMapper;
-        this.tagSyncService = tagSyncService;
+        this.tagLinkService = tagLinkService;
         this.clipExportService = clipExportService;
         this.highlightProjectService = highlightProjectService;
         this.videoSourceEpisodeMapMapper = videoSourceEpisodeMapMapper;
@@ -90,30 +90,19 @@ public class EpisodeService {
         }
     }
 
-    public void addTag(Long episodeId, String tagName) {
+    /** 集打标（受控：只接受已存在词条 id，**不新建词条、不向上同步**）。 */
+    public void addTags(Long episodeId, List<Long> tagIds) {
         requireEpisode(episodeId);
-        String trimmed = tagName == null ? "" : tagName.trim();
-        if (trimmed.isEmpty()) {
-            return;
-        }
-        tagMapper.insertIgnore(trimmed, System.currentTimeMillis());
-        Tag tag = tagMapper.selectByName(trimmed);
-        if (tag != null) {
-            episodeTagMapper.insertIgnore(episodeId, tag.getId());
-            embeddingTaskService.enqueue(EntityType.EPISODE, episodeId);
-            // 集标签向上并集同步到所属媒体（媒体标签过滤可用）
-            tagSyncService.syncFromEpisode(episodeId);
-        }
+        tagLinkService.addTags(EntityType.EPISODE, episodeId, tagIds);
     }
 
     public void removeTag(Long episodeId, Long tagId) {
         requireEpisode(episodeId);
-        episodeTagMapper.deleteLink(episodeId, tagId);
-        embeddingTaskService.enqueue(EntityType.EPISODE, episodeId);
+        tagLinkService.removeTag(EntityType.EPISODE, episodeId, tagId);
     }
 
     /** 扩展「看完自动弹」用：按播放 URL 定位集并加标签（video_fp 归一）。 */
-    public void addTagByUrl(String url, String tagName) {
+    public void addTagByUrl(String url, List<Long> tagIds) {
         if (url == null || url.isBlank()) {
             throw new IllegalArgumentException("url 不能为空");
         }
@@ -122,7 +111,7 @@ public class EpisodeService {
         if (ep == null) {
             throw new NoSuchElementException("episode not found for url");
         }
-        addTag(ep.getId(), tagName);
+        addTags(ep.getId(), tagIds);
     }
 
     /** 手动上传集封面（Web UI 兜底）。 */

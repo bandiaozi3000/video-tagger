@@ -26,6 +26,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** 集级打标入口（Web UI 手动）+ 集封面（帧封面）+ 集详情页。 */
 @RestController
@@ -130,19 +131,31 @@ public class EpisodeController {
         return ResponseEntity.noContent().build();
     }
 
+    /** 集打标（v0.31 受控：body = `{tagIds:[…]}`，只接受已存在词条 id）。 */
     @PostMapping("/{id}/tags")
-    public void addTag(@PathVariable Long id, @RequestBody Map<String, String> body) {
-        episodeService.addTag(id, body.get("tag"));
+    public void addTags(@PathVariable Long id, @RequestBody Map<String, List<Long>> body) {
+        episodeService.addTags(id, body.get("tagIds"));
     }
 
     /** 扩展「看完自动弹」用：按播放 URL 定位集并打标签。 */
     @PostMapping("/by-url/tags")
-    public void addTagByUrl(@RequestBody Map<String, String> body) {
-        episodeService.addTagByUrl(body.get("url"), body.get("tag"));
+    public void addTagByUrl(@RequestBody Map<String, Object> body) {
+        episodeService.addTagByUrl((String) body.get("url"), tagIdsOf(body));
     }
 
     @DeleteMapping("/{id}/tags/{tagId}")
     public void removeTag(@PathVariable Long id, @PathVariable Long tagId) {
         episodeService.removeTag(id, tagId);
+    }
+
+    /** JSON 数字 → List<Long>（tagIds 数组）。 */
+    private static List<Long> tagIdsOf(Map<String, Object> body) {
+        Object raw = body == null ? null : body.get("tagIds");
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream().filter(Objects::nonNull)
+                .map(v -> v instanceof Number n ? n.longValue() : Long.valueOf(String.valueOf(v)))
+                .toList();
     }
 }

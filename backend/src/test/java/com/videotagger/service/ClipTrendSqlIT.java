@@ -31,10 +31,10 @@ class ClipTrendSqlIT extends AbstractMySqlIT {
     JdbcTemplate jdbc;
 
     private void insertClip(long createdAtMs) {
-        // 用 tag 做标记：Testcontainers 的 MySQL 在同一轮测试里被多个 IT 共享，
+        // 用 title 做标记（v0.31 起 clips.tag 已删）：Testcontainers 的 MySQL 在同一轮测试里被多个 IT 共享，
         // 其它 IT 也会插 clips（第一版断言全表计数就被别人的 19 条搞挂过），所以只认自己的行。
-        jdbc.update("INSERT INTO clips (title, url, material_state, timestamp_sec, tag, created_at) "
-                + "VALUES ('IT 片段', 'file:///x.mp4', 'NONE', 0, 'IT-TREND', ?)", createdAtMs);
+        jdbc.update("INSERT INTO clips (title, url, material_state, timestamp_sec, created_at) "
+                + "VALUES ('IT 片段', 'file:///x.mp4', 'NONE', 0, ?)", createdAtMs);
     }
 
     @Test
@@ -54,11 +54,11 @@ class ClipTrendSqlIT extends AbstractMySqlIT {
 
         String todayText = LocalDate.now(zone).toString();
         Integer todayCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM clips WHERE tag = 'IT-TREND' AND DATE(FROM_UNIXTIME(created_at / 1000)) = ?",
+                "SELECT COUNT(*) FROM clips WHERE title = 'IT 片段' AND DATE(FROM_UNIXTIME(created_at / 1000)) = ?",
                 Integer.class, todayText);
         assertEquals(2, todayCount, "自己的 2 条（毫秒时间戳 /1000 后）应归到今天");
         String firstDate = jdbc.queryForObject(
-                "SELECT DATE(FROM_UNIXTIME(created_at / 1000)) FROM clips WHERE tag = 'IT-TREND' "
+                "SELECT DATE(FROM_UNIXTIME(created_at / 1000)) FROM clips WHERE title = 'IT 片段' "
                         + "ORDER BY created_at DESC LIMIT 1",
                 String.class);
         assertEquals(todayText, firstDate, "毫秒时间戳按 /1000 换算后应落回今天");

@@ -57,10 +57,8 @@ public class ClipController {
 
 
     @PutMapping("/{id}")
-    public Clip update(@PathVariable Long id,
-                       @RequestParam(defaultValue = "false") boolean appendTag,
-                       @Valid @RequestBody SaveClipRequest req) {
-        return clipService.update(id, req, appendTag);
+    public Clip update(@PathVariable Long id, @Valid @RequestBody SaveClipRequest req) {
+        return clipService.update(id, req);
     }
 
     /** 本地回顾弹窗（片段详情）保存：区间按弹窗内文件坐标传，后端换算回原视频坐标并更新本片段。 */

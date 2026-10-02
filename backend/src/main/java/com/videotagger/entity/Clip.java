@@ -1,9 +1,12 @@
 package com.videotagger.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
+
+import java.util.List;
 
 @Data
 @TableName("clips")
@@ -31,7 +34,15 @@ public class Clip {
     private Double endSec;
     /** 视频总时长（秒，可选，扩展打标时上报） */
     private Double videoDuration;
+    /** 片段标签（**派生只读**：真源 = `clip_tag`，见 v0.31 标签重做）。写入一律走 `TagLinkService`。 */
+    @TableField(exist = false)
     private String tag;
+    /** 片段标签 id（派生只读，同上）。 */
+    @TableField(exist = false)
+    private List<Long> tagIds;
+    /** 片段标签名（派生只读，同上；与 `tagIds` 一一对应）。 */
+    @TableField(exist = false)
+    private List<String> tagNames;
     private String note;
     /** 片段截帧封面静态路径（扩展 canvas 截取当前帧落盘），可空 */
     private String coverPath;

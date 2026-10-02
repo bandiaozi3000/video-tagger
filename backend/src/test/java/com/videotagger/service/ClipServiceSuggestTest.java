@@ -28,7 +28,7 @@ class ClipServiceSuggestTest {
                 mock(MediaFormatMapper.class), mock(MediaSubcategoryMapper.class),
                 mock(EpisodeMapper.class), tagMapper, mock(ClipTagMapper.class),
                 mock(CoverService.class), mock(EmbeddingTaskService.class),
-                mock(TagSyncService.class), mock(TitleMappingService.class));
+                mock(TagLinkService.class), mock(TitleMappingService.class));
     }
 
     @Test
@@ -76,11 +76,4 @@ class ClipServiceSuggestTest {
                 new TagSuggestion("略高燃", 9L)), hits);
     }
 
-    @Test
-    void appendTagMergesAndDeduplicates() {
-        assertEquals("高燃 名场面", ClipService.appendTag("高燃", "名场面"));
-        assertEquals("高燃", ClipService.appendTag("高燃", "高燃"));
-        assertEquals("高燃 名场面 泪目", ClipService.appendTag("高燃 名场面", "泪目"));
-        assertEquals("高燃", ClipService.appendTag("高燃", "  "));
-    }
 }

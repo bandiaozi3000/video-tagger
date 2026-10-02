@@ -6,6 +6,7 @@ import com.videotagger.entity.EmbeddingTask;
 import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.MediaTagMapper;
 import com.videotagger.mapper.ClipMapper;
+import com.videotagger.mapper.ClipTagMapper;
 import com.videotagger.mapper.EmbeddingTaskMapper;
 import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.EpisodeTagMapper;
@@ -23,6 +24,7 @@ class EmbeddingTaskServiceTest {
     EmbeddingTaskMapper taskMapper;
     EmbeddingClient embeddingClient;
     VectorStore vectorStore;
+    ClipTagMapper clipTagMapper;
     EmbeddingTaskService service;
 
     @BeforeEach
@@ -31,17 +33,30 @@ class EmbeddingTaskServiceTest {
         taskMapper = mock(EmbeddingTaskMapper.class);
         embeddingClient = mock(EmbeddingClient.class);
         vectorStore = mock(VectorStore.class);
+        clipTagMapper = mock(ClipTagMapper.class);
         service = new EmbeddingTaskService(clipMapper, mock(MediaMapper.class), mock(EpisodeMapper.class),
-                mock(MediaTagMapper.class), mock(EpisodeTagMapper.class),
+                mock(MediaTagMapper.class), mock(EpisodeTagMapper.class), clipTagMapper,
                 taskMapper, embeddingClient, vectorStore, new VectorProperties());
     }
 
     private Clip clip(long id) {
         Clip c = new Clip();
         c.setId(id);
-        c.setTag("高燃战斗");
         c.setNote("主角觉醒");
         return c;
+    }
+
+    /** v0.31：片段标签真源 = clip_tag（embedding 文本据此拼）。 */
+    private void withTags(long clipId, String... names) {
+        List<com.videotagger.entity.Tag> tags = new java.util.ArrayList<>();
+        long id = 100L;
+        for (String name : names) {
+            com.videotagger.entity.Tag t = new com.videotagger.entity.Tag();
+            t.setId(id++);
+            t.setName(name);
+            tags.add(t);
+        }
+        when(clipTagMapper.selectTags(clipId)).thenReturn(tags);
     }
 
     private EmbeddingTask pendingTask(long entityId, int retryCount, long updatedAt) {
@@ -70,7 +85,7 @@ class EmbeddingTaskServiceTest {
         vp.setEnabled(false);
         EmbeddingTaskService disabled = new EmbeddingTaskService(clipMapper, mock(MediaMapper.class),
                 mock(EpisodeMapper.class), mock(MediaTagMapper.class), mock(EpisodeTagMapper.class),
-                taskMapper, embeddingClient, vectorStore, vp);
+                clipTagMapper, taskMapper, embeddingClient, vectorStore, vp);
 
         disabled.enqueue(EntityType.CLIP, 1L);
         disabled.sweep();
@@ -83,6 +98,7 @@ class EmbeddingTaskServiceTest {
         when(embeddingClient.isConfigured()).thenReturn(true);
         when(embeddingClient.embed("高燃战斗 主角觉醒")).thenReturn(new float[]{0.1f});
         when(clipMapper.selectById(1L)).thenReturn(clip(1L));
+        withTags(1L, "高燃战斗");
         EmbeddingTask task = pendingTask(1L, 0, System.currentTimeMillis());
         when(taskMapper.selectByEntity("CLIP", 1L)).thenReturn(task);
 
@@ -98,6 +114,7 @@ class EmbeddingTaskServiceTest {
         when(embeddingClient.isConfigured()).thenReturn(true);
         when(embeddingClient.embed(anyString())).thenThrow(new RuntimeException("API 超时"));
         when(clipMapper.selectById(1L)).thenReturn(clip(1L));
+        withTags(1L, "高燃战斗");
         EmbeddingTask task = pendingTask(1L, 1, System.currentTimeMillis());
         when(taskMapper.selectByEntity("CLIP", 1L)).thenReturn(task);
 
@@ -112,6 +129,7 @@ class EmbeddingTaskServiceTest {
         when(embeddingClient.isConfigured()).thenReturn(true);
         when(embeddingClient.embed(anyString())).thenThrow(new RuntimeException("API 超时"));
         when(clipMapper.selectById(1L)).thenReturn(clip(1L));
+        withTags(1L, "高燃战斗");
         EmbeddingTask task = pendingTask(1L, 4, System.currentTimeMillis());
         when(taskMapper.selectByEntity("CLIP", 1L)).thenReturn(task);
 

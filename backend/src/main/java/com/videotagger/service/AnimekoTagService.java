@@ -45,7 +45,7 @@ public class AnimekoTagService {
     private final ClipMapper clipMapper;
     private final TagMapper tagMapper;
     private final ClipTagMapper clipTagMapper;
-    private final TagSyncService tagSyncService;
+    private final TagLinkService tagLinkService;
     private final EmbeddingTaskService embeddingTaskService;
     private final MaterializationService materializationService;
     private final String dbPath;
@@ -59,7 +59,7 @@ public class AnimekoTagService {
                              ClipMapper clipMapper,
                              TagMapper tagMapper,
                              ClipTagMapper clipTagMapper,
-                             TagSyncService tagSyncService,
+                             TagLinkService tagLinkService,
                              EmbeddingTaskService embeddingTaskService,
                              MaterializationService materializationService,
                              @Value("${videotagger.animeko.db-path:}") String dbPath,
@@ -71,7 +71,7 @@ public class AnimekoTagService {
         this.clipMapper = clipMapper;
         this.tagMapper = tagMapper;
         this.clipTagMapper = clipTagMapper;
-        this.tagSyncService = tagSyncService;
+        this.tagLinkService = tagLinkService;
         this.embeddingTaskService = embeddingTaskService;
         this.materializationService = materializationService;
         this.frameGrabber = frameGrabber;
@@ -136,7 +136,7 @@ public class AnimekoTagService {
 
     // ---------- 打标 ----------
 
-    public record TagRequest(String tag, String note, Long startMs, Long endMs) {
+    public record TagRequest(List<Long> tagIds, String note, Long startMs, Long endMs) {
     }
 
     /** 打标结果：建出的 Clip + 渠道求值结论（供「当场剪」引导）。 */
@@ -151,7 +151,7 @@ public class AnimekoTagService {
         if (!view.configured()) return new TagResult(false, "未配置 Animeko 数据库路径", "UNCONFIGURED", null, null, null, null, null, null);
         if (!view.reachable()) return new TagResult(false, view.message(), "UNREACHABLE", null, null, null, null, null, null);
         if (view.bangumiEpisodeId() == null) return new TagResult(false, view.message(), "NO_PLAYBACK", null, null, null, null, null, null);
-        if (req == null || req.tag() == null || req.tag().isBlank()) {
+        if (req == null || req.tagIds() == null || req.tagIds().isEmpty()) {
             return new TagResult(false, "标签必填", "BAD_REQUEST", null, null, null, null, null, null);
         }
         if (!view.mapped()) {
@@ -173,20 +173,12 @@ public class AnimekoTagService {
         clip.setEndMs(req.endMs());
         clip.setVideoAssetId(null);
         clip.setMaterialState("REFERENCE_ONLY");
-        clip.setTag(req.tag().trim());
         clip.setNote(req.note() == null ? "" : req.note());
         clip.setCreatedAt(now);
         clipMapper.insert(clip);
 
-        // 标签关联（与 ClipService.save 同链路）
-        for (String token : req.tag().trim().split("\\s+")) {
-            if (token.isEmpty()) continue;
-            tagMapper.insertIgnore(token, now);
-            com.videotagger.entity.Tag tag = tagMapper.selectByName(token);
-            if (tag != null) clipTagMapper.insertIgnore(clip.getId(), tag.getId());
-        }
-        tagSyncService.syncFromClip(clip.getId());
-        embeddingTaskService.enqueue(EntityType.CLIP, clip.getId());
+        // 标签关联（受控词表：只接受已存在词条 id；不再自动建词条、不向上并集同步）
+        tagLinkService.setClipTags(clip.getId(), req.tagIds());
 
         // 幂等标记已看（Animeko 播放事实已带回）
         if (view.updatedAtMillis() != null) {

@@ -2,7 +2,6 @@ package com.videotagger.service;
 
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.Tag;
-import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.ClipTagMapper;
 import com.videotagger.mapper.EpisodeTagMapper;
 import com.videotagger.mapper.MediaTagMapper;
@@ -30,7 +29,6 @@ class TagAdminServiceTest {
     MediaTagMapper mediaTagMapper;
     EpisodeTagMapper episodeTagMapper;
     ClipTagMapper clipTagMapper;
-    ClipMapper clipMapper;
     EmbeddingTaskService embeddingTaskService;
     TagAdminService service;
 
@@ -40,10 +38,9 @@ class TagAdminServiceTest {
         mediaTagMapper = mock(MediaTagMapper.class);
         episodeTagMapper = mock(EpisodeTagMapper.class);
         clipTagMapper = mock(ClipTagMapper.class);
-        clipMapper = mock(ClipMapper.class);
         embeddingTaskService = mock(EmbeddingTaskService.class);
         service = new TagAdminService(tagMapper, mediaTagMapper, episodeTagMapper,
-                clipTagMapper, clipMapper, embeddingTaskService);
+                clipTagMapper, embeddingTaskService);
     }
 
     private Tag tag(long id, String name) {
@@ -52,13 +49,6 @@ class TagAdminServiceTest {
         t.setName(name);
         t.setCreatedAt(1L);
         return t;
-    }
-
-    private Clip clip(long id, String tag) {
-        Clip c = new Clip();
-        c.setId(id);
-        c.setTag(tag);
-        return c;
     }
 
     @Test
@@ -98,16 +88,14 @@ class TagAdminServiceTest {
         when(tagMapper.mediaIdsByTag(1L)).thenReturn(List.of(10L));
         when(tagMapper.episodeIdsByTag(1L)).thenReturn(List.of());
         when(tagMapper.clipIdsByTag(1L)).thenReturn(List.of(100L));
-        when(clipMapper.selectByTagContains("高燃")).thenReturn(List.of(clip(100L, "高燃 战斗")));
 
         service.rename(1L, "热血");
 
         assertEquals("热血", t.getName());
         verify(tagMapper).updateById(t);
-        verify(clipMapper).updateTag(100L, "热血 战斗");
         verify(embeddingTaskService).enqueue(EntityType.MEDIA, 10L);
-        // clip 同时命中 clip_tag 引用和 clips.tag 词扫描，重嵌入队两次（幂等无害）
-        verify(embeddingTaskService, times(2)).enqueue(EntityType.CLIP, 100L);
+        // v0.31：改名只改词表一行，关联存 id 天然生效 —— 不再回写 clips.tag”，也不再额外重嵌
+        verify(embeddingTaskService, times(1)).enqueue(EntityType.CLIP, 100L);
     }
 
     @Test
@@ -136,7 +124,6 @@ class TagAdminServiceTest {
         when(tagMapper.mediaIdsByTag(2L)).thenReturn(List.of());
         when(tagMapper.episodeIdsByTag(2L)).thenReturn(List.of());
         when(tagMapper.clipIdsByTag(2L)).thenReturn(List.of(100L));
-        when(clipMapper.selectByTagContains("高然")).thenReturn(List.of(clip(100L, "高然 名场面")));
 
         service.merge(1L, 2L);
 
@@ -144,10 +131,9 @@ class TagAdminServiceTest {
         verify(mediaTagMapper).deleteRefs(1L);
         verify(episodeTagMapper).moveRefs(1L, 2L);
         verify(clipTagMapper).moveRefs(1L, 2L);
-        verify(clipMapper).updateTag(100L, "高燃 名场面");
         verify(tagMapper).deleteById(1L);
         verify(embeddingTaskService).enqueue(EntityType.MEDIA, 10L);
-        verify(embeddingTaskService, times(2)).enqueue(EntityType.CLIP, 100L);
+        verify(embeddingTaskService, times(1)).enqueue(EntityType.CLIP, 100L);
     }
 
     @Test

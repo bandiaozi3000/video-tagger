@@ -1,12 +1,14 @@
 package com.videotagger.service;
 
 import com.videotagger.AbstractMySqlIT;
+import com.videotagger.TestTagSeed;
 import com.videotagger.entity.Media;
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.Episode;
 import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.EpisodeMapper;
+import com.videotagger.mapper.TagMapper;
 import com.videotagger.util.VideoFingerprint;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +43,14 @@ class CoverServiceIT extends AbstractMySqlIT {
     EpisodeMapper episodeMapper;
     @Autowired
     MediaMapper mediaMapper;
+
+    @Autowired
+    TagMapper tagMapper;
+
+    /** v0.31 标签受控：测试里先建词条，再传 id。 */
+    private List<Long> tags(String... names) {
+        return TestTagSeed.ensure(tagMapper, names);
+    }
 
     private static byte[] frameBytes() {
         return new byte[]{1, 2, 3, 4, 5};
@@ -88,7 +98,7 @@ class CoverServiceIT extends AbstractMySqlIT {
     void dualCoverSavedAndDeletedTogether() {
         // 缩略图 + 详情大图一起随保存落盘
         SaveClipResult r = clipService.save(new SaveClipRequest(
-                "某动画F 第1集", "https://dual.com/1", 10.0, "高燃", "",
+                "某动画F 第1集", "https://dual.com/1", 10.0, tags("高燃"), "",
                 null, null, dataUrl(), dataUrl(), null, null));
         Clip clip = clipMapper.selectById(r.id());
         assertNotNull(clip.getCoverPath());
@@ -139,7 +149,7 @@ class CoverServiceIT extends AbstractMySqlIT {
     @Test
     void saveWithCoverDataUrlPersistsClipCover() {
         SaveClipResult r = clipService.save(new SaveClipRequest(
-                "某动画A 第1集", "https://cover.com/1", 10.0, "高燃", "", null, null, dataUrl(), null, null, null));
+                "某动画A 第1集", "https://cover.com/1", 10.0, tags("高燃"), "", null, null, dataUrl(), null, null, null));
 
         Clip clip = clipMapper.selectById(r.id());
         assertNotNull(clip.getCoverPath());
@@ -156,10 +166,10 @@ class CoverServiceIT extends AbstractMySqlIT {
     void representativeCoverPicksMostTaggedClip() {
         // 同一集两条片段都带截帧，第一条标签更多 → 代表性封面应指向第一条
         SaveClipResult c1 = clipService.save(new SaveClipRequest(
-                "某动画B 第2集", "https://cover.com/2", 10.0, "高燃 战斗 名场面", "",
+                "某动画B 第2集", "https://cover.com/2", 10.0, tags("高燃", "战斗", "名场面"), "",
                 null, null, dataUrl(), null, null, null));
         clipService.save(new SaveClipRequest(
-                "某动画B 第2集", "https://cover.com/2", 50.0, "泪目", "",
+                "某动画B 第2集", "https://cover.com/2", 50.0, tags("泪目"), "",
                 null, null, dataUrl(), null, null, null));
 
         String fp = VideoFingerprint.fingerprint("https://cover.com/2");
@@ -173,7 +183,7 @@ class CoverServiceIT extends AbstractMySqlIT {
     @Test
     void mediaFallbackCoverResolvesAndDeletesCascade() {
         SaveClipResult c = clipService.save(new SaveClipRequest(
-                "某动画C 第3集", "https://cover.com/3", 10.0, "高燃", "",
+                "某动画C 第3集", "https://cover.com/3", 10.0, tags("高燃"), "",
                 null, null, dataUrl(), null, null, null));
         Media a = mediaMapper.selectByTitlePrefix("某动画C");
         assertNotNull(a);
@@ -201,7 +211,7 @@ class CoverServiceIT extends AbstractMySqlIT {
     @Test
     void episodeDetailResolvesEffectiveCover() {
         SaveClipResult c = clipService.save(new SaveClipRequest(
-                "某动画D 第4集", "https://cover.com/4", 10.0, "高燃", "",
+                "某动画D 第4集", "https://cover.com/4", 10.0, tags("高燃"), "",
                 null, null, dataUrl(), null, null, null));
         Media a = mediaMapper.selectByTitlePrefix("某动画D");
         assertNotNull(a);
@@ -220,7 +230,7 @@ class CoverServiceIT extends AbstractMySqlIT {
     @Test
     void episodeDeleteCascadesClipsCoversAndTags() {
         SaveClipResult c = clipService.save(new SaveClipRequest(
-                "某动画G 第2集", "https://epdel.com/2", 10.0, "高燃", "",
+                "某动画G 第2集", "https://epdel.com/2", 10.0, tags("高燃"), "",
                 null, null, dataUrl(), dataUrl(), null, null));
         Clip clip = clipMapper.selectById(c.id());
         Episode ep = episodeMapper.selectByFp(clip.getVideoFp());
@@ -239,7 +249,7 @@ class CoverServiceIT extends AbstractMySqlIT {
     @Test
     void episodeDetailBuildsFullInfo() {
         SaveClipResult c = clipService.save(new SaveClipRequest(
-                "某动画E 第5集", "https://epd.com/5", 30.0, "高燃", "", null, null, dataUrl(), null, null, null));
+                "某动画E 第5集", "https://epd.com/5", 30.0, tags("高燃"), "", null, null, dataUrl(), null, null, null));
         String fp = VideoFingerprint.fingerprint("https://epd.com/5");
         Episode ep = episodeMapper.selectByFp(fp);
         assertNotNull(ep);

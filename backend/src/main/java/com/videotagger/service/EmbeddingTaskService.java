@@ -8,6 +8,7 @@ import com.videotagger.entity.Tag;
 import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.MediaTagMapper;
 import com.videotagger.mapper.ClipMapper;
+import com.videotagger.mapper.ClipTagMapper;
 import com.videotagger.mapper.EmbeddingTaskMapper;
 import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.EpisodeTagMapper;
@@ -38,6 +39,7 @@ public class EmbeddingTaskService implements ApplicationRunner {
     private final EpisodeMapper episodeMapper;
     private final MediaTagMapper mediaTagMapper;
     private final EpisodeTagMapper episodeTagMapper;
+    private final ClipTagMapper clipTagMapper;
     private final EmbeddingTaskMapper taskMapper;
     private final EmbeddingClient embeddingClient;
     private final VectorStore vectorStore;
@@ -45,6 +47,7 @@ public class EmbeddingTaskService implements ApplicationRunner {
 
     public EmbeddingTaskService(ClipMapper clipMapper, MediaMapper mediaMapper, EpisodeMapper episodeMapper,
                                 MediaTagMapper mediaTagMapper, EpisodeTagMapper episodeTagMapper,
+                                ClipTagMapper clipTagMapper,
                                 EmbeddingTaskMapper taskMapper, EmbeddingClient embeddingClient,
                                 VectorStore vectorStore, VectorProperties vectorProps) {
         this.clipMapper = clipMapper;
@@ -52,6 +55,7 @@ public class EmbeddingTaskService implements ApplicationRunner {
         this.episodeMapper = episodeMapper;
         this.mediaTagMapper = mediaTagMapper;
         this.episodeTagMapper = episodeTagMapper;
+        this.clipTagMapper = clipTagMapper;
         this.taskMapper = taskMapper;
         this.embeddingClient = embeddingClient;
         this.vectorStore = vectorStore;
@@ -155,8 +159,9 @@ public class EmbeddingTaskService implements ApplicationRunner {
                 if (c == null) {
                     yield null;
                 }
+                // v0.31：片段标签真源 = clip_tag（clips.tag 字符串列已删）
                 String note = c.getNote() == null || c.getNote().isBlank() ? "" : " " + c.getNote();
-                yield c.getTag() + note;
+                yield joinTags(clipTagMapper.selectTags(entityId)) + note;
             }
         };
     }

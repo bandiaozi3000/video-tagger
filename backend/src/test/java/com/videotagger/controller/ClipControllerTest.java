@@ -44,7 +44,7 @@ class ClipControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title":"某动画 第3集","url":"https://www.bilibili.com/video/BV1",
-                                 "timestampSec":754.5,"tag":"高燃战斗","note":""}
+                                 "timestampSec":754.5,"tagIds":[1],"note":""}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(42))
@@ -52,11 +52,11 @@ class ClipControllerTest {
     }
 
     @Test
-    void saveRejectsBlankTag() throws Exception {
+    void saveRejectsBlankTags() throws Exception {
         mvc.perform(post("/api/clips")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"title":"t","url":"https://a.com","timestampSec":1.0,"tag":""}
+                                {"title":"t","url":"https://a.com","timestampSec":1.0,"tagIds":[]}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
@@ -67,7 +67,7 @@ class ClipControllerTest {
         mvc.perform(post("/api/clips")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"title":"t","url":"ftp://a.com","timestampSec":1.0,"tag":"高燃"}
+                                {"title":"t","url":"ftp://a.com","timestampSec":1.0,"tagIds":[1]}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
@@ -76,12 +76,12 @@ class ClipControllerTest {
     @Test
     void updateMissingReturns404() throws Exception {
         Mockito.doThrow(new NoSuchElementException("clip not found: 99"))
-                .when(clipService).update(eq(99L), any(), eq(false));
+                .when(clipService).update(eq(99L), any());
 
         mvc.perform(put("/api/clips/99")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"title":"t","url":"https://a.com/v","timestampSec":1.0,"tag":"高燃"}
+                                {"title":"t","url":"https://a.com/v","timestampSec":1.0,"tagIds":[1]}
                                 """))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value(404));
@@ -96,13 +96,13 @@ class ClipControllerTest {
         clip.setTimestampSec(10.0);
         clip.setTag("名场面");
         clip.setNote("改后");
-        Mockito.when(clipService.update(eq(1L), any(), eq(false))).thenReturn(clip);
+        Mockito.when(clipService.update(eq(1L), any())).thenReturn(clip);
 
         mvc.perform(put("/api/clips/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title":"改后标题","url":"https://a.com/v","timestampSec":10.0,
-                                 "tag":"名场面","note":"改后"}
+                                 "tagIds":[1],"note":"改后"}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
@@ -110,17 +110,17 @@ class ClipControllerTest {
     }
 
     @Test
-    void updateWithAppendTagForwardsFlag() throws Exception {
-        Mockito.when(clipService.update(eq(1L), any(), eq(true))).thenReturn(new Clip());
+    void updateForwardsRequest() throws Exception {
+        Mockito.when(clipService.update(eq(1L), any())).thenReturn(new Clip());
 
-        mvc.perform(put("/api/clips/1?appendTag=true")
+        mvc.perform(put("/api/clips/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"title":"t","url":"https://a.com/v","timestampSec":1.0,"tag":"追加"}
+                                {"title":"t","url":"https://a.com/v","timestampSec":1.0,"tagIds":[2]}
                                 """))
                 .andExpect(status().isOk());
 
-        Mockito.verify(clipService).update(eq(1L), any(), eq(true));
+        Mockito.verify(clipService).update(eq(1L), any());
     }
 
     @Test

@@ -298,9 +298,10 @@ public class MediaController {
         return highlightProjectService.getOrCreate(id);
     }
 
+    /** 媒体打标（v0.31 受控：body = `{tagIds:[…]}`，只接受已存在词条 id）。 */
     @PostMapping("/{id}/tags")
-    public void addTag(@PathVariable Long id, @RequestBody Map<String, String> body) {
-        mediaService.addTag(id, body.get("tag"));
+    public void addTags(@PathVariable Long id, @RequestBody Map<String, List<Long>> body) {
+        mediaService.addTags(id, body.get("tagIds"));
     }
 
     @DeleteMapping("/{id}/tags/{tagId}")

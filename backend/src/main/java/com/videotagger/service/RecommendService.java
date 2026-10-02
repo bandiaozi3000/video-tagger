@@ -322,10 +322,17 @@ public class RecommendService {
             // 片段行：PreparedClip 只带渲染必需字段，tag / 所属集号得回查原始行
             Map<Long, Clip> clipRows = new HashMap<>();
             Map<Long, Episode> episodeRows = new HashMap<>();
+            Map<Long, List<String>> clipTags = Map.of();
             if (clips != null && !clips.isEmpty()) {
                 List<Long> clipIds = new ArrayList<>();
                 for (RecommendClipSourceService.PreparedClip clip : clips) clipIds.add(clip.id());
                 for (Clip row : clipMapper.listByIds(clipIds)) clipRows.put(row.getId(), row);
+                // 片段标签（v0.31：真源 = clip_tag；渲染侧只用展示字符串）
+                Map<Long, List<String>> tagNamesByClip = new HashMap<>();
+                for (TagMapper.ClipTagName row : tagMapper.namesByClipIds(clipIds)) {
+                    tagNamesByClip.computeIfAbsent(row.clipId(), k -> new ArrayList<>()).add(row.name());
+                }
+                clipTags = tagNamesByClip;
                 for (Episode row : episodeMapper.listByMedia(d.id())) episodeRows.put(row.getId(), row);
             }
 
@@ -339,7 +346,8 @@ public class RecommendService {
                     cv.put("title", clip.title() == null || clip.title().isBlank() ? "未命名片段" : clip.title());
                     if (clip.note() != null && !clip.note().isBlank()) cv.put("note", clip.note());
                     Clip row = clipRows.get(clip.id());
-                    if (row != null && row.getTag() != null && !row.getTag().isBlank()) cv.put("tag", row.getTag().trim());
+                    List<String> clipTagNames = clipTags.getOrDefault(clip.id(), List.of());
+                    if (!clipTagNames.isEmpty()) cv.put("tag", String.join(" ", clipTagNames));
                     Episode episode = row == null || row.getEpisodeId() == null ? null : episodeRows.get(row.getEpisodeId());
                     if (episode != null) {
                         if (episode.getEpisodeNo() != null) cv.put("episodeNo", episode.getEpisodeNo());

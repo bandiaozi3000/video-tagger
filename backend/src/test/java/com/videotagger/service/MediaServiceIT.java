@@ -1,6 +1,7 @@
 package com.videotagger.service;
 
 import com.videotagger.AbstractMySqlIT;
+import com.videotagger.TestTagSeed;
 import com.videotagger.entity.Media;
 import com.videotagger.entity.Episode;
 import com.videotagger.entity.ExternalEpisode;
@@ -15,6 +16,7 @@ import com.videotagger.mapper.EpisodeMapper;
 import com.videotagger.mapper.ExternalEpisodeMapper;
 import com.videotagger.mapper.ExternalRelationMapper;
 import com.videotagger.mapper.ExternalWorkMapper;
+import com.videotagger.mapper.TagMapper;
 import com.videotagger.util.VideoFingerprint;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,6 +51,13 @@ class MediaServiceIT extends AbstractMySqlIT {
     ExternalEpisodeMapper externalEpisodeMapper;
     @Autowired
     ExternalRelationMapper externalRelationMapper;
+    @Autowired
+    TagMapper tagMapper;
+
+    /** v0.31 标签受控：测试里先建词条，再传 id。 */
+    private List<Long> tags(String... names) {
+        return TestTagSeed.ensure(tagMapper, names);
+    }
 
     @Test
     void trashReleasesBangumiBindingAndBridgeCache() {
@@ -90,7 +99,7 @@ class MediaServiceIT extends AbstractMySqlIT {
     @Test
     void saveClipAutoCreatesMediaAndEpisode() {
         SaveClipResult r = clipService.save(new SaveClipRequest(
-                "葬送的芙莉莲 第3集", "https://www.bilibili.com/video/BV-ane1", 100.0, "高燃", ""));
+                "葬送的芙莉莲 第3集", "https://www.bilibili.com/video/BV-ane1", 100.0, tags("高燃"), ""));
 
         assertEquals("葬送的芙莉莲", r.mediaTitle());
         assertEquals(3, r.episodeNo());
@@ -113,8 +122,8 @@ class MediaServiceIT extends AbstractMySqlIT {
 
     @Test
     void sameEpisodeReusesMediaAndEpisode() {
-        clipService.save(new SaveClipRequest("某番剧 第2集", "https://x.com/ep2", 50.0, "高燃", ""));
-        clipService.save(new SaveClipRequest("某番剧 第2集", "https://x.com/ep2", 70.0, "泪目", ""));
+        clipService.save(new SaveClipRequest("某番剧 第2集", "https://x.com/ep2", 50.0, tags("高燃"), ""));
+        clipService.save(new SaveClipRequest("某番剧 第2集", "https://x.com/ep2", 70.0, tags("泪目"), ""));
 
         Media media = mediaMapper.selectByTitlePrefix("某番剧");
         assertNotNull(media);
@@ -139,7 +148,7 @@ class MediaServiceIT extends AbstractMySqlIT {
     @Test
     void addAndRemoveMediaTag() {
         Media a = mediaService.create(new MediaRequest("标签测试", null, null, "VIDEO", null, "番剧", "WANT", null, null, null));
-        mediaService.addTag(a.getId(), "热血");
+        mediaService.addTags(a.getId(), tags("热血"));
         assertEquals(1, mediaTagMapper.selectTags(a.getId()).size());
 
         Tag t = mediaTagMapper.selectTags(a.getId()).get(0);
@@ -149,22 +158,23 @@ class MediaServiceIT extends AbstractMySqlIT {
 
     @Test
     void mergeMovesEpisodesAndTags() {
-        clipService.save(new SaveClipRequest("番剧甲 第1集", "https://m.com/1", 10.0, "高燃", ""));
+        clipService.save(new SaveClipRequest("番剧甲 第1集", "https://m.com/1", 10.0, tags("高燃"), ""));
         Media a1 = mediaMapper.selectByTitlePrefix("番剧甲");
         assertNotNull(a1);
-        mediaService.addTag(a1.getId(), "热血");
+        mediaService.addTags(a1.getId(), tags("热血"));
 
         Media a2 = mediaService.create(new MediaRequest("番剧乙", null, null, "VIDEO", null, "番剧", "WANT", null, null, null));
         mediaService.merge(a1.getId(), a2.getId());
 
         assertEquals(1, episodeMapper.countByMedia(a2.getId()));
-        assertEquals(2, mediaTagMapper.selectTags(a2.getId()).size());
+        // v0.31：标签不再向上并集同步 —— 媒体级只算自己显式打的「热血」（片段上的「高燃」不再冒上来）
+        assertEquals(1, mediaTagMapper.selectTags(a2.getId()).size());
         assertNull(mediaMapper.selectById(a1.getId()));
     }
 
     @Test
     void deleteCascadesClipsAndEpisodes() {
-        clipService.save(new SaveClipRequest("番剧丙 第1集", "https://d.com/1", 10.0, "高燃", ""));
+        clipService.save(new SaveClipRequest("番剧丙 第1集", "https://d.com/1", 10.0, tags("高燃"), ""));
         Media a = mediaMapper.selectByTitlePrefix("番剧丙");
         assertNotNull(a);
         assertTrue(clipMapper.countByMedia(a.getId()) >= 1);

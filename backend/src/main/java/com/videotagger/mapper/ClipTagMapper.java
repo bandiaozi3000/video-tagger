@@ -22,6 +22,9 @@ public interface ClipTagMapper extends BaseMapper<ClipTag> {
     @Delete("DELETE FROM clip_tag WHERE clip_id = #{clipId}")
     void deleteByClip(@Param("clipId") long clipId);
 
+    @Delete("DELETE FROM clip_tag WHERE clip_id = #{clipId} AND tag_id = #{tagId}")
+    void deleteLink(@Param("clipId") long clipId, @Param("tagId") long tagId);
+
     @Select("SELECT t.* FROM tag t JOIN clip_tag ct ON ct.tag_id = t.id "
             + "WHERE ct.clip_id = #{clipId} ORDER BY t.id")
     List<Tag> selectTags(@Param("clipId") long clipId);

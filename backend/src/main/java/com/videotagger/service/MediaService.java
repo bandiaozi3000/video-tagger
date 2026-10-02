@@ -49,6 +49,7 @@ public class MediaService {
     private final EmbeddingTaskService embeddingTaskService;
     private final CoverService coverService;
     private final TitleMappingService titleMappingService;
+    private final TagLinkService tagLinkService;
     private final ClipExportService clipExportService;
     private final HighlightProjectService highlightProjectService;
     private final VideoAssetService videoAssetService;
@@ -62,10 +63,10 @@ public class MediaService {
                         TagMapper tagMapper, MediaCollectionMapper mediaCollectionMapper,
                         MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
                         EmbeddingTaskService embeddingTaskService, CoverService coverService,
-                        TitleMappingService titleMappingService) {
+                        TitleMappingService titleMappingService, TagLinkService tagLinkService) {
         this(mediaMapper, episodeMapper, mediaTagMapper, episodeTagMapper, clipTagMapper, clipMapper,
                 tagMapper, mediaCollectionMapper, mediaFormatMapper, mediaSubcategoryMapper,
-                embeddingTaskService, coverService, titleMappingService, null, null, null, null, null, null);
+                embeddingTaskService, coverService, titleMappingService, tagLinkService, null, null, null, null, null, null);
     }
 
     @Autowired
@@ -75,7 +76,8 @@ public class MediaService {
                         TagMapper tagMapper, MediaCollectionMapper mediaCollectionMapper,
                         MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
                         EmbeddingTaskService embeddingTaskService, CoverService coverService,
-                        TitleMappingService titleMappingService, ClipExportService clipExportService,
+                        TitleMappingService titleMappingService, TagLinkService tagLinkService,
+                        ClipExportService clipExportService,
                         HighlightProjectService highlightProjectService,
                         VideoAssetService videoAssetService,
                         ExternalWorkMapper externalWorkMapper,
@@ -94,6 +96,7 @@ public class MediaService {
         this.embeddingTaskService = embeddingTaskService;
         this.coverService = coverService;
         this.titleMappingService = titleMappingService;
+        this.tagLinkService = tagLinkService;
         this.clipExportService = clipExportService;
         this.highlightProjectService = highlightProjectService;
         this.videoAssetService = videoAssetService;
@@ -424,19 +427,15 @@ public class MediaService {
         return clipMapper.selectRepresentativeCoverByEpisode(s.id());
     }
 
-    public void addTag(Long mediaId, String tagName) {
+    /** 媒体打标（受控：只接受已存在词条 id，**不新建词条、不向上同步**）。 */
+    public void addTags(Long mediaId, List<Long> tagIds) {
         requireMedia(mediaId);
-        Tag tag = ensureTag(tagName);
-        if (tag != null) {
-            mediaTagMapper.insertIgnore(mediaId, tag.getId());
-            embeddingTaskService.enqueue(EntityType.MEDIA, mediaId);
-        }
+        tagLinkService.addTags(EntityType.MEDIA, mediaId, tagIds);
     }
 
     public void removeTag(Long mediaId, Long tagId) {
         requireMedia(mediaId);
-        mediaTagMapper.deleteLink(mediaId, tagId);
-        embeddingTaskService.enqueue(EntityType.MEDIA, mediaId);
+        tagLinkService.removeTag(EntityType.MEDIA, mediaId, tagId);
     }
 
     private Media requireMedia(Long id) {
@@ -445,15 +444,6 @@ public class MediaService {
             throw new NoSuchElementException("media not found: " + id);
         }
         return a;
-    }
-
-    private Tag ensureTag(String name) {
-        String trimmed = name == null ? "" : name.trim();
-        if (trimmed.isEmpty()) {
-            return null;
-        }
-        tagMapper.insertIgnore(trimmed, System.currentTimeMillis());
-        return tagMapper.selectByName(trimmed);
     }
 
     private void apply(Media a, MediaRequest req) {

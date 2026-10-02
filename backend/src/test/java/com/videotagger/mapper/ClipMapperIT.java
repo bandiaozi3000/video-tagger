@@ -19,7 +19,6 @@ class ClipMapperIT extends AbstractMySqlIT {
         clip.setTitle("某动画 第3集");
         clip.setUrl("https://www.bilibili.com/video/BV1xx");
         clip.setTimestampSec(754.5);
-        clip.setTag("高燃战斗");
         clip.setNote("主角觉醒");
         clip.setCreatedAt(System.currentTimeMillis());
 
@@ -27,7 +26,7 @@ class ClipMapperIT extends AbstractMySqlIT {
 
         Clip loaded = clipMapper.selectById(clip.getId());
         assertNotNull(loaded);
-        assertEquals("高燃战斗", loaded.getTag());
+        assertEquals("某动画 第3集", loaded.getTitle());
         assertEquals(754.5, loaded.getTimestampSec());
     }
 }

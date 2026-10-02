@@ -1,10 +1,12 @@
 package com.videotagger.service;
 
 import com.videotagger.AbstractMySqlIT;
+import com.videotagger.TestTagSeed;
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.Media;
 import com.videotagger.mapper.EmbeddingTaskMapper;
 import com.videotagger.mapper.MediaMapper;
+import com.videotagger.mapper.TagMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -27,6 +29,14 @@ class ClipServiceIT extends AbstractMySqlIT {
     @Autowired
     TitleMappingService titleMappingService;
 
+    @Autowired
+    TagMapper tagMapper;
+
+    /** v0.31 标签受控：测试里先建词条，再传 id。 */
+    private List<Long> tags(String... names) {
+        return TestTagSeed.ensure(tagMapper, names);
+    }
+
     private Media insertMedia(String title) {
         Media m = new Media();
         m.setTitle(title);
@@ -41,7 +51,7 @@ class ClipServiceIT extends AbstractMySqlIT {
     @Test
     void saveCreatesClipAndPendingTask() {
         SaveClipResult result = clipService.save(new SaveClipRequest(
-                "某动画 第3集", "https://www.bilibili.com/video/BV1", 754.5, "高燃战斗", "主角觉醒"));
+                "某动画 第3集", "https://www.bilibili.com/video/BV1", 754.5, tags("高燃战斗"), "主角觉醒"));
 
         assertFalse(result.deduped());
         assertNotNull(result.id());
@@ -51,7 +61,7 @@ class ClipServiceIT extends AbstractMySqlIT {
     @Test
     void saveSameUrlWithin3SecondsDeduplicates() {
         SaveClipRequest req = new SaveClipRequest(
-                "某动画 第3集", "https://www.bilibili.com/video/BV2", 100.0, "战斗", "");
+                "某动画 第3集", "https://www.bilibili.com/video/BV2", 100.0, tags("战斗"), "");
 
         SaveClipResult first = clipService.save(req);
         SaveClipResult second = clipService.save(req);
@@ -63,9 +73,9 @@ class ClipServiceIT extends AbstractMySqlIT {
     @Test
     void saveSameUrlWithDifferentTagIsNewRecord() {
         SaveClipRequest first = new SaveClipRequest(
-                "某动画", "https://www.bilibili.com/video/BV3", 100.0, "战斗", "");
+                "某动画", "https://www.bilibili.com/video/BV3", 100.0, tags("战斗"), "");
         SaveClipRequest second = new SaveClipRequest(
-                "某动画", "https://www.bilibili.com/video/BV3", 100.0, "泪目", "");
+                "某动画", "https://www.bilibili.com/video/BV3", 100.0, tags("泪目"), "");
 
         SaveClipResult r1 = clipService.save(first);
         SaveClipResult r2 = clipService.save(second);
@@ -77,47 +87,47 @@ class ClipServiceIT extends AbstractMySqlIT {
     @Test
     void updateChangesTagAndResetsEmbeddingTask() {
         SaveClipResult saved = clipService.save(new SaveClipRequest(
-                "某动画", "https://b.com/1", 10.0, "高燃", "旧备注"));
+                "某动画", "https://b.com/1", 10.0, tags("高燃"), "旧备注"));
 
         Clip updated = clipService.update(saved.id(),
-                new SaveClipRequest("某动画", "https://b.com/1", 10.0, "名场面", "新备注"), false);
+                new SaveClipRequest("某动画", "https://b.com/1", 10.0, tags("名场面"), "新备注"));
 
-        assertEquals("名场面", updated.getTag());
+        assertEquals(List.of("名场面"), updated.getTagNames());
         assertNull(taskMapper.selectById(saved.id()));
     }
 
     @Test
-    void updateAppendTagMergesTags() {
+    void updateReplacesTags() {
         SaveClipResult saved = clipService.save(new SaveClipRequest(
-                "某动画", "https://b.com/2", 20.0, "高燃", ""));
+                "某动画", "https://b.com/2", 20.0, tags("高燃"), ""));
 
         Clip updated = clipService.update(saved.id(),
-                new SaveClipRequest("某动画", "https://b.com/2", 20.0, "名场面", ""), true);
+                new SaveClipRequest("某动画", "https://b.com/2", 20.0, tags("名场面"), ""));
 
-        assertTrue(updated.getTag().contains("高燃"));
-        assertTrue(updated.getTag().contains("名场面"));
+        // v0.31：全量替换（不再有 appendTag 语义）
+        assertEquals(List.of("名场面"), updated.getTagNames());
     }
 
     @Test
     void findNearbyReturnsClipsWithinWindow() {
-        clipService.save(new SaveClipRequest("某动画", "https://n.com/1", 100.0, "高燃", ""));
-        clipService.save(new SaveClipRequest("某动画", "https://n.com/1", 105.0, "名场面", ""));
-        clipService.save(new SaveClipRequest("某动画", "https://n.com/1", 200.0, "泪目", ""));
+        clipService.save(new SaveClipRequest("某动画", "https://n.com/1", 100.0, tags("高燃"), ""));
+        clipService.save(new SaveClipRequest("某动画", "https://n.com/1", 105.0, tags("名场面"), ""));
+        clipService.save(new SaveClipRequest("某动画", "https://n.com/1", 200.0, tags("泪目"), ""));
 
         List<Clip> nearby = clipService.findNearby("https://n.com/1", 102.0, 10.0);
 
         assertEquals(2, nearby.size());
-        assertEquals("高燃", nearby.get(0).getTag());
+        assertEquals(List.of("高燃"), nearby.get(0).getTagNames());
     }
 
     @Test
     void getReturnsFullClipForDetailPage() {
         SaveClipResult saved = clipService.save(new SaveClipRequest(
-                "某动画 第3集", "https://get.com/1", 42.0, "高燃", "名场面备注"));
+                "某动画 第3集", "https://get.com/1", 42.0, tags("高燃"), "名场面备注"));
 
         Clip clip = clipService.get(saved.id());
         assertEquals(42.0, clip.getTimestampSec());
-        assertEquals("高燃", clip.getTag());
+        assertEquals(List.of("高燃"), clip.getTagNames());
         assertEquals("名场面备注", clip.getNote());
         assertNotNull(clip.getVideoFp());
         assertNotNull(clip.getEpisodeId());
@@ -127,7 +137,7 @@ class ClipServiceIT extends AbstractMySqlIT {
     @Test
     void deleteRemovesClipAndTask() {
         SaveClipResult saved = clipService.save(new SaveClipRequest(
-                "某动画", "https://b.com/3", 30.0, "高燃", ""));
+                "某动画", "https://b.com/3", 30.0, tags("高燃"), ""));
 
         assertTrue(clipService.delete(saved.id()));
         assertFalse(clipService.delete(saved.id())); // 二次删除返回 false
@@ -141,14 +151,14 @@ class ClipServiceIT extends AbstractMySqlIT {
 
         // 首次：候选确认归入（mediaId 非空）→ 存映射
         SaveClipResult first = clipService.save(new SaveClipRequest(
-                "爱你宝贝 第1集", "https://map.test/1", 10.0, "高燃", "",
+                "爱你宝贝 第1集", "https://map.test/1", 10.0, tags("高燃"), "",
                 null, null, null, null, m.getId(), null));
         assertEquals(m.getId(), first.mediaId());
         assertEquals(m.getId(), titleMappingService.getByTitle("爱你宝贝"));
 
         // 再次：同标题不带 mediaId → 标题映射自动归位，不再新建
         SaveClipResult second = clipService.save(new SaveClipRequest(
-                "爱你宝贝 第2集", "https://map.test/2", 20.0, "高燃", ""));
+                "爱你宝贝 第2集", "https://map.test/2", 20.0, tags("高燃"), ""));
         assertEquals(m.getId(), second.mediaId());
         assertEquals(m.getId(), titleMappingService.getByTitle("爱你宝贝"));
     }
@@ -159,13 +169,13 @@ class ClipServiceIT extends AbstractMySqlIT {
 
         // 建立映射（首次候选确认归入）
         clipService.save(new SaveClipRequest(
-                "爱你宝贝 第1集", "https://map.test/10", 10.0, "高燃", "",
+                "爱你宝贝 第1集", "https://map.test/10", 10.0, tags("高燃"), "",
                 null, null, null, null, m.getId(), null));
         assertEquals(m.getId(), titleMappingService.getByTitle("爱你宝贝"));
 
         // forceNewMedia：断开映射 + 跳过自动匹配 → 新建媒体（解析名「爱你宝贝」与库中「我爱你BABY」前缀不匹配）
         SaveClipResult result = clipService.save(new SaveClipRequest(
-                "爱你宝贝 第2集", "https://map.test/11", 20.0, "高燃", "",
+                "爱你宝贝 第2集", "https://map.test/11", 20.0, tags("高燃"), "",
                 null, null, null, null, null, true));
         assertNotEquals(m.getId(), result.mediaId());
         assertEquals("爱你宝贝", result.mediaTitle());

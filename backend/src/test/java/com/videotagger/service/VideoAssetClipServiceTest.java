@@ -1,5 +1,6 @@
 package com.videotagger.service;
 
+import java.util.List;
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.VideoAsset;
 import com.videotagger.mapper.ClipMapper;
@@ -25,10 +26,11 @@ class VideoAssetClipServiceTest {
         asset.setSourceRevision("r2");
         asset.setAvailabilityState("AVAILABLE");
         when(assets.selectById(11L)).thenReturn(asset);
-        VideoAssetClipService service = new VideoAssetClipService(assets, clips);
+        VideoAssetClipService service = new VideoAssetClipService(assets, clips, mock(TagLinkService.class));
 
+        when(clips.insert(any(Clip.class))).thenAnswer(inv -> { ((Clip) inv.getArgument(0)).setId(99L); return 1; });
         Clip clip = service.create(7L, 11L,
-                new VideoAssetClipService.CreateReferenceClipRequest("高燃片段", 12_345L, 18_000L, "高燃", "测试" , null));
+                new VideoAssetClipService.CreateReferenceClipRequest("高燃片段", 12_345L, 18_000L, List.of(9L), "测试" , null));
 
         assertEquals(7L, clip.getEpisodeId());
         assertEquals(11L, clip.getVideoAssetId());
@@ -47,9 +49,9 @@ class VideoAssetClipServiceTest {
         asset.setId(11L);
         asset.setEpisodeId(7L);
         when(assets.selectById(11L)).thenReturn(asset);
-        VideoAssetClipService service = new VideoAssetClipService(assets, clips);
+        VideoAssetClipService service = new VideoAssetClipService(assets, clips, mock(TagLinkService.class));
 
         assertThrows(IllegalArgumentException.class, () -> service.create(7L, 11L,
-                new VideoAssetClipService.CreateReferenceClipRequest("x", 20_000L, 19_000L, "tag", "", null)));
+                new VideoAssetClipService.CreateReferenceClipRequest("x", 20_000L, 19_000L, List.of(9L), "", null)));
     }
 }

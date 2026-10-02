@@ -2187,6 +2187,54 @@ const MEDIA_STATUS_OPTIONS = [
 /** 浮层选项字典：全部数据驱动（只列库里真有的），空数组 = 该维度暂无可选项。 */
 const mediaFilterDict = { years: [], genres: [], tags: [], collections: [] };
 
+/**
+ * 常驻题材（2026-10-02 用户拍板）：手动往题材选项里加的词，**只存本机 localStorage，后端零参与**。
+ *
+ * <p>为什么前端就够了：查询侧不校验白名单（白名单只用于生成选项列表，见 docs/rules.md §19），
+ * 常驻词直接进 `mediaFilter.genres` 就能筛。唯一要求是**字面量必须与库内 `genres_json`
+ * 里的写法完全一致**，否则筛出 0 条 —— 所以添加时用 `/api/media/count` 探一次拦掉死选项。
+ *
+ * <p>代价（已知且接受）：只在这台浏览器常驻，换机/换浏览器/清缓存就没了。
+ */
+const CUSTOM_GENRES_KEY = 'vt-media-genres';
+const customGenreCounts = {};   // 运行时探到的媒体数，不落盘；刷新后由 fillMediaFilterDict 重探
+
+function customGenres() {
+    try {
+        const v = JSON.parse(localStorage.getItem(CUSTOM_GENRES_KEY) || '[]');
+        return Array.isArray(v) ? v.filter(s => typeof s === 'string' && s.trim()) : [];
+    } catch (e) { return []; }
+}
+
+function saveCustomGenres(list) {
+    const uniq = [...new Set(list.map(s => String(s).trim()).filter(Boolean))];
+    localStorage.setItem(CUSTOM_GENRES_KEY, JSON.stringify(uniq));
+    return uniq;
+}
+
+/** 探一个题材词在库里的媒体数：>0 = 有效；0 = 库里没这个词；null = 请求失败（不拦，当成“未知”）。 */
+async function probeGenreCount(word) {
+    try {
+        const r = await fetch(`/api/media/count?genres=${encodeURIComponent(word)}`);
+        if (!r.ok) return null;
+        const n = await r.json();
+        return typeof n === 'number' ? n : null;
+    } catch (e) { return null; }
+}
+
+/** 添加常驻题材。库里查不到的词不收（防手滑打成 0 结果的死选项）。返回 { ok, msg }。 */
+async function addCustomGenre(word) {
+    const w = String(word || '').trim();
+    if (!w) return { ok: false, msg: '' };
+    if (customGenres().includes(w)) return { ok: false, msg: '已经是常驻了' };
+    if (mediaFilterDict.genres.some(g => g.genre === w)) return { ok: false, msg: '列表里已经有这个词了' };
+    const n = await probeGenreCount(w);
+    if (n === 0) return { ok: false, msg: '库里没有这个题材（0 部），没添加' };
+    if (n != null) customGenreCounts[w] = n;
+    saveCustomGenres([...customGenres(), w]);
+    return { ok: true, msg: n == null ? '已常驻（媒体数未知）' : `已常驻（${n} 部）` };
+}
+
 /** 只有题材是多选；其余单选（单选列表顶部给「全部（不限）」当清空入口）。 */
 function dimIsMulti(key) { return key === 'genres'; }
 
@@ -2199,9 +2247,16 @@ function dimActive(key) {
 function dimValues(key) {
     let list;
     switch (key) {
-        case 'genres':
-            list = mediaFilterDict.genres.map(g => ({ value: g.genre, label: g.genre, count: g.count }));
+        case 'genres': {
+            // 常驻词排最前（它们没有稳定的计数可参与降序），后端字典里的同名词去重
+            const custom = customGenres();
+            list = [
+                ...custom.map(g => ({ value: g, label: g, count: customGenreCounts[g], custom: true })),
+                ...mediaFilterDict.genres.filter(g => !custom.includes(g.genre))
+                    .map(g => ({ value: g.genre, label: g.genre, count: g.count })),
+            ];
             break;
+        }
         case 'year':
             list = mediaFilterDict.years.map(y => ({ value: String(y), label: `${y} 年` }));
             break;
@@ -2341,9 +2396,52 @@ function renderFilterPop() {
             b.appendChild(c);
         }
         b.addEventListener('click', () => setDim(dim.key, item.value === '' ? null : item.value));
-        body.appendChild(b);
+        if (!item.custom) { body.appendChild(b); continue; }
+        // 常驻项：右侧一个 × 直接移除（移除正在用的条件时顺手取消它，免得留下看不见的条件）
+        const row = document.createElement('div');
+        row.className = 'fp-val-row';
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'fp-del';
+        del.textContent = '×';
+        del.title = `移除常驻题材「${item.label}」`;
+        del.addEventListener('click', () => {
+            saveCustomGenres(customGenres().filter(g => g !== item.value));
+            delete customGenreCounts[item.value];
+            if ((mediaFilter.genres || []).includes(item.value)) setDim('genres', item.value);
+            else renderFilterPop();
+        });
+        row.append(b, del);
+        body.appendChild(row);
     }
     valHost.appendChild(body);
+
+    // 题材维度多一行“手写常驻词”；其余维度的取值都是库/常量给的，不给加。
+    if (dim.key === 'genres') {
+        const foot = document.createElement('div');
+        foot.className = 'fp-add';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'fp-add-input';
+        input.placeholder = '输入题材词加为常驻（写法要与库里一致）';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'fp-add-btn';
+        btn.textContent = '＋ 常驻';
+        const hint = document.createElement('span');
+        hint.className = 'fp-add-hint';
+        const submit = async () => {
+            btn.disabled = true;
+            const res = await addCustomGenre(input.value);
+            btn.disabled = false;
+            if (res.ok) renderFilterPop();           // 重建列表，新词出现在最前
+            else if (res.msg) hint.textContent = res.msg;  // 失败留在原地提示（重建会清掉输入框内容）
+        };
+        btn.addEventListener('click', submit);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+        foot.append(input, btn, hint);
+        valHost.appendChild(foot);
+    }
 }
 
 /** 按当前筛选/分页构造列表与 count 请求 URL（全部媒体/最近观看/收藏夹三分支）。
@@ -2413,6 +2511,12 @@ async function fillMediaFilterDict() {
     mediaFilterDict.genres = Array.isArray(genres) ? genres : [];
     mediaFilterDict.tags = Array.isArray(tags) ? tags : [];
     mediaFilterDict.collections = Array.isArray(collections) ? collections : [];
+    // 常驻词的媒体数也探一次（字典里没有的就现探），否则列表里显示不出数字
+    await Promise.all(customGenres().map(async g => {
+        const hit = mediaFilterDict.genres.find(x => x.genre === g);
+        const n = hit ? hit.count : await probeGenreCount(g);
+        if (n != null) customGenreCounts[g] = n;
+    }));
     renderFilterChips();
     if (!filterPopEl.hidden) renderFilterPop();
 }

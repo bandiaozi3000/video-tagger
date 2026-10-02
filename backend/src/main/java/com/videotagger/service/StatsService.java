@@ -7,6 +7,7 @@ import com.videotagger.mapper.ClipMapper;
 import com.videotagger.mapper.MediaFormatMapper;
 import com.videotagger.mapper.MediaMapper;
 import com.videotagger.mapper.MediaSubcategoryMapper;
+import com.videotagger.mapper.TagMapper;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -23,13 +24,15 @@ public class StatsService {
     private final MediaMapper mediaMapper;
     private final MediaFormatMapper mediaFormatMapper;
     private final MediaSubcategoryMapper mediaSubcategoryMapper;
+    private final TagMapper tagMapper;
 
     public StatsService(ClipMapper clipMapper, MediaMapper mediaMapper, MediaFormatMapper mediaFormatMapper,
-                        MediaSubcategoryMapper mediaSubcategoryMapper) {
+                        MediaSubcategoryMapper mediaSubcategoryMapper, TagMapper tagMapper) {
         this.clipMapper = clipMapper;
         this.mediaMapper = mediaMapper;
         this.mediaFormatMapper = mediaFormatMapper;
         this.mediaSubcategoryMapper = mediaSubcategoryMapper;
+        this.tagMapper = tagMapper;
     }
 
     public StatsResponse stats() {
@@ -46,7 +49,7 @@ public class StatsService {
         return new StatsResponse(
                 clipMapper.countClips(),
                 clipMapper.countVideos(),
-                clipMapper.countDistinctTags(),
+                tagMapper.countAll(),
                 clipMapper.countTags(10),
                 clipMapper.countBySite(10),
                 clipMapper.countTrend(now - 7 * DAY_MS),

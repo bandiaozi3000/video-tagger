@@ -50,7 +50,7 @@ public class ClipService {
     private final ClipTagMapper clipTagMapper;
     private final CoverService coverService;
     private final EmbeddingTaskService embeddingTaskService;
-    private final TagSyncService tagSyncService;
+    private final TagLinkService tagLinkService;
     private final TitleMappingService titleMappingService;
     private final ClipExportService clipExportService;
     private final HighlightProjectService highlightProjectService;
@@ -59,9 +59,9 @@ public class ClipService {
                        MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
                        EpisodeMapper episodeMapper, TagMapper tagMapper, ClipTagMapper clipTagMapper,
                        CoverService coverService, EmbeddingTaskService embeddingTaskService,
-                       TagSyncService tagSyncService, TitleMappingService titleMappingService) {
+                       TagLinkService tagLinkService, TitleMappingService titleMappingService) {
         this(clipMapper, mediaMapper, mediaFormatMapper, mediaSubcategoryMapper, episodeMapper, null, tagMapper,
-                clipTagMapper, coverService, embeddingTaskService, tagSyncService, titleMappingService, null, null);
+                clipTagMapper, coverService, embeddingTaskService, tagLinkService, titleMappingService, null, null);
     }
 
     @Autowired
@@ -69,7 +69,7 @@ public class ClipService {
                        MediaFormatMapper mediaFormatMapper, MediaSubcategoryMapper mediaSubcategoryMapper,
                        EpisodeMapper episodeMapper, MediaEntryService mediaEntryService, TagMapper tagMapper, ClipTagMapper clipTagMapper,
                        CoverService coverService, EmbeddingTaskService embeddingTaskService,
-                       TagSyncService tagSyncService, TitleMappingService titleMappingService,
+                       TagLinkService tagLinkService, TitleMappingService titleMappingService,
                        ClipExportService clipExportService, HighlightProjectService highlightProjectService) {
         this.clipMapper = clipMapper;
         this.mediaMapper = mediaMapper;
@@ -81,7 +81,7 @@ public class ClipService {
         this.clipTagMapper = clipTagMapper;
         this.coverService = coverService;
         this.embeddingTaskService = embeddingTaskService;
-        this.tagSyncService = tagSyncService;
+        this.tagLinkService = tagLinkService;
         this.titleMappingService = titleMappingService;
         this.clipExportService = clipExportService;
         this.highlightProjectService = highlightProjectService;
@@ -96,7 +96,8 @@ public class ClipService {
         // 同片段补不同标签属于「追加标注」，走新建记录，避免静默吞数据。
         Clip recent = clipMapper.findRecentNearTime(req.url(), now - DEDUP_WINDOW_MS,
                 req.timestampSec(), DEDUP_TIME_TOLERANCE_SEC);
-        if (recent != null && recent.getTag().equals(req.tag())) {
+        if (recent != null && new HashSet<>(tagLinkService.tagIdsOf(EntityType.CLIP, recent.getId()))
+                .equals(new HashSet<>(req.tagIds() == null ? List.of() : req.tagIds()))) {
             return new SaveClipResult(recent.getId(), true);
         }
 
@@ -138,12 +139,11 @@ public class ClipService {
         clip.setEndMs(req.endMs() != null ? req.endMs() : validatedEnd == null ? null : Math.round(validatedEnd * 1000));
         clip.setMaterialState("REFERENCE_ONLY");
         clip.setVideoDuration(req.videoDuration());
-        clip.setTag(req.tag());
         clip.setNote(req.note() == null ? "" : req.note());
         clip.setCreatedAt(now);
         clipMapper.insert(clip);
 
-        linkClipTags(clip.getId(), req.tag(), now);
+        tagLinkService.setClipTags(clip.getId(), req.tagIds());
 
         // 片段截帧封面：base64 内嵌保存，解码/落盘失败降级无封面（不反噬保存事务）
         if (req.coverDataUrl() != null && !req.coverDataUrl().isBlank()) {
@@ -180,17 +180,17 @@ public class ClipService {
     }
 
     /**
-     * 编辑标签。tag/note 变化时删除旧向量并重置 embedding 任务（异步重生成）。
-     * appendTag=true 时把新 tag 并入原 tag（按空白分词去重）。
+     * 编辑片段。标签走 {@code tagIds} **全量替换**（词库受控）；tagIds 为 null 时不动标签。
+     * 标签/备注变化时重置 embedding 任务（异步重生成）。
      */
     @Transactional
-    public Clip update(Long id, SaveClipRequest req, boolean appendTag) {
+    public Clip update(Long id, SaveClipRequest req) {
         Clip clip = clipMapper.selectById(id);
         if (clip == null) {
             throw new NoSuchElementException("clip not found: " + id);
         }
-        String oldTag = clip.getTag();
         String oldNote = clip.getNote() == null ? "" : clip.getNote();
+        List<Long> oldTags = tagLinkService.tagIdsOf(EntityType.CLIP, id);
 
         clip.setTitle(req.title());
         clip.setUrl(req.url());
@@ -205,15 +205,17 @@ public class ClipService {
         clip.setStartMs(req.startMs() != null ? req.startMs() : Math.round(req.timestampSec() * 1000));
         clip.setEndMs(req.endMs() != null ? req.endMs() : end == null ? null : Math.round(end * 1000));
         clip.setVideoDuration(duration);
-        clip.setTag(appendTag ? appendTag(oldTag, req.tag()) : req.tag());
         clip.setNote(req.note() == null ? "" : req.note());
         clipMapper.updateById(clip);
 
-        if (!oldTag.equals(clip.getTag()) || !oldNote.equals(clip.getNote())) {
-            clipTagMapper.deleteByClip(id);
-            linkClipTags(id, clip.getTag(), System.currentTimeMillis());
+        List<Long> newTags = req.tagIds() == null ? oldTags : tagLinkService.validate(req.tagIds());
+        boolean tagsChanged = req.tagIds() != null && !new HashSet<>(oldTags).equals(new HashSet<>(newTags));
+        if (tagsChanged) {
+            tagLinkService.setClipTags(id, newTags);
+        } else if (!oldNote.equals(clip.getNote())) {
             embeddingTaskService.enqueue(EntityType.CLIP, id);
         }
+        tagLinkService.decorate(clip);
         return clip;
     }
 
@@ -240,7 +242,9 @@ public class ClipService {
     /** 片段详情页：按 id 取完整片段，不存在抛 404。 */
     public List<Clip> listByMedia(Long mediaId) {
         if (mediaId == null || mediaId <= 0) throw new IllegalArgumentException("mediaId 非法");
-        return clipMapper.listByMedia(mediaId);
+        List<Clip> clips = clipMapper.listByMedia(mediaId);
+        tagLinkService.decorate(clips);
+        return clips;
     }
 
     public Clip get(Long id) {
@@ -248,6 +252,7 @@ public class ClipService {
         if (clip == null) {
             throw new NoSuchElementException("clip not found: " + id);
         }
+        tagLinkService.decorate(clip);
         return clip;
     }
 
@@ -337,7 +342,9 @@ public class ClipService {
 
     /** 查询同一视频中时间戳邻近（±window 秒）的既有标记，供扩展做重复片段提示。 */
     public List<Clip> findNearby(String url, double timestampSec, double window) {
-        return clipMapper.findNearby(url, timestampSec, window);
+        List<Clip> clips = clipMapper.findNearby(url, timestampSec, window);
+        tagLinkService.decorate(clips);
+        return clips;
     }
 
     /** 时间区间校验：结束时间可空，非空时必须严格晚于开始且不超过已知总时长。 */
@@ -355,24 +362,6 @@ public class ClipService {
             throw new IllegalArgumentException("结束时间不能超过视频总时长");
         }
         return end;
-    }
-
-    /** 把新标签并入原标签：按空白分词、去重、空格连接；已存在则原样返回。 */
-    static String appendTag(String existing, String added) {
-        String trimmed = added == null ? "" : added.trim();
-        if (trimmed.isEmpty()) {
-            return existing;
-        }
-        Set<String> tokens = new LinkedHashSet<>();
-        for (String t : existing.split("\\s+")) {
-            if (!t.isEmpty()) {
-                tokens.add(t);
-            }
-        }
-        if (tokens.add(trimmed)) {
-            return String.join(" ", tokens);
-        }
-        return existing;
     }
 
     // ---------- 番剧三层归属 ----------
@@ -447,20 +436,5 @@ public class ClipService {
             episodeMapper.insert(ep);
         }
         return ep;
-    }
-
-    /** 片段标签写入词库关联：无则建 tag 词条，有则复用；随后向上并集同步到所属集与媒体。（同包复用：见 ReviewClipService） */
-    void linkClipTags(long clipId, String tagText, long now) {
-        for (String token : tagText.trim().split("\\s+")) {
-            if (token.isEmpty()) {
-                continue;
-            }
-            tagMapper.insertIgnore(token, now);
-            Tag tag = tagMapper.selectByName(token);
-            if (tag != null) {
-                clipTagMapper.insertIgnore(clipId, tag.getId());
-            }
-        }
-        tagSyncService.syncFromClip(clipId);
     }
 }

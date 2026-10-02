@@ -10,9 +10,11 @@ import java.util.List;
 public class VideoService {
 
     private final ClipMapper clipMapper;
+    private final TagLinkService tagLinkService;
 
-    public VideoService(ClipMapper clipMapper) {
+    public VideoService(ClipMapper clipMapper, TagLinkService tagLinkService) {
         this.clipMapper = clipMapper;
+        this.tagLinkService = tagLinkService;
     }
 
     /** 按最近活跃排序的视频列表，offset 分页（页码导航）。 */
@@ -27,6 +29,8 @@ public class VideoService {
 
     /** 某个视频的全部标记点，按时间戳升序（时间线）。 */
     public List<Clip> listClipsByFingerprint(String fp) {
-        return clipMapper.listByFingerprint(fp);
+        List<Clip> clips = clipMapper.listByFingerprint(fp);
+        tagLinkService.decorate(clips);
+        return clips;
     }
 }

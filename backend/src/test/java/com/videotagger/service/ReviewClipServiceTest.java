@@ -1,5 +1,6 @@
 package com.videotagger.service;
 
+import java.util.List;
 import com.videotagger.entity.Clip;
 import com.videotagger.entity.Episode;
 import com.videotagger.mapper.ClipMapper;
@@ -31,10 +32,11 @@ class ReviewClipServiceTest {
     private final MaterializationService channelService = mock(MaterializationService.class);
     private final ClipService clipService = mock(ClipService.class);
     private final EmbeddingTaskService embeddingTaskService = mock(EmbeddingTaskService.class);
+    private final TagLinkService tagLinkService = mock(TagLinkService.class);
 
     private ReviewClipService service() {
         return new ReviewClipService(reviewService, episodeMapper, clipMapper, assetClipService,
-                channelService, clipService, embeddingTaskService);
+                channelService, clipService, embeddingTaskService, tagLinkService);
     }
 
     private void episodeExists(long id) {
@@ -78,7 +80,7 @@ class ReviewClipServiceTest {
                 .thenReturn(new EpisodeReviewService.ReviewSource("C1", "PRESENT", "x.mp4", "ok", 77L, null));
         when(assetClipService.create(eq(9L), eq(77L), any())).thenReturn(savedClip(501L));
 
-        Clip clip = service().create(9L, new ReviewClipService.CreateRequest(1000L, 3000L, "高燃", "备注", null));
+        Clip clip = service().create(9L, new ReviewClipService.CreateRequest(1000L, 3000L, List.of(9L), "备注", null));
 
         assertEquals(501L, clip.getId().longValue());
         ArgumentCaptor<VideoAssetClipService.CreateReferenceClipRequest> req =
@@ -87,8 +89,8 @@ class ReviewClipServiceTest {
         assertEquals(1000L, req.getValue().startMs());
         assertEquals(3000L, req.getValue().endMs().longValue());
         assertEquals("第3集", req.getValue().title(), "标题留空时回落集标题");
-        verify(clipService).linkClipTags(eq(501L), eq("高燃"), anyLong());
-        verify(embeddingTaskService).enqueue(EntityType.CLIP, 501L);
+        // v0.31：标签随请求进 C1 链路（assetClipService 内部写 clip_tag），本类不再回写
+        assertEquals(List.of(9L), req.getValue().tagIds());
     }
 
     @Test
@@ -102,7 +104,7 @@ class ReviewClipServiceTest {
         doAnswer(inv -> { ((Clip) inv.getArgument(0)).setId(601L); return 1; })
                 .when(clipMapper).insert(any(Clip.class));
 
-        Clip clip = service().create(9L, new ReviewClipService.CreateRequest(5000L, 8000L, "日常", "n", null));
+        Clip clip = service().create(9L, new ReviewClipService.CreateRequest(5000L, 8000L, List.of(9L), "n", null));
 
         assertEquals(601L, clip.getId().longValue());
         ArgumentCaptor<Clip> inserted = ArgumentCaptor.forClass(Clip.class);
@@ -125,11 +127,11 @@ class ReviewClipServiceTest {
 
         ReviewClipService svc = service();
         assertThrows(IllegalArgumentException.class,
-                () -> svc.create(9L, new ReviewClipService.CreateRequest(0L, null, "  ", null, null)));
+                () -> svc.create(9L, new ReviewClipService.CreateRequest(0L, null, List.of(), null, null)));
         assertThrows(IllegalArgumentException.class,
-                () -> svc.create(9L, new ReviewClipService.CreateRequest(3000L, 3000L, "标签", null, null)));
+                () -> svc.create(9L, new ReviewClipService.CreateRequest(3000L, 3000L, List.of(9L), null, null)));
         assertThrows(IllegalStateException.class,
-                () -> svc.create(9L, new ReviewClipService.CreateRequest(0L, 1000L, "标签", null, null)));
+                () -> svc.create(9L, new ReviewClipService.CreateRequest(0L, 1000L, List.of(9L), null, null)));
         verify(clipMapper, never()).insert(any(Clip.class));
     }
 
@@ -138,16 +140,16 @@ class ReviewClipServiceTest {
     void updateFromArtifactShiftsRange() {
         when(clipMapper.selectById(5L)).thenReturn(existingClip());
         when(channelService.evaluate(5L, false)).thenReturn(ev("ALREADY_READY"));
-        when(clipService.update(eq(5L), any(), anyBoolean())).thenReturn(savedClip(5L));
+        when(clipService.update(eq(5L), any())).thenReturn(savedClip(5L));
 
-        service().updateRange(5L, new ReviewClipService.RangeRequest(1000L, 3000L, "新标签", "新备注"));
+        service().updateRange(5L, new ReviewClipService.RangeRequest(1000L, 3000L, List.of(9L), "新备注"));
 
         ArgumentCaptor<SaveClipRequest> req = ArgumentCaptor.forClass(SaveClipRequest.class);
-        verify(clipService).update(eq(5L), req.capture(), eq(false));
+        verify(clipService).update(eq(5L), req.capture());
         assertEquals(13000L, req.getValue().startMs().longValue(), "1s + 12s 偏移");
         assertEquals(15000L, req.getValue().endMs().longValue());
         assertEquals(13.0d, req.getValue().timestampSec().doubleValue());
-        assertEquals("新标签", req.getValue().tag());
+        assertEquals(List.of(9L), req.getValue().tagIds());
         assertNull(req.getValue().videoAssetId(), "产物已作废，不能把旧产物 id 写回去");
         verify(channelService).deleteSource(5L);
     }
@@ -157,14 +159,14 @@ class ReviewClipServiceTest {
     void updateKeepsProductWhenRangeUnchanged() {
         when(clipMapper.selectById(5L)).thenReturn(existingClip());
         when(channelService.evaluate(5L, false)).thenReturn(ev("ALREADY_READY"));
-        when(clipService.update(eq(5L), any(), anyBoolean())).thenReturn(savedClip(5L));
+        when(clipService.update(eq(5L), any())).thenReturn(savedClip(5L));
 
         // 弹窗坐标 0s → 8s，偏移 +12s = 原区间 12s → 20s
-        service().updateRange(5L, new ReviewClipService.RangeRequest(0L, 8000L, "旧标签", "旧备注"));
+        service().updateRange(5L, new ReviewClipService.RangeRequest(0L, 8000L, List.of(9L), "旧备注"));
 
         verify(channelService, never()).deleteSource(anyLong());
         ArgumentCaptor<SaveClipRequest> req = ArgumentCaptor.forClass(SaveClipRequest.class);
-        verify(clipService).update(eq(5L), req.capture(), eq(false));
+        verify(clipService).update(eq(5L), req.capture());
         assertEquals(12000L, req.getValue().startMs().longValue());
         assertEquals(20000L, req.getValue().endMs().longValue());
     }
@@ -174,12 +176,12 @@ class ReviewClipServiceTest {
     void updateWithoutProductDoesNotShift() {
         when(clipMapper.selectById(5L)).thenReturn(existingClip());
         when(channelService.evaluate(5L, false)).thenReturn(ev("TRIM_EXTERNAL_FILE"));
-        when(clipService.update(eq(5L), any(), anyBoolean())).thenReturn(savedClip(5L));
+        when(clipService.update(eq(5L), any())).thenReturn(savedClip(5L));
 
-        service().updateRange(5L, new ReviewClipService.RangeRequest(1000L, null, "标签", null));
+        service().updateRange(5L, new ReviewClipService.RangeRequest(1000L, null, List.of(9L), null));
 
         ArgumentCaptor<SaveClipRequest> req = ArgumentCaptor.forClass(SaveClipRequest.class);
-        verify(clipService).update(eq(5L), req.capture(), eq(false));
+        verify(clipService).update(eq(5L), req.capture());
         assertEquals(1000L, req.getValue().startMs().longValue());
         assertNull(req.getValue().endMs(), "终点可留空 = 单点");
     }
@@ -191,10 +193,10 @@ class ReviewClipServiceTest {
 
         ReviewClipService svc = service();
         assertThrows(IllegalArgumentException.class,
-                () -> svc.updateRange(5L, new ReviewClipService.RangeRequest(1000L, null, "  ", null)));
+                () -> svc.updateRange(5L, new ReviewClipService.RangeRequest(1000L, null, List.of(), null)));
         assertThrows(IllegalArgumentException.class,
-                () -> svc.updateRange(5L, new ReviewClipService.RangeRequest(5000L, 4000L, "标签", null)));
-        verify(clipService, never()).update(anyLong(), any(), anyBoolean());
+                () -> svc.updateRange(5L, new ReviewClipService.RangeRequest(5000L, 4000L, List.of(9L), null)));
+        verify(clipService, never()).update(anyLong(), any());
         verify(channelService, never()).deleteSource(anyLong());
     }
 }

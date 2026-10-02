@@ -39,16 +39,23 @@ public interface ClipMapper extends BaseMapper<Clip> {
     Clip findRecentNearTime(@Param("url") String url, @Param("since") long since,
                             @Param("ts") double ts, @Param("tolerance") double tolerance);
 
-    /** 全文检索（SQLite 版：LIKE 兜底）。原 MySQL ngram FULLTEXT 召回更准，SQLite FTS5 中文分词后置优化（D11），此处保证能用。 */
+    /** 全文检索（SQLite 版：LIKE 兜底）。原 MySQL ngram FULLTEXT 召回更准，SQLite FTS5 中文分词后置优化（D11），此处保证能用。
+     *  标签命中改走 `clip_tag`（v0.31：`clips.tag` 字符串列已删）。 */
     @Select("SELECT * FROM clips "
-            + "WHERE (title LIKE CONCAT('%', #{q}, '%') OR tag LIKE CONCAT('%', #{q}, '%') "
-            + "   OR note LIKE CONCAT('%', #{q}, '%')) "
+            + "WHERE (title LIKE CONCAT('%', #{q}, '%') "
+            + "   OR note LIKE CONCAT('%', #{q}, '%') "
+            + "   OR EXISTS (SELECT 1 FROM clip_tag ct JOIN tag t ON t.id = ct.tag_id "
+            + "              WHERE ct.clip_id = clips.id AND t.name LIKE CONCAT('%', #{q}, '%'))) "
             + "ORDER BY CASE WHEN title LIKE CONCAT('%', #{q}, '%') THEN 2 "
-            + "WHEN tag LIKE CONCAT('%', #{q}, '%') THEN 1 ELSE 0 END DESC, id DESC "
+            + "WHEN EXISTS (SELECT 1 FROM clip_tag ct2 JOIN tag t2 ON t2.id = ct2.tag_id "
+            + "            WHERE ct2.clip_id = clips.id AND t2.name LIKE CONCAT('%', #{q}, '%')) THEN 1 "
+            + "ELSE 0 END DESC, id DESC "
             + "LIMIT #{limit}")
     List<Clip> fullTextSearch(@Param("q") String q, @Param("limit") int limit);
 
-    @Select("SELECT tag, COUNT(*) AS count FROM clips GROUP BY tag ORDER BY count DESC LIMIT #{limit}")
+    /** 最常用标签（**片段级口径**：真源 `clip_tag`），统计页用。 */
+    @Select("SELECT t.name AS tag, COUNT(*) AS count FROM clip_tag ct JOIN tag t ON t.id = ct.tag_id "
+            + "GROUP BY t.id, t.name ORDER BY count DESC, t.id LIMIT #{limit}")
     List<TagSuggestion> countTags(@Param("limit") int limit);
 
     /** 按 id 批量取片段行：推荐输入需要 `tag` / `episodeId` 这类 PreparedClip 未携带的字段。 */
@@ -75,15 +82,14 @@ public interface ClipMapper extends BaseMapper<Clip> {
     @Select("SELECT * FROM clips WHERE video_fp = #{fp} ORDER BY timestamp_sec ASC")
     List<Clip> listByFingerprint(@Param("fp") String fp);
 
+    /** 相似片段召回：**同标签交集**（真源 `clip_tag`，精确匹配，不再子串误伤）。命中标签数多的排前。 */
     @Select("<script>"
-            + "SELECT id FROM clips "
-            + "WHERE id != #{id} AND ("
-            + "<foreach collection='tokens' item='t' separator=' OR '>tag LIKE CONCAT('%', #{t}, '%')</foreach>"
-            + ") ORDER BY ("
-            + "<foreach collection='tokens' item='t' separator='+'>CASE WHEN tag LIKE CONCAT('%', #{t}, '%') THEN 1 ELSE 0 END</foreach>"
-            + ") DESC, id DESC LIMIT #{limit}"
+            + "SELECT c.id FROM clips c JOIN clip_tag ct ON ct.clip_id = c.id "
+            + "WHERE c.id != #{id} AND ct.tag_id IN "
+            + "<foreach collection='tagIds' item='tid' open='(' separator=',' close=')'>#{tid}</foreach> "
+            + "GROUP BY c.id ORDER BY COUNT(*) DESC, c.id DESC LIMIT #{limit}"
             + "</script>")
-    List<Long> findSimilarByTag(@Param("id") Long id, @Param("tokens") List<String> tokens, @Param("limit") int limit);
+    List<Long> findSimilarByTag(@Param("id") Long id, @Param("tagIds") List<Long> tagIds, @Param("limit") int limit);
 
     @Select("SELECT * FROM clips WHERE episode_id = #{episodeId} ORDER BY timestamp_sec ASC")
     List<Clip> listByEpisode(@Param("episodeId") long episodeId);
@@ -119,9 +125,6 @@ public interface ClipMapper extends BaseMapper<Clip> {
     @Select("SELECT COUNT(DISTINCT video_fp) FROM clips WHERE video_fp IS NOT NULL AND video_fp <> ''")
     long countVideos();
 
-    @Select("SELECT COUNT(DISTINCT tag) FROM clips")
-    long countDistinctTags();
-
     @Select("SELECT CASE "
             + "  WHEN url LIKE 'https://%' THEN substr(url, 9, instr(CONCAT(substr(url, 9), '/'), '/') - 1) "
             + "  WHEN url LIKE 'http://%' THEN substr(url, 8, instr(CONCAT(substr(url, 8), '/'), '/') - 1) "
@@ -142,11 +145,4 @@ public interface ClipMapper extends BaseMapper<Clip> {
     @Select(value = "SELECT DATE(FROM_UNIXTIME(created_at / 1000)) AS date, COUNT(*) AS count "
             + "FROM clips WHERE created_at >= #{since} GROUP BY date ORDER BY date ASC", databaseId = "mysql")
     List<TrendPoint> countTrend(@Param("since") long since);
-
-    /** 标签改名/合并时定位含该词的片段（精确按空白分词替换，避免子串误伤）。 */
-    @Select("SELECT * FROM clips WHERE tag LIKE CONCAT('%', #{w}, '%')")
-    List<Clip> selectByTagContains(@Param("w") String w);
-
-    @Update("UPDATE clips SET tag = #{tag} WHERE id = #{id}")
-    void updateTag(@Param("id") long id, @Param("tag") String tag);
 }

@@ -2,9 +2,12 @@ package com.videotagger.service;
 
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+
+import java.util.List;
 
 public record SaveClipRequest(
         @NotBlank @Size(max = 512) String title,
@@ -12,7 +15,8 @@ public record SaveClipRequest(
         @Pattern(regexp = "^(https?://|animeko://|video-asset:).+", message = "url 必须是 http(s) / animeko:// / video-asset: 引用地址") String url,
         @NotNull @DecimalMin("0.0") Double timestampSec,
         @DecimalMin(value = "0.0", inclusive = false) Double endSec,
-        @NotBlank @Size(max = 100) String tag,
+        /** 标签（词库受控：只能传已存在的词条 id，见 v0.31 标签重做）。编辑时传 null = 不动标签。 */
+        @NotEmpty @Size(max = 20) List<Long> tagIds,
         @Size(max = 2000) String note,
         Double videoDuration,
         @Size(max = 2048) String ogImage,
@@ -34,23 +38,23 @@ public record SaveClipRequest(
         }
     }
 
-    public SaveClipRequest(String title, String url, Double timestampSec, String tag, String note,
+    public SaveClipRequest(String title, String url, Double timestampSec, List<Long> tagIds, String note,
                            Double videoDuration, String ogImage, String coverDataUrl,
                            String detailCoverDataUrl, Long mediaId, Boolean forceNewMedia) {
-        this(title, url, timestampSec, null, tag, note, videoDuration, ogImage, coverDataUrl,
+        this(title, url, timestampSec, null, tagIds, note, videoDuration, ogImage, coverDataUrl,
                 detailCoverDataUrl, mediaId, forceNewMedia, null, null, null, null);
     }
 
-    public SaveClipRequest(String title, String url, Double timestampSec, String tag, String note) {
-        this(title, url, timestampSec, null, tag, note, null, null, null, null, null, null, null, null, null, null);
+    public SaveClipRequest(String title, String url, Double timestampSec, List<Long> tagIds, String note) {
+        this(title, url, timestampSec, null, tagIds, note, null, null, null, null, null, null, null, null, null, null);
     }
 
-    public SaveClipRequest(String title, String url, Double timestampSec, String tag, String note, Double videoDuration) {
-        this(title, url, timestampSec, null, tag, note, videoDuration, null, null, null, null, null, null, null, null, null);
+    public SaveClipRequest(String title, String url, Double timestampSec, List<Long> tagIds, String note, Double videoDuration) {
+        this(title, url, timestampSec, null, tagIds, note, videoDuration, null, null, null, null, null, null, null, null, null);
     }
 
     public SaveClipRequest(String title, String url, Double timestampSec, Double endSec,
-                           String tag, String note, Double videoDuration) {
-        this(title, url, timestampSec, endSec, tag, note, videoDuration, null, null, null, null, null, null, null, null, null);
+                           List<Long> tagIds, String note, Double videoDuration) {
+        this(title, url, timestampSec, endSec, tagIds, note, videoDuration, null, null, null, null, null, null, null, null, null);
     }
 }

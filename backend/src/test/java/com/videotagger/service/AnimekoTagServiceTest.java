@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -48,7 +49,7 @@ class AnimekoTagServiceTest {
     private ClipMapper clipMapper;
     private TagMapper tagMapper;
     private ClipTagMapper clipTagMapper;
-    private TagSyncService tagSyncService;
+    private TagLinkService tagLinkService;
     private EmbeddingTaskService embeddingTaskService;
     private MaterializationService materializationService;
     private AnimekoTagService service;
@@ -64,11 +65,11 @@ class AnimekoTagServiceTest {
         clipMapper = mock(ClipMapper.class);
         tagMapper = mock(TagMapper.class);
         clipTagMapper = mock(ClipTagMapper.class);
-        tagSyncService = mock(TagSyncService.class);
+        tagLinkService = mock(TagLinkService.class);
         embeddingTaskService = mock(EmbeddingTaskService.class);
         materializationService = mock(MaterializationService.class);
         service = new AnimekoTagService(episodeMapper, externalWorkMapper, externalEpisodeMapper,
-                mediaMapper, clipMapper, tagMapper, clipTagMapper, tagSyncService,
+                mediaMapper, clipMapper, tagMapper, clipTagMapper, tagLinkService,
                 embeddingTaskService, materializationService, dbFile.toAbsolutePath().toString(), null);
     }
 
@@ -110,7 +111,7 @@ class AnimekoTagServiceTest {
     @DisplayName("Animeko 库不可达 → 功能关闭")
     void unavailable() {
         AnimekoTagService svc = new AnimekoTagService(episodeMapper, externalWorkMapper, externalEpisodeMapper,
-                mediaMapper, clipMapper, tagMapper, clipTagMapper, tagSyncService,
+                mediaMapper, clipMapper, tagMapper, clipTagMapper, tagLinkService,
                 embeddingTaskService, materializationService, "Z:/no/such/animeko.db", null);
         AnimekoTagService.PlayheadView v = svc.mappedPlayhead();
         assertFalse(v.reachable());
@@ -122,7 +123,7 @@ class AnimekoTagServiceTest {
     void blankConfigAutoDetects() {
         // 空/空白配置 = 自动探测 Windows 标准路径；测试机上有真实库时应可达
         AnimekoTagService svc = new AnimekoTagService(episodeMapper, externalWorkMapper, externalEpisodeMapper,
-                mediaMapper, clipMapper, tagMapper, clipTagMapper, tagSyncService,
+                mediaMapper, clipMapper, tagMapper, clipTagMapper, tagLinkService,
                 embeddingTaskService, materializationService, " ", null);
         AnimekoTagService.PlayheadView v = svc.mappedPlayhead();
         // 若本机确实装了 Animeko（Roaming/Him188/Ani/data）则 reachable；否则按不可达处理也不报错
@@ -200,7 +201,7 @@ class AnimekoTagServiceTest {
             return 1;
         }).when(clipMapper).insert(any(com.videotagger.entity.Clip.class));
 
-        AnimekoTagService.TagResult r = service.tag(new AnimekoTagService.TagRequest("高燃 战斗", "西住流", null, 7000000L));
+        AnimekoTagService.TagResult r = service.tag(new AnimekoTagService.TagRequest(List.of(3L, 4L), "西住流", null, 7000000L));
 
         assertTrue(r.ok());
         assertEquals("OK", r.code());
@@ -218,8 +219,7 @@ class AnimekoTagServiceTest {
         verify(episodeMapper).updateById(epCaptor.capture());
         assertEquals(77L, epCaptor.getValue().getId());
         assertEquals(1788350140151L, epCaptor.getValue().getWatchedAt());
-        verify(tagSyncService).syncFromClip(clip.getId());
-        verify(embeddingTaskService).enqueue(EntityType.CLIP, clip.getId());
+        verify(tagLinkService).setClipTags(clip.getId(), List.of(3L, 4L));
     }
 
     @Test
@@ -228,7 +228,7 @@ class AnimekoTagServiceTest {
         seedPlayback("VALUES (198749, 6234000, 40310, '少女与战车', '第2集', 14400000, 1788350140151, NULL)");
         when(externalWorkMapper.selectByProviderAndExternalId("BANGUMI", "40310")).thenReturn(null);
 
-        AnimekoTagService.TagResult r = service.tag(new AnimekoTagService.TagRequest("高燃", null, null, null));
+        AnimekoTagService.TagResult r = service.tag(new AnimekoTagService.TagRequest(List.of(3L), null, null, null));
         assertFalse(r.ok());
         assertEquals("NEED_ARCHIVE", r.code());
         verify(clipMapper, never()).insert(any(com.videotagger.entity.Clip.class));
@@ -238,7 +238,7 @@ class AnimekoTagServiceTest {
     @DisplayName("无播放记录 → NO_PLAYBACK")
     void tagNoPlayback() throws Exception {
         seedPlayback(); // 空表：有表无行
-        AnimekoTagService.TagResult r = service.tag(new AnimekoTagService.TagRequest("高燃", null, null, null));
+        AnimekoTagService.TagResult r = service.tag(new AnimekoTagService.TagRequest(List.of(3L), null, null, null));
         assertFalse(r.ok());
         assertEquals("NO_PLAYBACK", r.code());
     }

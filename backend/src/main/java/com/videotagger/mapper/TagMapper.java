@@ -22,6 +22,23 @@ public interface TagMapper extends BaseMapper<Tag> {
     @Select("SELECT * FROM tag WHERE name = #{name} LIMIT 1")
     Tag selectByName(@Param("name") String name);
 
+    /** 词表总数（统计页口径 = 词表，与标签管理页一致；v0.31 起不再数 `clips.tag`）。 */
+    @Select("SELECT COUNT(*) FROM tag")
+    long countAll();
+
+    /** 批量取片段的标签（派发展示用 `Clip.tag/tagIds/tagNames`；按 clip_id + tag id 排序）。 */
+    @Select("<script>"
+            + "SELECT ct.clip_id AS clipId, t.id AS tagId, t.name AS name "
+            + "FROM clip_tag ct JOIN tag t ON t.id = ct.tag_id WHERE ct.clip_id IN "
+            + "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach> "
+            + "ORDER BY ct.clip_id, t.id"
+            + "</script>")
+    List<ClipTagName> namesByClipIds(@Param("ids") List<Long> ids);
+
+    /** 片段标签行（batch 查询结果）。 */
+    record ClipTagName(Long clipId, Long tagId, String name) {
+    }
+
     /** 标签词库补全（前缀模糊，按词条先后）。 */
     @Select("SELECT * FROM tag WHERE name LIKE CONCAT('%', #{prefix}, '%') ORDER BY id LIMIT #{limit}")
     List<Tag> searchByPrefix(@Param("prefix") String prefix, @Param("limit") int limit);
@@ -83,8 +100,7 @@ public interface TagMapper extends BaseMapper<Tag> {
             + "ORDER BY ref_count DESC, t.id")
     List<TagUsage> countByEpisode(@Param("episodeId") long episodeId);
 
-    /** 某标签被三级引用的总数（删孤儿检查）。 */
-    @Select("SELECT (SELECT COUNT(*) FROM media_tag WHERE tag_id = #{tagId}) "
+    /** 某标签被三级引用的总数（删孤儿检查）。 */    @Select("SELECT (SELECT COUNT(*) FROM media_tag WHERE tag_id = #{tagId}) "
             + "+ (SELECT COUNT(*) FROM episode_tag WHERE tag_id = #{tagId}) "
             + "+ (SELECT COUNT(*) FROM clip_tag WHERE tag_id = #{tagId})")
     long countRefs(@Param("tagId") long tagId);

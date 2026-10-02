@@ -8,6 +8,7 @@ import com.videotagger.util.VideoFingerprint;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 
@@ -27,12 +28,12 @@ import java.util.Objects;
 @Service
 public class ReviewClipService {
 
-    /** startMs/endMs = 弹窗内文件坐标。 */
-    public record CreateRequest(Long startMs, Long endMs, String tag, String note, String title) {
+    /** startMs/endMs = 弹窗内文件坐标。标签走受控词表（tagIds）。 */
+    public record CreateRequest(Long startMs, Long endMs, List<Long> tagIds, String note, String title) {
     }
 
     /** 片段详情弹窗：更新原片段（区间同样按弹窗内文件坐标传）。 */
-    public record RangeRequest(Long startMs, Long endMs, String tag, String note) {
+    public record RangeRequest(Long startMs, Long endMs, List<Long> tagIds, String note) {
     }
 
     private final EpisodeReviewService reviewService;
@@ -42,10 +43,12 @@ public class ReviewClipService {
     private final MaterializationService channelService;
     private final ClipService clipService;
     private final EmbeddingTaskService embeddingTaskService;
+    private final TagLinkService tagLinkService;
 
     public ReviewClipService(EpisodeReviewService reviewService, EpisodeMapper episodeMapper, ClipMapper clipMapper,
                              VideoAssetClipService assetClipService, MaterializationService channelService,
-                             ClipService clipService, EmbeddingTaskService embeddingTaskService) {
+                             ClipService clipService, EmbeddingTaskService embeddingTaskService,
+                             TagLinkService tagLinkService) {
         this.reviewService = reviewService;
         this.episodeMapper = episodeMapper;
         this.clipMapper = clipMapper;
@@ -53,6 +56,7 @@ public class ReviewClipService {
         this.channelService = channelService;
         this.clipService = clipService;
         this.embeddingTaskService = embeddingTaskService;
+        this.tagLinkService = tagLinkService;
     }
 
     @Transactional
@@ -62,7 +66,7 @@ public class ReviewClipService {
         if (req == null || req.startMs() == null || req.startMs() < 0) {
             throw new IllegalArgumentException("起点必填且不能为负数");
         }
-        if (req.tag() == null || req.tag().isBlank()) {
+        if (req.tagIds() == null || req.tagIds().isEmpty()) {
             throw new IllegalArgumentException("标签必填");
         }
         long startMs = req.startMs();
@@ -76,15 +80,15 @@ public class ReviewClipService {
         Clip clip;
         if (src.assetId() != null) {
             clip = assetClipService.create(episodeId, src.assetId(),
-                    new VideoAssetClipService.CreateReferenceClipRequest(title, startMs, endMs, req.tag(), req.note(), null));
+                    new VideoAssetClipService.CreateReferenceClipRequest(title, startMs, endMs, req.tagIds(), req.note(), null));
         } else {
             if (src.refUrl() == null) {
                 throw new IllegalStateException("该集本地源无法生成片段引用（缺 Bangumi 绑定）：只能播，存不了");
             }
-            clip = referenceClip(ep.getId(), src.refUrl(), title, startMs, endMs, req.tag(), req.note());
+            clip = referenceClip(ep.getId(), src.refUrl(), title, startMs, endMs, req.note());
+            tagLinkService.setClipTags(clip.getId(), req.tagIds());
         }
-        clipService.linkClipTags(clip.getId(), req.tag(), System.currentTimeMillis());
-        embeddingTaskService.enqueue(EntityType.CLIP, clip.getId());
+        tagLinkService.decorate(clip);
         return clip;
     }
 
@@ -99,7 +103,7 @@ public class ReviewClipService {
         if (req == null || req.startMs() == null || req.startMs() < 0) {
             throw new IllegalArgumentException("起点必填且不能为负数");
         }
-        if (req.tag() == null || req.tag().isBlank()) throw new IllegalArgumentException("标签必填");
+        if (req.tagIds() == null || req.tagIds().isEmpty()) throw new IllegalArgumentException("标签必填");
 
         long offset = artifactOffset(clip.getEpisodeId(), clipId);
         long startMs = req.startMs() + offset;
@@ -114,9 +118,9 @@ public class ReviewClipService {
             throw new IllegalStateException("该片段没有可用来源地址，无法更新区间");
         }
         SaveClipRequest full = new SaveClipRequest(fresh.getTitle(), fresh.getUrl(), startMs / 1000d,
-                endMs == null ? null : endMs / 1000d, req.tag(), req.note(), fresh.getVideoDuration(),
+                endMs == null ? null : endMs / 1000d, req.tagIds(), req.note(), fresh.getVideoDuration(),
                 null, null, null, null, null, null, null, startMs, endMs);
-        return clipService.update(clipId, full, false);
+        return clipService.update(clipId, full);
     }
 
     /** 区间变了 → 旧产物按旧区间，留不得：删产物资产与文件（deleteSource 会把引用置空）。 */
@@ -148,7 +152,7 @@ public class ReviewClipService {
 
     /** C2（无本地资产行）：与 AnimekoTagService 现场打标同形的引用片段。 */
     private Clip referenceClip(long episodeId, String refUrl, String title, long startMs, Long endMs,
-                               String tag, String note) {
+                               String note) {
         Clip clip = new Clip();
         clip.setTitle(title);
         clip.setUrl(refUrl);
@@ -159,7 +163,6 @@ public class ReviewClipService {
         clip.setStartMs(startMs);
         clip.setEndMs(endMs);
         clip.setMaterialState("REFERENCE_ONLY");
-        clip.setTag(tag.trim());
         clip.setNote(note == null ? "" : note);
         clip.setCreatedAt(System.currentTimeMillis());
         clipMapper.insert(clip);
