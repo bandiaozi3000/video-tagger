@@ -468,33 +468,47 @@
 
     <!-- 标签管理视图 -->
     <section id="view-tags" class="view" hidden>
-        <div class="media-toolbar">
-            <div class="media-tabs">
-                <button type="button" class="atab active" data-tag-tab="global">通用池</button>
-                <button type="button" class="atab" data-tag-tab="media">按媒体</button>
+        <!-- 面板头：标题 + 治理指标（未引用数才是本页要盯的数）+ 主操作 -->
+        <div class="tag-head">
+            <div class="tag-head-left">
+                <h3 class="tag-head-title">标签</h3>
+                <div class="tag-head-stats" id="tag-stats"></div>
             </div>
-            <div class="toolbar-actions">
-                <select id="tag-media-select" hidden><option value="">— 选择媒体 —</option></select>
-                <input id="tag-filter" type="text" placeholder="过滤标签…" autocomplete="off">
-                <button type="button" id="tag-sync-all" class="btn-mini" title="把历史片段/集标签同步到集/媒体，让媒体标签过滤可用（幂等可重复点）">⇄ 同步历史标签</button>
-                <button type="button" id="tag-add-btn" class="btn-mini">＋ 新增标签</button>
-                <button type="button" id="tag-batch-del" class="btn-mini danger" hidden>批量删除(0)</button>
+            <div class="tag-head-actions">
+                <button type="button" id="tag-add-btn" class="btn-mini">＋ 新增词条</button>
             </div>
         </div>
+        <!-- 筛选行：搜索 + 只看未引用 + 排序（维度 + 升降序）+ 每页条数（语言对齐媒体页/收藏夹页） -->
+        <div class="media-filters tag-filters">
+            <input id="tag-filter" type="text" placeholder="🔍 搜索词条…" autocomplete="off">
+            <label class="group-toggle" title="只留引用为 0 的词条（关联被删后会变孤儿）">
+                <input type="checkbox" id="tag-only-orphan"> 只看未引用
+            </label>
+            <select id="tag-sort" title="排序方式">
+                <option value="refs">引用数</option>
+                <option value="name">名称</option>
+                <option value="created">创建时间</option>
+            </select>
+            <button type="button" id="tag-order" class="btn-mini" title="当前降序，点击切换升序">↓</button>
+            <select id="tag-page-size" title="每页条数">
+                <option value="50">50 条/页</option>
+                <option value="100">100 条/页</option>
+                <option value="200">200 条/页</option>
+            </select>
+        </div>
+        <!-- 作用域 chips（目前只有“媒体”一种，从媒体详情标签池跳来时出现） -->
+        <div class="filter-chips" id="tag-scope-chips"></div>
         <div id="tag-status" class="status"></div>
         <div class="tag-list-head">
             <label class="tag-check-all" id="tag-check-all-wrap" hidden>
-                <input type="checkbox" id="tag-check-all"> 全选本页
+                <input type="checkbox" id="tag-check-all"> 全选本页可删
             </label>
+            <span class="tag-selected-info" id="tag-selected-info"></span>
+            <button type="button" id="tag-batch-del" class="btn-mini danger" hidden>🗑 批量删除(0)</button>
             <div class="tag-pager" id="tag-pager" hidden>
                 <button type="button" id="tag-page-prev" class="btn-mini" title="上一页">‹ 上一页</button>
                 <span id="tag-page-info"></span>
                 <button type="button" id="tag-page-next" class="btn-mini" title="下一页">下一页 ›</button>
-                <select id="tag-page-size">
-                    <option value="50">50 条/页</option>
-                    <option value="100">100 条/页</option>
-                    <option value="200">200 条/页</option>
-                </select>
             </div>
         </div>
         <section id="tag-list" class="tag-admin-list"></section>
@@ -1109,18 +1123,7 @@
     </div>
 </div>
 
-<!-- 标签合并（高然 → 高燃） -->
-<!-- 标签使用位置反查（v0.31）：点管理页的「使用位置」打开 -->
-<div id="tag-usage-modal" class="modal-overlay" hidden>
-    <div class="modal">
-        <h2 id="tag-usage-title">用在哪儿</h2>
-        <div id="tag-usage-body" class="tag-usage-body"></div>
-        <div class="modal-actions">
-            <button type="button" id="tag-usage-close">关闭</button>
-        </div>
-    </div>
-</div>
-
+<!-- 标签合并（高然 → 高燃）；使用位置已改为列表行内展开（v0.31），不再有独立弹窗 -->
 <div id="tag-merge-modal" class="modal-overlay" hidden>
     <div class="modal">
         <h2>合并标签</h2>

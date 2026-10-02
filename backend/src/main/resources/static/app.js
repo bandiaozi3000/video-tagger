@@ -237,7 +237,12 @@ const hoverPreviewEl = document.getElementById('vt-hover-preview');
 const tagListEl = document.getElementById('tag-list');
 const tagStatusEl = document.getElementById('tag-status');
 const tagFilterEl = document.getElementById('tag-filter');
-const tagMediaSelectEl = document.getElementById('tag-media-select');
+const tagStatsEl = document.getElementById('tag-stats');
+const tagOnlyOrphanEl = document.getElementById('tag-only-orphan');
+const tagSortEl = document.getElementById('tag-sort');
+const tagOrderBtn = document.getElementById('tag-order');
+const tagScopeChipsEl = document.getElementById('tag-scope-chips');
+const tagSelectedInfoEl = document.getElementById('tag-selected-info');
 const tagRenameModal = document.getElementById('tag-rename-modal');
 const tagRenameTargetEl = document.getElementById('tag-rename-target');
 const tagRenameInput = document.getElementById('tag-rename-input');
@@ -248,7 +253,6 @@ const tagAddInput = document.getElementById('tag-add-input');
 const tagAddPreviewEl = document.getElementById('tag-add-preview');
 const tagAddStatusEl = document.getElementById('tag-add-status');
 const tagBatchDelBtn = document.getElementById('tag-batch-del');
-const tagSyncAllBtn = document.getElementById('tag-sync-all');
 const tagCheckAll = document.getElementById('tag-check-all');
 const tagCheckAllWrap = document.getElementById('tag-check-all-wrap');
 const tagPager = document.getElementById('tag-pager');
@@ -318,14 +322,21 @@ let batchDelIds = [];              // 当前待确认删除的媒体 id 列表
 const confirmModal = document.getElementById('confirm-modal');
 let confirmModalAction = null;     // 确认后要执行的回调
 let confirmModalOnCancel = null;   // 取消/关闭时的回调（confirmAsync 等用）
-let tagMode = 'global';            // 标签页视图：global 通用池 / media 按媒体
-let tagMediaId = null;             // 标签页媒体维度当前媒体 id
-let tagListCache = [];             // 当前已加载词条（合并目标候选、删除后刷新用）
+// 标签页（v0.31 重设计）：单一列表 + 客户端筛选/排序/分页；媒体维度变成可清除的 chip
+let tagScopeMediaId = null;        // 非 null = 只看该媒体自己挂的词条（实体视角）
+let tagScopeMediaName = '';
+let tagAllRows = [];               // 本次拉到的全量词条（过滤/排序/分页都在本地做）
+let tagListCache = [];             // 当前页词条（供批量删除/刷新用）
 let tagFilterTimer = null;         // 过滤输入防抖
-let tagPage = 1;                   // 通用池分页：当前页
-let tagPageSize = 50;              // 通用池分页：每页条数
-let tagTotal = 0;                  // 通用池分页：过滤后总条数
-const tagSelected = new Set();     // 批量删除勾选的词条 id
+let tagSort = 'refs';              // refs | name | created
+let tagSortDir = 'desc';           // desc | asc
+let tagOnlyOrphanFilter = false;   // 只看未引用
+let tagPage = 1;                   // 当前页
+let tagPageSize = 50;              // 每页条数
+let tagTotal = 0;                  // 过滤后总条数
+let tagExpandedId = null;          // 行内展开使用位置的词条 id
+let tagUsageCache = new Map();     // tagId → 使用位置响应
+const tagSelected = new Set();     // 批量删除勾选的词条 id（只可能是孤儿）
 let tagRenameId = null;            // 改名弹窗当前词条 id
 let tagMergeId = null;             // 合并弹窗源词条 id
 let tagPoolByName = new Map();     // 全量词库 name→id（新增实时去重用，惰性加载）
@@ -3887,6 +3898,17 @@ async function renderTagPool(d, container) {
     wrap.appendChild(input);
     container.appendChild(wrap);
     attachTagSuggest(input, () => (currentMedia && currentMedia.id) || null);
+    // v0.31：去标签页看这套词条（带上媒体作用域，可单个 × 掉）
+    const scope = document.createElement('button');
+    scope.type = 'button';
+    scope.className = 'btn-mini tag-scope-link';
+    scope.textContent = '📋 在标签页查看';
+    scope.title = '到标签页只看这部作品自己挂的词条（可改名/合并/删除）';
+    scope.addEventListener('click', () => {
+        setTagScope(d.id, d.title);
+        showView('tags');
+    });
+    container.appendChild(scope);
 }
 
 function renderLocalDetailSummary(d, eps, isVideo) {
@@ -5862,33 +5884,90 @@ function renderBars(el, items, opts) {
 // ---------- 标签管理 ----------
 
 /** 加载标签列表：global=全词库三级计数（分页）；media=某媒体维度引用数（不分页）。 */
+/** 标签页：词条数就几十~几百，所以“过滤 + 排序 + 分页”全在本地做 —— 排序/开关即时生效，不用等后端。 */
+function tagRefCount(t) { return (t.mediaCount || 0) + (t.episodeCount || 0) + (t.clipCount || 0); }
+function tagIsOrphan(t) { return tagRefCount(t) === 0; }
+
+/** 媒体作用域 chips（可单个 × 掉） */
+function renderTagScopeChips() {
+    if (!tagScopeChipsEl) return;
+    tagScopeChipsEl.innerHTML = '';
+    if (tagScopeMediaId == null) return;
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'filter-chip';
+    chip.title = '移除媒体条件';
+    chip.innerHTML = `<span>媒体：${esc(tagScopeMediaName || ('#' + tagScopeMediaId))}</span><span class="fc-x">×</span>`;
+    chip.addEventListener('click', () => setTagScope(null, ''));
+    tagScopeChipsEl.appendChild(chip);
+}
+
+/** 设置媒体作用域（null = 全量词表） */
+function setTagScope(mediaId, mediaName) {
+    tagScopeMediaId = mediaId == null ? null : Number(mediaId);
+    tagScopeMediaName = mediaName || '';
+    tagPage = 1;
+    renderTagScopeChips();
+    loadTags();
+}
+
+/** 过滤 + 排序 + 分页（本地）→ 写入 tagListCache / tagTotal */
+function applyTagPipeline() {
+    const q = tagFilterEl.value.trim().toLowerCase();
+    let rows = tagAllRows.slice();
+    if (q) rows = rows.filter(t => t.name.toLowerCase().includes(q));
+    if (tagOnlyOrphanFilter) rows = rows.filter(tagIsOrphan);
+    const dir = tagSortDir === 'asc' ? 1 : -1;
+    rows.sort((a, b) => {
+        let r;
+        if (tagSort === 'name') r = a.name.localeCompare(b.name, 'zh-Hans-CN');
+        else if (tagSort === 'created') r = (a.createdAt || 0) - (b.createdAt || 0);
+        else r = tagRefCount(a) - tagRefCount(b);
+        if (r === 0) r = a.id - b.id;   // 全序：分页才不跳行
+        return r * dir;
+    });
+    tagTotal = rows.length;
+    const pages = Math.max(1, Math.ceil(tagTotal / tagPageSize));
+    if (tagPage > pages) tagPage = pages;
+    const from = (tagPage - 1) * tagPageSize;
+    tagListCache = rows.slice(from, from + tagPageSize);
+    // 勾选只保留本页仍在列表里的
+    const ids = new Set(tagListCache.map(t => t.id));
+    for (const id of [...tagSelected]) if (!ids.has(id)) tagSelected.delete(id);
+}
+
+/** 统计条：总数 / 已引用 / 未引用（未引用才是本页要盯的治理指标） */
+function renderTagStats() {
+    if (!tagStatsEl) return;
+    const total = tagAllRows.length;
+    const orphan = tagAllRows.filter(tagIsOrphan).length;
+    tagStatsEl.innerHTML = '';
+    const add = (label, value, cls) => {
+        const s = document.createElement('span');
+        s.className = 'tag-stat' + (cls ? ' ' + cls : '');
+        s.innerHTML = `<b>${value}</b>${label}`;
+        tagStatsEl.appendChild(s);
+    };
+    add(' 个词条', total);
+    add(' 已引用', total - orphan);
+    add(' 未引用', orphan, orphan > 0 ? 'warn' : '');
+}
+
 async function loadTags() {
     tagSelected.clear();
     updateTagBatchBtn();
     if (tagCheckAll) tagCheckAll.checked = false;
-    if (tagMode === 'media' && !tagMediaId) {
-        tagStatusEl.textContent = '';
-        tagListEl.textContent = '请先在右上角选择媒体';
-        updateTagPager();
-        return;
-    }
     tagStatusEl.textContent = '加载中…';
     try {
-        const q = tagFilterEl.value.trim();
-        const params = new URLSearchParams();
-        if (q) params.set('q', q);
-        if (tagMode === 'media' && tagMediaId) {
-            params.set('mediaId', tagMediaId);
-        } else {
-            params.set('page', tagPage);
-            params.set('size', tagPageSize);
-        }
+        const params = new URLSearchParams({ size: '10000' });
+        if (tagScopeMediaId != null) params.set('mediaId', String(tagScopeMediaId));
         const resp = await fetch(`/api/tags/manage?${params.toString()}`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
-        tagListCache = data.items || [];
-        tagTotal = data.total || 0;
+        tagAllRows = data.items || [];
         tagStatusEl.textContent = '';
+        renderTagStats();
+        applyTagPipeline();
         renderTagList();
         updateTagPager();
     } catch (err) {
@@ -5896,81 +5975,245 @@ async function loadTags() {
     }
 }
 
-/** 分页控件状态：仅通用池显示；按媒体隐藏。 */
 function updateTagPager() {
-    const isGlobal = tagMode === 'global';
-    if (tagPager) tagPager.hidden = !isGlobal;
-    if (tagCheckAllWrap) tagCheckAllWrap.hidden = !isGlobal;
-    if (!isGlobal || !tagPageInfo) return;
+    if (!tagPager) return;
     const pages = Math.max(1, Math.ceil(tagTotal / tagPageSize));
+    tagPager.hidden = tagTotal <= tagPageSize;
+    if (tagCheckAllWrap) tagCheckAllWrap.hidden = tagListCache.length === 0;
     tagPageInfo.textContent = `第 ${Math.min(tagPage, pages)} / ${pages} 页 · 共 ${tagTotal} 个`;
     tagPagePrev.disabled = tagPage <= 1;
     tagPageNext.disabled = tagPage >= pages;
 }
 
+/** 空态：两种 —— 词表为空（引导怎么建词条）/ 筛选无结果（一键清条件） */
+function renderTagEmpty() {
+    tagListEl.innerHTML = '';
+    const box = document.createElement('div');
+    box.className = 'tag-empty';
+    const filtered = tagFilterEl.value.trim() !== '' || tagOnlyOrphanFilter || tagScopeMediaId != null;
+    if (filtered) {
+        box.innerHTML = '<b>没有命中的词条</b><span>换个关键词，或者把筛选条件清掉。</span>';
+        const clear = document.createElement('button');
+        clear.type = 'button'; clear.className = 'btn-mini'; clear.textContent = '清空筛选';
+        clear.addEventListener('click', () => {
+            tagFilterEl.value = '';
+            tagOnlyOrphanEl.checked = false;
+            tagOnlyOrphanFilter = false;
+            setTagScope(null, '');
+        });
+        box.appendChild(clear);
+    } else {
+        box.innerHTML = '<b>词表还是空的</b><span>词条在打标时创建：在媒体 / 集 / 片段上打标 → 输入新名字 → 选「＋新建词条并打上」；'
+            + '也可以在这里批量新增（一行一个、或逗号分隔）。</span>';
+        const add = document.createElement('button');
+        add.type = 'button'; add.className = 'btn-mini'; add.textContent = '＋ 新增词条';
+        add.addEventListener('click', openTagAdd);
+        box.appendChild(add);
+    }
+    tagListEl.appendChild(box);
+}
+
 function renderTagList() {
     tagListEl.innerHTML = '';
     if (tagListCache.length === 0) {
-        tagListEl.textContent = tagMode === 'media' ? '该媒体暂无标签' : '暂无标签，打标后自动收录';
+        renderTagEmpty();
         return;
     }
+    const q = tagFilterEl.value.trim();
     for (const t of tagListCache) {
-        const row = document.createElement('div');
-        row.className = 'tag-row';
-
-        if (tagMode === 'global') {
-            const cb = document.createElement('input');
-            cb.type = 'checkbox';
-            cb.className = 'tag-check';
-            cb.title = '勾选后批量删除（仅孤儿词条）';
-            cb.addEventListener('change', () => {
-                if (cb.checked) tagSelected.add(t.id); else tagSelected.delete(t.id);
-                updateTagBatchBtn();
-            });
-            row.prepend(cb);
-        }
-
-        const name = document.createElement('span');
-        name.className = 'tag-name';
-        name.textContent = t.name;
-
-        const counts = document.createElement('span');
-        counts.className = 'tag-counts';
-        if (tagMode === 'media') {
-            const c = document.createElement('span');
-            c.textContent = `本媒体引用 ${t.refCount} 次`;
-            counts.appendChild(c);
-        } else {
-            const m = document.createElement('span'); m.textContent = `媒体 ${t.mediaCount}`;
-            const e = document.createElement('span'); e.textContent = `集 ${t.episodeCount}`;
-            const c = document.createElement('span'); c.textContent = `片段 ${t.clipCount}`;
-            counts.append(m, e, c);
-            // v0.31：点引用数 → 看“谁在用”（反查三组；媒体可跳去媒体页筛这个词）
-            const usage = document.createElement('button');
-            usage.type = 'button';
-            usage.className = 'btn-mini tag-usage-btn';
-            usage.textContent = '使用位置';
-            usage.title = '看看这个标签都挂在哪些媒体 / 集 / 片段上';
-            usage.addEventListener('click', () => openTagUsage(t));
-            counts.appendChild(usage);
-        }
-
-        const actions = document.createElement('span');
-        actions.className = 'tag-actions';
-        const btnRename = document.createElement('button');
-        btnRename.type = 'button'; btnRename.className = 'btn-mini'; btnRename.textContent = '改名';
-        btnRename.addEventListener('click', () => openTagRename(t));
-        const btnMerge = document.createElement('button');
-        btnMerge.type = 'button'; btnMerge.className = 'btn-mini'; btnMerge.textContent = '合并';
-        btnMerge.addEventListener('click', () => openTagMerge(t));
-        const btnDel = document.createElement('button');
-        btnDel.type = 'button'; btnDel.className = 'btn-mini danger'; btnDel.textContent = '删除';
-        btnDel.addEventListener('click', () => confirmTagDelete(t));
-        actions.append(btnRename, btnMerge, btnDel);
-
-        row.append(name, counts, actions);
-        tagListEl.appendChild(row);
+        tagListEl.appendChild(buildTagRow(t, q));
     }
+}
+
+/** 单行：复选框（仅孤儿可勾）+ 名称（双击就地改名）+ 三级计数（点开使用位置）+ 行内操作 */
+function buildTagRow(t, q) {
+    const orphan = tagIsOrphan(t);
+    const row = document.createElement('div');
+    row.className = 'tag-row' + (orphan ? ' orphan' : '') + (tagExpandedId === t.id ? ' expanded' : '');
+    row.dataset.tagId = String(t.id);
+
+    // 复选框：被引用的词条**当场禁掉**，不用等到提交才整体拒绝
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'tag-check';
+    cb.disabled = !orphan;
+    cb.checked = tagSelected.has(t.id);
+    cb.title = orphan ? '勾选后可批量删除' : '仍被引用，不能删除';
+    cb.addEventListener('change', () => {
+        if (cb.checked) tagSelected.add(t.id); else tagSelected.delete(t.id);
+        updateTagBatchBtn();
+    });
+    row.appendChild(cb);
+
+    // 展开箭头 + 名称（双击就地改名）
+    const caret = document.createElement('button');
+    caret.type = 'button';
+    caret.className = 'tag-caret';
+    caret.textContent = tagExpandedId === t.id ? '▾' : '▸';
+    caret.title = '展开/收起 使用位置';
+    caret.addEventListener('click', (e) => { e.stopPropagation(); toggleTagUsage(t); });
+    row.appendChild(caret);
+
+    const names = document.createElement('span');
+    names.className = 'tag-names-wrap';
+    const name = document.createElement('span');
+    name.className = 'tag-name';
+    if (q) name.innerHTML = hl(t.name, q); else name.textContent = t.name;
+    name.title = '双击改名';
+    name.addEventListener('dblclick', () => startInlineTagRename(t, name));
+    names.appendChild(name);
+    if (orphan) {
+        const badge = document.createElement('span');
+        badge.className = 'tag-orphan';
+        badge.textContent = '未引用';
+        names.appendChild(badge);
+    }
+    row.appendChild(names);
+
+    const counts = document.createElement('span');
+    counts.className = 'tag-counts';
+    counts.title = '点开看“谁在用”';
+    counts.addEventListener('click', () => toggleTagUsage(t));
+    for (const [label, value] of [['媒体', t.mediaCount], ['集', t.episodeCount], ['片段', t.clipCount]]) {
+        const s = document.createElement('span');
+        s.className = 'stat-' + tagStatTier(value || 0);
+        s.textContent = `${label} ${value || 0}`;
+        counts.appendChild(s);
+    }
+    row.appendChild(counts);
+
+    const actions = document.createElement('span');
+    actions.className = 'tag-actions';
+    const btnRename = document.createElement('button');
+    btnRename.type = 'button'; btnRename.className = 'btn-mini'; btnRename.textContent = '改名';
+    btnRename.addEventListener('click', () => openTagRename(t));
+    const btnMerge = document.createElement('button');
+    btnMerge.type = 'button'; btnMerge.className = 'btn-mini'; btnMerge.textContent = '合并到…';
+    btnMerge.addEventListener('click', () => openTagMerge(t));
+    const btnDel = document.createElement('button');
+    btnDel.type = 'button'; btnDel.className = 'btn-mini danger'; btnDel.textContent = '删除';
+    btnDel.disabled = !orphan;
+    btnDel.title = orphan ? '删除这个词条' : '仍被引用：先合并到别的词条，或把关联摘掉';
+    btnDel.addEventListener('click', () => confirmTagDelete(t));
+    actions.append(btnRename, btnMerge, btnDel);
+    row.appendChild(actions);
+
+    if (tagExpandedId === t.id) row.appendChild(buildTagUsageInline(t));
+    return row;
+}
+
+/** 行内展开的使用位置（三组；媒体条目可点 → 跳媒体页按该标签筛选） */
+function buildTagUsageInline(t) {
+    const box = document.createElement('div');
+    box.className = 'tag-usage-inline';
+    const cached = tagUsageCache.get(t.id);
+    if (!cached) {
+        box.innerHTML = '<div class="status">读取使用位置…</div>';
+        fetch(`/api/tags/usage?tagId=${t.id}`)
+            .then(r => (r.ok ? r.json() : null))
+            .then(data => {
+                if (data) tagUsageCache.set(t.id, data);
+                const fresh = tagListEl.querySelector(`.tag-row[data-tag-id="${t.id}"] .tag-usage-inline`);
+                if (fresh) fresh.replaceWith(buildTagUsageInline(t));
+            })
+            .catch(() => {});
+        return box;
+    }
+    const group = (label, items, render) => {
+        const g = document.createElement('div');
+        g.className = 'tag-usage-group';
+        const head = document.createElement('div');
+        head.className = 'tag-usage-head';
+        head.textContent = `${label} · ${items.length}`;
+        g.appendChild(head);
+        if (items.length > 0) {
+            const list = document.createElement('div');
+            list.className = 'tag-usage-list';
+            items.forEach(item => list.appendChild(render(item)));
+            g.appendChild(list);
+        }
+        return g;
+    };
+    const chipBtn = (text, title, onClick) => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'btn-mini'; b.textContent = text; b.title = title;
+        b.addEventListener('click', onClick);
+        return b;
+    };
+    box.append(
+        group('媒体', cached.media || [], m => chipBtn(m.title || ('#' + m.id), '去媒体页按这个词筛选',
+            () => jumpToMediaTagFilter(t))),
+        group('集', cached.episodes || [], e => {
+            const s = document.createElement('span'); s.className = 'chip'; s.textContent = e.title || ('集 #' + e.id); return s;
+        }),
+        group('片段', cached.clips || [], c => {
+            const s = document.createElement('span'); s.className = 'chip'; s.textContent = c.title || ('片段 #' + c.id); return s;
+        }));
+    if ((cached.total || 0) === 0) {
+        const note = document.createElement('div');
+        note.className = 'status';
+        note.textContent = '这个词还没被任何地方引用 —— 要么合并到别的词条，要么删掉。';
+        box.appendChild(note);
+    }
+    return box;
+}
+
+/** 展开/收起某行的使用位置（手风琴：一次只展开一行，列表高度不抖） */
+function toggleTagUsage(t) {
+    tagExpandedId = tagExpandedId === t.id ? null : t.id;
+    renderTagList();
+}
+
+/** 跳媒体页并按该标签筛选（媒体视角：三级任一层命中即算） */
+function jumpToMediaTagFilter(t) {
+    showView('media');
+    mediaFilter.tagIds = [String(t.id)];
+    mediaFilter.tagMode = 'AND';
+    mediaFilter.collectionId = '';
+    renderFilterChips();
+    loadMedia();
+    showToast(`已按标签「${t.name}」筛选媒体`);
+}
+
+/** 双击名称就地改名（Enter 保存 / Esc 取消；撞名引导去合并） */
+async function startInlineTagRename(t, nameEl) {
+    const input = document.createElement('input');
+    input.className = 'tag-name-input';
+    input.value = t.name;
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = async (save) => {
+        if (done) return;
+        done = true;
+        const next = input.value.trim();
+        if (!save || !next || next === t.name) { renderTagList(); return; }
+        try {
+            const resp = await fetch(`/api/tags/${t.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: next })
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                showToast((err && err.message) || '改名失败', 3500);
+                renderTagList();
+                return;
+            }
+            invalidateTagPool();
+            tagUsageCache.delete(t.id);
+            await loadTags();
+        } catch (e) {
+            showToast('请求失败', 3000);
+            renderTagList();
+        }
+    };
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
 }
 
 function openTagRename(t) {
@@ -6093,62 +6336,7 @@ function invalidateTagPool() {
     tagPoolByName = new Map();
 }
 
-/**
- * v0.31 反查：这个词被哪些媒体 / 集 / 片段在用。
- * 媒体条目可点 → 直接跳媒体页按该标签筛选（这才是“看看都用了啥”的下一步动作）。
- */
-let currentUsageTag = null;
-
-async function openTagUsage(t) {
-    currentUsageTag = t;
-    openTagUsageModal(t.name, '<div class="status">读取中…</div>', null);
-    try {
-        const resp = await fetch(`/api/tags/usage?tagId=${t.id}`);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
-        openTagUsageModal(t.name, null, data);
-    } catch (e) {
-        openTagUsageModal(t.name, `<div class="status">读取失败：${esc(e.message)}</div>`, null);
-    }
-}
-
-/** 渲染/更新反查弹窗：html 为 null 时用 data 渲染三组列表。 */
-function openTagUsageModal(name, html, data) {
-    const modal = document.getElementById('tag-usage-modal');
-    document.getElementById('tag-usage-title').textContent = `「${name}」用在哪儿`;
-    const body = document.getElementById('tag-usage-body');
-    if (html != null || !data) {
-        body.innerHTML = html || '';
-        modal.hidden = false;
-        return;
-    }
-    const group = (label, items, render) => {
-        if (!items || items.length === 0) return '';
-        return `<div class="tag-usage-group"><div class="tag-usage-head">${label} · ${items.length}</div>`
-            + `<div class="tag-usage-list">${items.map(render).join('')}</div></div>`;
-    };
-    const empty = (data.media || []).length + (data.episodes || []).length + (data.clips || []).length === 0;
-    body.innerHTML = group('媒体', data.media, m =>
-            `<button type="button" class="btn-mini" data-usage-media="${m.id}">${esc(m.title || ('#' + m.id))}</button>`)
-        + group('集', data.episodes, e => `<span class="chip">${esc(e.title || ('集 #' + e.id))}</span>`)
-        + group('片段', data.clips, c => `<span class="chip">${esc(c.title || ('片段 #' + c.id))}</span>`)
-        + (empty ? '<div class="status">这个词还没被任何地方引用</div>' : '');
-    modal.hidden = false;
-    body.querySelectorAll('[data-usage-media]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (!currentUsageTag) return;
-            modal.hidden = true;
-            showView('media');
-            mediaFilter.collectionId = '';
-            mediaFilter.tagIds = [String(currentUsageTag.id)];
-            mediaFilter.tagMode = 'AND';
-            renderFilterChips();
-            loadMedia();
-        });
-    });
-}
-
-/** 懒加载全量词库 name→id（新增实时去重用；词条变化后清空重拉）。 */
+/** 懒加载全量词库 name→id（新增实时去重用、打标「名字→tagId」用；词条变化后清空重拉）。 */
 async function ensureTagPool() {
     if (tagPoolByName.size > 0) return;
     try {
@@ -6264,10 +6452,16 @@ async function submitTagAdd() {
 }
 
 /** 批量删除按钮状态：按勾选数显示。 */
+/** 批量删除按钮与选中数提示：没有可删的就不显示（被引用的词条根本勾不上） */
 function updateTagBatchBtn() {
-    if (!tagBatchDelBtn) return;
-    tagBatchDelBtn.hidden = tagSelected.size === 0;
-    tagBatchDelBtn.textContent = `批量删除(${tagSelected.size})`;
+    const n = tagSelected.size;
+    if (tagBatchDelBtn) {
+        tagBatchDelBtn.hidden = n === 0;
+        tagBatchDelBtn.textContent = `🗑 批量删除(${n})`;
+    }
+    if (tagSelectedInfoEl) {
+        tagSelectedInfoEl.textContent = n === 0 ? '' : `已选 ${n} 个`;
+    }
 }
 
 /** 批量删除：选中词条删除，含被引用词条整体拒绝。 */
@@ -6291,25 +6485,6 @@ function confirmTagBatchDelete() {
             loadTags();
         }
     });
-}
-
-/** 按媒体视图：填充媒体下拉（与媒体页共用 /api/media）。 */
-async function fillTagMediaSelect() {
-    tagMediaSelectEl.innerHTML = '<option value="">— 选择媒体 —</option>';
-    try {
-        // 取全部（2026-09-25）：原来写 `limit=500`，而后端又把 limit 钳到 200 → 5249 部里只列出 200 部。
-        // 后端已不钳位（行数天然被表数据量封顶），这里先问总数再一次要满，不引入魔法数字。
-        const total = await (await fetch('/api/media/count')).json();
-        const resp = await fetch(`/api/media?limit=${Math.max(Number(total) || 0, 1)}`);
-        if (!resp.ok) return;
-        const list = await resp.json();
-        for (const m of list) {
-            const opt = document.createElement('option');
-            opt.value = m.id;
-            opt.textContent = m.title || `#${m.id}`;
-            tagMediaSelectEl.appendChild(opt);
-        }
-    } catch (err) { /* 下拉填充失败不阻塞视图 */ }
 }
 
 // ---------- 打标输入补全（媒体上下文） ----------
@@ -7498,36 +7673,39 @@ document.getElementById('ep-detail-jump').addEventListener('click', () => {
 });
 document.getElementById('ep-detail-delete').addEventListener('click', () => { if (currentEpisode) deleteEpisode(currentEpisode); });
 
-// ---------- 标签管理事件 ----------
-document.querySelectorAll('[data-tag-tab]').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('[data-tag-tab]').forEach(b => b.classList.toggle('active', b === btn));
-        tagMode = btn.dataset.tagTab;
-        tagMediaSelectEl.hidden = tagMode !== 'media';
-        tagPage = 1;
-        if (tagMode === 'media' && tagMediaSelectEl.children.length <= 1) fillTagMediaSelect();
-        loadTags();
-    });
+// ---------- 标签管理事件（v0.31 重设计：单一列表 + 客户端筛选/排序/分页） ----------
+tagPagePrev.addEventListener('click', () => { if (tagPage > 1) { tagPage--; applyTagPipeline(); renderTagList(); updateTagPager(); } });
+tagPageNext.addEventListener('click', () => { tagPage++; applyTagPipeline(); renderTagList(); updateTagPager(); });
+tagPageSizeSel.addEventListener('change', () => { tagPageSize = Number(tagPageSizeSel.value); tagPage = 1; applyTagPipeline(); renderTagList(); updateTagPager(); });
+tagSortEl.addEventListener('change', () => { tagSort = tagSortEl.value; tagPage = 1; applyTagPipeline(); renderTagList(); updateTagPager(); });
+tagOrderBtn.addEventListener('click', () => {
+    tagSortDir = tagSortDir === 'desc' ? 'asc' : 'desc';
+    tagOrderBtn.textContent = tagSortDir === 'desc' ? '↓' : '↑';
+    tagOrderBtn.title = tagSortDir === 'desc' ? '当前降序，点击切换升序' : '当前升序，点击切换降序';
+    applyTagPipeline(); renderTagList(); updateTagPager();
 });
-tagPagePrev.addEventListener('click', () => { if (tagPage > 1) { tagPage--; loadTags(); } });
-tagPageNext.addEventListener('click', () => { tagPage++; loadTags(); });
-tagPageSizeSel.addEventListener('change', () => { tagPageSize = Number(tagPageSizeSel.value); tagPage = 1; loadTags(); });
+tagOnlyOrphanEl.addEventListener('change', () => {
+    tagOnlyOrphanFilter = tagOnlyOrphanEl.checked;
+    tagPage = 1;
+    applyTagPipeline(); renderTagList(); updateTagPager();
+});
 tagCheckAll.addEventListener('change', () => {
-    if (tagCheckAll.checked) {
-        for (const t of tagListCache) tagSelected.add(t.id);
-    } else {
-        for (const t of tagListCache) tagSelected.delete(t.id);
+    // 只能勾可删的（孤儿）；被引用的行本来就没得选
+    for (const t of tagListCache) {
+        if (!tagIsOrphan(t)) continue;
+        if (tagCheckAll.checked) tagSelected.add(t.id); else tagSelected.delete(t.id);
     }
+    renderTagList();
     updateTagBatchBtn();
 });
 tagFilterEl.addEventListener('input', () => {
     clearTimeout(tagFilterTimer);
-    tagPage = 1;
-    tagFilterTimer = setTimeout(loadTags, 300);
-});
-tagMediaSelectEl.addEventListener('change', () => {
-    tagMediaId = tagMediaSelectEl.value ? Number(tagMediaSelectEl.value) : null;
-    loadTags();
+    tagFilterTimer = setTimeout(() => {
+        tagPage = 1;
+        applyTagPipeline();
+        renderTagList();
+        updateTagPager();
+    }, 250);
 });
 tagAddBtn.addEventListener('click', openTagAdd);
 tagAddModal.addEventListener('click', (e) => { if (e.target === tagAddModal) tagAddModal.hidden = true; });
@@ -7539,24 +7717,6 @@ tagAddInput.addEventListener('input', () => {
 });
 tagAddInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitTagAdd(); } });
 tagBatchDelBtn.addEventListener('click', confirmTagBatchDelete);
-// 历史标签三级同步：片段/集标签并集落库到集/媒体（幂等），让推荐页媒体标签过滤可用
-tagSyncAllBtn.addEventListener('click', async () => {
-    const btn = tagSyncAllBtn;
-    btn.disabled = true;
-    btn.textContent = '⇄ 同步中…';
-    try {
-        const r = await fetch('/api/tags/sync-all', { method: 'POST' });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const data = await r.json();
-        showToast('已同步 ' + (data.synced ?? 0) + ' 条媒体标签（幂等可重复点）');
-    } catch (e) {
-        showToast('同步失败：' + e.message);
-    } finally {
-        btn.disabled = false;
-        btn.textContent = '⇄ 同步历史标签';
-    }
-    loadTags();
-});
 tagRenameModal.addEventListener('click', (e) => { if (e.target === tagRenameModal) { tagRenameModal.hidden = true; tagRenameId = null; } });
 document.getElementById('tag-rename-cancel').addEventListener('click', () => { tagRenameModal.hidden = true; tagRenameId = null; });
 document.getElementById('tag-rename-save').addEventListener('click', saveTagRename);
@@ -7582,12 +7742,6 @@ loadFormats();
 
 // ========== 设置：网站背景图（多图轮播） ==========
 let siteBgTimer = null, siteBgIndex = 0;
-let bgSettingsCache = { bgImages: [], rotationSec: 15, opacity: 0.6, blur: 30, brightness: 50 };
-
-function openSettings() {
-    document.getElementById('settings-modal').hidden = false;
-    loadSettings(true);
-}
 
 async function loadSettings(apply) {
     try {

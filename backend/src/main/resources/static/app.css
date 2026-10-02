@@ -3465,3 +3465,47 @@ body.desktop-mode .site-footer { display: none; }
   background: rgba(94, 234, 212, .12); color: var(--accent); border: 1px solid rgba(94, 234, 212, .28);
   max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .media-card-tag.more { background: rgba(255, 255, 255, .06); color: var(--muted); border-color: rgba(255, 255, 255, .16); }
+
+/* ══ 标签页重设计（v0.31）：面板头 + 筛选行 + 行内展开 ══════════════════════ */
+.tag-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+  padding: 14px 18px; margin-bottom: 12px; flex-wrap: wrap;
+  background: linear-gradient(135deg, rgba(167,139,250,.10), rgba(255,77,141,.06));
+  border: 1px solid var(--border); border-radius: 14px; }
+.tag-head-title { margin: 0 0 6px; font-size: 17px; letter-spacing: .04em; }
+.tag-head-stats { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-dim); }
+.tag-stat b { color: var(--violet); font-size: 15px; margin-right: 3px; }
+.tag-stat.warn b { color: #ffd166; }
+.tag-filters { margin-bottom: 10px; }
+.tag-selected-info { font-size: 12.5px; color: var(--text-dim); }
+
+/* 行：箭头 + 名称 + 未引用徽标 + 三级计数 + 操作 */
+.tag-row { align-items: center; }
+.tag-row.orphan { border-style: dashed; }
+.tag-row.orphan .tag-name { color: var(--text-dim); }
+.tag-row.expanded { border-color: rgba(94,234,212,.35); }
+.tag-caret { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 12px;
+  padding: 0 2px; line-height: 1; }
+.tag-caret:hover { color: var(--accent); }
+.tag-orphan { font-size: 11px; padding: 1px 8px; border-radius: 999px; color: #ffd166;
+  border: 1px solid rgba(255,209,102,.35); background: rgba(255,209,102,.08); }
+.tag-names-wrap { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 160px; }
+.tag-name { cursor: text; }
+.tag-name-input { background: rgba(8,8,16,.6); border: 1px solid var(--accent); border-radius: 8px;
+  color: var(--text); font: inherit; font-weight: 700; padding: 3px 8px; min-width: 140px; }
+.tag-counts { cursor: pointer; flex: 1; }
+.tag-counts span.stat-1, .tag-counts span.stat-2 { color: var(--text-dim); }
+.tag-counts span.stat-3 { color: var(--accent); border-color: rgba(94,234,212,.28); }
+.tag-counts span.stat-4, .tag-counts span.stat-5 { color: var(--violet); border-color: rgba(167,139,250,.35); }
+
+/* 行内展开的使用位置 */
+.tag-usage-inline { flex-basis: 100%; margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed rgba(255,255,255,.10); display: flex; flex-direction: column; gap: 8px; }
+.tag-usage-head { font-size: 12px; color: var(--text-dim); }
+.tag-usage-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+
+/* 空态：区分「词表为空」与「筛选无结果」 */
+.tag-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  padding: 26px 22px; border: 1px dashed var(--border); border-radius: 14px; color: var(--text-dim); }
+.tag-empty b { color: var(--text); font-size: 14px; }
+.tag-empty span { font-size: 12.5px; line-height: 1.7; max-width: 560px; }
+.tag-scope-link { margin-left: 8px; }
