@@ -2371,11 +2371,19 @@ function setDim(key, value) {
 }
 
 let filterPopDim = 'genres';
+let filterDictAt = 0;   // 选项字典上次刷新时间（防止反复开关面板时白拉）
 
 function openFilterPop() {
     renderFilterPop();
     filterPopEl.hidden = false;
     filterOpenBtn.setAttribute('aria-expanded', 'true');
+    // 选项字典改成「**每次打开面板都刷新**」（启动时那一次 + 这里）：
+    // 否则刚打上的标签 / 刚建的收藏夹在面板里根本看不到（2026-10-02 用户报「筛选我已经添加过标签了，没有显示」）。
+    // 3 秒内不重复拉（反复开关面板时不白请求）。
+    if (Date.now() - filterDictAt > 3000) {
+        filterDictAt = Date.now();
+        fillMediaFilterDict().catch(() => { /* 失败保留旧字典，不阻断筛选 */ });
+    }
 }
 
 function closeFilterPop() {
