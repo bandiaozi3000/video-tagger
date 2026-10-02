@@ -14,6 +14,16 @@ logging:
 spring:
   application:
     name: video-tagger
+  web:
+    resources:
+      cache:
+        # 静态资源（app.js / app.css / index.html）一律**回源校验**（Cache-Control: no-cache）。
+        # 为什么：本地应用回源成本≈0（未变时 304），而“浏览器拿旧 app.js + 服务端已换新 index.html”
+        # 会让旧 JS 在**模块顶层** getElementById 拿到 null 后抛异常 → 整个 app.js 停止执行 →
+        # 全站只剩“加载失败：后端未响应”（2026-10-02 真实事故，真因是我忘了提版本戳）。
+        # 开了它就**不再依赖“记得手动提戳”这个人类约定**；版本戳可以留着当双保险。
+        cachecontrol:
+          no-cache: true
   datasource:
     # 桌面版默认 SQLite（唯一数据源）。迁移/Web 版连 MySQL 用 mysql profile（见下方）。
     url: jdbc:sqlite:${VT_DATA_DIR:data}/video_tagger.db
