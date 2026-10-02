@@ -167,6 +167,9 @@ const mediaAllowHardsub = document.getElementById('media-allow-hardsub');
 const mediaRetryCoversBtn = null;
 const mediaSelectAllBtn = document.getElementById('media-batch-select-all');
 const mediaPageSizeEl = document.getElementById('media-page-size');
+const mediaGroupByEl = document.getElementById('media-group-by');
+const mediaGroupSizeEl = document.getElementById('media-group-size');
+const mediaPaginationEl = document.getElementById('media-pagination');
 const mediaPagePrevEl = document.getElementById('media-page-prev');
 const mediaPageNextEl = document.getElementById('media-page-next');
 const mediaPageInfoEl = document.getElementById('media-page-info');
@@ -2330,6 +2333,34 @@ async function loadMedia(resetPage = true) {
     const seq = ++mediaLoadSeq;
     let url = '';
     let countUrl = '';
+    // 分组态：全量拉 → 前端组打包分页（第四部分）；顶部总数仍是筛选命中数
+    if (mediaGroupBy) {
+        try {
+            const rows = await loadAllMedia();
+            if (seq !== mediaLoadSeq) return;
+            mediaTotal = rows.length;
+            mediaGroupRows = rows;
+            mediaStatusEl.textContent = '';
+            mediaPaginationEl.hidden = false;
+            if (rows.length === 0) {
+                mediaGridEl.innerHTML = '';
+                mediaGroupPages = []; mediaGroupTotalPages = 1; mediaGroupPage = 1;
+                renderMediaGroupPagination();
+                const hasFilter = !!(mediaFilter.q || mediaFilter.format || mediaFilter.subcategoryId || mediaFilter.unconfirmed
+                    || MEDIA_DIMS.some(d => (mediaFilter[d.key] || []).length));
+                mediaStatusEl.textContent = hasFilter
+                    ? '没有符合筛选条件的媒体（可以清掉筛选或换个条件再看看）'
+                    : '还没有打过标记的媒体，去看片按 Alt+S 打一个';
+                return;
+            }
+            renderMediaGroups();
+        } catch (err) {
+            if (seq !== mediaLoadSeq) return;
+            mediaStatusEl.textContent = `加载失败：${(err && err.message) || err}`;
+        }
+        return;
+    }
+    mediaGridEl.className = 'media-grid';
     try {
         const built = buildMediaUrls();
         url = built.url;
@@ -2698,8 +2729,8 @@ function renderFilterPop() {
 
 /** 按当前筛选/分页构造列表与 count 请求 URL（全部媒体/最近观看/收藏夹三分支）。
  *  format/subcategoryId/year/genres/season/tagIds 全部后端过滤，保证分页总数与列表同条件。 */
-function buildMediaUrls() {
-    const base = new URLSearchParams({ limit: String(mediaPageSize), offset: String((mediaPage - 1) * mediaPageSize) });
+function buildMediaUrls(limit = mediaPageSize, offset = (mediaPage - 1) * mediaPageSize) {
+    const base = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     const addCommon = p => {
         if (mediaFilter.q) p.set('q', mediaFilter.q);
         // v0.32：所有维度都是数组 → 逗号串（后端的 `List<T>` 直接绑，单值调用方照样合法）
@@ -3017,6 +3048,158 @@ function exitMediaBatchMode() {
     updateMediaBatchConfirm();
 }
 
+/**
+ * 媒体页分组（批次主规格「第四部分」）。
+ *
+ * 语义 A：**多值维度（题材/标签/收藏夹）允许一部媒体出现在多个组** —— 组头计数只写「该组 N 部」，
+ * 顶部仍显示筛选命中数（两个口径不混；组内条数之和可能大于命中数）。
+ * 渲染复用收藏夹那套「组打包分页」（buildGroupedPages / renderGroupedPage / gotoGroup）。
+ */
+const MEDIA_GROUP_DIMS = ['genres', 'year', 'season', 'status', 'collectionId', 'tagIds'];
+const GROUP_DIM_LABEL = { genres: '题材', year: '年份', season: '季度', status: '状态', collectionId: '收藏夹', tagIds: '标签' };
+const SEASON_ORDER = ['WINTER', 'SPRING', 'SUMMER', 'FALL'];
+
+let mediaGroupBy = '';            // '' = 不分组
+let mediaGroupPerPage = 500;      // 组打包每页媒体数上限（组不跨页切碎；Infinity = 不限）
+let mediaGroupPage = 1;
+let mediaGroupPages = [];
+let mediaGroupTotalPages = 1;
+let mediaGroupNav = {};           // key → 首个切片所在页 index
+let mediaGroupKeys = [];          // 全部组 key（已排序）
+let mediaGroupRows = [];          // 分组态下的全量行
+
+/** 「其它题材」兜底组 key（题材只在白名单内分组，剩下的一律进这里，不静默丢）。 */
+const OTHER_GENRES_KEY = '其它题材';
+
+const parseGenres = (row) => {
+    try {
+        const arr = JSON.parse(row.genresJson || '[]');
+        return Array.isArray(arr) ? arr.filter(g => typeof g === 'string' && g) : [];
+    } catch (e) { return []; }
+};
+
+/** 按维度把一行媒体分成组：**返回数组 = 可进多组**（D1 语义 A）。 */
+function mediaGroupOf(row, dim) {
+    switch (dim) {
+        case 'genres': {
+            const known = new Set(mediaFilterDict.genres.map(g => g.genre));   // 与筛选面板同一份白名单 ∩ 实际
+            const hits = parseGenres(row).filter(g => known.has(g));
+            return hits.length ? hits.map(g => ({ key: g, label: g })) : [{ key: OTHER_GENRES_KEY, label: OTHER_GENRES_KEY }];
+        }
+        case 'year': return yearGroupOf(row);
+        case 'season': {
+            const label = (SEASON_OPTIONS.find(o => o.value === row.season) || {}).label;
+            return label ? [{ key: label, label }] : [{ key: '未知季度', label: '未知季度' }];
+        }
+        case 'status': {
+            const label = (MEDIA_STATUS_OPTIONS.find(o => o.value === row.status) || {}).label;
+            return label ? [{ key: label, label }] : [{ key: '未知状态', label: '未知状态' }];
+        }
+        case 'collectionId': {
+            const ids = String(row.collectionIds || '').split(',').filter(Boolean);
+            if (!ids.length) return [{ key: '未入收藏夹', label: '未入收藏夹' }];
+            return ids.map(id => {
+                const hit = mediaFilterDict.collections.find(c => String(c.id) === id);
+                const label = hit ? hit.name : ('收藏夹 #' + id);
+                return { key: label, label };
+            });
+        }
+        case 'tagIds': {
+            const names = String(row.tags || '').split(',').map(s => s.trim()).filter(Boolean);
+            return names.length ? names.map(n => ({ key: n, label: n })) : [{ key: '无标签', label: '无标签' }];
+        }
+        default: return [{ key: '未分组', label: '未分组' }];
+    }
+}
+
+/** 组间顺序：年份/季度/状态 按天然序；收藏夹按名称；题材/标签按**组内条数降序**（无天然序）。 */
+function mediaGroupOrder(dim) {
+    const byCount = (a, b) => b.items.length - a.items.length || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0);
+    switch (dim) {
+        case 'year': return yearGroupOrder;
+        case 'season': return (a, b) => SEASON_ORDER.indexOf(a.key) - SEASON_ORDER.indexOf(b.key) || byCount(a, b);
+        case 'status': return (a, b) => MEDIA_STATUS_OPTIONS.findIndex(o => o.label === a.key) - MEDIA_STATUS_OPTIONS.findIndex(o => o.label === b.key) || byCount(a, b);
+        case 'collectionId': return (a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0);
+        default: return byCount;
+    }
+}
+
+/** 分组态下：分页条「每页条数」换成「分组上限」，反向亦然（与收藏夹同形）。 */
+function syncMediaGroupControls() {
+    const on = !!mediaGroupBy;
+    if (mediaGroupSizeEl) mediaGroupSizeEl.hidden = !on;
+    mediaPageSizeEl.hidden = on;
+}
+
+/** 分组态全量拉（分页循环；带筛选时通常很少）。 */
+async function loadAllMedia() {
+    const all = [];
+    const size = 200;
+    for (let offset = 0; ; offset += size) {
+        const { url } = buildMediaUrls(size, offset);
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const list = await resp.json();
+        all.push(...list);
+        if (list.length < size) break;
+        if (all.length > 20000) break;   // 兜底：别把浏览器拖死（本库 5k 级，正常碰不到）
+    }
+    return all;
+}
+
+/** 分组渲染：打包全部组 → 渲染当前页 + 分组分页条。 */
+function renderMediaGroups() {
+    const dim = mediaGroupBy;
+    const { pages, groupToPage, keys } = buildGroupedPages(mediaGroupRows, mediaGroupPerPage,
+        row => mediaGroupOf(row, dim), mediaGroupOrder(dim));
+    mediaGroupPages = pages;
+    mediaGroupTotalPages = Math.max(1, pages.length);
+    mediaGroupNav = groupToPage;
+    mediaGroupKeys = keys;
+    if (mediaGroupPage > mediaGroupTotalPages) mediaGroupPage = 1;
+    renderMediaGroupPage();
+}
+
+function renderMediaGroupPage() {
+    const page = mediaGroupPages[mediaGroupPage - 1] || [];
+    currentMediaList = page.flatMap(g => g.items);   // 供「全选本页」用（= 当前分组页）
+    mediaGridEl.className = 'media-grid';
+    renderGroupedPage(mediaGridEl, page, {
+        idPrefix: 'mgrp-',
+        navYears: mediaGroupKeys,
+        currentPageYears: new Set(page.map(g => g.key)),
+        onNavYear: (key) => gotoGroup(key, mediaGroupNav[key], mediaGroupPage, (pg, k) => {
+            mediaGroupPage = pg;
+            renderMediaGroupPage();
+            [...mediaGridEl.querySelectorAll('.coll-group')].find(sec => sec.dataset.year === k)
+                ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, mediaGridEl),
+        itemRenderer: (group, wrap) => renderMediaGrid(group, wrap, 'media'),
+        groupActions: {
+            selectAll: (g) => setGroupSelection(g, true),
+            selectNone: (g) => setGroupSelection(g, false),
+        },
+    });
+    renderMediaGroupPagination();
+}
+
+/** 组内全选/取消（直接改 mediaSelected，再重画当前页的勾选态）。 */
+function setGroupSelection(g, on) {
+    for (const item of g.items) {
+        if (item.id == null) continue;
+        if (on) mediaSelected.add(item.id); else mediaSelected.delete(item.id);
+    }
+    renderMediaGroupPage();
+    updateMediaBatchConfirm();
+}
+
+function renderMediaGroupPagination() {
+    mediaTotalEl.textContent = `共 ${mediaTotal} 部`;
+    mediaPageInfoEl.textContent = `分组第 ${mediaGroupPage}/${mediaGroupTotalPages} 页`;
+    mediaPagePrevEl.disabled = mediaGroupPage <= 1;
+    mediaPageNextEl.disabled = mediaGroupPage >= mediaGroupTotalPages;
+}
+
 /** 加载选中收藏夹的媒体（复用 renderMediaGrid，渲染进收藏夹视图容器）。 */
 async function loadCollMedia(id, resetPage = true) {
     if (resetPage) collPage = 1;
@@ -3095,63 +3278,80 @@ async function loadAllCollMedia(id) {
     return all;
 }
 
-/* ========== 分组「组打包分页」通用渲染器（收藏夹/推荐页共用；替代 renderGroupedLazy 全量懒加载） ========== */
+/* ========== 分组「组打包分页」通用渲染器（收藏夹/媒体页共用；替代 renderGroupedLazy 全量懒加载） ========== */
 
-/** 组打包分页：按首播年份分组 → 组按序打包进页，每页媒体总数 ≤ perPage（组不跨页切碎）；
+/** 默认维度（年份）的分组键；无年份归「未知年份」。 */
+function yearGroupOf(item) {
+    const key = item.year ? String(item.year) : '未知年份';
+    return [{ key, label: key }];
+}
+
+/** 默认维度的组间顺序：年份降序、未知年份最后。 */
+function yearGroupOrder(a, b) {
+    if (a.key === '未知年份') return 1;
+    if (b.key === '未知年份') return -1;
+    return Number(b.key) - Number(a.key);
+}
+
+/** 组打包分页：按维度分组 → 组按序打包进页，每页媒体总数 ≤ perPage（组不跨页切碎）；
  *  巨型组（单组 > perPage）按 perPage 切片成连续页；perPage=Infinity 时「不限」= 全量一页。
- *  返回 { pages, yearToPage, years }：pages 每页 = 组数组 [{year,items,chunk,chunkIndex,chunkTotal,total}]；
- *  yearToPage = year → 首个切片所在页 index（导航跨页）；years = 全部年份（降序，未知年份兜底）。 */
-function buildGroupedPages(list, perPage) {
+ *
+ *  `groupOf(item) → [{key,label}, …]`：**一项媒体返回多项 = 它进多个组**（媒体页多值维度用：
+ *  题材/标签/收藏夹一部媒体会出现在多个组，组内条数之和可能大于命中总数）。
+ *  `groupOrder(a, b)`：组间排序（收 bucket {key,label,items}）。
+ *
+ *  返回 { pages, groupToPage, keys }：pages 每页 = 组数组 [{key,label,items,chunk,chunkIndex,chunkTotal,total}]；
+ *  groupToPage = key → 首个切片所在页 index（导航跨页）；keys = 全部组 key（已排序）。 */
+function buildGroupedPages(list, perPage, groupOf = yearGroupOf, groupOrder = yearGroupOrder) {
     const groups = new Map();
     for (const a of list) {
-        const key = a.year ? String(a.year) : '未知年份';
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(a);
+        for (const g of groupOf(a)) {
+            if (!groups.has(g.key)) groups.set(g.key, { key: g.key, label: g.label, items: [] });
+            groups.get(g.key).items.push(a);
+        }
     }
-    const years = [...groups.keys()].sort((x, y) => {
-        if (x === '未知年份') return 1;
-        if (y === '未知年份') return -1;
-        return Number(y) - Number(x);
-    });
+    const keys = [...groups.keys()].sort((x, y) => groupOrder(groups.get(x), groups.get(y)));
     const pages = [];
-    const yearToPage = {};
+    const groupToPage = {};
     let cur = [];          // 当前页组数组
     let curCount = 0;      // 当前页媒体总数
-    for (const key of years) {
-        const items = groups.get(key);
+    for (const key of keys) {
+        const bucket = groups.get(key);
+        const items = bucket.items;
+        const label = bucket.label;
         if (items.length > perPage) {
             // 巨型组：先结算当前页，再按 perPage 切片成连续页
             if (cur.length) { pages.push(cur); cur = []; curCount = 0; }
             const chunks = Math.ceil(items.length / perPage);
             for (let i = 0; i < chunks; i++) {
-                pages.push([{ year: key, items: items.slice(i * perPage, (i + 1) * perPage), chunk: true, chunkIndex: i, chunkTotal: chunks, total: items.length }]);
+                pages.push([{ key, label, items: items.slice(i * perPage, (i + 1) * perPage), chunk: true, chunkIndex: i, chunkTotal: chunks, total: items.length }]);
             }
-            yearToPage[key] = pages.length - chunks;
+            groupToPage[key] = pages.length - chunks;
             continue;
         }
         if (curCount + items.length > perPage && cur.length) {
             pages.push(cur); cur = []; curCount = 0;
         }
-        cur.push({ year: key, items, total: items.length });
-        if (yearToPage[key] === undefined) yearToPage[key] = pages.length;
+        cur.push({ key, label, items, total: items.length });
+        if (groupToPage[key] === undefined) groupToPage[key] = pages.length;
         curCount += items.length;
     }
     if (cur.length) pages.push(cur);
-    return { pages, yearToPage, years };
+    return { pages, groupToPage, keys };
 }
 
-/** 渲染一个年份组 section：组头（年份 + 计数/切片进度 + 折叠）+ 内容容器（跟随全局卡片/列表视图）。 */
+/** 渲染一个组 section：组头（label + 计数/切片进度 + 折叠）+ 内容容器（跟随全局卡片/列表视图）。 */
 function createGroupSection(g, idPrefix, itemRenderer, groupActions) {
     const sec = document.createElement('section');
     sec.className = 'coll-group';
-    sec.id = idPrefix + g.year;
-    sec.dataset.year = g.year;
+    sec.id = idPrefix + g.key;
+    sec.dataset.year = g.key;   // 属性名沿用 data-year（按它找组），语义 = 组 key
     const head = document.createElement('header');
     head.className = 'group-head';
     const countTxt = g.chunk
         ? `${g.total} 部 · 第 ${g.chunkIndex + 1}/${g.chunkTotal} 页`
         : `${g.items.length} 部`;
-    head.innerHTML = `<span class="group-year">${esc(g.year)}</span><span class="group-count">${countTxt}</span><span class="group-collapse">▾</span>`
+    head.innerHTML = `<span class="group-year">${esc(g.label)}</span><span class="group-count">${countTxt}</span><span class="group-collapse">▾</span>`
         + (groupActions ? `<span class="group-actions">
             <button type="button" class="btn-mini group-sel-all" title="勾选本组全部">☑ 全选</button>
             <button type="button" class="btn-mini group-sel-none" title="取消本组勾选">☐ 取消</button>
@@ -3204,26 +3404,27 @@ function renderGroupedPage(container, pageGroups, opts) {
     listEl.querySelectorAll('.coll-group').forEach(sec => io.observe(sec));
 }
 
-/** 分组年份跳转：pageIndex 目标页 0 基。不在当前页 → renderToPage(pageIndex+1, year) 由调用方切页并滚动；在当前页 → 页内直接滚动。
- *  组 section 前缀收藏夹为 grp-、推荐为 rgrp-，用 data-year 选择器规避前缀差异（原硬编码 grp- 导致推荐同页跳转失效）。
- *  同页跳转必须限定在 scopeEl（当前视图容器）内——document.querySelector 会先命中 DOM 靠前的隐藏收藏夹视图同名组（scrollIntoView 对 display:none 无效，跳转失效）。 */
-function gotoGroupYear(year, pageIndex, currentPage, renderToPage, scopeEl) {
+/** 分组跳转：pageIndex 目标页 0 基。不在当前页 → renderToPage(pageIndex+1, key) 由调用方切页并滚动；在当前页 → 页内直接滚动。
+ *  同页跳转必须限定在 scopeEl（当前视图容器）内——document.querySelector 会先命中 DOM 靠前的隐藏视图同名组（scrollIntoView 对 display:none 无效，跳转失效）。
+ *  按 dataset 全量过滤而非 CSS 属性选择器：媒体页的组 key 是题材/标签/收藏夹名（可能带引号、空格）。 */
+function gotoGroup(key, pageIndex, currentPage, renderToPage, scopeEl) {
     if (pageIndex === undefined) return;
     if (pageIndex !== currentPage - 1) {
-        renderToPage(pageIndex + 1, year);
+        renderToPage(pageIndex + 1, key);
     } else {
-        (scopeEl || document).querySelector('.coll-group[data-year="' + year + '"]')
+        [...(scopeEl || document).querySelectorAll('.coll-group')]
+            .find(sec => sec.dataset.year === key)
             ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 }
 
 /** 收藏夹分组视图：组打包分页（打包全部组 → 渲染当前页 + 分组分页条）。 */
 function renderCollGrouped(list) {
-    const { pages, yearToPage, years } = buildGroupedPages(list, collGroupPerPage);
+    const { pages, groupToPage, keys } = buildGroupedPages(list, collGroupPerPage);
     collGroupPages = pages;
     collGroupTotalPages = pages.length;
-    collGroupNav = yearToPage;
-    collGroupNavYears = years;
+    collGroupNav = groupToPage;
+    collGroupNavYears = keys;
     if (collGroupPage > collGroupTotalPages) collGroupPage = 1;
     renderCollGroupPage();
 }
@@ -3235,9 +3436,9 @@ function renderCollGroupPage(onDone) {
         idPrefix: 'grp-',
         navYears: collGroupNavYears,
         currentPageYears: new Set((page || []).map(g => g.year)),
-        onNavYear: (year) => gotoGroupYear(year, collGroupNav[year], collGroupPage, (pg, y) => {
+        onNavYear: (key) => gotoGroup(key, collGroupNav[key], collGroupPage, (pg, y) => {
             collGroupPage = pg;
-            renderCollGroupPage(() => document.getElementById('grp-' + y)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+            renderCollGroupPage(() => [...collMediaGridEl.querySelectorAll('.coll-group')].find(sec => sec.dataset.year === y)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
         }, collMediaGridEl),
         itemRenderer: (group, wrap) => renderMediaGrid(group, wrap, 'collection'),
     });
@@ -6968,8 +7169,26 @@ document.getElementById('media-sync').addEventListener('click', () => window.ope
 // 全选本页 / 媒体列表分页（页大小 / 上页 / 下页）
 document.getElementById('media-batch-select-all').addEventListener('click', selectAllCurrent);
 mediaPageSizeEl.addEventListener('change', () => { mediaPageSize = Number(mediaPageSizeEl.value); loadMedia(); });
-mediaPagePrevEl.addEventListener('click', () => { if (mediaPage > 1) { mediaPage--; loadMedia(false); } });
-mediaPageNextEl.addEventListener('click', () => { mediaPage++; loadMedia(false); });
+mediaPagePrevEl.addEventListener('click', () => {
+    if (mediaGroupBy) { if (mediaGroupPage > 1) { mediaGroupPage--; renderMediaGroupPage(); } return; }
+    if (mediaPage > 1) { mediaPage--; loadMedia(false); }
+});
+mediaPageNextEl.addEventListener('click', () => {
+    if (mediaGroupBy) { if (mediaGroupPage < mediaGroupTotalPages) { mediaGroupPage++; renderMediaGroupPage(); } return; }
+    mediaPage++; loadMedia(false);
+});
+// 分组维度 / 分组每页上限（第四部分）：改了都回第 1 页重拉
+mediaGroupByEl.addEventListener('change', () => {
+    mediaGroupBy = mediaGroupByEl.value;
+    mediaGroupPage = 1;
+    syncMediaGroupControls();
+    loadMedia(false);
+});
+mediaGroupSizeEl.addEventListener('change', () => {
+    mediaGroupPerPage = mediaGroupSizeEl.value === 'inf' ? Infinity : Number(mediaGroupSizeEl.value);
+    mediaGroupPage = 1;
+    if (mediaGroupBy) loadMedia(false);
+});
 collPageSizeEl.addEventListener('change', () => { collPageSize = Number(collPageSizeEl.value); if (collSelectedId != null) loadCollMedia(collSelectedId); });
 collGroupSizeEl.addEventListener('change', () => {
     collGroupPerPage = collGroupSizeEl.value === 'inf' ? Infinity : Number(collGroupSizeEl.value);

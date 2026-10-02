@@ -13,5 +13,11 @@ public record MediaSummary(Long id, String title, Integer year, String mediaForm
                            String source, Long clipCount, Long latestAt, Long collectionCount,
                            String fallbackCoverPath, String externalCoverUrl,
                            /** v0.31：三级并集标签名，逗号分隔（卡片只显示前两个）；可能为 null */
-                           String tags) {
+                           String tags,
+                           /** 第四部分（媒体页分组）：季度（`external_work.season`） */
+                           String season,
+                           /** 第四部分：题材**原样 JSON 串**（`external_work.genres_json`，前端自己 parse） */
+                           String genresJson,
+                           /** 第四部分：所属收藏夹 id 逗号串（前端 split） */
+                           String collectionIds) {
 }

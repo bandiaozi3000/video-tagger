@@ -14,6 +14,7 @@
 | 一 | 标签功能重做（三层受控词表、`clip_tag` 唯一真源、多标签且/或） | 已实现（V44） |
 | 二 | 媒体页筛选维度全部多选（维度内且/或） | 已实现 |
 | 三 | 单页 hash 路由（URL 可区分页面 / F5 回原页 / 浏览器前进后退） | **已实现**（2026-10-02，九条验收全绿） |
+| 四 | 媒体页分组（维度同筛选；多值维度语义 A） | **前端已实测**；题材/季度/收藏夹 **待后端重启** |
 
 ---
 
@@ -699,3 +700,78 @@ GENRE_FILTER      = ANY: EXISTS (… JSON_OVERLAPS(ew.genres_json, JSON_ARRAY(<f
 | Q1 | 筛选条件是否进 URL | **第一版不进**（N2）—— 序列化面大、和「跳转清筛选」纠缠；等你要"分享筛好的链接"再加 |
 | Q2 | 文档 title 是否随视图变 | 顺手做（1 行），让标签页/详情页在浏览器标签上也能区分 |
 | Q3 | 旧 `viewHistory` 是否直接删 | **直接删**（R2）；不留兼容层 |
+
+---
+
+## 第四部分：媒体页分组（2026-10-02 用户：「媒体除筛选外再来个分组，分组维度和筛选一样吧」→ 多值语义选 **A**）
+
+### 4.1 目标
+
+媒体页在筛选之外增加**分组**：维度与筛选那 6 个一致 —— **题材 / 年份 / 季度 / 状态 / 收藏夹 / 标签**（+「不分组」默认）。先筛选（WHERE）再分组（投影）。
+
+### 4.2 已确认决策
+
+| # | 议题 | 结论 |
+|---|---|---|
+| D1 | **多值维度的重复语义（用户选 A）** | **允许一部媒体出现在多个组**（题材/标签/收藏夹是多值 → 组内条数之和 **可能大于**筛选命中总数）。页面顶部仍显示**筛选命中数**，组头只写「该组 N 部」——两个口径不混 |
+| D2 | 一次几个维度 | **一个**（不做多维嵌套：UI 与分页复杂度会爆炸，YAGNI） |
+| D3 | 组间顺序 | 年份↓ / 季度（冬→秋）/ 状态（想看→弃番，同 `MEDIA_STATUS_OPTIONS`）/ 收藏夹按名称 / **题材·标签按组内条数↓** |
+| D4 | 组内顺序 | 沿用当前排序（`sort`/`order`） |
+| D5 | 分页 | **复用收藏夹那套**：组打包分页（组不跨页切碎、巨型组自动切片、每页上限含「不限」） |
+| D6 | 组头 | 「标题 + N 部」+ 点击折叠（默认展开）；**空组不显示** |
+| D7 | 导航 | 复用组导航 chips（点击跳组；跨页先切页再滚动）+ 滚动高亮（IntersectionObserver） |
+| D8 | 组内批量 | 复用「☑ 全选 / ☐ 取消」 |
+| D9 | URL | **不进**（与筛选同口径，N2）；分组是浏览态，刷新不保留 |
+| D10 | UI 位置 | 媒体工具条右侧（排序/视图旁）一个 `分组 ▾` 下拉 |
+| D11 | **题材维度的取值域** | 只按**筛选面板同一份白名单 ∩ 实际**（`/api/media/genres`，当前 41 个值）分组；`genres_json` 为空或全不在白名单的 → 归入兜底组 **「其它题材」**（否则「命中 5248 部」与「各组加起来」差得太难看） |
+| D12 | 实现路径 | **前端全量拉 + 前端分组**（复用现成机器），但**需要后端补 3 个列表字段** |
+
+### 4.3 前提修正（实测，推翻了「零后端改动」的初判）
+
+```
+/api/media 列表行现有字段: id,title,year,mediaFormat,subcategory,subcategoryId,status,rating,
+                          coverPath,confirmed,source,clipCount,latestAt,collectionCount,
+                          fallbackCoverPath,externalCoverUrl,tags
+缺: season ✗   genresJson ✗   collectionIds ✗      ← 季度/题材/收藏夹三维前端分组做不了
+```
+**后端改动（小，加法式）**：媒体列表 SELECT 补三个 correlated 子查询（与既有 `source`/`cover` 同法），`MediaSummary` 加三个字段：
+- `season` ← `(SELECT ew.season FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1)`
+- `genresJson` ← 同上取 `ew.genres_json`（**原样字符串**，前端 `JSON.parse`，Java 不解析）
+- `collectionIds` ← `(SELECT GROUP_CONCAT(mc.collection_id ORDER BY mc.collection_id SEPARATOR ',') FROM media_collection mc WHERE mc.media_id = a.id)`
+
+### 4.4 复用与改动面（`app.js`）
+
+**复用（收藏夹已有一整套，做最小泛化）**：`buildGroupedPages()` / `createGroupSection()` / `renderGroupedPage()` / `gotoGroupYear()` → 把组对象的 `{year}` 泛化为 `{key, label}`（收藏夹调用处行为不变，key 仍等于年份字符串）；新增一个按维度给 `[{key,label}]` 的 `groupOfMedia(item, dim)`。
+
+**新增**：媒体页分组状态（`mediaGroupBy` / `mediaGroupPage` / `mediaGroupPages` / `mediaGroupPerPage` / `mediaGroupNav`）+ `renderMediaGroupPage()` + 分页条/导航条接线 + `loadAllMedia(filter)`（分页循环拉全量，照 `loadAllCollMedia` 写法）。
+
+### 4.5 边界
+
+| 场景 | 期望 |
+|---|---|
+| 不筛任何条件就分组 | 全量 5248 部 ≈ **1.9 MB / 1.9 s**（实测，补列后会略慢）；给加载态，不静默卡住 |
+| 筛选 + 分组 | 先筛后分组；组头计数之和可能 > 命中数（D1）；命中 0 → 空态 + 清筛选入口 |
+| 某维度组数极多 | 组打包分页兜住（每页上限档位，含「不限」） |
+| 巨型组（如「日常」1750 部） | 自动切片成连续页，组头写「1750 部 · 第 i/n 页」 |
+| 切维度 / 切筛选 / 改排序 | 重新拉全量并回第 1 页 |
+| 与「批量操作」同用 | 组内全选/取消可用 |
+
+### 4.6 验收
+
+1. 六个维度各分一次组：组头计数与该维度筛选面板给出的计数**一致**（如题材「奇幻」= 2143）。
+2. 多值重复成立：多题材媒体的条数被计入多个组（抽查一部已知两部作品的媒体）。
+3. 老筛选行为不变：不分组时与今天完全一致。
+4. 组打包分页：组不跨页切碎；巨型组切片且组头写「第 i/n 页」。
+5. 导航 chips 点击跳组（跨页先切页）；折叠可开合。
+6. 组内全选 → 批量操作可用。
+7. 「其它题材」兜底组存在且条数 = 命中数 − 各白名单题材组去重并集（抽查）。
+8. 零 JS 异常；`mvn -o test -Dtest=…` 相关 IT 绿（列表字段补列后不破既有查询）。
+
+### 4.7 风险
+
+| # | 风险 | 对策 |
+|---|---|---|
+| R1 | 全量拉 + 5248 张卡渲染 | 分组态**只在当前页渲染卡片**（组打包分页天然限制 DOM 数）；给加载态 |
+| R2 | 补列影响既有列表查询/导出 | 只做**加法**（新别名 + DTO 新字段）；跑既有 IT（`MediaServiceIT`/`MediaSummaryTagColumnIT`/导出）验证 |
+| R3 | 泛化 `createGroupSection` 打破收藏夹分组 | 保持 `key` 语义与收藏夹一致（key=年份字符串），收藏夹探针回归 |
+| R4 | 题材白名单外的词无处可去 | D11 的「其它题材」兜底组（不静默丢） |

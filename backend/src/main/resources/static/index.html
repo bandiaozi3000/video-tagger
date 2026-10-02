@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Tagger · 二次元打标库</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="app.css?v=20261002-jumpfix7">
+    <link rel="stylesheet" href="app.css?v=20261002-jumpfix8">
     <link rel="stylesheet" href="v022-metadata.css?v=20260829-v022-media-detail2">
     <link rel="stylesheet" href="bgm-sync.css?v=20260924-region">
     <link rel="stylesheet" href="v023-video-sources.css?v=20260830-v023-1">
@@ -180,6 +180,16 @@
             <span id="filter-chips" class="filter-chips"></span>
             <button type="button" id="filter-clear" class="btn-mini filter-clear" hidden>清空</button>
             <span class="filter-grow"></span>
+            <!-- 分组（第四部分）：维度与筛选同集；多值维度一部媒体会出现在多个组（语义 A） -->
+            <select id="media-group-by" title="按维度分组展示（与筛选同维度；题材/标签/收藏夹是多值，一部媒体会出现在多个组里）">
+                <option value="">不分组</option>
+                <option value="genres">题材</option>
+                <option value="year">年份</option>
+                <option value="season">季度</option>
+                <option value="status">状态</option>
+                <option value="collectionId">收藏夹</option>
+                <option value="tagIds">标签</option>
+            </select>
             <select id="filter-sort" title="排序方式（时间/评分）">
                 <option value="">时间</option>
                 <option value="rating">评分</option>
@@ -196,6 +206,12 @@
                 <option value="50">50 条/页</option>
                 <option value="100">100 条/页</option>
                 <option value="200">200 条/页</option>
+            </select>
+            <select id="media-group-size" title="分组每页媒体数上限（组不跨页切碎，巨型组自动切片）" hidden>
+                <option value="200">200 部/页</option>
+                <option value="500" selected>500 部/页</option>
+                <option value="1000">1000 部/页</option>
+                <option value="inf">不限</option>
             </select>
             <button type="button" id="media-page-prev" class="btn-mini" disabled>‹ 上一页</button>
             <span id="media-page-info" class="pagination-info"></span>
@@ -1209,7 +1225,7 @@
     <img src="" alt="">
 </div>
 <button type="button" id="back-nav" title="去底部" aria-label="去底部">↓</button>
-<script src="app.js?v=20261002-jumpfix7"></script>
+<script src="app.js?v=20261002-jumpfix8"></script>
 <script src="bgm-sync.js?v=20260924-region"></script>
 <script src="v023-video-sources.js?v=20260830-v023-1"></script>
 <script src="v023-player-workbench.js?v=20260901-v023-3"></script>

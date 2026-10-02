@@ -87,6 +87,20 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "JOIN episode e8 ON e8.id = c9.episode_id WHERE e8.media_id = a.id"
             + ") r9 ON r9.tid = t2.id) AS tags ";
 
+    /**
+     * 分组键（批次主规格「第四部分：媒体页分组」）：
+     * - `season`：季度（唯一真值 `external_work.season`）
+     * - `genresJson`：题材**原样 JSON 串**（前端 `JSON.parse`，Java 不解析）
+     * - `collectionIds`：所属收藏夹 id 逗号串（前端 split）
+     *
+     * ⚠️ 与上面 `source` / `cover` 同法的 correlated 子查询；
+     * **必须排在 `TAG_NAMES_COL` 之后**，且顺序与 `MediaSummary` 末尾三个字段逐字对应 ——
+     * 那是 record，MyBatis 按**位置**装配（列顺序错了会把字符串塞进 Long）。
+     */
+    String GROUP_KEYS_COL = ", (SELECT ew2.season FROM external_work ew2 WHERE ew2.media_id = a.id ORDER BY ew2.id LIMIT 1) AS season"
+            + ", (SELECT ew3.genres_json FROM external_work ew3 WHERE ew3.media_id = a.id ORDER BY ew3.id LIMIT 1) AS genresJson"
+            + ", (SELECT GROUP_CONCAT(mc2.collection_id ORDER BY mc2.collection_id SEPARATOR ',') FROM media_collection mc2 WHERE mc2.media_id = a.id) AS collectionIds ";
+
     @Select("SELECT * FROM media WHERE title = #{title} AND deleted_at IS NULL LIMIT 1")
     Media selectByTitle(@Param("title") String title);
 
@@ -112,7 +126,7 @@ public interface MediaMapper extends BaseMapper<Media> {
     @Select("SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, (SELECT ew.provider FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS source,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
             + "(SELECT COUNT(*) FROM media_collection mc WHERE mc.media_id = a.id) AS collectionCount, "
-            + FALLBACK_COVER + ", (SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl " + TAG_NAMES_COL
+            + FALLBACK_COVER + ", (SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl " + TAG_NAMES_COL + GROUP_KEYS_COL
             + "FROM media a "
             + "LEFT JOIN episode e ON e.media_id = a.id "
             + "LEFT JOIN clips c ON c.episode_id = e.id "
@@ -125,7 +139,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, (SELECT ew.provider FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS source,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
             + "(SELECT COUNT(*) FROM media_collection mc WHERE mc.media_id = a.id) AS collectionCount, "
-            + FALLBACK_COVER + ", (SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl " + TAG_NAMES_COL
+            + FALLBACK_COVER + ", (SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl " + TAG_NAMES_COL + GROUP_KEYS_COL
             + "FROM media a "
             + "LEFT JOIN episode e ON e.media_id = a.id "
             + "LEFT JOIN clips c ON c.episode_id = e.id "
@@ -234,7 +248,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, (SELECT ew.provider FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS source,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
             + "(SELECT COUNT(*) FROM media_collection mc WHERE mc.media_id = a.id) AS collectionCount, "
-            + FALLBACK_COVER + ", (SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl " + TAG_NAMES_COL
+            + FALLBACK_COVER + ", (SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl " + TAG_NAMES_COL + GROUP_KEYS_COL
             + "FROM media a "
             + "JOIN media_collection ac ON ac.media_id = a.id AND ac.collection_id = #{collectionId} "
             + "LEFT JOIN episode e ON e.media_id = a.id "
@@ -335,7 +349,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.subcategory, a.subcategory_id AS subcategoryId, a.status, a.rating, a.cover_path AS coverPath, a.confirmed, (SELECT ew.provider FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS source,"
             + "COUNT(c.id) AS clipCount, MAX(c.created_at) AS latestAt, "
             + "(SELECT COUNT(*) FROM media_collection mc WHERE mc.media_id = a.id) AS collectionCount, "
-            + FALLBACK_COVER + ", (SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl " + TAG_NAMES_COL
+            + FALLBACK_COVER + ", (SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl " + TAG_NAMES_COL + GROUP_KEYS_COL
             + "FROM media a "
             + "LEFT JOIN episode e ON e.media_id = a.id "
             + "LEFT JOIN clips c ON c.episode_id = e.id "
