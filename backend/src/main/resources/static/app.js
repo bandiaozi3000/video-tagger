@@ -6215,10 +6215,24 @@ function jumpToMediaTagFilter(t) {
      */
     mediaMode = 'all';
     document.querySelectorAll('.media-tabs .atab').forEach(b => b.classList.toggle('active', b.dataset.mediaTab === 'all'));
+    /*
+     * 跳转 = 「只看这个词」→ 其它筛选条件一律清掉（用户 2026-10-02 拍板）。
+     * 不然留着年份/题材/格式/搜索词，结果数就会小于标签页上写的那个数，又看着像跳转失败。
+     * 清的是**筛选**，`sort`/`order`（排序）属于浏览偏好，保留。
+     */
+    for (const d of MEDIA_DIMS) mediaFilter[d.key] = [];
+    mediaFilter.q = '';
+    filterQEl.value = '';
+    mediaFilter.format = '';
+    activeFormatTab = '';
+    renderFormatTabs();
+    mediaFilter.subcategoryId = '';
+    fillSubcategoryFilter();
+    mediaFilter.unconfirmed = false;
     mediaFilter.tagIds = [String(t.id)];
     mediaFilter.mode.tagIds = 'AND';
-    mediaFilter.collectionId = [];
     renderFilterChips();
+    if (!filterPopEl.hidden) renderFilterPop();
     showView('media');
     // 之前可能停在回收站 → 恢复主区（内部那次 loadMedia 也带着已设好的筛选；序号保护保证结果正确）
     backToMedia();
