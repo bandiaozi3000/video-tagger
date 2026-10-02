@@ -3199,6 +3199,22 @@ function renderMediaGrid(list, container = mediaGridEl, mode = 'media') {
         meta.push(`${a.clipCount || 0} 条片段`);
         card.querySelector('.media-card-meta').textContent = meta.join(' · ');
         const badges = card.querySelector('.media-card-badges');
+        // v0.31：卡片正反馈 —— 显示前两个标签（三级并集；多出来的用 +N）
+        const cardTags = String(a.tags || '').split(',').map(s => s.trim()).filter(Boolean);
+        for (const name of cardTags.slice(0, 2)) {
+            const chip = document.createElement('span');
+            chip.className = 'media-card-tag';
+            chip.textContent = name;
+            chip.title = cardTags.join(' / ');
+            badges.appendChild(chip);
+        }
+        if (cardTags.length > 2) {
+            const more = document.createElement('span');
+            more.className = 'media-card-tag more';
+            more.textContent = `+${cardTags.length - 2}`;
+            more.title = cardTags.join(' / ');
+            badges.appendChild(more);
+        }
         if (a.confirmed === 0) {
             const b = document.createElement('span');
             b.className = 'badge-warn';
@@ -5929,6 +5945,14 @@ function renderTagList() {
             const e = document.createElement('span'); e.textContent = `集 ${t.episodeCount}`;
             const c = document.createElement('span'); c.textContent = `片段 ${t.clipCount}`;
             counts.append(m, e, c);
+            // v0.31：点引用数 → 看“谁在用”（反查三组；媒体可跳去媒体页筛这个词）
+            const usage = document.createElement('button');
+            usage.type = 'button';
+            usage.className = 'btn-mini tag-usage-btn';
+            usage.textContent = '使用位置';
+            usage.title = '看看这个标签都挂在哪些媒体 / 集 / 片段上';
+            usage.addEventListener('click', () => openTagUsage(t));
+            counts.appendChild(usage);
         }
 
         const actions = document.createElement('span');
@@ -5985,6 +6009,8 @@ async function openTagMerge(t) {
     tagMergeId = t.id;
     tagMergeTargetEl.textContent = `源标签：${t.name}`;
     tagMergeStatusEl.textContent = '';
+    const impactEl = document.getElementById('tag-merge-impact');
+    if (impactEl) { impactEl.hidden = true; impactEl.textContent = ''; }
     tagMergeIntoEl.innerHTML = '<option value="">— 选择目标标签 —</option>';
     // 合并候选需全量词条（列表已分页，候选单独拉一次，size 足够大）
     try {
@@ -6000,6 +6026,26 @@ async function openTagMerge(t) {
         }
     } catch (err) { /* 候选加载失败仅保留空选项 */ }
     tagMergeModal.hidden = false;
+}
+
+/** 合并影响面预览（v0.31）：先把“源几处 / 目标几处 → 合并后几处”给人看明白（合并不可撤销）。 */
+async function refreshTagMergeImpact() {
+    const impactEl = document.getElementById('tag-merge-impact');
+    const toId = Number(tagMergeIntoEl.value);
+    if (!impactEl) return;
+    if (!toId) { impactEl.hidden = true; impactEl.textContent = ''; return; }
+    impactEl.hidden = false;
+    impactEl.textContent = '读取影响面…';
+    try {
+        const resp = await fetch(`/api/tags/impact?fromId=${tagMergeId}&toId=${toId}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        impactEl.textContent = `影响面：源「${data.from.name}」${data.from.total} 处`
+            + ` ＋ 目标「${data.to.name}」${data.to.total} 处`
+            + ` → 合并后共 ${data.from.total + data.to.total} 处（源词条将被删除）`;
+    } catch (e) {
+        impactEl.textContent = `影响面读取失败：${e.message}`;
+    }
 }
 
 async function saveTagMerge() {
@@ -6045,6 +6091,61 @@ function confirmTagDelete(t) {
 /** 词库缓存失效：词条改名/合并/删除后调用，下次打开新增弹层重拉。 */
 function invalidateTagPool() {
     tagPoolByName = new Map();
+}
+
+/**
+ * v0.31 反查：这个词被哪些媒体 / 集 / 片段在用。
+ * 媒体条目可点 → 直接跳媒体页按该标签筛选（这才是“看看都用了啥”的下一步动作）。
+ */
+let currentUsageTag = null;
+
+async function openTagUsage(t) {
+    currentUsageTag = t;
+    openTagUsageModal(t.name, '<div class="status">读取中…</div>', null);
+    try {
+        const resp = await fetch(`/api/tags/usage?tagId=${t.id}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        openTagUsageModal(t.name, null, data);
+    } catch (e) {
+        openTagUsageModal(t.name, `<div class="status">读取失败：${esc(e.message)}</div>`, null);
+    }
+}
+
+/** 渲染/更新反查弹窗：html 为 null 时用 data 渲染三组列表。 */
+function openTagUsageModal(name, html, data) {
+    const modal = document.getElementById('tag-usage-modal');
+    document.getElementById('tag-usage-title').textContent = `「${name}」用在哪儿`;
+    const body = document.getElementById('tag-usage-body');
+    if (html != null || !data) {
+        body.innerHTML = html || '';
+        modal.hidden = false;
+        return;
+    }
+    const group = (label, items, render) => {
+        if (!items || items.length === 0) return '';
+        return `<div class="tag-usage-group"><div class="tag-usage-head">${label} · ${items.length}</div>`
+            + `<div class="tag-usage-list">${items.map(render).join('')}</div></div>`;
+    };
+    const empty = (data.media || []).length + (data.episodes || []).length + (data.clips || []).length === 0;
+    body.innerHTML = group('媒体', data.media, m =>
+            `<button type="button" class="btn-mini" data-usage-media="${m.id}">${esc(m.title || ('#' + m.id))}</button>`)
+        + group('集', data.episodes, e => `<span class="chip">${esc(e.title || ('集 #' + e.id))}</span>`)
+        + group('片段', data.clips, c => `<span class="chip">${esc(c.title || ('片段 #' + c.id))}</span>`)
+        + (empty ? '<div class="status">这个词还没被任何地方引用</div>' : '');
+    modal.hidden = false;
+    body.querySelectorAll('[data-usage-media]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (!currentUsageTag) return;
+            modal.hidden = true;
+            showView('media');
+            mediaFilter.collectionId = '';
+            mediaFilter.tagIds = [String(currentUsageTag.id)];
+            mediaFilter.tagMode = 'AND';
+            renderFilterChips();
+            loadMedia();
+        });
+    });
 }
 
 /** 懒加载全量词库 name→id（新增实时去重用；词条变化后清空重拉）。 */
@@ -7462,6 +7563,12 @@ document.getElementById('tag-rename-save').addEventListener('click', saveTagRena
 tagRenameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveTagRename(); } });
 tagMergeModal.addEventListener('click', (e) => { if (e.target === tagMergeModal) { tagMergeModal.hidden = true; tagMergeId = null; } });
 document.getElementById('tag-merge-cancel').addEventListener('click', () => { tagMergeModal.hidden = true; tagMergeId = null; });
+tagMergeIntoEl.addEventListener('change', refreshTagMergeImpact);
+const tagUsageModal = document.getElementById('tag-usage-modal');
+if (tagUsageModal) {
+    document.getElementById('tag-usage-close').addEventListener('click', () => { tagUsageModal.hidden = true; });
+    tagUsageModal.addEventListener('click', (e) => { if (e.target === tagUsageModal) tagUsageModal.hidden = true; });
+}
 document.getElementById('tag-merge-save').addEventListener('click', saveTagMerge);
 
 // ---------- 打标输入补全接线 ----------

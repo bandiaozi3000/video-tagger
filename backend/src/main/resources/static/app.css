@@ -3451,3 +3451,17 @@ body.desktop-mode .site-footer { display: none; }
 /* 筛选浮层：标签多选语义开关（全部匹配 / 任一匹配，v0.31） */
 .fp-mode { display: flex; gap: 6px; padding: 0 12px 8px; }
 .fp-mode .btn-mini.on { border-color: var(--accent); color: var(--accent); }
+
+/* 标签使用位置反查弹窗（v0.31） */
+.tag-usage-body { max-height: 56vh; overflow: auto; }
+.tag-usage-group { margin-bottom: 10px; }
+.tag-usage-head { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.tag-usage-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-merge-impact { font-size: 12px; line-height: 1.6; color: #ffd166; margin: 6px 0; }
+.tag-usage-btn { margin-left: 6px; }
+
+/* 媒体卡片上的标签 chip（v0.31：卡片正反馈，最多两个 + N） */
+.media-card-tag { padding: 1px 7px; border-radius: 999px; font-size: 10.5px; line-height: 16px;
+  background: rgba(94, 234, 212, .12); color: var(--accent); border: 1px solid rgba(94, 234, 212, .28);
+  max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-card-tag.more { background: rgba(255, 255, 255, .06); color: var(--muted); border-color: rgba(255, 255, 255, .16); }

@@ -11,5 +11,7 @@ import java.math.BigDecimal;
 public record MediaSummary(Long id, String title, Integer year, String mediaFormat, String subcategory,
                            Long subcategoryId, String status, BigDecimal rating, String coverPath, Integer confirmed,
                            String source, Long clipCount, Long latestAt, Long collectionCount,
-                           String fallbackCoverPath, String externalCoverUrl) {
+                           String fallbackCoverPath, String externalCoverUrl,
+                           /** v0.31：三级并集标签名，逗号分隔（卡片只显示前两个）；可能为 null */
+                           String tags) {
 }

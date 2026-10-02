@@ -58,8 +58,31 @@
 
   async function getPrefs() {
     const { videoTaggerPrefs } = await chrome.storage.sync.get('videoTaggerPrefs');
-    return videoTaggerPrefs
+    const prefs = videoTaggerPrefs
       || { backendBaseUrl: VT_DEFAULT_BACKEND, quickTags: {}, quickSilent: false, watchEndPrompt: false };
+    if (!prefs.quickTagIds) prefs.quickTagIds = {};
+    return prefs;
+  }
+
+  /**
+   * 受控词表（v0.31）：名字 → tagId。
+   * 词库里有同名 → 直接用；没有 → 问一句“新建词条再打上”（**不静默造词**）；取消 → null。
+   */
+  async function resolveTagIdByName(name) {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return null;
+    // `/api/tags`（suggest）只给名字+计数，没有 id；词表查询走 /manage
+    const hit = await bgApi(`/api/tags/manage?q=${encodeURIComponent(trimmed)}&size=50`, 'GET');
+    const list = (hit && hit.ok && hit.data && Array.isArray(hit.data.items)) ? hit.data.items : [];
+    const exact = list.find((t) => t.name === trimmed);
+    if (exact) return { id: exact.id, name: exact.name };
+    if (!window.confirm(`词库里还没有「${trimmed}」。\n标签已改为受控词表：先新建词条，再把它打上？`)) return null;
+    const created = await bgApi('/api/tags', 'POST', { name: trimmed });
+    if (created && created.ok && created.data && created.data.id) {
+      return { id: created.data.id, name: created.data.name || trimmed };
+    }
+    showToast('新建词条失败');
+    return null;
   }
 
   // 轻提示（静默直存用，不阻塞看片）
@@ -112,7 +135,19 @@
     e.preventDefault();
     const slotIndex = Number(e.key);
     const prefs = await getPrefs();
-    const tag = (prefs.quickTags && prefs.quickTags[slotIndex]) || '';
+    // v0.31：快捷位绑 tagId（受控）；兼容旧配置（存的是名字）→ 首次用到时解析并回写 tagId
+    let tagId = (prefs.quickTagIds && prefs.quickTagIds[slotIndex]) || null;
+    let tag = (prefs.quickTags && prefs.quickTags[slotIndex]) || '';
+    if (!tagId && tag) {
+      const picked = await resolveTagIdByName(tag);
+      if (picked) {
+        tagId = picked.id;
+        tag = picked.name;
+        await chrome.storage.sync.set({
+          videoTaggerPrefs: { ...prefs, quickTagIds: { ...(prefs.quickTagIds || {}), [slotIndex]: tagId } }
+        });
+      }
+    }
     const video = findVideo();
     if (!video) {
       showToast('当前页面没有找到视频');
@@ -125,7 +160,7 @@
       detailFrameDataUrl: frames ? frames.detail : null
     };
     if (!tag) {
-      showToast(`快捷标签位 ${slotIndex} 未配置，请到扩展设置页填写`);
+      showToast(`快捷标签位 ${slotIndex} 未配置（请到扩展设置页选词条）`);
       showOverlay(info);
       return;
     }
@@ -135,7 +170,7 @@
         type: 'api',
         method: 'POST',
         path: '/api/clips',
-        body: { ...info, tag, note: '', videoDuration: currentVideoDuration(), ogImage: currentOgImage(), coverDataUrl: info.frameDataUrl, detailCoverDataUrl: info.detailFrameDataUrl }
+        body: { ...info, tagIds: [tagId], note: '', videoDuration: currentVideoDuration(), ogImage: currentOgImage(), coverDataUrl: info.frameDataUrl, detailCoverDataUrl: info.detailFrameDataUrl }
       });
       if (resp && resp.ok && resp.data && resp.data.deduped) {
         showToast(`「${tag}」该片段刚已保存`);
@@ -508,13 +543,15 @@
       dupHint.appendChild(newBtn);
 
       addBtn.addEventListener('click', async () => {
-        const tag = tagInput.value.trim();
-        if (!tag) { tagInput.classList.add('error'); tagInput.focus(); return; }
+        const picked = await resolveTagIdByName(tagInput.value);
+        if (!picked) { tagInput.classList.add('error'); tagInput.focus(); return; }
+        // v0.31：后端 PUT 是**全量替换**（旧 `?appendTag=true` 已删）→ 自己把原有 tags 拼上
+        const tagIds = Array.from(new Set([...(c.tagIds || []), picked.id]));
         const resp = await chrome.runtime.sendMessage({
           type: 'api',
           method: 'PUT',
-          path: `/api/clips/${c.id}?appendTag=true`,
-          body: { title: c.title, url: c.url, timestampSec: c.timestampSec, endSec: c.endSec || null, tag, note: c.note || '' }
+          path: `/api/clips/${c.id}`,
+          body: { title: c.title, url: c.url, timestampSec: c.timestampSec, endSec: c.endSec || null, tagIds, note: c.note || '' }
         });
         if (resp && resp.ok) {
           toast.textContent = `已追加到「${c.tag}」`;
@@ -580,8 +617,9 @@
     }
 
     async function save() {
-      const tag = tagInput.value.trim();
-      if (!tag) {
+      // v0.31 受控词表：名字 → tagId（不存在则问“新建并打上”）
+      const picked = await resolveTagIdByName(tagInput.value);
+      if (!picked) {
         tagInput.classList.add('error');
         tagInput.focus();
         return;
@@ -615,7 +653,7 @@
         url: info.url,
         timestampSec: Number.isFinite(editedSec) ? editedSec : info.timestampSec,
         endSec: Number.isFinite(editedEndSec) ? editedEndSec : null,
-        tag,
+        tagIds: [picked.id],
         note: noteInput.value.trim(),
         videoDuration: currentVideoDuration(),
         ogImage: currentOgImage(),
@@ -775,11 +813,11 @@
     document.body.appendChild(el);
     const input = el.querySelector('#vt-we-input');
     const doSave = async () => {
-      const tag = input.value.trim();
-      if (!tag) { input.focus(); return; }
+      const picked = await resolveTagIdByName(input.value);
+      if (!picked) { input.focus(); return; }
       try {
-        await bgApi('/api/episodes/by-url/tags', 'POST', { url: location.href, tag });
-        showToast(`已给本集添加标签「${tag}」`);
+        await bgApi('/api/episodes/by-url/tags', 'POST', { url: location.href, tagIds: [picked.id] });
+        showToast(`已给本集添加标签「${picked.name}」`);
       } catch (e) {
         showToast('保存失败：后端未启动？');
       }

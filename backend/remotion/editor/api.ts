@@ -181,6 +181,9 @@ export interface ClipBrief {
   note?: string | null;
   timestampSec?: number | null;
   endSec?: number | null;
+  /** v0.31：片段标签（真源 `clip_tag`，后端派生回填）；旧草稿/老响应可能没有 */
+  tagNames?: string[] | null;
+  tagIds?: number[] | null;
   /** 片段封面（`/covers/clip/{id}.jpg`；`/api/clips/media/{id}` 返回完整 Clip，带回这个字段）。 */
   coverPath?: string | null;
 }

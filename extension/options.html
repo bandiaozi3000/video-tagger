@@ -90,7 +90,7 @@
       border-radius: 7px; padding: 3px 8px; margin-bottom: 8px;
       box-shadow: 0 2px 0 rgba(0, 0, 0, .3); letter-spacing: .3px;
     }
-    .slots input { font-size: 13px; padding: 8px 10px; border-radius: 9px; }
+    .slots input, .slots select { font-size: 13px; padding: 8px 10px; border-radius: 9px; width: 100%; box-sizing: border-box; }
 
     .checkbox {
       display: flex; align-items: center; gap: 9px;
@@ -134,7 +134,8 @@
 
     <section>
       <h3>快捷标签位</h3>
-      <p class="hint">在视频页按下对应组合键，直接弹出预填该标签的浮层，回车即存。</p>
+      <p class="hint">在视频页按下对应组合键，直接弹出预填该标签的浮层，回车即存。
+        <strong>只能选词库里已有的词条</strong>（v0.31 标签受控；要新词先去网站标签管理页新建）。</p>
       <div class="slots" id="slots"></div>
     </section>
 

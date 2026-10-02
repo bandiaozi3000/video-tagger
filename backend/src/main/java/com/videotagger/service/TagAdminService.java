@@ -55,6 +55,31 @@ public class TagAdminService {
         return tagMapper.ownTagsOfEpisode(episodeId);
     }
 
+    /** 使用位置行（供管理页点引用数展开；媒体/集/片段三组）。 */
+    public record UsageEntry(Long id, String title, Long parentId, Integer episodeNo) {
+    }
+
+    /** 使用位置（三组）+ 词条名；词条不存在 → 404。 */
+    public record TagUsageView(Long tagId, String name, int total, List<UsageEntry> media,
+                               List<UsageEntry> episodes, List<UsageEntry> clips) {
+    }
+
+    public TagUsageView usage(Long tagId) {
+        Tag tag = tagMapper.selectById(tagId);
+        if (tag == null) {
+            throw new NoSuchElementException("标签不存在: " + tagId);
+        }
+        List<UsageEntry> media = tagMapper.mediaRowsByTag(tagId).stream().map(TagAdminService::entry).toList();
+        List<UsageEntry> episodes = tagMapper.episodeRowsByTag(tagId).stream().map(TagAdminService::entry).toList();
+        List<UsageEntry> clips = tagMapper.clipRowsByTag(tagId).stream().map(TagAdminService::entry).toList();
+        return new TagUsageView(tagId, tag.getName(), media.size() + episodes.size() + clips.size(),
+                media, episodes, clips);
+    }
+
+    private static UsageEntry entry(TagMapper.UsageRow row) {
+        return new UsageEntry(row.id(), row.title(), row.parentId(), row.episodeNo());
+    }
+
     /** 改名：只改词表一行（`clip_tag` 等关联存的是 id，天然全链路生效 —— v0.31 起不再回写字符串列）。 */
     @Transactional
     public TagUsage rename(Long id, String newName) {

@@ -118,6 +118,27 @@ public interface TagMapper extends BaseMapper<Tag> {
     @Select("SELECT media_id FROM media_tag WHERE tag_id = #{tagId}")
     List<Long> mediaIdsByTag(@Param("tagId") long tagId);
 
+    /** 反查：挂了这个词的媒体（带标题，供标签管理页点开看“谁在用”）。 */
+    @Select("SELECT m.id AS id, m.title AS title, NULL AS parentId, NULL AS episodeNo "
+            + "FROM media m JOIN media_tag mt ON mt.media_id = m.id "
+            + "WHERE mt.tag_id = #{tagId} AND m.deleted_at IS NULL ORDER BY m.id")
+    List<UsageRow> mediaRowsByTag(@Param("tagId") long tagId);
+
+    /** 反查：挂了这个词的集（带所属媒体，供跳转）。 */
+    @Select("SELECT e.id AS id, e.title AS title, e.media_id AS parentId, e.episode_no AS episodeNo "
+            + "FROM episode e JOIN episode_tag et ON et.episode_id = e.id "
+            + "WHERE et.tag_id = #{tagId} ORDER BY e.media_id, e.episode_no")
+    List<UsageRow> episodeRowsByTag(@Param("tagId") long tagId);
+
+    /** 反查：挂了这个词的片段。 */
+    @Select("SELECT c.id AS id, c.title AS title, c.episode_id AS parentId, NULL AS episodeNo FROM clips c "
+            + "JOIN clip_tag ct ON ct.clip_id = c.id WHERE ct.tag_id = #{tagId} ORDER BY c.episode_id, c.timestamp_sec")
+    List<UsageRow> clipRowsByTag(@Param("tagId") long tagId);
+
+    /** 使用位置行（id + 标题 + 所属 id/episode_no，按层级不同部分字段为空）。 */
+    record UsageRow(Long id, String title, Long parentId, Integer episodeNo) {
+    }
+
     @Select("SELECT episode_id FROM episode_tag WHERE tag_id = #{tagId}")
     List<Long> episodeIdsByTag(@Param("tagId") long tagId);
 

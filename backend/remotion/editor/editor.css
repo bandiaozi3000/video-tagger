@@ -1269,3 +1269,9 @@ textarea.vt-cover-input { resize: vertical; line-height: 1.45; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 素材列表容器（上面那条 media-title/clips 规则替换时误删过，补回来） */
 .vt-cover-clip-list { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+/* 片段选择器：标签 chip 与标签筛选行（v0.31） */
+.vt-clip-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, .06); }
+.vt-clip-tag { padding: 1px 6px; border-radius: 999px; font-size: 10px; line-height: 16px;
+  background: rgba(94, 234, 212, .12); color: var(--accent); border: 1px solid rgba(94, 234, 212, .25); }

@@ -1110,6 +1110,17 @@
 </div>
 
 <!-- 标签合并（高然 → 高燃） -->
+<!-- 标签使用位置反查（v0.31）：点管理页的「使用位置」打开 -->
+<div id="tag-usage-modal" class="modal-overlay" hidden>
+    <div class="modal">
+        <h2 id="tag-usage-title">用在哪儿</h2>
+        <div id="tag-usage-body" class="tag-usage-body"></div>
+        <div class="modal-actions">
+            <button type="button" id="tag-usage-close">关闭</button>
+        </div>
+    </div>
+</div>
+
 <div id="tag-merge-modal" class="modal-overlay" hidden>
     <div class="modal">
         <h2>合并标签</h2>
@@ -1117,6 +1128,7 @@
         <label>合并到
             <select id="tag-merge-into"><option value="">— 选择目标标签 —</option></select>
         </label>
+        <div id="tag-merge-impact" class="tag-merge-impact" hidden></div>
         <div id="tag-merge-status" class="status"></div>
         <div class="modal-actions">
             <button id="tag-merge-cancel" type="button">取消</button>

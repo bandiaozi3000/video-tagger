@@ -60,6 +60,18 @@ public class TagController {
         return tagAdminService.add(body.get("name"));
     }
 
+    /** 反查：这个词被哪些媒体 / 集 / 片段在用（管理页点引用数展开）。 */
+    @GetMapping("/usage")
+    public TagAdminService.TagUsageView usage(@RequestParam("tagId") Long tagId) {
+        return tagAdminService.usage(tagId);
+    }
+
+    /** 合并影响面预览：源 / 目标各自的使用位置（合并不可撤销，先把影响面给人看明白）。 */
+    @GetMapping("/impact")
+    public Map<String, Object> impact(@RequestParam("fromId") Long fromId, @RequestParam("toId") Long toId) {
+        return Map.of("from", tagAdminService.usage(fromId), "to", tagAdminService.usage(toId));
+    }
+
     /** 批量删孤儿：ids 含被引用词条整体拒绝 400。 */
     @DeleteMapping
     public ResponseEntity<Void> deleteBatch(@RequestParam("ids") List<Long> ids) {

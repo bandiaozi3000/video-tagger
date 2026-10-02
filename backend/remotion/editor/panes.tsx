@@ -417,6 +417,8 @@ export function ClipPicker({ mediaId, title, config, onClips }: {
   /** 来源页签：本部 / 同系列（跨媒体借片段，设计规格 §7）。 */
   const [sourceTab, setSourceTab] = React.useState<number | 'own'>('own');
   const [related, setRelated] = React.useState<import('./api').RelatedMedia[] | null>(null);
+  /** 标签筛选（多选，全部命中；v0.31） */
+  const [tagPick, setTagPick] = React.useState<string[]>([]);
   React.useEffect(() => {
     let cancelled = false;
     api.clips(mediaId).then((list) => !cancelled && setClips(list)).catch(() => !cancelled && setClips([]));
@@ -483,7 +485,13 @@ export function ClipPicker({ mediaId, title, config, onClips }: {
   if (clips === null) return <p className="vt-hint">读取片段…</p>;
 
   /** 当前页签要列的片段。 */
-  const listed = sourceTab === 'own' ? clips : relatedClips[sourceTab];
+  const allListed = sourceTab === 'own' ? clips : relatedClips[sourceTab];
+  /** v0.31：片段标签筛选（客户端）—— 候选就是当前页签里真出现过的标签 */
+  const tagPool = Array.from(new Set((allListed ?? []).flatMap((c) => c.tagNames ?? []))).sort();
+  const listed = (allListed ?? []).filter((c) => tagPick.length === 0
+      || tagPick.every((name) => (c.tagNames ?? []).includes(name)));
+  const toggleTag = (name: string) =>
+      setTagPick((cur) => (cur.includes(name) ? cur.filter((n) => n !== name) : [...cur, name]));
 
   return (
     <div className="vt-clip-picker">
@@ -509,23 +517,42 @@ export function ClipPicker({ mediaId, title, config, onClips }: {
       ) : null}
       {listed === null || listed === undefined ? (
         <p className="vt-hint">读取片段…</p>
-      ) : listed.length === 0 ? (
+      ) : allListed !== undefined && allListed.length === 0 ? (
         <p className="vt-hint">{sourceTab === 'own' ? `「${title}」没有片段` : '这个条目没有片段'}</p>
       ) : (
-        <div className="vt-clip-candidates">
-          {listed.map((clip) => {
-            const picked = current.order.includes(clip.id);
-            return (
-              <label key={clip.id} className="vt-clip-item">
-                <input type="checkbox" checked={picked}
-                       onChange={() => toggleClip(clip.id, sourceTab === 'own' ? null : sourceTab)} />
-                <span>{clip.title || `片段 #${clip.id}`}</span>
-                {sourceTab === 'own' ? null : <span className="vt-clip-from">来源</span>}
-                <span className="vt-hint">{clip.timestampSec ?? '?'}s</span>
-              </label>
-            );
-          })}
-        </div>
+        <>
+          {tagPool.length > 0 ? (
+            <div className="vt-clip-tags">
+              <span className="vt-hint">标签</span>
+              {tagPool.map((name) => (
+                <button key={name} type="button" className={cls('btn-mini', tagPick.includes(name) && 'on')}
+                        title={`只看带「${name}」的片段`}
+                        onClick={() => toggleTag(name)}>{name}</button>
+              ))}
+              {tagPick.length > 0 ? (
+                <button type="button" className="btn-mini" onClick={() => setTagPick([])}>清空</button>
+              ) : null}
+            </div>
+          ) : null}
+          {listed.length === 0 ? <p className="vt-hint">没有命中这些标签的片段</p> : null}
+          <div className="vt-clip-candidates">
+            {listed.map((clip) => {
+              const picked = current.order.includes(clip.id);
+              return (
+                <label key={clip.id} className="vt-clip-item">
+                  <input type="checkbox" checked={picked}
+                         onChange={() => toggleClip(clip.id, sourceTab === 'own' ? null : sourceTab)} />
+                  <span>{clip.title || `片段 #${clip.id}`}</span>
+                  {(clip.tagNames ?? []).map((name) => (
+                    <span key={name} className="vt-clip-tag">{name}</span>
+                  ))}
+                  {sourceTab === 'own' ? null : <span className="vt-clip-from">来源</span>}
+                  <span className="vt-hint">{clip.timestampSec ?? '?'}s</span>
+                </label>
+              );
+            })}
+          </div>
+        </>
       )}
       {current.order.length > 0 ? (
         <div className="vt-clip-order">
