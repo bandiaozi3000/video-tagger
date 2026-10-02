@@ -2161,9 +2161,20 @@ function hl(text, q) {
 
 /** 媒体列表当前页 + 总数（分页版）：筛选/页大小/翻页/tab 切换共用。
  *  resetPage=true 回到第 1 页（筛选/切换/初始加载），false 保持当前页（翻页/越界回退）。 */
+/**
+ * 媒体列表请求序号：**后发的请求赢**。
+ *
+ * 为什么需要（2026-10-02 用户报「从标签点媒体跳转失败」）：跳转 = `showView('media')`（先发一笔**未筛选**请求）
+ * + 紧接着 `loadMedia()`（再发一笔筛选后请求）。两笔并发且**没有序号保护** → 谁后返回谁写网格。
+ * 实测：未筛选那笔 344ms、筛选后那笔 40ms → 轻的先画 19 张，重的后到直接盖成未筛24 张，
+ * 于是 chip 写着「标签 性转」、网格却是全库。同一道理也修掉「连点几个筛选条件」的乱序覆盖。
+ */
+let mediaLoadSeq = 0;
+
 async function loadMedia(resetPage = true) {
     if (resetPage) mediaPage = 1;
     mediaStatusEl.textContent = '加载中…';
+    const seq = ++mediaLoadSeq;
     let url = '';
     let countUrl = '';
     try {
@@ -2171,6 +2182,8 @@ async function loadMedia(resetPage = true) {
         url = built.url;
         countUrl = built.countUrl;
         const [listResp, countResp] = await Promise.all([fetch(url), fetch(countUrl)]);
+        // 已被更新的请求取代 → 整笔丢弃（包括后面的 mediaPage / DOM / 状态文案，一个字也不许写）
+        if (seq !== mediaLoadSeq) return;
         if (!listResp.ok) throw new Error(`HTTP ${listResp.status}`);
         let list = await listResp.json();
         mediaTotal = countResp.ok ? Number(await countResp.json()) : list.length;
@@ -2194,6 +2207,8 @@ async function loadMedia(resetPage = true) {
             mediaStatusEl.textContent = '';
         }
     } catch (err) {
+        // 已被取代的旧请求报错也一律丢掉：否则旧请求的失败会盖掉新请求已经画好的结果
+        if (seq !== mediaLoadSeq) return;
         // 以前这里一律写「后端未响应」→ 客户端的 JS 异常也被说成后端没响应，误导排查（2026-10-02 用户报筛选失败，查了两轮才发现这句话在撝）。
         // 现在：只有真的是 fetch 网络失败才说"后端未响应"，其余把**原始报错**写出来。
         const msg = String((err && err.message) || err || '未知错误');
@@ -6190,13 +6205,24 @@ function toggleTagUsage(t) {
 
 /** 跳媒体页并按该标签筛选（媒体视角：三级任一层命中即算） */
 function jumpToMediaTagFilter(t) {
-    showView('media');
+    /*
+     * 先设状态再切视图：`showView('media')` 自己会 loadMedia，这样那一笔就带着新筛选。
+     *
+     * ⚠️ 必须把媒体页的 tab 切回「全部媒体」（2026-10-02 用户报「从标签点媒体跳转失败」）：
+     * 默认 tab 是「最近观看」→ `mediaMode='recent'` → 走 `/api/media/recent?latest=true`，
+     * 会把这个标签的媒体**再交一次**「看过/打过标记」——实测性转 19 部只剩 **1 部**，
+     * 看着就像没跳成功。跳转语义是「看**所有**用这个词的媒体」（标签页上写的也是 19）。
+     */
+    mediaMode = 'all';
+    document.querySelectorAll('.media-tabs .atab').forEach(b => b.classList.toggle('active', b.dataset.mediaTab === 'all'));
     mediaFilter.tagIds = [String(t.id)];
     mediaFilter.mode.tagIds = 'AND';
     mediaFilter.collectionId = [];
     renderFilterChips();
-    loadMedia();
-    showToast(`已按标签「${t.name}」筛选媒体`);
+    showView('media');
+    // 之前可能停在回收站 → 恢复主区（内部那次 loadMedia 也带着已设好的筛选；序号保护保证结果正确）
+    backToMedia();
+    showToast(`已按标签「${t.name}」筛选媒体（全部媒体）`);
 }
 
 /** 双击名称就地改名（Enter 保存 / Esc 取消；撞名引导去合并） */
