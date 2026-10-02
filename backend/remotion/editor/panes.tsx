@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { api, type CandidateFilter, type ClipBrief, type EditorConfig, type MediaBrief, type MediaClips, type MediaExportRow, type MediaFormatBrief, type MediaMark } from './api';
+import { api, type CandidateFilter, type ClipBrief, type EditorConfig, type MediaBrief, type MediaClips, type MediaExportRow, type MediaMark } from './api';
 import { confirmDialog } from './confirm';
 import { CoverTab } from './cover/CoverTab';
 import { buildListText, DEFAULT_TOGGLES, prepareRows, type ExportToggles } from './export-list';
@@ -791,8 +791,12 @@ export function TemplatePanel({ onClose, notify, payload, onApply }: {
 }
 
 /** 候选库筛选的维度定义（数组序 = chips 行与面板列表的固定序）。 */
-type FilterDim = 'genres' | 'season' | 'collectionIds' | 'years' | 'format' | 'subcategoryId' | 'tagIds' | 'statuses' | 'confirmed';
+type FilterDim = 'genres' | 'season' | 'collectionIds' | 'years' | 'tagIds' | 'statuses';
 
+/**
+ * 维度表：**与媒体页逐字同序、同集合**（用户 2026-10-02「推荐侧和媒体保持一致」→「不留」）。
+ * 推荐侧原有的格式/子分类/档案三个维度**已删**，不再作为筛选项。
+ */
 const FILTER_DIMS: { key: FilterDim; label: string }[] = [
   { key: 'genres', label: '题材' },
   { key: 'years', label: '年份' },
@@ -800,10 +804,6 @@ const FILTER_DIMS: { key: FilterDim; label: string }[] = [
   { key: 'statuses', label: '状态' },
   { key: 'collectionIds', label: '收藏夹' },
   { key: 'tagIds', label: '标签' },
-  // ↑ 这六个与媒体页**逐字同序**；下面三个是推荐侧特有的（媒体页没这三项）
-  { key: 'format', label: '格式' },
-  { key: 'subcategoryId', label: '子分类' },
-  { key: 'confirmed', label: '档案' },
 ];
 
 /** 季度字典：与媒体页 `SEASON_OPTIONS` 同口径（唯一真值 = `external_work.season`，冬=1–3 月）。 */
@@ -863,15 +863,9 @@ interface FilterDict {
   years: number[];
   /** 题材（与媒体页同一份字典：白名单 ∩ 实际 + 计数） */
   genres: { genre: string; count: number }[];
-  formats: MediaFormatBrief[];
-  /** 展平后的子分类（`格式 › 子分类` 路径，parentId 消歧） */
-  subOptions: { id: number; label: string }[];
 }
 
 function isDimActive(filter: CandidateFilter, key: FilterDim): boolean {
-  if (key === 'confirmed') return filter.confirmed != null;
-  if (key === 'format') return filter.format !== '';
-  if (key === 'subcategoryId') return filter.subcategoryId != null;
   if (key === 'collectionIds') return filter.collectionIds.length > 0;
   if (key === 'years') return filter.years.length > 0;
   if (key === 'genres') return filter.genres.length > 0;
@@ -893,32 +887,10 @@ function dimLabel(filter: CandidateFilter, key: FilterDim, dict: FilterDict): st
       return filter.season.map((s) => SEASON_OPTIONS.find((o) => o.value === s)?.label ?? s).join(' 或 ');
     case 'statuses':
       return filter.statuses.map((s) => STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s).join(' 或 ');
-    case 'format': return dict.formats.find((f) => f.code === filter.format)?.name ?? filter.format;
-    case 'subcategoryId': return dict.subOptions.find((s) => s.id === filter.subcategoryId)?.label ?? `子分类 #${filter.subcategoryId}`;
     case 'tagIds': return filter.tagNames.length
         ? filter.tagNames.join(modeOf(filter, 'tagIds') === 'OR' ? ' 或 ' : ' 且 ')
         : `标签 #${filter.tagIds.join('/')}`;
-    case 'confirmed': return filter.confirmed === 1 ? '已确认' : '待确认';
   }
-}
-
-/** 子分类展平：`格式名 › 子分类路径`（parentId 可能是子分类，故向上拼路径）。 */
-function flattenSubcategories(formats: MediaFormatBrief[]): { id: number; label: string }[] {
-  const out: { id: number; label: string }[] = [];
-  for (const format of formats) {
-    const list = format.subcategories ?? [];
-    const byId = new Map(list.map((item) => [item.id, item]));
-    for (const item of list) {
-      const path = [item.name];
-      let parent = item.parentId != null ? byId.get(item.parentId) : undefined;
-      for (let depth = 0; parent && depth < 5; depth += 1) {
-        path.unshift(parent.name);
-        parent = parent.parentId != null ? byId.get(parent.parentId) : undefined;
-      }
-      out.push({ id: item.id, label: `${format.name} › ${path.join(' › ')}` });
-    }
-  }
-  return out;
 }
 
 /**
@@ -975,8 +947,6 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
         next.season = toggleIn(next.season, s, !next.season.includes(s));
         break;
       }
-      case 'format': next.format = value == null ? '' : String(value); break;
-      case 'subcategoryId': next.subcategoryId = value as number | null; break;
       case 'tagIds': {
         const id = value as number;
         const idx = next.tagIds.indexOf(id);
@@ -995,14 +965,10 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
         next.statuses = toggleIn(next.statuses, s, !next.statuses.includes(s));
         break;
       }
-      case 'confirmed': next.confirmed = value as number | null; break;
-      }
-    // 单值维度：传 null 表示清空；多选维度已经把值 toggle 过了
+    }
+    // 传 null = 该维度改回「不限」（只有多选维度会走这里；单选维度已全部删除）
     if (value == null) {
-      if (key === 'format') next.format = '';
-      else if (key === 'subcategoryId') next.subcategoryId = null;
-      else if (key === 'confirmed') next.confirmed = null;
-      else if (key === 'collectionIds') next.collectionIds = [];
+      if (key === 'collectionIds') next.collectionIds = [];
       else if (key === 'years') next.years = [];
       else if (key === 'genres') next.genres = [];
       else if (key === 'season') next.season = [];
@@ -1043,18 +1009,6 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
       </div>
     );
   };
-
-  const optionList = (items: { value: string | number | null; label: string }[], current: string | number | null) => (
-    <div className="vt-pop-body">
-      {items.map((item, index) => (
-        <button key={`${String(item.value)}-${index}`} type="button"
-                className={cls('vt-pop-item', item.value === current && 'on')}
-                onClick={() => dim && pick(dim, item.value)}>
-          <span>{item.label}</span>
-        </button>
-      ))}
-    </div>
-  );
 
   const activeKeys = FILTER_DIMS.map((d) => d.key).filter((key) => isDimActive(filter, key));
   // 已设置的维度排最前（其余保持固定序），方便马上改值
@@ -1104,21 +1058,15 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
                 {tagText.trim() && tagHits.length === 0 ? <p className="vt-pop-note">没有这个标签（不会新建标签）</p> : null}
               </div>
             </>
-          ) : dim === 'confirmed'
-            ? optionList([{ value: null, label: '全部' }, { value: 1, label: '已确认' }, { value: 0, label: '待确认' }], filter.confirmed)
-            : dim === 'statuses'
-              ? <>{modeSwitch('statuses')}{multiList(STATUS_OPTIONS.map((s) => ({ value: s.value, label: s.label })), filter.statuses)}</>
-              : dim === 'genres'
-                ? <>{modeSwitch('genres')}{multiList(dict.genres.map((g) => ({ value: g.genre, label: g.genre })), filter.genres)}</>
-                : dim === 'season'
-                  ? multiList(SEASON_OPTIONS.map((s) => ({ value: s.value, label: s.label })), filter.season)
+          ) : dim === 'genres'
+            ? <>{modeSwitch('genres')}{multiList(dict.genres.map((g) => ({ value: g.genre, label: g.genre })), filter.genres)}</>
+            : dim === 'season'
+              ? multiList(SEASON_OPTIONS.map((s) => ({ value: s.value, label: s.label })), filter.season)
               : dim === 'collectionIds'
                 ? <>{modeSwitch('collectionIds')}{multiList(dict.collections.map((c) => ({ value: c.id, label: c.name })), filter.collectionIds)}</>
                 : dim === 'years'
                   ? multiList(dict.years.map((y) => ({ value: String(y), label: `${y} 年` })), filter.years)
-                  : dim === 'format'
-                    ? optionList([{ value: null, label: '不限' }, ...dict.formats.map((f) => ({ value: f.code, label: f.name }))], filter.format || null)
-                    : optionList([{ value: null, label: '不限' }, ...dict.subOptions.map((s) => ({ value: s.id, label: s.label }))], filter.subcategoryId)}
+                  : multiList(STATUS_OPTIONS.map((s) => ({ value: s.value, label: s.label })), filter.statuses)}
         </>
       )}
       <div className="vt-pop-foot">
@@ -1350,7 +1298,7 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   const [years, setYears] = React.useState<number[]>([]);
   /** 题材字典（与媒体页同一接口：白名单 ∩ 实际 + 计数） */
   const [genres, setGenres] = React.useState<{ genre: string; count: number }[]>([]);
-  const [formats, setFormats] = React.useState<MediaFormatBrief[]>([]);
+
   const [qText, setQText] = React.useState(filter.q);
   const [popOpen, setPopOpen] = React.useState(false);
   const [popDim, setPopDim] = React.useState<FilterDim | null>(null);
@@ -1387,7 +1335,7 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   });
   const idsKey = config.ids.join(',');
   const activeKeys = FILTER_DIMS.map((d) => d.key).filter((key) => isDimActive(filter, key));
-  const subOptions = React.useMemo(() => flattenSubcategories(formats), [formats]);
+
 
   /**
    * 无限滚动：页码与筛选签名**绑成一个原子状态**。
@@ -1414,11 +1362,8 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
       case 'years': next.years = []; break;
       case 'genres': next.genres = []; break;
       case 'season': next.season = []; break;
-      case 'format': next.format = ''; break;
-      case 'subcategoryId': next.subcategoryId = null; break;
       case 'tagIds': next.tagIds = []; next.tagNames = []; break;
       case 'statuses': next.statuses = []; break;
-      case 'confirmed': next.confirmed = null; break;
     }
     applyFilter(next);
   };
@@ -1427,7 +1372,7 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
     api.collections().then(setCollections).catch(() => undefined);
     api.years().then(setYears).catch(() => undefined);
     api.genres().then(setGenres).catch(() => undefined);
-    api.formats().then(setFormats).catch(() => undefined);
+
   }, []);
 
   React.useEffect(() => {
@@ -1665,7 +1610,7 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
 
   const openClips = (media: MediaBrief) => setClipMedia(media);
 
-  const dict: FilterDict = { collections, years, genres, formats, subOptions };
+  const dict: FilterDict = { collections, years, genres };
   const chipKeys = expandChips ? activeKeys : activeKeys.slice(0, 4);
   const loadedIds = list.map((item) => item.id);
   /** 右栏正在看的媒体（高亮它那张卡，两栏同步） */

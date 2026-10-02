@@ -204,17 +204,12 @@ export interface CandidateFilter {
   genres: string[];
   /** 季度（**多选**；WINTER/SPRING/SUMMER/FALL，仅列匹配，与媒体页同口径） */
   season: string[];
-  /** 格式 code（`''` = 不筛） */
-  format: string;
-  subcategoryId: number | null;
   /** 标签（**多选**；v0.31 受控词表：只存已存在词条的 id）。空数组 = 不筛。 */
   tagIds: number[];
   /** 与 tagIds 一一对应的名字（仅用于 chip 展示） */
   tagNames: string[];
   /** 状态（**多选**；单值列，只「任一匹配」） */
   statuses: string[];
-  /** `null` = 全部 / `1` = 已确认 / `0` = 待确认 —— 0 必须照发，不能用真值判断 */
-  confirmed: number | null;
   /**
    * 维度内语义（**与媒体页完全对齐**）：
    * - 可切「且 / 或」的维度：`tagIds`（默认 AND）、`collectionIds`（默认 OR）；
@@ -239,14 +234,11 @@ export function filterParams(filter: CandidateFilter): URLSearchParams {
     params.set('genres', filter.genres.join(','));
     params.set('genreMode', filter.mode.genres);
   }
-  if (filter.format) params.set('format', filter.format);
-  if (filter.subcategoryId != null) params.set('subcategoryId', String(filter.subcategoryId));
   if (filter.tagIds.length > 0) {
     params.set('tagIds', filter.tagIds.join(','));
     params.set('tagMode', filter.mode.tagIds);
   }
   if (filter.statuses.length > 0) params.set('status', filter.statuses.join(','));
-  if (filter.confirmed != null) params.set('confirmed', String(filter.confirmed));
   return params;
 }
 

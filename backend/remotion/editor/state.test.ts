@@ -93,9 +93,9 @@ describe('筛选契约：与媒体页同源（2026-10-02 对齐后钉住）', ()
       season: ['SPRING', 'FALL'],
       genres: ['奇幻', '恋爱'],
       tagIds: [407, 408],
-      format: 'TV',
-      subcategoryId: 12,
-      confirmed: 0,
+
+
+
     });
     expect(params.get('q')).toBe('魔女');
     expect(params.get('collectionId')).toBe('3,9');
@@ -107,9 +107,9 @@ describe('筛选契约：与媒体页同源（2026-10-02 对齐后钉住）', ()
     expect(params.get('season')).toBe('SPRING,FALL');
     expect(params.get('genres')).toBe('奇幻,恋爱');
     expect(params.get('genreMode')).toBe('AND');
-    expect(params.get('format')).toBe('TV');
-    expect(params.get('subcategoryId')).toBe('12');
-    expect(params.get('confirmed')).toBe('0'); // 0 必须照发（不能用真值判断）
+
+
+
   });
 
   it('未设条件时不发任何参数（空数组 / 空串都不应该出现在 query 里）', () => {
@@ -121,7 +121,7 @@ describe('筛选契约：与媒体页同源（2026-10-02 对齐后钉住）', ()
       version: 2,
       variants: [],
       config: { ...defaultConfig(), ids: [7] },
-      filter: { q: '', collectionId: 5, year: '2019', status: 'DONE', tagId: 42, tagName: '名场面', tagMode: 'OR', format: '', subcategoryId: null, confirmed: null },
+      filter: { q: '', collectionId: 5, year: '2019', status: 'DONE', tagId: 42, tagName: '名场面', tagMode: 'OR' },
     };
     const parsed = parsePayload(JSON.stringify(legacy));
     const f = parsed?.filter;

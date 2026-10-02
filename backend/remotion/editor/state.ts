@@ -193,8 +193,8 @@ export function applyLocalParams(input: MultiMediaPocInput, config: EditorConfig
 
 export function defaultFilter(): CandidateFilter {
   return {
-    q: '', collectionIds: [], years: [], genres: [], season: [], format: '', subcategoryId: null,
-    tagIds: [], tagNames: [], statuses: [], confirmed: null,
+    q: '', collectionIds: [], years: [], genres: [], season: [],
+    tagIds: [], tagNames: [], statuses: [],
     // 默认模式与媒体页**逐字一致**（题材 OR / 标签 AND / 收藏夹 OR）
     mode: { tagIds: 'AND', collectionIds: 'OR', genres: 'OR' },
   };
@@ -215,6 +215,8 @@ function normalizeFilter(raw: unknown): CandidateFilter {
   type Legacy = Partial<CandidateFilter> & {
     tagId?: number | null; tagName?: string;
     collectionId?: number | null; year?: string; status?: string; tagMode?: 'AND' | 'OR';
+    /** 已删掉的筛选维度（格式/子分类/档案）——旧载荷里可能有，**直接丢弃** */
+    format?: string; subcategoryId?: number | null; confirmed?: number | null;
   };
   const legacy = (raw ?? {}) as Legacy;
   const merged = { ...defaultFilter(), ...legacy } as CandidateFilter & Legacy;
@@ -248,6 +250,10 @@ function normalizeFilter(raw: unknown): CandidateFilter {
   delete merged.year;
   delete merged.status;
   delete merged.tagMode;
+  // 已删维度：旧载荷里带着也丢掉，不让它跟着草稿一直存下去
+  delete (merged as Legacy).format;
+  delete (merged as Legacy).subcategoryId;
+  delete (merged as Legacy).confirmed;
   return merged;
 }
 
