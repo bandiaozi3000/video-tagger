@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultConfig, defaultFilter, formatElapsed, parsePayload, sessionSignature, taskProgressLabel } from './state';
+import { filterParams } from './api';
 import type { EditorConfig } from './api';
 
 /** 造一个最小可用的配置（只填签名关心的字段）。 */
@@ -77,5 +78,55 @@ describe('parsePayload：老草稿迁移（★ 重点 → 第 1 档）', () => {
     const parsed = parsePayload(JSON.stringify(both));
     expect(parsed?.config.mediaMarks['7']).toBeUndefined();
     expect(parsed?.config.mediaMarks['8']).toEqual({ tier: 2 });
+  });
+});
+
+describe('筛选契约：与媒体页同源（2026-10-02 对齐后钉住）', () => {
+  it('filterParams：多选维度发逗号串 + 模式参数，参数名与媒体页完全一致', () => {
+    const params = filterParams({
+      ...defaultFilter(),
+      q: ' 魔女 ',
+      collectionIds: [3, 9],
+      mode: { tagIds: 'OR', collectionIds: 'AND' },
+      years: ['2018', '2024'],
+      statuses: ['WANT', 'DONE'],
+      tagIds: [407, 408],
+      format: 'TV',
+      subcategoryId: 12,
+      confirmed: 0,
+    });
+    expect(params.get('q')).toBe('魔女');
+    expect(params.get('collectionId')).toBe('3,9');
+    expect(params.get('collectionMode')).toBe('AND');
+    expect(params.get('year')).toBe('2018,2024');
+    expect(params.get('status')).toBe('WANT,DONE');
+    expect(params.get('tagIds')).toBe('407,408');
+    expect(params.get('tagMode')).toBe('OR');
+    expect(params.get('format')).toBe('TV');
+    expect(params.get('subcategoryId')).toBe('12');
+    expect(params.get('confirmed')).toBe('0'); // 0 必须照发（不能用真值判断）
+  });
+
+  it('未设条件时不发任何参数（空数组 / 空串都不应该出现在 query 里）', () => {
+    expect(filterParams(defaultFilter()).toString()).toBe('');
+  });
+
+  it('老草稿迁移：单值 collectionId/year/status 与 tagMode 都能搬进新形状', () => {
+    const legacy = {
+      version: 2,
+      variants: [],
+      config: { ...defaultConfig(), ids: [7] },
+      filter: { q: '', collectionId: 5, year: '2019', status: 'DONE', tagId: 42, tagName: '名场面', tagMode: 'OR', format: '', subcategoryId: null, confirmed: null },
+    };
+    const parsed = parsePayload(JSON.stringify(legacy));
+    const f = parsed?.filter;
+    expect(f?.collectionIds).toEqual([5]);
+    expect(f?.years).toEqual(['2019']);
+    expect(f?.statuses).toEqual(['DONE']);
+    expect(f?.tagIds).toEqual([42]);
+    expect(f?.mode).toEqual({ tagIds: 'OR', collectionIds: 'OR' });
+    // 旧字段不该留在新对象上（否则会跟着草稿一直存下去）
+    expect((f as unknown as { collectionId?: unknown })?.collectionId).toBeUndefined();
+    expect((f as unknown as { tagMode?: unknown })?.tagMode).toBeUndefined();
   });
 });

@@ -192,7 +192,11 @@ export function applyLocalParams(input: MultiMediaPocInput, config: EditorConfig
 }
 
 export function defaultFilter(): CandidateFilter {
-  return { q: '', collectionId: null, year: '', format: '', subcategoryId: null, tagIds: [], tagNames: [], tagMode: 'AND', status: '', confirmed: null };
+  return {
+    q: '', collectionIds: [], years: [], format: '', subcategoryId: null,
+    tagIds: [], tagNames: [], statuses: [], confirmed: null,
+    mode: { tagIds: 'AND', collectionIds: 'OR' },
+  };
 }
 
 /** 默认变体：短版 + 完整版（用户拍板的「同配置多版本」最小形态）。 */
@@ -201,20 +205,45 @@ export function defaultVariants(): Variant[] {
 }
 
 /**
- * 旧载荷（v0.31 之前）里的标签是单值 `tagId/tagName`，现已改多选 `tagIds/tagNames/tagMode`。
- * 能就地迁移的迁移，缺的用默认值补全 —— 不让老草稿/模板的标签条件静默丢失。
+ * 旧载荷迁移（能就地搬的就搬，缺的用默认值补全 —— 不让老草稿/模板的筛选条件静默丢失）：
+ * - v0.31 之前：标签是单值 `tagId/tagName` → 搬成 `tagIds/tagNames`；
+ * - 与媒体页对齐（2026-10-02）：`collectionId` / `year` / `status` 单值 → 搬成多选数组，
+ *   `tagMode` → `mode.tagIds`（`mode` 其余键缺省补全）。
  */
 function normalizeFilter(raw: unknown): CandidateFilter {
-  const merged = { ...defaultFilter(), ...((raw ?? {}) as Partial<CandidateFilter> & { tagId?: number | null; tagName?: string }) };
+  type Legacy = Partial<CandidateFilter> & {
+    tagId?: number | null; tagName?: string;
+    collectionId?: number | null; year?: string; status?: string; tagMode?: 'AND' | 'OR';
+  };
+  const legacy = (raw ?? {}) as Legacy;
+  const merged = { ...defaultFilter(), ...legacy } as CandidateFilter & Legacy;
+  if (!Array.isArray(merged.collectionIds)) merged.collectionIds = [];
+  if (!Array.isArray(merged.years)) merged.years = [];
+  if (!Array.isArray(merged.statuses)) merged.statuses = [];
   if (!Array.isArray(merged.tagIds)) merged.tagIds = [];
   if (!Array.isArray(merged.tagNames)) merged.tagNames = [];
-  if (merged.tagIds.length === 0 && merged.tagId != null) {
-    merged.tagIds = [merged.tagId];
-    merged.tagNames = [merged.tagName || `标签 #${merged.tagId}`];
+  if (merged.tagIds.length === 0 && legacy.tagId != null) {
+    merged.tagIds = [legacy.tagId];
+    merged.tagNames = [legacy.tagName || `标签 #${legacy.tagId}`];
   }
-  if (merged.tagMode !== 'OR') merged.tagMode = 'AND';
+  if (merged.collectionIds.length === 0 && legacy.collectionId != null) {
+    merged.collectionIds = [legacy.collectionId];
+  }
+  if (merged.years.length === 0 && legacy.year) merged.years = [legacy.year];
+  if (merged.statuses.length === 0 && legacy.status) merged.statuses = [legacy.status];
+  const mode = { ...defaultFilter().mode, ...(merged.mode ?? {}) };
+  if (legacy.tagMode === 'AND' || legacy.tagMode === 'OR') mode.tagIds = legacy.tagMode;
+  if (mode.tagIds !== 'OR') mode.tagIds = 'AND';
+  if (mode.collectionIds !== 'AND') mode.collectionIds = 'OR';
+  merged.mode = mode;
+  // ⚠️ 删的是 **merged** 上的旧键（不是 legacy）—— 展开后 merged 已经自带一份拷贝，
+  // 删 legacy 等于没删，旧字段会一直跟着草稿/模板存下去（2026-10-02 测试拓出来的真 bug）。
   delete merged.tagId;
   delete merged.tagName;
+  delete merged.collectionId;
+  delete merged.year;
+  delete merged.status;
+  delete merged.tagMode;
   return merged;
 }
 

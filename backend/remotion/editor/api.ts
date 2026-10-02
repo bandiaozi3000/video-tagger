@@ -196,22 +196,27 @@ export interface ClipBrief {
 export interface CandidateFilter {
   /** 标题关键词（空白串 = 不筛） */
   q: string;
-  collectionId: number | null;
-  /** 首播年（精确；`''` = 不筛） */
-  year: string;
+  /** 收藏夹（**多选**，与媒体页同语义；空数组 = 不筛） */
+  collectionIds: number[];
+  /** 首播年（**多选**；单值列，只「任一匹配」） */
+  years: string[];
   /** 格式 code（`''` = 不筛） */
   format: string;
   subcategoryId: number | null;
-  /** 标签（多选；v0.31 受控词表：只存已存在词条的 id）。空数组 = 不筛。 */
+  /** 标签（**多选**；v0.31 受控词表：只存已存在词条的 id）。空数组 = 不筛。 */
   tagIds: number[];
   /** 与 tagIds 一一对应的名字（仅用于 chip 展示） */
   tagNames: string[];
-  /** 多标签语义：AND = 每个标签各自命中（默认）；OR = 任一命中即可 */
-  tagMode: 'AND' | 'OR';
-  /** WANT / WATCHING / DONE / PAUSED / DROPPED（`''` = 不筛） */
-  status: string;
+  /** 状态（**多选**；单值列，只「任一匹配」） */
+  statuses: string[];
   /** `null` = 全部 / `1` = 已确认 / `0` = 待确认 —— 0 必须照发，不能用真值判断 */
   confirmed: number | null;
+  /**
+   * 维度内语义（**与媒体页完全对齐**）：
+   * - 可切「且 / 或」的维度：`tagIds`（默认 AND）、`collectionIds`（默认 OR）；
+   * - `years` / `statuses` 是单值列（一个媒体只有一个年份/状态）→ 只能「任一匹配」，所以不给开关（选了 2 个年份取交恒为空集）。
+   */
+  mode: { tagIds: 'AND' | 'OR'; collectionIds: 'AND' | 'OR' };
 }
 
 /** 候选筛选 → `/api/media` 与 `/api/media/count` 的共用查询参数。 */
@@ -219,15 +224,19 @@ export function filterParams(filter: CandidateFilter): URLSearchParams {
   const params = new URLSearchParams();
   const q = filter.q.trim();
   if (q) params.set('q', q);
-  if (filter.collectionId != null) params.set('collectionId', String(filter.collectionId));
-  if (filter.year) params.set('year', filter.year);
+  // 多选维度一律逗号串（后端 `List<T>` 直接绑；参数名与媒体页完全一致）
+  if (filter.collectionIds.length > 0) {
+    params.set('collectionId', filter.collectionIds.join(','));
+    params.set('collectionMode', filter.mode.collectionIds);
+  }
+  if (filter.years.length > 0) params.set('year', filter.years.join(','));
   if (filter.format) params.set('format', filter.format);
   if (filter.subcategoryId != null) params.set('subcategoryId', String(filter.subcategoryId));
   if (filter.tagIds.length > 0) {
     params.set('tagIds', filter.tagIds.join(','));
-    params.set('tagMode', filter.tagMode);
+    params.set('tagMode', filter.mode.tagIds);
   }
-  if (filter.status) params.set('status', filter.status);
+  if (filter.statuses.length > 0) params.set('status', filter.statuses.join(','));
   if (filter.confirmed != null) params.set('confirmed', String(filter.confirmed));
   return params;
 }

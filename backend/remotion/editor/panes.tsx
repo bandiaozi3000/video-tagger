@@ -791,17 +791,34 @@ export function TemplatePanel({ onClose, notify, payload, onApply }: {
 }
 
 /** 候选库筛选的维度定义（数组序 = chips 行与面板列表的固定序）。 */
-type FilterDim = 'collectionId' | 'year' | 'format' | 'subcategoryId' | 'tagIds' | 'status' | 'confirmed';
+type FilterDim = 'collectionIds' | 'years' | 'format' | 'subcategoryId' | 'tagIds' | 'statuses' | 'confirmed';
 
 const FILTER_DIMS: { key: FilterDim; label: string }[] = [
-  { key: 'collectionId', label: '收藏夹' },
-  { key: 'year', label: '年份' },
+  { key: 'collectionIds', label: '收藏夹' },
+  { key: 'years', label: '年份' },
   { key: 'format', label: '格式' },
   { key: 'subcategoryId', label: '子分类' },
   { key: 'tagIds', label: '标签' },
-  { key: 'status', label: '状态' },
+  { key: 'statuses', label: '状态' },
   { key: 'confirmed', label: '档案' },
 ];
+
+/**
+ * 维度内能否切「且 / 或」——**与媒体页同一张表**（`app.js` 的 `DIM_MODE_CAPABLE`）：
+ * 标签/收藏夹能切；年份/状态是单值列（一个媒体只有一个年份/状态），选 2 个取交恒为空集，所以不给开关。
+ */
+const MODE_CAPABLE: Partial<Record<FilterDim, true>> = { tagIds: true, collectionIds: true };
+const isModeDim = (key: FilterDim) => MODE_CAPABLE[key] === true;
+/** 模式值（与媒体页 `mediaFilter.mode` 同形） */
+function modeOf(filter: CandidateFilter, key: FilterDim): 'AND' | 'OR' {
+  if (key === 'tagIds') return filter.mode.tagIds;
+  if (key === 'collectionIds') return filter.mode.collectionIds;
+  return 'OR';
+}
+/** 切换某个多选维度里的一个值 */
+function toggleIn<T extends string | number>(list: T[], value: T, on: boolean): T[] {
+  return on ? (list.includes(value) ? list.filter((v) => v !== value) : [...list, value]) : list;
+}
 
 /** 状态字典唯一真值 = 后端 `MediaService.STATUSES`；中文标签沿用媒体详情页。 */
 const STATUS_OPTIONS = [
@@ -839,22 +856,29 @@ interface FilterDict {
 
 function isDimActive(filter: CandidateFilter, key: FilterDim): boolean {
   if (key === 'confirmed') return filter.confirmed != null;
-  if (key === 'tagIds') return filter.tagIds.length > 0;
-  if (key === 'collectionId' || key === 'subcategoryId') return filter[key] != null;
-  return String(filter[key]).trim() !== '';
+  if (key === 'format') return filter.format !== '';
+  if (key === 'subcategoryId') return filter.subcategoryId != null;
+  if (key === 'collectionIds') return filter.collectionIds.length > 0;
+  if (key === 'years') return filter.years.length > 0;
+  if (key === 'statuses') return filter.statuses.length > 0;
+  return filter.tagIds.length > 0;
 }
 
 /** 维度当前值的中文展示（chip 与面板右侧）。 */
 function dimLabel(filter: CandidateFilter, key: FilterDim, dict: FilterDict): string {
   switch (key) {
-    case 'collectionId': return dict.collections.find((c) => c.id === filter.collectionId)?.name ?? `收藏夹 #${filter.collectionId}`;
-    case 'year': return `${filter.year} 年`;
+    case 'collectionIds':
+      return filter.collectionIds
+        .map((id) => dict.collections.find((c) => c.id === id)?.name ?? `收藏夹 #${id}`)
+        .join(modeOf(filter, 'collectionIds') === 'OR' ? ' 或 ' : ' 且 ');
+    case 'years': return filter.years.map((y) => `${y} 年`).join(' 或 ');
+    case 'statuses':
+      return filter.statuses.map((s) => STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s).join(' 或 ');
     case 'format': return dict.formats.find((f) => f.code === filter.format)?.name ?? filter.format;
     case 'subcategoryId': return dict.subOptions.find((s) => s.id === filter.subcategoryId)?.label ?? `子分类 #${filter.subcategoryId}`;
     case 'tagIds': return filter.tagNames.length
-        ? filter.tagNames.join(filter.tagMode === 'OR' ? ' 或 ' : ' 且 ')
+        ? filter.tagNames.join(modeOf(filter, 'tagIds') === 'OR' ? ' 或 ' : ' 且 ')
         : `标签 #${filter.tagIds.join('/')}`;
-    case 'status': return STATUS_OPTIONS.find((s) => s.value === filter.status)?.label ?? filter.status;
     case 'confirmed': return filter.confirmed === 1 ? '已确认' : '待确认';
   }
 }
@@ -912,8 +936,16 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
   const pick = (key: FilterDim, value: string | number | null) => {
     const next: CandidateFilter = { ...filter };
     switch (key) {
-      case 'collectionId': next.collectionId = value as number | null; break;
-      case 'year': next.year = value == null ? '' : String(value); break;
+      case 'collectionIds': {
+        const id = Number(value);
+        next.collectionIds = toggleIn(next.collectionIds, id, !next.collectionIds.includes(id));
+        break;
+      }
+      case 'years': {
+        const y = String(value);
+        next.years = toggleIn(next.years, y, !next.years.includes(y));
+        break;
+      }
       case 'format': next.format = value == null ? '' : String(value); break;
       case 'subcategoryId': next.subcategoryId = value as number | null; break;
       case 'tagIds': {
@@ -929,10 +961,56 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
         }
         break;
       }
-      case 'status': next.status = value == null ? '' : String(value); break;
+      case 'statuses': {
+        const s = String(value);
+        next.statuses = toggleIn(next.statuses, s, !next.statuses.includes(s));
+        break;
+      }
       case 'confirmed': next.confirmed = value as number | null; break;
+      }
+    // 单值维度：传 null 表示清空；多选维度已经把值 toggle 过了
+    if (value == null) {
+      if (key === 'format') next.format = '';
+      else if (key === 'subcategoryId') next.subcategoryId = null;
+      else if (key === 'confirmed') next.confirmed = null;
+      else if (key === 'collectionIds') next.collectionIds = [];
+      else if (key === 'years') next.years = [];
+      else if (key === 'statuses') next.statuses = [];
+      else if (key === 'tagIds') { next.tagIds = []; next.tagNames = []; }
     }
     onFilter(next);
+  };
+
+  /** 多选维度的取值行（与媒体页一样：☐/☑ + 计数） */
+  const multiList = (items: { value: string | number; label: string }[], current: (string | number)[]) => (
+    <div className="vt-pop-body">
+      <button type="button" className={cls('vt-pop-item', current.length === 0 && 'on')}
+              onClick={() => dim && pick(dim, null)}>
+        <span>不限</span>
+      </button>
+      {items.map((item) => (
+        <button key={String(item.value)} type="button"
+                className={cls('vt-pop-item', current.includes(item.value) && 'on')}
+                onClick={() => dim && pick(dim, item.value)}>
+          <span>{current.includes(item.value) ? '☑' : '☐'} {item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+
+  /** 维度内语义开关（且/或）——只在 MODE_CAPABLE 的维度上出现，文案跟媒体页一致 */
+  const modeSwitch = (key: FilterDim) => {
+    if (!isModeDim(key)) return null;
+    const cur = modeOf(filter, key);
+    const modes: [('AND' | 'OR'), string][] = [['AND', '全部匹配'], ['OR', '任一匹配']];
+    return (
+      <div className="vt-pop-mode">
+        {modes.map(([mode, label]) => (
+          <button key={mode} type="button" className={cls('btn-mini', cur === mode && 'on')}
+                  onClick={() => onFilter({ ...filter, mode: { ...filter.mode, [key]: mode } })}>{label}</button>
+        ))}
+      </div>
+    );
   };
 
   const optionList = (items: { value: string | number | null; label: string }[], current: string | number | null) => (
@@ -980,12 +1058,7 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
             <>
               <input className="vt-pop-search" placeholder="🔍 输入标签名…" value={tagText} autoFocus
                      onChange={(event) => setTagText(event.target.value)} />
-              <div className="vt-pop-mode">
-                {([['AND', '全部匹配'], ['OR', '任一匹配']] as const).map(([mode, label]) => (
-                  <button key={mode} type="button" className={cls('btn-mini', filter.tagMode === mode && 'on')}
-                          onClick={() => onFilter({ ...filter, tagMode: mode })}>{label}</button>
-                ))}
-              </div>
+              {modeSwitch('tagIds')}
               <div className="vt-pop-body">
                 <button type="button" className={cls('vt-pop-item', filter.tagIds.length === 0 && 'on')}
                         onClick={() => { onFilter({ ...filter, tagIds: [], tagNames: [] }); setTagText(''); }}>
@@ -1002,12 +1075,12 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
             </>
           ) : dim === 'confirmed'
             ? optionList([{ value: null, label: '全部' }, { value: 1, label: '已确认' }, { value: 0, label: '待确认' }], filter.confirmed)
-            : dim === 'status'
-              ? optionList([{ value: null, label: '不限' }, ...STATUS_OPTIONS], filter.status || null)
-              : dim === 'collectionId'
-                ? optionList([{ value: null, label: '不限' }, ...dict.collections.map((c) => ({ value: c.id, label: c.name }))], filter.collectionId)
-                : dim === 'year'
-                  ? optionList([{ value: null, label: '不限' }, ...dict.years.map((y) => ({ value: String(y), label: `${y} 年` }))], filter.year || null)
+            : dim === 'statuses'
+              ? <>{modeSwitch('statuses')}{multiList(STATUS_OPTIONS.map((s) => ({ value: s.value, label: s.label })), filter.statuses)}</>
+              : dim === 'collectionIds'
+                ? <>{modeSwitch('collectionIds')}{multiList(dict.collections.map((c) => ({ value: c.id, label: c.name })), filter.collectionIds)}</>
+                : dim === 'years'
+                  ? multiList(dict.years.map((y) => ({ value: String(y), label: `${y} 年` })), filter.years)
                   : dim === 'format'
                     ? optionList([{ value: null, label: '不限' }, ...dict.formats.map((f) => ({ value: f.code, label: f.name }))], filter.format || null)
                     : optionList([{ value: null, label: '不限' }, ...dict.subOptions.map((s) => ({ value: s.id, label: s.label }))], filter.subcategoryId)}
@@ -1300,12 +1373,12 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   const removeDim = (key: FilterDim) => {
     const next: CandidateFilter = { ...filter };
     switch (key) {
-      case 'collectionId': next.collectionId = null; break;
-      case 'year': next.year = ''; break;
+      case 'collectionIds': next.collectionIds = []; break;
+      case 'years': next.years = []; break;
       case 'format': next.format = ''; break;
       case 'subcategoryId': next.subcategoryId = null; break;
       case 'tagIds': next.tagIds = []; next.tagNames = []; break;
-      case 'status': next.status = ''; break;
+      case 'statuses': next.statuses = []; break;
       case 'confirmed': next.confirmed = null; break;
     }
     applyFilter(next);
