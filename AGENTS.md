@@ -19,7 +19,7 @@
 - **先质疑再执行**：任务不合理/歧义/有更好做法 → 及时反馈不盲从；用户报的 bug 先验证成立（复现/读码/查数据）再动。
 - **需求先理清再做完善**：边界、状态、反馈、交互闭环都考虑；UI 严格贴合项目既有风格。
 - 改动收尾 → 写当天 `docs/worklog/YYYY-MM-DD.md`；TODO 仅用户告知才更新。
-- 大版本 → `docs/superpowers/specs/` + `plans/` 主文档（单份持续同步）。
+- 大版本 → `docs/superpowers/specs/` + `plans/` 主文档（单份持续同步）。**同批次新功能/改动一律追加「第 N 部分」到该批次主规格，不得按功能另开文件**（2026-10-02 用户拍板；当天 AI 与并行会话各单开了一份，已并入 `specs/2026-10-02-video-tagger-v031-design.md` 一/二/三部分，plans 同名一份）。当前批次主规格：`specs/2026-10-02-video-tagger-v031-design.md` + `plans/2026-10-02-video-tagger-v031-plan.md`。详见 `docs/rules.md` §9。
 
 ## 2. 用户拍板的边界（结论，勿复活旧方案）
 

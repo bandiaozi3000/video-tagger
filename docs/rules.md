@@ -69,6 +69,8 @@
 ### 9. 大版本主文档归档
 - **记忆**：`version-master-doc-policy`
 - **内容**：每个大版本归入 `docs/` 下的一份主需求/设计文档；同一版本后续需求变更、新增、方案调整和实现状态持续同步该主 spec，并同步唯一配套 plan、worklog 和必要的 CHANGELOG/story；不创建互相漂移的零散主文档。
+- **2026-10-02 强化（用户原话：「规格设计并入大版本，以后不要单开，记入记忆」）**：**同批次一个新功能/改动一律追加「第 N 部分」到该批次主规格，不得按功能另开 `specs/*-design.md`，也不得另开 plan**。批次主规格命名去掉主题后缀（`YYYY-MM-DD-video-tagger-vNNN-design.md`），头部用一张表列全批次的「部分 / 主题 / 状态」。
+- **当天真事（别重犯）**：AI 为 hash 路由单开了 `...-hash-routing-design.md`、并行会话为筛选多选单开了 `...-v032-...-design.md` —— 两份已**并入** `specs/2026-10-02-video-tagger-v031-design.md`（一/二/三部分），plans 也合并为同名一份。
 
 ---
 

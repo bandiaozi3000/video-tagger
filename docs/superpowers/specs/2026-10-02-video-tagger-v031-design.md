@@ -1,4 +1,21 @@
-# 标签功能重做 设计规格（v0.31）
+# v0.31 批次 设计规格（标签重做 · 筛选全维度多选 · 单页 hash 路由）
+
+- **日期**：2026-10-02
+- **关联版本**：**v0.31 批次**（本批次未封版；`pom.xml` 仍为 0.30.0，CHANGELOG 待封版时统一补）
+- **Flyway**：V44（标签重做）；筛选多选与 hash 路由**零迁移**
+- **状态**：v0.31 / v0.32 已实现；**hash 路由已获批准、执行中**
+- **关联执行计划**：同目录同名 `plans/2026-10-02-video-tagger-v031-plan.md`（**单份持续同步**）
+- **本文档约定（用户 2026-10-02 拍板）**：**一个批次只维护这一份主规格**，同批次内的新功能/改动**追加「第 N 部分」**，不再按功能另开文件；执行计划同理只维护同一份。
+
+## 本批次的三个部分
+
+| 部分 | 主题 | 状态 |
+|---|---|---|
+| 一 | 标签功能重做（三层受控词表、`clip_tag` 唯一真源、多标签且/或） | 已实现（V44） |
+| 二 | 媒体页筛选维度全部多选（维度内且/或） | 已实现 |
+| 三 | 单页 hash 路由（URL 可区分页面 / F5 回原页 / 浏览器前进后退） | **执行中** |
+
+---
 
 - **日期**：2026-10-02
 - **关联版本**：**v0.31**（`v0.30` 已被 2026-09-19 起的未归档批次占用；当前已归档版本为 **0.29.0**）
@@ -12,7 +29,7 @@
 
 ---
 
-## 1. 目标
+### 1. 目标
 
 把现有标签功能**当成一个新功能重做**，解决三个已实测的问题：
 
@@ -34,7 +51,7 @@
 
 ---
 
-## 2. 已确认决策（用户 2026-10-02 逐条拍板）
+### 2. 已确认决策（用户 2026-10-02 逐条拍板）
 
 | # | 决策 | 结论 |
 |---|---|---|
@@ -52,9 +69,9 @@
 
 ---
 
-## 3. 数据模型
+### 3. 数据模型
 
-### 3.1 现状（保留不动）
+#### 3.1 现状（保留不动）
 
 ```
 tag(id, name UNIQUE uk_tag_name, created_at)   ← 词表，唯一真源
@@ -65,7 +82,7 @@ clip_tag(clip_id, tag_id)     PK(clip_id, tag_id)
 
 `tag.name` 的排序规则是 `utf8mb4_0900_ai_ci` → **大小写不敏感**已经被数据库兜住（`INSERT IGNORE` + `selectByName` 天然合并大小写变体），不需要应用层归一化。
 
-### 3.2 本版改动（仅一处 DDL）
+#### 3.2 本版改动（仅一处 DDL）
 
 ```sql
 -- V44__tag_rework.sql
@@ -88,13 +105,13 @@ ALTER TABLE clips DROP COLUMN tag;
 2. **再跑 V44**：清数据 + 删列。
 3. 反序会失败：MyBatis-Plus 仍按 entity 生成含 `tag` 的 SQL → `Unknown column`。
 
-### 3.3 清空前的备份（不可逆操作）
+#### 3.3 清空前的备份（不可逆操作）
 
 ```bash
-# 4 张标签表（含关联）
+## 4 张标签表（含关联）
 mysqldump -uroot -p --no-create-info --skip-add-locks video_tagger tag media_tag episode_tag clip_tag \
   > data/backup/tags-before-0.31.sql
-# clips.tag 列（27 行）单独导出 CSV
+## clips.tag 列（27 行）单独导出 CSV
 mysql -uroot -p -D video_tagger --batch -e \
   "SELECT id, tag FROM clips WHERE tag IS NOT NULL AND tag <> ''" > data/backup/clips-tag-before-0.31.tsv
 ```
@@ -104,7 +121,7 @@ mysql -uroot -p -D video_tagger --batch -e \
 
 ---
 
-## 4. 读取规则：两个视角（本版语义核心）
+### 4. 读取规则：两个视角（本版语义核心）
 
 D3 定了"各算各的"，但**筛选要求"命中一条就算"** —— 两者靠"写入不互通 + 读取分视角"同时满足：**并集只发生在查询期，不再落库**。
 
@@ -140,9 +157,9 @@ a.id IN (
 
 ---
 
-## 5. 打标入口：`TagPicker`（唯一交互）
+### 5. 打标入口：`TagPicker`（唯一交互）
 
-### 5.1 行为契约
+#### 5.1 行为契约
 
 | 行为 | 说明 |
 |---|---|
@@ -155,7 +172,7 @@ a.id IN (
 | 多选 | 一次可加多个 |
 | **受控的硬保证** | **后端**：打标接口只收 `tagIds`，不在词表的名字一律 `400`。前端不给自由文本提交入口（双保险） |
 
-### 5.2 五个入口（全部替换现有自由文本输入）
+#### 5.2 五个入口（全部替换现有自由文本输入）
 
 | # | 入口 | 现状 | 改造 |
 |---|---|---|---|
@@ -165,7 +182,7 @@ a.id IN (
 | 4 | **浏览器扩展**：浮层 + 快捷位 `Ctrl+Shift+1~9` | `quickTags[1..9]` 存自由文本（`extension/options.js:31`） | **快捷位改绑 `tagId`**（选择器选词条）；浮层换简化版 `TagPicker`。**不改就是绕过受控的后门** |
 | 5 | Animeko 现场打标 / 本地回顾弹窗 | 自由文本 | 换 `TagPicker` |
 
-### 5.3 接口改造（受控的直接体现）
+#### 5.3 接口改造（受控的直接体现）
 
 | 端点 | 现在 | 改为 |
 |---|---|---|
@@ -186,9 +203,9 @@ a.id IN (
 
 ---
 
-## 6. 多标签混合筛选
+### 6. 多标签混合筛选
 
-### 6.1 交互
+#### 6.1 交互
 
 - **两处共用一套语义**：媒体墙「标签」维度 + 推荐编辑器候选库「标签」维度（判据同 2026-09-25 重构：语言与后端参数必须同源）。
 - 右栏「标签」区：搜索框 + **带计数**的可点条目，**点选即时生效、面板不关**（沿用现有手感），可连点加多个。
@@ -196,17 +213,17 @@ a.id IN (
 - chip 文案把模式写出来，别让用户猜：`标签：名场面 且 治愈` / `标签：名场面 或 治愈`。
 - 取值字典（`dimValues`）显示的是"**有该标签（任一层）的媒体数**"（`COUNT(DISTINCT media_id)`）。
 
-### 6.2 后端参数
+#### 6.2 后端参数
 
 `tagIds`（数组，替代现在的单值 `tagId`）+ `tagMode`（`AND` | `OR`，默认 `AND`）。旧参数 `tagId` 删除（无历史包袱，前端同一版一起改）。
 
-### 6.3 边界：媒体墙只筛"媒体视角"
+#### 6.3 边界：媒体墙只筛"媒体视角"
 
 片段级筛选**不进**媒体墙标签维度（那会与"各算各的"的显示语义打架）。片段筛选的落点是 §7。
 
 ---
 
-## 7. 片段侧：让标签真正有用
+### 7. 片段侧：让标签真正有用
 
 **实测缺口**：推荐编辑器的 `ClipPicker`（`backend/remotion/editor/panes.tsx:410`）现在只显示 **标题 + 时间戳**，`ClipBrief`（`editor/api.ts:175`）里连 `tag` 字段都没有 → **片段标签的唯一用途是"以后挑片段做成片"，而挑片段的界面里看不见也筛不了标签。**
 
@@ -220,7 +237,7 @@ a.id IN (
 
 ---
 
-## 8. 批量打标（媒体页勾选模式）
+### 8. 批量打标（媒体页勾选模式）
 
 **位置**：媒体页底部已有的批量工具条（`index.html:158`），现状：
 
@@ -254,7 +271,7 @@ a.id IN (
 
 ---
 
-## 9. 标签管理页改造
+### 9. 标签管理页改造
 
 **定位变化**：受控后它从"清理垃圾的地方"变成**词表的唯一运维台**。
 
@@ -270,7 +287,7 @@ a.id IN (
 
 ---
 
-## 10. 口径合一（修掉"三套数"）
+### 10. 口径合一（修掉"三套数"）
 
 | 位置 | 现在 | 改为 |
 |---|---|---|
@@ -282,7 +299,7 @@ a.id IN (
 
 ---
 
-## 11. 影响面清单（要改的文件/模块）
+### 11. 影响面清单（要改的文件/模块）
 
 **后端**
 
@@ -322,7 +339,7 @@ a.id IN (
 
 ---
 
-## 12. 验收口径
+### 12. 验收口径
 
 **清空与结构**
 
@@ -380,7 +397,7 @@ UNION ALL SELECT 'clip_tag',COUNT(*) FROM clip_tag;"
 
 ---
 
-## 13. 本版明确不做（YAGNI）
+### 13. 本版明确不做（YAGNI）
 
 | 不做 | 理由 |
 |---|---|
@@ -396,7 +413,7 @@ UNION ALL SELECT 'clip_tag',COUNT(*) FROM clip_tag;"
 
 ---
 
-## 14. 风险与遗留
+### 14. 风险与遗留
 
 | 风险 | 说明 | 处置 |
 |---|---|---|
@@ -409,9 +426,276 @@ UNION ALL SELECT 'clip_tag',COUNT(*) FROM clip_tag;"
 
 ---
 
-## 15. 审阅与变更记录
+### 15. 审阅与变更记录
 
 | 日期 | 变更 | 状态 |
 |---|---|---|
 | 2026-10-02 | 初稿（基于 2026-10-02 三轮问答：三级不互通 / 全部受控 / 全部清空 / 筛选三级命中 / 批量打标在媒体页） | 待用户审阅 |
 | 2026-10-02 | 按「日期 + 版本」命名规范改名（`2026-10-02-video-tagger-v031-tag-rework-design.md`）；版本号从 v0.30.0 更正为 **v0.31**（0.30 被 09-19 起的未归档批次占用）；头部改为既有规格的统一格式并补前置文档 | 待用户审阅 |
+
+---
+
+## 第二部分：媒体页筛选维度全部多选（v0.32）
+
+
+- **日期**：2026-10-02
+- **关联版本**：**v0.32**（v0.31 标签重做已实现完、待实机验收，尚未归档）
+- **Flyway**：**无**（纯查询/前端改动，零迁移）
+- **状态**：**待用户审阅**（本文件批准前不写执行计划、不改代码）
+- **关联执行计划**：待写（规格批准后）
+- **前置文档**：
+  - `docs/superpowers/specs/2026-10-02-video-tagger-v031-tag-rework-design.md`（媒体墙「标签」维度的多选 + 且/或开关由它引入，本规格把它推广到其余维度）
+
+---
+
+### 1. 目标
+
+媒体页筛选浮层的 6 个维度**全部支持多选**；同维度内「全部匹配（且）/ 任一匹配（或）」的语义**只在语义上成立时才提供开关**，不成立的维度不摆空按钮。
+
+用户 2026-10-02 原话：**「筛选都能多选，且都和标签一样，可勾选全部或任一匹配」→「按你的建议来，支持且和或的就有，不支持就别弄」**。
+
+---
+
+### 2. 已确认决策
+
+| # | 决策 | 结论 |
+|---|---|---|
+| D1 | 维度基数分类 | **多值**（给且/或开关）：题材 `genres`、标签 `tagIds`（开关已有）、收藏夹 `collectionId`；**单值**（只多选，只「任一匹配」，不摆开关）：年份 `year`、季度 `season`、状态 `status` |
+| D2 | 单值维度为什么不给「且」 | `media.year` / `media.status` 是**单值列**，选 2 个值再取交 = 空集；季度实测抽 200 部媒体**每部只有 1 条外部条目**（探针 `.tmp/genre-probe3.js`），取交同样恒空。摆上按钮 = 保证让用户踩空列表 |
+| D3 | 收藏夹维度 | **不再切换请求路径**，统一走 `/api/media?...&collectionId=a,b`，与 `/api/collections/{id}/media` 同条件同列同排序（已核 `ORDER BY a.id` + 列清单一致）。收藏夹视图（`collFilter`）本身不动 |
+| D4 | 参数契约 | **参数名一律不改**（`status`/`year`/`season`/`collectionId`），只把**类型从标量改成 List** —— 单值请求语义不变，编辑器等既有调用方零改动 |
+| D5 | 本次范围 | 只改**媒体页筛选浮层**这 6 个维度。**不做**：NOT / 排除语义、跨维度 OR、筛选条件持久化（URL / localStorage）、Remotion 编辑器候选筛选的多选、收藏夹视图 `collFilter` 的多选、格式 / 子分类 / 待确认维度复活 |
+
+---
+
+### 3. 现状（代码位置）
+
+| 位置 | 现状 |
+|---|---|
+| `app.js:2201` `MEDIA_DIMS` | 6 个维度：题材 / 年份 / 季度 / 状态 / 收藏夹 / 标签 |
+| `app.js:2268` `dimIsMulti()` | **只 `genres` 返回 true**，其余走单选分支 |
+| `app.js:2313` `dimValues()` | 单选维度在列表顶部塞一条 `全部（不限）` 当清空入口 |
+| `app.js:2324` `dimLabel()` | 只有 `tagIds` 会输出「 或 / 且 」，其余维度选一个值 |
+| `app.js:2427-2447` | 「全部匹配 / 任一匹配」分段按钮**硬编码只给 `tagIds`** |
+| `app.js:2524-2557` `buildMediaUrls()` | 单值维度直接 `p.set(key, value)`；`2543` 起 `collectionId` 存在时**切到 `/api/collections/{id}/media`** |
+| `MediaMapper.java:30` `GENRE_FILTER` | 只有 OR（`JSON_OVERLAPS`），用 service 手拼的 `genresJson` 字符串 |
+| `MediaMapper.java:35` `SEASON_FILTER` | `ews.season = #{season}`（标量） |
+| `MediaMapper.java:53` `TAG_FILTER` | 已有 `ANY`（union）/ `AND`（逐值 foreach）两分支，**本规格的模板** |
+| 受影响 SQL | `listFiltered`、`listByLatest`、`countFiltered`、`countLatest`、`listExportRows`（媒体页 5 条）+ `listByCollection`（只因 `GENRE_FILTER` 片段改动） |
+| 既有调用方 | `MediaController` 4 个端点、`CollectionController./{id}/media`、Remotion `backend/remotion/editor/api.ts:218 filterParams()`（只发单值） |
+
+---
+
+### 4. 后端设计
+
+#### 4.1 参数与类型
+
+| 参数 | 改前 | 改后 | 谁在用 |
+|---|---|---|---|
+| `status` | `String` | `List<String>` | 媒体页、编辑器（单值）、收藏夹视图保持标量（`listByCollection` 不动） |
+| `year` | `Integer` | `List<Integer>` | 同上 |
+| `season` | `String` | `List<String>` | 媒体页 |
+| `collectionId` | `Long` | `List<Long>` | 媒体页、编辑器（单值） |
+| `genres` | `List<String>`（service 拼成 `genresJson`） | `List<String>` **直接用**，删掉手拼 | 媒体页、收藏夹视图 |
+| **新增** `genreMode` | — | `AND` / `OR`，**缺省 `OR`**（= 现状） | 媒体页 |
+| **新增** `collectionMode` | — | `AND` / `OR`，**缺省 `OR`** | 媒体页 |
+| `tagMode` | 已有，缺省 `AND` | 不变 | 媒体页、编辑器 |
+
+**空值语义**：`null` 或**空 list** = 不筛（`<if test='year != null and !year.isEmpty()'>`）。前端只在非空时发参数，避免 `?year=` 触发 `List<Integer>` 转换 400。
+
+#### 4.2 SQL 片段（改 `MediaMapper`）
+
+```java
+// 单值维度：只多选 OR，一个 IN 搞定
+STATUS_FILTER     = "<if test='status != null and !status.isEmpty()'> AND a.status IN <foreach ...>#{s}</foreach></if>"
+YEAR_FILTER       = "<if test='year != null and !year.isEmpty()'> AND a.year IN <foreach ...>#{y}</foreach></if>"
+SEASON_FILTER     = "<if test='season != null and !season.isEmpty()'> AND a.id IN (SELECT ews.media_id FROM external_work ews WHERE ews.season IN <foreach .../>)</if>"
+
+// 多值维度：ANY = 现状语义；AND = 逐值各自成立（模板照抄 TAG_FILTER）
+COLLECTION_FILTER = ANY: a.id IN (SELECT media_id FROM media_collection WHERE collection_id IN (...))
+                    AND: foreach cid → AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{cid})
+
+GENRE_FILTER      = ANY: EXISTS (… JSON_OVERLAPS(ew.genres_json, JSON_ARRAY(<foreach>#{g}</foreach>)))
+                    AND: foreach g → AND EXISTS (… JSON_CONTAINS(ew.genres_json, JSON_QUOTE(#{g})))
+```
+
+- **删** `MediaService.genresJson()`（手拼 `["奇幻","战斗"]` + 转义，3 行）及其注释：改用 `JSON_ARRAY(...)` 后不再需要手拼，也顺手去掉一处手写转义面。`CollectionService.media` 跟着把 `genresJson` 参数换成 `genres`。
+- ⚠️ **实现前必须先在真库验证两段 JSON 函数**：`JSON_OVERLAPS(genres_json, JSON_ARRAY('奇幻'))` 与 `JSON_CONTAINS(genres_json, JSON_QUOTE('奇幻'))`（MySQL 8.0.17+）。若 `JSON_QUOTE` 形态不可用，`AND` 分支退回 `CAST(#{g} AS JSON)` 或复用现有 `genresJson` 路径 —— **这是本规格唯一的未验证点**。
+- **5 条媒体页 SQL 必须同批改**（`listFiltered` / `listByLatest` / `countFiltered` / `countLatest` / `listExportRows`）：漏一条 = 「最近观看」或「清单导出」静默忽略新条件（2026-09-25 踩过，`MediaMapper.java:38-43` 有警告注释）。
+- `listByCollection` 只跟着换 `GENRE_FILTER` 的入参（`genresJson` → `genres`），`status`/`year`/`season` 保持标量 → 收藏夹视图行为不变。
+
+#### 4.3 控制器
+
+`MediaController` 的 `GET /api/media`、`/api/media/recent`、`/api/media/count`、`/api/media/list-export`：4 处参数类型照 4.1 改 + 各加 `genreMode` / `collectionMode`。**不带 `@RequestParam(defaultValue=...)`**，缺省 `null` 由 SQL 片段当 OR 处理。
+
+---
+
+### 5. 前端设计（`app.js`）
+
+1. **状态**：`mediaFilter` 里 `status`/`year`/`season`/`collectionId` 由字符串改**数组**；扁平 `tagMode` 改成一个 map：
+   `mediaFilter.mode = { genres: 'OR', tagIds: 'AND', collectionId: 'OR' }`（默认值 = 现状语义）。同步改两处重置点（`app.js:6179`、`app.js:7193`）。
+2. **维度基数声明**：新增 `DIM_VALUE_CARDINALITY = { genres: 'multi', tagIds: 'multi', collectionId: 'multi', year: 'single', season: 'single', status: 'single' }`。**只有 `multi` 渲染「全部匹配 / 任一匹配」开关**（D2）。
+3. **`dimIsMulti()` 退役**：全部维度走数组 toggle（`setDim`）；`dimValues()` 不再塞 `全部（不限）`（单值维度已无该入口，清空靠 chips 的 `×`，题材维度现状即如此）。
+4. **`dimLabel()`**：多选维度按 `mediaFilter.mode[key]` 输出连接词 —— `' 或 '` / `' 且 '`；单值维度恒用 `' 或 '`。单值维度的显示值加单位（`2020 年`）。
+5. **浮层（`renderFilterPop`）**：head 文案改为 `${label}（可多选）`；`tagIds` 的那段 `.fp-mode` 分段按钮**泛化成按 `DIM_VALUE_CARDINALITY` 渲染**，按钮点击写 `mediaFilter.mode[key]`。
+6. **`buildMediaUrls()`**：
+   - 数组维度非空时 `p.set(key, arr.join(','))`；`mode` 只在非空且该维度为 `multi` 时发（`genreMode` / `collectionMode` / `tagMode`）。
+   - **删掉 `collectionId` 的路径切换分支（`2543-2547`）**：统一 `/api/media`；计数继续走 `/api/media/count`（同条件，本来就如此）。
+7. **`recent` 分支与 `count` 参数**沿用同一份 `addCommon()`，无需单独改 —— 这正是 4.2 里 5 条 SQL 必须同批改的原因。
+
+---
+
+### 6. 验收
+
+| # | 项 | 证据形态 |
+|---|---|---|
+| A1 | **零回归对拍**：同一组**单值**参数分别打 `/api/media`、`/api/media/recent`、`/api/media/list-export`、`/api/media/count`，改前 / 改后 id 集合与计数**完全一致** | 改前先跑一遍存基线（脚本 + 输出对比） |
+| A2 | 每个维度的「多选 OR = 各单值结果并集」 | 后端 IT（新 `MediaFilterMultiIT`，照 `TagFilterIT` 写法） |
+| A3 | 多值维度 `AND ⊆ OR`，且 `AND` = 各条件结果的交集 | 同上，用真库有代表性的样本（题材取「奇幻 + 战斗」等） |
+| A4 | 单值维度**不出现**且/或开关 | 前端静态核对（`node --check` + 读码）；实机点选需另行安排 |
+| A5 | `collectionId` 多选与 `/api/collections/{id}/media` 单夹结果一致 | curl 对拍 |
+| A6 | Remotion 编辑器候选筛选 + 清单导出不受影响 | `npx tsc --noEmit` + `vitest` + 一次真实候选请求 |
+| A7 | 后端全量测试 | `mvn -o test` 0 failed |
+
+---
+
+### 7. 风险与遗留
+
+1. **v0.31 未收尾**：标签重做已实现完、**待实机验收**；其剩余工作若仍动 `renderFilterPop` / `MEDIA_DIMS`，需先确认再做本规格（避免同区冲突）。本规格**不含** V44 迁移，可独立上线。
+2. **JSON 函数形态未验证**（§4.2 ⚠️）：`JSON_CONTAINS + JSON_QUOTE` 只在文档意义上成立，**未在真库跑过**。实现第一步就是验证它；不可用则退回现有手拼路径，其余设计不变。
+3. **单值维度不给「且」是「少给一个功能」**：理由见 D2，属**有意不做**；若日后 `season` 真出现多条目媒体（同一部番挂两条季），再单独给它开开关。
+4. **多选后的列表长度**：`year` / `status` 多选会让列表变长，`limit` 默认 50 的分页不受影响；不清空条件下「全选 + 任一匹配」≈ 不筛，属预期。
+5. **未验证**：全部 UI 行为（开关渲染、chips 连接词、收藏夹路径改动）本轮只做读码与静态检查，**实机点选留到验收环节**，不预先宣称通过。
+
+---
+
+## 第三部分：单页 hash 路由（URL 可区分页面）
+
+
+- **日期**：2026-10-02
+- **关联版本**：v0.33（候选；v0.31 标签重做 / v0.32 筛选多选均已实现）
+- **Flyway**：**无**（纯前端，零迁移、零后端改动）
+- **状态**：**待用户审阅**（本文件批准前不改代码）
+- **关联执行计划**：待写（规格批准后）
+- **前置文档**：
+  - `docs/superpowers/specs/2026-10-02-video-tagger-v031-tag-rework-design.md`
+  - 同日工作日志 `docs/worklog/2026-10-02.md`（「← 返回」补齐那一条 —— 本规格把它的视图历史栈改成**由 hash 驱动**，避免两套状态各自记）
+
+---
+
+### 1. 目标
+
+用户 2026-10-02 原话：**「当前前端页面路径统一为 `http://localhost:8080/`，无法通过路径区分哪个功能哪个页面，是不支持吗？」** → 选定**方案 A（`location.hash` 路由）**。
+
+达成：
+
+1. **URL 能区分页面**（`#/media`、`#/tags`、`#/media/2130` …），可收藏、可分享。
+2. **F5 刷新回到原页**（现在一律回默认视图）。
+3. **浏览器前进 / 后退键可用**，且与页面里的「← 返回」**行为一致**（唯一真源 = URL）。
+4. 「← 返回」按钮的显示条件改由 URL 历史决定，不再依赖内存里的 `viewHistory` 数组。
+
+---
+
+### 2. 非目标（明确不做）
+
+| # | 不做 | 原因 |
+|---|---|---|
+| N1 | **History API 真路径**（`/media/2130`） | 后端得给所有未知路径做 SPA fallback，还必须小心别把 `/api/**`、`/covers/**`、`/clips/**`、`/exports/**`、`/recommend-editor/**` 这些**真实文件路由**兜进去。收益（URL 好看）不值这个风险 |
+| N2 | **筛选条件进 URL**（`#/media?tagIds=406&genres=奇幻&genreMode=AND`） | 6 个维度 + 3 个 mode + 分页 + 排序的序列化/反序列化面很大，且与「跳转时清筛选」的语义纠缠。**列为后续可加**（见 §7） |
+| N3 | 桌面模式（Electron，已冻结）的启动路径 | 它只是 `RECOMMEND_DESKTOP_MODE` 下 `showView('media')` 一次，路由化后照旧（写 hash 或直接 `showView` 均可） |
+| N4 | 树状/嵌套路由、面包屑 | YAGNI |
+| N5 | 后端任何改动 | 零 |
+
+---
+
+### 3. URL 契约（唯一真源）
+
+| hash | 视图 | 说明 |
+|---|---|---|
+| `#/search` | `search` | 搜索页（查询词**不进 URL**，N2） |
+| `#/media` | `media` | 媒体页（保留当前分页/筛选，与现在一致） |
+| `#/media/<id>` | `media-detail` | 媒体详情，深链可直达（打开时会 fetch） |
+| `#/videos` | `videos` | 视频列表 |
+| `#/timeline/<fp>` | `timeline` | 时间线（`fp` 是 64 位 hex，`encodeURIComponent`） |
+| `#/episodes/<id>` | `episode-detail` | 集详情 |
+| `#/clips/<id>` | `clip-detail` | 片段详情 |
+| `#/highlight/<id>` | `highlight` | 高亮工程 |
+| `#/stats` | `stats` | 统计 |
+| `#/tags` | `tags` | 标签页（**媒体作用域不进 URL**，与其他筛选同口径，N2） |
+| `#/collections` | `collections` | 收藏夹 |
+| `#/recommend` | `recommend` | 推荐工作台 |
+
+**缺省**：空 hash / 非法 hash → `search`（桌面模式 → `media`），并 `replace` 成规范 hash（不往历史里塞一条垃圾记录）。
+
+---
+
+### 4. 实现要点
+
+| # | 要点 | 说明 |
+|---|---|---|
+| I1 | `hashOf()` / `parseHash()` | 纯函数：视图+参数 → hash 字符串；hash → `{view, id, fp}` 或 `null`。**测试友好**（可单测，见 §6） |
+| I2 | `applyHash(route)` | 路由 → 实际渲染：调用现成的 `showView` / `openMediaDetail` / `loadEpisodeDetail` / `renderClipDetail` / `loadHighlightProject` / `loadTimeline`（后 6 个都是「不入栈」的渲染函数，已存在） |
+| I3 | `navigate(route, {replace})` | **唯一写 URL 的入口**：`location.hash = ...` / `history.replaceState`。`replace=true` 用于「修正非法 hash」「跳转后自身状态微调」 |
+| I4 | `hashchange` 监听 | 浏览器前进/后退最终都走它 → `applyHash`。**用 `lastAppliedHash` 比对去重**，避免「程序写 hash → hashchange → 再 apply」的双跑/环路 |
+| I5 | **视图历史栈改由 URL 决定** | 页内「← 返回」= `history.back()`；能否返回 = `history.length > 1` 且不是首个入口。**删掉内存 `viewHistory` 数组**（今天的 `pushView/goBack/syncBackButtons` 三处随之改写） |
+| I6 | 侧栏 tab 点击 | 现在「清栈 + showView」→ 改成 `navigate({view})`（push）。从 A 视图点 B 再点回 A，浏览器后退应能层层退回（这才是"像网站一样"） |
+| I7 | 跳转（标签页→媒体页 / 详情→标签页 / 统计→搜索 / 列表→详情 / 列表→时间线） | 全部改成 `navigate(...)`，不再维护布尔兵与手写栈 |
+| I8 | 滚动恢复 | 保留现有 `restoreListScroll`；由 `applyHash` 在返回时按 `SCROLL_RESTORE_VIEWS` 触发（原来靠栈里记的 `scrollY`，现改为内存 `Map<view,scrollY>`，离开时记、回来时用） |
+| I9 | 详情返回文案 | `VIEW_LABEL` 保留；文案来源改为「从哪来」——`history.state` 里存一个 `from` 视图名（`pushState` 时写入），拿不到就退回「← 返回」 |
+
+---
+
+### 5. 边界与失败模式
+
+| 场景 | 期望行为 |
+|---|---|
+| 直接打开 `#/media/999999`（不存在） | 详情页显示后端给的错误状态，**不白屏**；返回可用 |
+| 直接打开 `#/timeline/xxx`（无此视频） | 时间线显示「加载失败」，返回可用 |
+| 手动改 hash 成垃圾（`#/zzz`） | 回落 `search` + `replace` 成 `#/search`（不留垃圾历史） |
+| 从 `#/tags` 连点 20 次侧栏 tab | 历史长度不爆（同一视图连续导航 → `replace`，不 push 重复项） |
+| F5 在详情页 | 重新进入该详情；**详情页的「← 返回」在刷新后应指向列表**（`history.state.from` 丢失时回落 `#/media`） |
+| `#/recommend`（编辑器）退出时 | 现有 `unmountRecommendEditor()` 逻辑保留，由 `applyHash` 的视图切换统一触发 |
+| 桌面模式启动 | `RECOMMEND_DESKTOP_MODE` 下缺省视图换成 `media`（现在就是这个行为） |
+
+---
+
+### 6. 验收清单
+
+1. 六个视图互相切换时 URL 跟着变，**且不产生重复历史**（连点同一 tab 只 1 条）。
+2. F5 在 `#/media/2130` 上刷新 → 仍在该详情页。
+3. 浏览器**后退**键 = 页面里的「← 返回」结果一致（同一序列跑两遍对比）。
+4. 标签页「去媒体页筛选」→ 媒体页（筛好）→ 浏览器后退 → **回到标签页且展开行还在**（今天的探针场景 1 换成用后退键跑）。
+5. 详情 →「📋 在标签页查看」→ 标签页 → 后退 → 回到**那部**媒体详情。
+6. 搜索结果视频卡 → 时间线 → 后退 → **搜索页**（不是媒体详情）。
+7. 非法 hash 回落不乱跳、不往历史塞垃圾。
+8. `parseHash()` / `hashOf()` 往返一致（新增 vitest 单测：`#/media/2130` ↔ `{view:'media-detail', id:2130}` 等，含非法输入）。
+9. 全站零 JS 异常（探针 `Runtime.exceptionThrown` 为空）。
+
+---
+
+### 7. 明确留给后续（不在本规格）
+
+- **筛选条件进 URL**（N2）：要让「分享一条筛好的链接」成立就得做这个；那天建议连分页/排序一起进。
+- 真路径（History API + SPA fallback）。
+- 浏览器标题栏/文档 title 随视图变化（顺手可加，1 行；要做说一声）。
+
+---
+
+### 8. 风险
+
+| # | 风险 | 对策 |
+|---|---|---|
+| R1 | **双写环路**：程序写 hash + `hashchange` 再 apply → 视图抖两次 | `lastAppliedHash` 去重（I4）；所有写 URL 只走 `navigate()`（I3） |
+| R2 | 内存栈/URL 两套状态不一致 | **删掉内存栈**，只留 URL + `Map<view,scrollY>`（I5） |
+| R3 | 探针/自动化依赖旧栈行为 | 今天的探针 `.tmp/probe-back-cover.mjs` 要改成用 `history.back()` 跑（验收第 3–6 条就是这么要求的） |
+| R4 | 详情页刷新后返回目标退化成 `#/media` | 可接受（原生浏览器行为也一样）；不为此加 localStorage |
+
+---
+
+### 9. 待用户决定的点
+
+| # | 议题 | 我的建议 |
+|---|---|---|
+| Q1 | 筛选条件是否进 URL | **第一版不进**（N2）—— 序列化面大、和「跳转清筛选」纠缠；等你要"分享筛好的链接"再加 |
+| Q2 | 文档 title 是否随视图变 | 顺手做（1 行），让标签页/详情页在浏览器标签上也能区分 |
+| Q3 | 旧 `viewHistory` 是否直接删 | **直接删**（R2）；不留兼容层 |

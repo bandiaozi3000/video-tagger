@@ -186,3 +186,19 @@
 ## 待用户批准
 
 本计划**未批准前不动任何代码**。批准方式：回「执行」/「按计划做」，或指出要调整的阶段。
+
+---
+
+## P11 单页 hash 路由（批次第三部分；用户 2026-10-02 批准执行）
+
+> 规格见同批次主规格 `specs/2026-10-02-video-tagger-v031-design.md` 第三部分。
+
+- [ ] **P11.1 路由核心**：`hashOf(route)` / `parseHash(hash)`（纯函数）+ `navigate(route, {replace})`（**唯一写 URL 入口**）+ `lastAppliedHash` 去重，杜绝双写环路
+- [ ] **P11.2 `applyHash`**：路由 → 复用现成「不入栈」渲染函数（`showView` / `loadMediaDetail` / `loadEpisodeDetail` / `renderClipDetail` / `loadHighlightProject` / `loadTimeline`）
+- [ ] **P11.3 删内存视图栈**：`viewHistory` / `pushView` / 手写 `goBack` → `history.back()`；`syncBackButtons()` 改判 `history.length > 1`，详情返回文案取 `history.state.from`
+- [ ] **P11.4 跳转点全部改 `navigate`**：侧栏 tab、`openMediaDetail` / `openClipDetail` / `openEpisodeDetail` / `openHighlightProject` / `openTimeline`、标签页两处（去媒体页筛选 / 在标签页查看）、统计页热门标签 chip、改名/合并/删除后的「回媒体页」
+- [ ] **P11.5 滚动恢复**：栈里的 `scrollY` → `scrollMemory: Map<view, scrollY>`（离开时记、`applyHash` 落回时用）
+- [ ] **P11.6 启动**：`startRouting()`（监听 `hashchange` + 应用初始路由）；空/非法 hash 回落 `search`（桌面模式 `media`）并 `replaceState` 成规范 hash
+- [ ] **P11.7 文档 title 随视图变**（规格 Q2 顺手做）
+- [ ] **P11.8 验收**：主规格 §6 九条，探针脚本（含 F5 回原页、浏览器后退 = 页内返回、非法 hash 回落、`parseHash`/`hashOf` 往返表）
+- [ ] **P11.9 收尾**：工作日志 + 主规格状态更新（第三部分 → 已实现）
