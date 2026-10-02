@@ -6158,12 +6158,23 @@ function buildTagUsageInline(t) {
             .catch(() => {});
         return box;
     }
-    const group = (label, items, render) => {
+    const group = (label, items, render, action) => {
         const g = document.createElement('div');
         g.className = 'tag-usage-group';
         const head = document.createElement('div');
         head.className = 'tag-usage-head';
         head.textContent = `${label} · ${items.length}`;
+        // 组标题右侧的附加动作（目前只有媒体的「去媒体页筛选」——条目点击已改成「打开那部媒体」，
+        // 筛选入口得另找一个位置，不能再抢占条目的点击）
+        if (action) {
+            const a = document.createElement('button');
+            a.type = 'button';
+            a.className = 'btn-mini tag-usage-btn';
+            a.textContent = action.label;
+            a.title = action.title;
+            a.addEventListener('click', action.onClick);
+            head.appendChild(a);
+        }
         g.appendChild(head);
         if (items.length > 0) {
             const list = document.createElement('div');
@@ -6180,8 +6191,34 @@ function buildTagUsageInline(t) {
         return b;
     };
     box.append(
-        group('媒体', cached.media || [], m => chipBtn(m.title || ('#' + m.id), '去媒体页按这个词筛选',
-            () => jumpToMediaTagFilter(t))),
+        group('媒体', cached.media || [], m => {
+            // 条目本体 = **直接打开那部媒体**（用户 2026-10-02：以前点它是去媒体页按词筛选，不是跳到那部媒体）
+            const row = document.createElement('span');
+            row.className = 'tag-usage-item';
+            row.appendChild(chipBtn(m.title || ('#' + m.id), '打开这部媒体', () => openMediaDetail(m.id)));
+            // × 解除「这个词条 ↔ 这部媒体」的关联（接口与媒体详情页标签池里的 × 同一个）
+            const rm = document.createElement('button');
+            rm.type = 'button';
+            rm.className = 'btn-mini danger tag-usage-rm';
+            rm.textContent = '×';
+            rm.title = `解除「${t.name}」与这部媒体的关联`;
+            rm.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                rm.disabled = true;
+                try {
+                    const resp = await fetch(`/api/media/${m.id}/tags/${t.id}`, { method: 'DELETE' });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    tagUsageCache.delete(t.id);   // 使用位置重取（条数会和分组一起变）
+                    await loadTags();              // 词条列表的媒体计数 / 未引用状态一起刷新
+                    showToast(`已解除「${t.name}」与「${m.title || ('#' + m.id)}」的关联`);
+                } catch (err) {
+                    rm.disabled = false;
+                    showToast(`解除失败：${(err && err.message) || err}`);
+                }
+            });
+            row.appendChild(rm);
+            return row;
+        }, { label: '去媒体页筛选', title: `去媒体页按「${t.name}」筛选所有关联媒体`, onClick: () => jumpToMediaTagFilter(t) }),
         group('集', cached.episodes || [], e => {
             const s = document.createElement('span'); s.className = 'chip'; s.textContent = e.title || ('集 #' + e.id); return s;
         }),

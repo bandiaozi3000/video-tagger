@@ -3467,6 +3467,8 @@ body.desktop-mode .site-footer { display: none; }
 .tag-usage-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag-merge-impact { font-size: 12px; line-height: 1.6; color: #ffd166; margin: 6px 0; }
 .tag-usage-btn { margin-left: 6px; }
+.tag-usage-item { display: inline-flex; align-items: center; gap: 2px; }
+.tag-usage-rm { padding: 0 7px; height: 22px; line-height: 1; font-size: 13px; }
 
 /* 媒体卡片上的标签 chip（v0.31：卡片正反馈，最多两个 + N） */
 .media-card-tag { padding: 1px 7px; border-radius: 999px; font-size: 10.5px; line-height: 16px;
