@@ -791,28 +791,40 @@ export function TemplatePanel({ onClose, notify, payload, onApply }: {
 }
 
 /** 候选库筛选的维度定义（数组序 = chips 行与面板列表的固定序）。 */
-type FilterDim = 'collectionIds' | 'years' | 'format' | 'subcategoryId' | 'tagIds' | 'statuses' | 'confirmed';
+type FilterDim = 'genres' | 'season' | 'collectionIds' | 'years' | 'format' | 'subcategoryId' | 'tagIds' | 'statuses' | 'confirmed';
 
 const FILTER_DIMS: { key: FilterDim; label: string }[] = [
-  { key: 'collectionIds', label: '收藏夹' },
+  { key: 'genres', label: '题材' },
   { key: 'years', label: '年份' },
+  { key: 'season', label: '季度' },
+  { key: 'statuses', label: '状态' },
+  { key: 'collectionIds', label: '收藏夹' },
+  { key: 'tagIds', label: '标签' },
+  // ↑ 这六个与媒体页**逐字同序**；下面三个是推荐侧特有的（媒体页没这三项）
   { key: 'format', label: '格式' },
   { key: 'subcategoryId', label: '子分类' },
-  { key: 'tagIds', label: '标签' },
-  { key: 'statuses', label: '状态' },
   { key: 'confirmed', label: '档案' },
+];
+
+/** 季度字典：与媒体页 `SEASON_OPTIONS` 同口径（唯一真值 = `external_work.season`，冬=1–3 月）。 */
+const SEASON_OPTIONS = [
+  { value: 'WINTER', label: '冬（1–3 月）' },
+  { value: 'SPRING', label: '春（4–6 月）' },
+  { value: 'SUMMER', label: '夏（7–9 月）' },
+  { value: 'FALL', label: '秋（10–12 月）' },
 ];
 
 /**
  * 维度内能否切「且 / 或」——**与媒体页同一张表**（`app.js` 的 `DIM_MODE_CAPABLE`）：
  * 标签/收藏夹能切；年份/状态是单值列（一个媒体只有一个年份/状态），选 2 个取交恒为空集，所以不给开关。
  */
-const MODE_CAPABLE: Partial<Record<FilterDim, true>> = { tagIds: true, collectionIds: true };
+const MODE_CAPABLE: Partial<Record<FilterDim, true>> = { tagIds: true, collectionIds: true, genres: true };
 const isModeDim = (key: FilterDim) => MODE_CAPABLE[key] === true;
 /** 模式值（与媒体页 `mediaFilter.mode` 同形） */
 function modeOf(filter: CandidateFilter, key: FilterDim): 'AND' | 'OR' {
   if (key === 'tagIds') return filter.mode.tagIds;
   if (key === 'collectionIds') return filter.mode.collectionIds;
+  if (key === 'genres') return filter.mode.genres;
   return 'OR';
 }
 /** 切换某个多选维度里的一个值 */
@@ -849,6 +861,8 @@ function yearRuns(items: MediaBrief[]): { year: number | null; items: MediaBrief
 interface FilterDict {
   collections: { id: number; name: string }[];
   years: number[];
+  /** 题材（与媒体页同一份字典：白名单 ∩ 实际 + 计数） */
+  genres: { genre: string; count: number }[];
   formats: MediaFormatBrief[];
   /** 展平后的子分类（`格式 › 子分类` 路径，parentId 消歧） */
   subOptions: { id: number; label: string }[];
@@ -860,6 +874,8 @@ function isDimActive(filter: CandidateFilter, key: FilterDim): boolean {
   if (key === 'subcategoryId') return filter.subcategoryId != null;
   if (key === 'collectionIds') return filter.collectionIds.length > 0;
   if (key === 'years') return filter.years.length > 0;
+  if (key === 'genres') return filter.genres.length > 0;
+  if (key === 'season') return filter.season.length > 0;
   if (key === 'statuses') return filter.statuses.length > 0;
   return filter.tagIds.length > 0;
 }
@@ -872,6 +888,9 @@ function dimLabel(filter: CandidateFilter, key: FilterDim, dict: FilterDict): st
         .map((id) => dict.collections.find((c) => c.id === id)?.name ?? `收藏夹 #${id}`)
         .join(modeOf(filter, 'collectionIds') === 'OR' ? ' 或 ' : ' 且 ');
     case 'years': return filter.years.map((y) => `${y} 年`).join(' 或 ');
+    case 'genres': return filter.genres.join(modeOf(filter, 'genres') === 'OR' ? ' 或 ' : ' 且 ');
+    case 'season':
+      return filter.season.map((s) => SEASON_OPTIONS.find((o) => o.value === s)?.label ?? s).join(' 或 ');
     case 'statuses':
       return filter.statuses.map((s) => STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s).join(' 或 ');
     case 'format': return dict.formats.find((f) => f.code === filter.format)?.name ?? filter.format;
@@ -946,6 +965,16 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
         next.years = toggleIn(next.years, y, !next.years.includes(y));
         break;
       }
+      case 'genres': {
+        const g = String(value);
+        next.genres = toggleIn(next.genres, g, !next.genres.includes(g));
+        break;
+      }
+      case 'season': {
+        const s = String(value);
+        next.season = toggleIn(next.season, s, !next.season.includes(s));
+        break;
+      }
       case 'format': next.format = value == null ? '' : String(value); break;
       case 'subcategoryId': next.subcategoryId = value as number | null; break;
       case 'tagIds': {
@@ -975,6 +1004,8 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
       else if (key === 'confirmed') next.confirmed = null;
       else if (key === 'collectionIds') next.collectionIds = [];
       else if (key === 'years') next.years = [];
+      else if (key === 'genres') next.genres = [];
+      else if (key === 'season') next.season = [];
       else if (key === 'statuses') next.statuses = [];
       else if (key === 'tagIds') { next.tagIds = []; next.tagNames = []; }
     }
@@ -1077,6 +1108,10 @@ function FilterPopover({ anchor, filter, onFilter, onClear, onClose, dict, hitCo
             ? optionList([{ value: null, label: '全部' }, { value: 1, label: '已确认' }, { value: 0, label: '待确认' }], filter.confirmed)
             : dim === 'statuses'
               ? <>{modeSwitch('statuses')}{multiList(STATUS_OPTIONS.map((s) => ({ value: s.value, label: s.label })), filter.statuses)}</>
+              : dim === 'genres'
+                ? <>{modeSwitch('genres')}{multiList(dict.genres.map((g) => ({ value: g.genre, label: g.genre })), filter.genres)}</>
+                : dim === 'season'
+                  ? multiList(SEASON_OPTIONS.map((s) => ({ value: s.value, label: s.label })), filter.season)
               : dim === 'collectionIds'
                 ? <>{modeSwitch('collectionIds')}{multiList(dict.collections.map((c) => ({ value: c.id, label: c.name })), filter.collectionIds)}</>
                 : dim === 'years'
@@ -1313,6 +1348,8 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   const [total, setTotal] = React.useState(0);
   const [collections, setCollections] = React.useState<{ id: number; name: string }[]>([]);
   const [years, setYears] = React.useState<number[]>([]);
+  /** 题材字典（与媒体页同一接口：白名单 ∩ 实际 + 计数） */
+  const [genres, setGenres] = React.useState<{ genre: string; count: number }[]>([]);
   const [formats, setFormats] = React.useState<MediaFormatBrief[]>([]);
   const [qText, setQText] = React.useState(filter.q);
   const [popOpen, setPopOpen] = React.useState(false);
@@ -1375,6 +1412,8 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
     switch (key) {
       case 'collectionIds': next.collectionIds = []; break;
       case 'years': next.years = []; break;
+      case 'genres': next.genres = []; break;
+      case 'season': next.season = []; break;
       case 'format': next.format = ''; break;
       case 'subcategoryId': next.subcategoryId = null; break;
       case 'tagIds': next.tagIds = []; next.tagNames = []; break;
@@ -1387,6 +1426,7 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   React.useEffect(() => {
     api.collections().then(setCollections).catch(() => undefined);
     api.years().then(setYears).catch(() => undefined);
+    api.genres().then(setGenres).catch(() => undefined);
     api.formats().then(setFormats).catch(() => undefined);
   }, []);
 
@@ -1625,7 +1665,7 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
 
   const openClips = (media: MediaBrief) => setClipMedia(media);
 
-  const dict: FilterDict = { collections, years, formats, subOptions };
+  const dict: FilterDict = { collections, years, genres, formats, subOptions };
   const chipKeys = expandChips ? activeKeys : activeKeys.slice(0, 4);
   const loadedIds = list.map((item) => item.id);
   /** 右栏正在看的媒体（高亮它那张卡，两栏同步） */

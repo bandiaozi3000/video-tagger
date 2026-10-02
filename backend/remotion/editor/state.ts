@@ -193,9 +193,10 @@ export function applyLocalParams(input: MultiMediaPocInput, config: EditorConfig
 
 export function defaultFilter(): CandidateFilter {
   return {
-    q: '', collectionIds: [], years: [], format: '', subcategoryId: null,
+    q: '', collectionIds: [], years: [], genres: [], season: [], format: '', subcategoryId: null,
     tagIds: [], tagNames: [], statuses: [], confirmed: null,
-    mode: { tagIds: 'AND', collectionIds: 'OR' },
+    // 默认模式与媒体页**逐字一致**（题材 OR / 标签 AND / 收藏夹 OR）
+    mode: { tagIds: 'AND', collectionIds: 'OR', genres: 'OR' },
   };
 }
 
@@ -219,6 +220,8 @@ function normalizeFilter(raw: unknown): CandidateFilter {
   const merged = { ...defaultFilter(), ...legacy } as CandidateFilter & Legacy;
   if (!Array.isArray(merged.collectionIds)) merged.collectionIds = [];
   if (!Array.isArray(merged.years)) merged.years = [];
+  if (!Array.isArray(merged.genres)) merged.genres = [];
+  if (!Array.isArray(merged.season)) merged.season = [];
   if (!Array.isArray(merged.statuses)) merged.statuses = [];
   if (!Array.isArray(merged.tagIds)) merged.tagIds = [];
   if (!Array.isArray(merged.tagNames)) merged.tagNames = [];
@@ -235,6 +238,7 @@ function normalizeFilter(raw: unknown): CandidateFilter {
   if (legacy.tagMode === 'AND' || legacy.tagMode === 'OR') mode.tagIds = legacy.tagMode;
   if (mode.tagIds !== 'OR') mode.tagIds = 'AND';
   if (mode.collectionIds !== 'AND') mode.collectionIds = 'OR';
+  if (mode.genres !== 'AND') mode.genres = 'OR';
   merged.mode = mode;
   // ⚠️ 删的是 **merged** 上的旧键（不是 legacy）—— 展开后 merged 已经自带一份拷贝，
   // 删 legacy 等于没删，旧字段会一直跟着草稿/模板存下去（2026-10-02 测试拓出来的真 bug）。

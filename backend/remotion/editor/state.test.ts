@@ -87,9 +87,11 @@ describe('筛选契约：与媒体页同源（2026-10-02 对齐后钉住）', ()
       ...defaultFilter(),
       q: ' 魔女 ',
       collectionIds: [3, 9],
-      mode: { tagIds: 'OR', collectionIds: 'AND' },
+      mode: { tagIds: 'OR', collectionIds: 'AND', genres: 'AND' },
       years: ['2018', '2024'],
       statuses: ['WANT', 'DONE'],
+      season: ['SPRING', 'FALL'],
+      genres: ['奇幻', '恋爱'],
       tagIds: [407, 408],
       format: 'TV',
       subcategoryId: 12,
@@ -102,6 +104,9 @@ describe('筛选契约：与媒体页同源（2026-10-02 对齐后钉住）', ()
     expect(params.get('status')).toBe('WANT,DONE');
     expect(params.get('tagIds')).toBe('407,408');
     expect(params.get('tagMode')).toBe('OR');
+    expect(params.get('season')).toBe('SPRING,FALL');
+    expect(params.get('genres')).toBe('奇幻,恋爱');
+    expect(params.get('genreMode')).toBe('AND');
     expect(params.get('format')).toBe('TV');
     expect(params.get('subcategoryId')).toBe('12');
     expect(params.get('confirmed')).toBe('0'); // 0 必须照发（不能用真值判断）
@@ -124,7 +129,7 @@ describe('筛选契约：与媒体页同源（2026-10-02 对齐后钉住）', ()
     expect(f?.years).toEqual(['2019']);
     expect(f?.statuses).toEqual(['DONE']);
     expect(f?.tagIds).toEqual([42]);
-    expect(f?.mode).toEqual({ tagIds: 'OR', collectionIds: 'OR' });
+    expect(f?.mode).toEqual({ tagIds: 'OR', collectionIds: 'OR', genres: 'OR' });
     // 旧字段不该留在新对象上（否则会跟着草稿一直存下去）
     expect((f as unknown as { collectionId?: unknown })?.collectionId).toBeUndefined();
     expect((f as unknown as { tagMode?: unknown })?.tagMode).toBeUndefined();

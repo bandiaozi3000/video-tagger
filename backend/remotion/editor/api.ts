@@ -200,6 +200,10 @@ export interface CandidateFilter {
   collectionIds: number[];
   /** 首播年（**多选**；单值列，只「任一匹配」） */
   years: string[];
+  /** 题材（**多选**；`external_work.genres_json`，与媒体页同一份白名单 ∩ 实际字典） */
+  genres: string[];
+  /** 季度（**多选**；WINTER/SPRING/SUMMER/FALL，仅列匹配，与媒体页同口径） */
+  season: string[];
   /** 格式 code（`''` = 不筛） */
   format: string;
   subcategoryId: number | null;
@@ -216,7 +220,7 @@ export interface CandidateFilter {
    * - 可切「且 / 或」的维度：`tagIds`（默认 AND）、`collectionIds`（默认 OR）；
    * - `years` / `statuses` 是单值列（一个媒体只有一个年份/状态）→ 只能「任一匹配」，所以不给开关（选了 2 个年份取交恒为空集）。
    */
-  mode: { tagIds: 'AND' | 'OR'; collectionIds: 'AND' | 'OR' };
+  mode: { tagIds: 'AND' | 'OR'; collectionIds: 'AND' | 'OR'; genres: 'AND' | 'OR' };
 }
 
 /** 候选筛选 → `/api/media` 与 `/api/media/count` 的共用查询参数。 */
@@ -230,6 +234,11 @@ export function filterParams(filter: CandidateFilter): URLSearchParams {
     params.set('collectionMode', filter.mode.collectionIds);
   }
   if (filter.years.length > 0) params.set('year', filter.years.join(','));
+  if (filter.season.length > 0) params.set('season', filter.season.join(','));
+  if (filter.genres.length > 0) {
+    params.set('genres', filter.genres.join(','));
+    params.set('genreMode', filter.mode.genres);
+  }
   if (filter.format) params.set('format', filter.format);
   if (filter.subcategoryId != null) params.set('subcategoryId', String(filter.subcategoryId));
   if (filter.tagIds.length > 0) {
@@ -370,6 +379,8 @@ export const api = {
     return json<number>(`/api/media/count${params.toString() ? '?' + params.toString() : ''}`);
   },
   years: () => json<number[]>('/api/media/years'),
+  /** 题材字典（与媒体页同一接口：白名单 ∩ 库内实际，带各自媒体数） */
+  genres: () => json<{ genre: string; count: number }[]>('/api/media/genres'),
   collections: () => json<{ id: number; name: string }[]>('/api/collections'),
   formats: () => json<MediaFormatBrief[]>('/api/media-formats'),
   /** 标签建议（筛选面板的搜索式选择器；只选既有标签，不创建）。 */
