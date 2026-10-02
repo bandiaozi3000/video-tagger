@@ -1,6 +1,6 @@
 # 导出任务持久化（本期）— 执行计划
 
-- **上游规格**：`docs/superpowers/specs/2026-09-21-export-task-persistence-design.md`（2026-09-21 用户批准）
+- **上游规格**：`docs/superpowers/specs/2026-09-21-video-tagger-v030-export-task-persistence-design.md`（2026-09-21 用户批准）
 - **状态**：本期（持久化）已实现并验证；下期（分块续渲）也已实现，**Java 端循环待真跑验证**（见 worklog 2026-09-21 增量二）
 - **范围**：持久化 / 取消 / 启动接管 / 孤儿清理。**不含**分块续渲（下期）
 

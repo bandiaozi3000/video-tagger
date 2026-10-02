@@ -4,8 +4,8 @@
 - **关联版本**：**v0.27**（用户 2026-09-18 拍板：仍归 v0.27，不回退已提交的版本号）
 - **状态**：**已批准并已实现**（2026-09-18 用户四条决策 + 三项待确认全部拍板，授权「一次性执行完毕」；实际实现记录见 §15 与执行计划）。
 - **前置文档**：
-  - POC 设计规格：`docs/superpowers/specs/2026-09-14-video-tagger-remotion-multi-media-recommend-poc-design.md`
-  - 替换规格：`docs/superpowers/specs/2026-09-17-video-tagger-remotion-recommend-replace-design.md`
+  - POC 设计规格：`docs/superpowers/specs/2026-09-14-video-tagger-v027-remotion-multi-media-recommend-poc-design.md`
+  - 替换规格：`docs/superpowers/specs/2026-09-17-video-tagger-v027-remotion-recommend-replace-design.md`
   - 当日工作日志：`docs/worklog/2026-09-17.md`、`docs/worklog/2026-09-18.md`
 
 ## 1. 目标
@@ -226,7 +226,7 @@ Remotion 逐帧渲染时帧可能乱序或重复；CSS 动画/过渡的状态取
 ## 15. 变更记录
 
 - 2026-09-18：初版。依据用户当日四条决策（验收口径统一 / BGM 搬进 Remotion / `clip` 按新风格 / 一次性重写）编写。
-- 2026-09-18（同日）：用户批准并拍板三项待确认（见 §14）；授权「一次性执行完毕」。执行计划：`docs/superpowers/plans/2026-09-18-video-tagger-remotion-native-recommend-plan.md`。
+- 2026-09-18（同日）：用户批准并拍板三项待确认（见 §14）；授权「一次性执行完毕」。执行计划：`docs/superpowers/plans/2026-09-18-video-tagger-v027-remotion-native-recommend-plan.md`。
 - 2026-09-18（同日，实现后补记）**与规格的两处偏离**：
   1. **保留 `scripts/asset-server.ts`**（§9 原写换成 `publicDir/staticFile`）。理由：该素材通道已在渲染 / Player 预览 / 单帧验证三处跑通，省 36 行的收益抵不上三种运行环境的素材解析回归风险。
   2. **封面仍走 data URI（embed）**（§8 原写改素材根相对路径）。理由：避免为封面额外复制文件；渲染自足性已实测，预览走 `url` 模式。

@@ -1,6 +1,6 @@
 # 执行计划：媒体库对账（关联 / 合并 / 清理）+ 可复用脚本 + 「全量同步」入口
 
-- 对应规格：`docs/superpowers/specs/2026-09-25-media-reconcile-design.md`（已拍板）
+- 对应规格：`docs/superpowers/specs/2026-09-25-video-tagger-v030-media-reconcile-design.md`（已拍板）
 - 状态：**待用户确认后开工**
 - 备份：`data/backup/video_tagger_pre-purge_20260925_015334.sql`（12MB，已验证可完整还原，38 表零差异）
 

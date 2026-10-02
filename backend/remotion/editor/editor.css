@@ -1128,6 +1128,19 @@ body:has(#view-recommend:not([hidden])) .site-footer { display: none; }
 .vt-film-card:hover .vt-film-drop.quiet { opacity: 1; }
 .vt-film-drop.quiet:hover { background: rgba(248, 113, 113, .92); color: #1b0d0d; border-color: transparent; }
 
+/* 已关闭的结构化场景（2026-09-30）：胶片条卡片 ✕ 关掉的类别列在这里，点一下就恢复。
+   只在真有已关闭项时渲染 —— 关掉的结构不会变成常驻 UI。 */
+.vt-hidden-sections {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.vt-hidden-sections .btn-mini { opacity: .85; }
+.vt-hidden-sections .btn-mini:hover { opacity: 1; }
+
 /* ---------- 跨媒体借片段：来源页签与角标（2026-09-20）---------- */
 .vt-clip-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; }
 .vt-clip-source-group { display: inline-flex; align-items: center; gap: 4px; }

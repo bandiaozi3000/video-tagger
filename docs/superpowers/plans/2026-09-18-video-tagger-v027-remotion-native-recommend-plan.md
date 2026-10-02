@@ -1,7 +1,7 @@
 # Remotion 原生重写推荐视频渲染链路 执行计划（v0.27）
 
 - **日期**：2026-09-18
-- **设计规格**：`docs/superpowers/specs/2026-09-18-video-tagger-remotion-native-recommend-design.md`
+- **设计规格**：`docs/superpowers/specs/2026-09-18-video-tagger-v027-remotion-native-recommend-design.md`
 - **状态**：用户已批准规格并授权「一次性执行完毕」（含四条决策：保留分组/每屏、`/html` 退役、`clip` 按新风格、一次性重写；版本仍归 v0.27）。
 
 ## 任务分解

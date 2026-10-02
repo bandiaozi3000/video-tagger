@@ -61,6 +61,15 @@ public class RecommendVideoService {
         default void onBoundaries(java.util.List<Integer> frames) {
         }
 
+        /**
+         * 本轮**拼接成功后**上报块键（`ChunkKeys.Entry`：内容键 → 块产物**绝对路径**）。
+         *
+         * 导出任务把它写进 `video_export_task.chunk_keys`，下一轮「增量更新」就靠它判断哪些块可复用。
+         * 失败时不报（键没落库 = 下一轮全渲，安全侧）。
+         */
+        default void onChunkKeys(java.util.List<ChunkKeys.Entry> entries) {
+        }
+
         /** 每块渲完后问一次：false = 用户暂停/取消了 → 停下并保留已完成块。 */
         default boolean shouldContinue() {
             return true;
@@ -186,6 +195,51 @@ public class RecommendVideoService {
                        Map<Long, RecommendMediaClips> requestedClips, Integer seed, Integer clipVolume, String bgmRange,
                        String stingPath, Integer stingVolume, java.nio.file.Path workDir,
                        RenderCallbacks callbacks, Boolean tierGroup) {
+        return renderOrPrepare(ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle, subtitle,
+                coverSize, openingIds, mediaMarks, intro, durations, endingTitle, endingText, bgColor, bgImages,
+                bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed,
+                bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset, requestedClips, seed, clipVolume,
+                bgmRange, stingPath, stingVolume, workDir, callbacks, tierGroup, false);
+    }
+
+    /**
+     * **只准备**：素材（片段/BGM/转场音）+ `render-input.json`，**不渲染**（增量更新专用）。
+     *
+     * 返回写好的输入文件路径（不是成品路径！）。`workDir` **必填**：临时目录会被回收，返回的路径就没意义了。
+     */
+    public Path prepareInput(List<Long> ids, String title, String format, String resolution, List<String> bgmPaths,
+                             List<RecommendService.BgmTrack> bgmTracks, String groupBy, String groupStyle,
+                             String subtitle, String coverSize, List<Long> openingIds, Map<Long, RecommendService.MediaMark> mediaMarks, String intro,
+                             RecommendService.Durations durations, String endingTitle, String endingText,
+                             String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
+                             String prologueTitle,
+                             String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
+                             Integer bgmScale,
+                             Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
+                             Map<String, Boolean> detailShow, String preset,
+                             Map<Long, RecommendMediaClips> requestedClips, Integer seed, Integer clipVolume, String bgmRange,
+                             String stingPath, Integer stingVolume, java.nio.file.Path workDir, Boolean tierGroup) {
+        return renderOrPrepare(ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle, subtitle,
+                coverSize, openingIds, mediaMarks, intro, durations, endingTitle, endingText, bgColor, bgImages,
+                bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed,
+                bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset, requestedClips, seed, clipVolume,
+                bgmRange, stingPath, stingVolume, workDir, null, tierGroup, true);
+    }
+
+    /** `render` 与 `prepareInput` 的共用躯干（`prepareOnly=true` 时只写到 `render-input.json` 就返回）。 */
+    private Path renderOrPrepare(List<Long> ids, String title, String format, String resolution, List<String> bgmPaths,
+                                 List<RecommendService.BgmTrack> bgmTracks, String groupBy, String groupStyle,
+                                 String subtitle, String coverSize, List<Long> openingIds, Map<Long, RecommendService.MediaMark> mediaMarks, String intro,
+                                 RecommendService.Durations durations, String endingTitle, String endingText,
+                                 String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity, Integer bgBlur, Integer bgBrightness,
+                                 String prologueTitle,
+                                 String groupSort, Integer openingSpeed, Integer endingScrollSpeed,
+                                 Integer bgmScale,
+                                 Integer bgmX, Integer bgmY, String brandTitle, Integer perScreen,
+                                 Map<String, Boolean> detailShow, String preset,
+                                 Map<Long, RecommendMediaClips> requestedClips, Integer seed, Integer clipVolume, String bgmRange,
+                                 String stingPath, Integer stingVolume, java.nio.file.Path workDir,
+                                 RenderCallbacks callbacks, Boolean tierGroup, boolean prepareOnly) {
         if (ids == null || ids.isEmpty()) {
             throw new IllegalArgumentException("ids 不能为空");
         }
@@ -199,6 +253,9 @@ public class RecommendVideoService {
         }
 
         boolean ownsWorkDir = workDir == null;   // 外部给目录 = 持久工作目录（由导出任务管理生命周期）
+        if (prepareOnly && ownsWorkDir) {
+            throw new IllegalArgumentException("prepareInput 必须指定工作目录（临时目录会被回收，返回的输入文件将立刻失效）");
+        }
         Path work = null;
         try {
             work = ownsWorkDir ? Files.createTempDirectory("vt-recommend-") : workDir;
@@ -221,7 +278,7 @@ public class RecommendVideoService {
                     openingIds, mediaMarks, intro, durations, endingTitle, endingText, bgColor, bgImages, bgRotationSec,
                     bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed,
                     endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset, preparedClips,
-                    subtitle, coverSize, seed, clipVolume, bgmRange, stingPath, stingVolume, callbacks, tierGroup);
+                    subtitle, coverSize, seed, clipVolume, bgmRange, stingPath, stingVolume, callbacks, tierGroup, prepareOnly);
         } catch (IOException e) {
             throw new IllegalStateException("渲染准备失败: " + e.getMessage(), e);
         } finally {
@@ -246,12 +303,8 @@ public class RecommendVideoService {
                                     Map<Long, List<RecommendClipSourceService.PreparedClip>> preparedClips,
                                     String subtitle, String coverSize, Integer seed, Integer clipVolume, String bgmRange,
                                     String stingSource, Integer stingVolume,
-                                    RenderCallbacks callbacks, Boolean tierGroup) throws IOException {
-        Path remotion = resolveRemotionDir();
-        if (remotion == null) {
-            throw new IllegalStateException("未找到 Remotion 工程（期望 <remotion-dir>/scripts/render-recommend.ts，"
-                    + "当前配置 " + remotionDir + "）");
-        }
+                                    RenderCallbacks callbacks, Boolean tierGroup, boolean prepareOnly) throws IOException {
+        Path remotion = remotionDirOrThrow();
 
         // 转场音乐（片名卡专用）：与 BGM 同型——拷进工作目录，传给渲染侧一个相对路径
         String stingRel = null;
@@ -292,6 +345,10 @@ public class RecommendVideoService {
                 seed, clipVolume, bgmRange, stingRel, stingVolume, tierGroup);
         Path inputFile = work.resolve("render-input.json");
         Files.writeString(inputFile, inputJson, StandardCharsets.UTF_8);
+        if (prepareOnly) {
+            // 只准备（增量更新：先拿到新输入，再比对块键决定渲哪几块）
+            return inputFile;
+        }
         Path out = uniqueExportName(title, fmt);
         log.info("Remotion 渲染推荐视频: {} 部, {}x{}, BGM {} 曲, node={}, remotion={}",
                 ids.size(), wh[0], wh[1], bgmRelPaths.size(), nodePath, remotion);
@@ -371,15 +428,16 @@ public class RecommendVideoService {
      * 素材准备是分钟级且不可续的，续渲的价值就在跳过它。
      */
     public Path resumeFromWorkDir(Path work, String fmt, RenderCallbacks callbacks) {
-        return resumeFromWorkDir(work, fmt, callbacks, null);
+        return resumeFromWorkDir(work, fmt, callbacks, null, null);
     }
 
     /**
      * 续渲 / 局部重渲的入口。
      *
      * @param overwrite 非空 = 写到这个路径（局部重渲直接覆盖原成品）；空 = 另存一个不重名的文件
+     * @param known     已知分块表（非空 = **跳过 probe**；见 {@link KnownPlan}）；空 = 老实跑一遍 probe
      */
-    public Path resumeFromWorkDir(Path work, String fmt, RenderCallbacks callbacks, Path overwrite) {
+    public Path resumeFromWorkDir(Path work, String fmt, RenderCallbacks callbacks, Path overwrite, KnownPlan known) {
         Path remotion = resolveRemotionDir();
         if (remotion == null) {
             throw new IllegalStateException("未找到 Remotion 工程（期望 <remotion-dir>/scripts/render-recommend.ts）");
@@ -392,7 +450,7 @@ public class RecommendVideoService {
         String lower = format.toLowerCase();
         Path out = overwrite != null ? overwrite : uniqueExportName(null, lower);
         try {
-            return renderChunksAndConcat(remotion, work, inputFile, out, lower, RecommendService.fpsOf(null), callbacks);
+            return renderChunksAndConcat(remotion, work, inputFile, out, lower, RecommendService.fpsOf(null), callbacks, known);
         } catch (IOException e) {
             throw new IllegalStateException("续渲失败: " + e.getMessage(), e);
         }
@@ -401,37 +459,89 @@ public class RecommendVideoService {
     /** 分块 + 拼接的共用尾巴（首次导出与续渲都走这里）。 */
     private Path renderChunksAndConcat(Path remotion, Path work, Path inputFile, Path out, String lower, int fallbackFps,
                                        RenderCallbacks callbacks) throws IOException {
-        String probeOutput = runRenderNode(remotion, work, inputFile, work.resolve("probe.bin"), lower, null, true, callbacks);
-        int totalFrames = parseJsonInt(probeOutput, "durationInFrames", -1);
-        int fps = parseJsonInt(probeOutput, "fps", fallbackFps);
-        // 优先按**时间轴段边界**切（切点落在转场处）；拿不到边界就回退固定 2 分钟切法
-        List<Integer> boundaryFrames = RenderChunks.parseBoundaryFrames(probeOutput);
-        if (callbacks != null && !boundaryFrames.isEmpty()) {
-            callbacks.onBoundaries(boundaryFrames);
+        return renderChunksAndConcat(remotion, work, inputFile, out, lower, fallbackFps, callbacks, null);
+    }
+
+    /**
+     * 分块 + 拼接的共用尾巴（首次导出与续渲/重渲都走这里）。
+     *
+     * @param known 已知分块表（非空就**不再跑 probe**：省掉一次重复的 bundle + selectComposition（实测上界 ≤3 分钟））
+     */
+    private Path renderChunksAndConcat(Path remotion, Path work, Path inputFile, Path out, String lower, int fallbackFps,
+                                       RenderCallbacks callbacks, KnownPlan known) throws IOException {
+        return renderChunksAndConcat(remotion, work, inputFile, out, lower, fallbackFps, callbacks, known, null, null);
+    }
+
+    /**
+     * 分块 + 拼接的共用尾巴（含增量更新）。
+     *
+     * @param known      已知分块表（非空就不再 probe）
+     * @param reuseFiles 新块号 → **旧轮产物绝对路径**（增量更新复用；其他场景传 null）
+     * @param blockKeys  新块键（与 `chunks` 一一对应；已知就直接用，不再装配）
+     */
+    private Path renderChunksAndConcat(Path remotion, Path work, Path inputFile, Path out, String lower, int fallbackFps,
+                                       RenderCallbacks callbacks, KnownPlan known,
+                                       Map<Integer, String> reuseFiles, List<String> blockKeys) throws IOException {
+        int fps;
+        List<RenderChunks.Chunk> chunks;
+        List<Integer> boundaryFrames = List.of();
+        if (known != null && !known.chunks().isEmpty()) {
+            fps = known.fps() > 0 ? known.fps() : fallbackFps;
+            chunks = known.chunks();
+        } else {
+            ProbeInfo probe = probe(remotion, work, inputFile, lower, callbacks);
+            fps = probe.fps() > 0 ? probe.fps() : fallbackFps;
+            boundaryFrames = probe.boundaryFrames();
+            chunks = boundaryFrames.isEmpty()
+                    ? RenderChunks.plan(probe.durationInFrames(), fps)
+                    : RenderChunks.planByBoundaries(boundaryFrames, probe.durationInFrames(), RenderChunks.chunkFrames(fps));
+            if (chunks.isEmpty()) {
+                throw new IllegalStateException("续渲失败（合成总帧数为 " + probe.durationInFrames() + "）");
+            }
+            if (blockKeys == null) {
+                blockKeys = ChunkKeys.assemble(probe.globalKey(), probe.segmentKeys(), boundaryFrames, chunks);
+            }
         }
-        List<RenderChunks.Chunk> chunks = boundaryFrames.isEmpty()
-                ? RenderChunks.plan(totalFrames, fps)
-                : RenderChunks.planByBoundaries(boundaryFrames, totalFrames, RenderChunks.chunkFrames(fps));
-        if (chunks.isEmpty()) {
-            throw new IllegalStateException("续渲失败（合成总帧数为 " + totalFrames + "）");
+        if (blockKeys == null) {
+            blockKeys = List.of();
         }
-        int done = 0;
+        Map<Integer, String> reuse = reuseFiles == null ? Map.of() : reuseFiles;
+        /*
+         * 本次实际要渲的块 = 既没有本轮产物、也没有可复用旧产物的那些。
+         * `done` 从一开始就把**复用的块也算进去**，否则面板会在"已完成 8/9"与"已完成 1/9"之间反复横跳。
+         */
+        List<RenderChunks.Chunk> pending = new ArrayList<>();
         for (RenderChunks.Chunk chunk : chunks) {
-            Path chunkFile = work.resolve(RenderChunks.chunkFileName(chunk.index()));
-            if (Files.exists(chunkFile) && Files.size(chunkFile) > 1024) {
-                done++;
+            if (!chunkReady(work, chunk.index()) && !reuse.containsKey(chunk.index())) {
+                pending.add(chunk);
+            }
+        }
+        int done = chunks.size() - pending.size();
+        if (callbacks != null && done > 0) {
+            // 用户 2026-10-01：「重新渲染第一块，为什么感觉像是全部重新渲染了？」——
+            // 以前这里什么都不报，面板长时间显示「已完成 0/9 块」，看着就像从头来。
+            callbacks.onChunks(done, chunks.size());
+            callbacks.onStage((known == null ? "" : known.stageLabel()) + "：复用 " + done + "/" + chunks.size()
+                    + " 块已有产物，本次只渲 " + pending.size() + " 块");
+        }
+        int rendered = 0;
+        for (RenderChunks.Chunk chunk : chunks) {
+            if (chunkReady(work, chunk.index()) || reuse.containsKey(chunk.index())) {
                 continue;
             }
             if (callbacks != null) {
                 callbacks.onChunks(done, chunks.size());
-                callbacks.onStage("渲染第 " + (chunk.index() + 1) + "/" + chunks.size() + " 块");
+                callbacks.onStage((known == null || known.stageLabel() == null || known.stageLabel().isBlank()
+                        ? "" : known.stageLabel() + "：") + "渲染第 " + (chunk.index() + 1) + "/" + chunks.size() + " 块");
             }
             RuntimeException last = null;
             for (int attempt = 0; attempt < 2; attempt++) {
                 try {
-                    runRenderNode(remotion, work, inputFile, chunkFile, lower,
+                    runRenderNode(remotion, work, inputFile, chunkFile(work, chunk.index()), lower,
                             new int[]{chunk.fromFrame(), chunk.toFrame()}, false,
-                            mapChunkProgress(callbacks, chunk.index(), chunks.size()));
+                            // 进度按**本次要渲的块数**摊，而不是全片块数：局部重渲 1 块时以前最多只能到 1/9≈11%，
+                            // 看起来像"卡住不动"（用户 2026-10-01 反馈的观感问题之一）。
+                            mapChunkProgress(callbacks, rendered, Math.max(1, pending.size())));
                     last = null;
                     break;
                 } catch (RuntimeException e) {
@@ -442,6 +552,7 @@ public class RecommendVideoService {
             if (last != null) {
                 throw last;
             }
+            rendered++;
             done++;
             if (callbacks != null) {
                 callbacks.onChunks(done, chunks.size());
@@ -450,23 +561,167 @@ public class RecommendVideoService {
                 }
             }
         }
-        Path rendered = work.resolve("rendered." + lower);
+        Path renderedFile = work.resolve("rendered." + lower);
+        // 每块的**实际文件**：复用块指向旧轮目录（绝对路径），其余就是本轮产物
+        java.util.function.IntFunction<String> fileOf = index -> reuse.getOrDefault(index, chunkFile(work, index).toAbsolutePath().toString());
         if (chunks.size() == 1) {
-            Files.move(work.resolve(RenderChunks.chunkFileName(0)), rendered, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(Path.of(fileOf.apply(0)), renderedFile, StandardCopyOption.REPLACE_EXISTING);
         } else {
             if (callbacks != null) {
-                callbacks.onStage("拼接收尾");
+                // 明确告知"这一步要整片重写"，否则用户看到进度跳到 100% 后还在跑会以为卡死（2026-10-01）
+                callbacks.onStage("整片重新拼接（-c copy 不重编码，但需完整重写一次成品）");
                 callbacks.onProgress(100);
             }
             Path listFile = work.resolve("concat-list.txt");
-            Files.writeString(listFile, RenderChunks.concatList(chunks, fps), StandardCharsets.UTF_8);
-            concatChunks(listFile, rendered, work);
+            Files.writeString(listFile, RenderChunks.concatList(chunks, fps, fileOf), StandardCharsets.UTF_8);
+            concatChunks(listFile, renderedFile, work);
         }
-        if (!Files.exists(rendered) || Files.size(rendered) < 1024) {
+        if (!Files.exists(renderedFile) || Files.size(renderedFile) < 1024) {
             throw new IllegalStateException("拼接产物为空");
         }
-        Files.move(rendered, out, StandardCopyOption.REPLACE_EXISTING);
+        Files.move(renderedFile, out, StandardCopyOption.REPLACE_EXISTING);
+        // 拼接成功后才上报块键：键没落库 = 下一轮宁可全渲（安全侧）
+        if (callbacks != null && blockKeys.size() == chunks.size()) {
+            List<ChunkKeys.Entry> entries = new ArrayList<>();
+            for (RenderChunks.Chunk chunk : chunks) {
+                entries.add(new ChunkKeys.Entry(blockKeys.get(chunk.index()), fileOf.apply(chunk.index())));
+            }
+            callbacks.onChunkKeys(entries);
+        }
         return out;
+    }
+
+    /**
+     * 只跑 `--probe` 并把一行 JSON 解析成 {@link ProbeInfo}（分块表 + 块键的公共入口）。
+     *
+     * 增量更新需要**先**拿到新的分块表与块键才能计划复用，所以探帧不能再藏在 `renderChunksAndConcat` 里。
+     */
+    public ProbeInfo probe(Path remotion, Path work, Path inputFile, String lower, RenderCallbacks callbacks) throws IOException {
+        String probeOutput = runRenderNode(remotion, work, inputFile, work.resolve("probe.bin"), lower, null, true, callbacks);
+        List<Integer> boundaryFrames = RenderChunks.parseBoundaryFrames(probeOutput);
+        if (callbacks != null && !boundaryFrames.isEmpty()) {
+            callbacks.onBoundaries(boundaryFrames);
+        }
+        List<String> keys = ChunkKeys.parseProbeKeys(probeOutput);
+        return new ProbeInfo(
+                parseJsonInt(probeOutput, "fps", 0),
+                parseJsonInt(probeOutput, "width", 0),
+                parseJsonInt(probeOutput, "height", 0),
+                parseJsonInt(probeOutput, "durationInFrames", -1),
+                boundaryFrames,
+                keys.isEmpty() ? null : keys.get(0),
+                keys.size() > 1 ? List.copyOf(keys.subList(1, keys.size())) : List.of());
+    }
+
+    /**
+     * 「按当前草稿增量更新」（2026-10-01 用户拍板，设计规格 §4）：
+     * 拿本轮新 input 探帧 → 装配新块键 → 与上一轮的键比对 → **只渲变化块**（其余复用旧产物）→
+     * 整片重新拼接 → 覆盖 `out`。
+     *
+     * 失败的后果只有"多渲几块"：键不相等就渲，从不拿不确定的产物去拼。
+     *
+     * @param newWork   本轮目录（新 input、新渲的块都写在这里；与旧轮目录不同 → 旧产物全程不动）
+     * @param oldEntries 上一轮块键（任务行 `chunk_keys`）；空 = 全渲（但会把新键写回去供下轮用）
+     */
+    public IncrementalResult renderIncremental(Path newWork, Path newInputFile, Path out, String fmt,
+                                               Path legacyWork, List<ChunkKeys.Entry> oldEntries, RenderCallbacks callbacks) throws IOException {
+        Path remotion = remotionDirOrThrow();
+        String lower = (fmt == null || fmt.isBlank() ? "MP4" : fmt).toLowerCase();
+        if (oldEntries == null || oldEntries.isEmpty()) {
+            // 老任务（2026-10-01 之前导出）没有块键 → 对**旧工作目录的**输入再探一次帧把它补出来；
+            // 探不出来（输入/工程丢了）→ 保持空表 → 本轮整片重渲，但新键会写回去供下轮用。
+            oldEntries = legacyEntries(remotion, legacyWork, lower);
+        }
+        ProbeInfo probe = probe(remotion, newWork, newInputFile, lower, callbacks);
+        List<RenderChunks.Chunk> chunks = probe.boundaryFrames().isEmpty()
+                ? RenderChunks.plan(probe.durationInFrames(), probe.fps())
+                : RenderChunks.planByBoundaries(probe.boundaryFrames(), probe.durationInFrames(), RenderChunks.chunkFrames(probe.fps()));
+        if (chunks.isEmpty()) {
+            throw new IllegalStateException("增量更新失败（合成总帧数为 " + probe.durationInFrames() + "）");
+        }
+        List<String> blockKeys = ChunkKeys.assemble(probe.globalKey(), probe.segmentKeys(), probe.boundaryFrames(), chunks);
+        if (blockKeys.size() != chunks.size()) {
+            log.warn("块键不可用（{} 个键 / {} 块）→ 本轮整片重渲", blockKeys.size(), chunks.size());
+            blockKeys = List.of();
+        }
+        ChunkKeys.ReusePlan plan = blockKeys.isEmpty()
+                ? new ChunkKeys.ReusePlan(Map.of(), chunks.stream().map(RenderChunks.Chunk::index).toList())
+                : ChunkKeys.planReuse(oldEntries, blockKeys);
+        if (plan.pending().isEmpty()) {
+            log.info("增量更新：{} 块全部命中旧产物，无需重渲", chunks.size());
+            return new IncrementalResult(chunks.size(), 0, false, true);
+        }
+        if (callbacks != null) {
+            if (plan.reuse().isEmpty()) {
+                callbacks.onStage("本次改动影响全部块（标题/主题/BGM/总长等全局内容变了）→ 整片重渲 " + chunks.size() + " 块");
+            } else {
+                callbacks.onStage("增量比对完成：复用 " + plan.reuse().size() + " 块 / 重渲 " + plan.pending().size() + " 块");
+            }
+        }
+        // 上面的提示是"瞬时"的（紧接着就被逐块文案覆盖）→ 把结论**带进后续持久文案**（用户 2026-10-01 验收时发现看不到）。
+        String stageLabel = plan.reuse().isEmpty() ? "增量更新（整片重渲）" : "增量更新";
+        renderChunksAndConcat(remotion, newWork, newInputFile, out, lower, probe.fps(), callbacks,
+                new KnownPlan(probe.fps(), chunks, stageLabel), plan.reuse(), blockKeys);
+        return new IncrementalResult(plan.reuse().size(), plan.pending().size(), plan.reuse().isEmpty(), false);
+    }
+
+    /** 老任务补算块键：对旧工作目录里的 `render-input.json` 探帧 → 装配键 → 指向旧目录里的块文件。 */
+    private List<ChunkKeys.Entry> legacyEntries(Path remotion, Path legacyWork, String lower) {
+        if (legacyWork == null) {
+            return List.of();
+        }
+        Path oldInput = legacyWork.resolve("render-input.json");
+        if (!Files.exists(oldInput)) {
+            log.warn("增量更新：旧工作目录没有 render-input.json（{}）→ 本轮整片重渲", legacyWork);
+            return List.of();
+        }
+        try {
+            ProbeInfo old = probe(remotion, legacyWork, oldInput, lower, null);
+            List<RenderChunks.Chunk> chunks = old.boundaryFrames().isEmpty()
+                    ? RenderChunks.plan(old.durationInFrames(), old.fps())
+                    : RenderChunks.planByBoundaries(old.boundaryFrames(), old.durationInFrames(), RenderChunks.chunkFrames(old.fps()));
+            List<String> keys = ChunkKeys.assemble(old.globalKey(), old.segmentKeys(), old.boundaryFrames(), chunks);
+            if (keys.size() != chunks.size()) {
+                log.warn("增量更新：旧输入补不出块键（{} / {}）→ 本轮整片重渲", keys.size(), chunks.size());
+                return List.of();
+            }
+            List<ChunkKeys.Entry> entries = new ArrayList<>();
+            for (RenderChunks.Chunk chunk : chunks) {
+                entries.add(new ChunkKeys.Entry(keys.get(chunk.index()), chunkFile(legacyWork, chunk.index()).toAbsolutePath().toString()));
+            }
+            log.info("增量更新：已为旧任务补算 {} 块键（目录 {}）", entries.size(), legacyWork);
+            return entries;
+        } catch (Exception e) {
+            log.warn("增量更新：旧输入探帧失败，本轮整片重渲: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private Path remotionDirOrThrow() {
+        Path remotion = resolveRemotionDir();
+        if (remotion == null) {
+            throw new IllegalStateException("未找到 Remotion 工程（期望 <remotion-dir>/scripts/render-recommend.ts，"
+                    + "当前配置 " + remotionDir + "）");
+        }
+        return remotion;
+    }
+
+    /** 块产物是否已可用（与续渲跳过条件同一判据，别写成两份）。 */
+    private static boolean chunkReady(Path work, int index) {
+        Path file = chunkFile(work, index);
+        return Files.exists(file) && sizeOf(file) > 1024;
+    }
+
+    private static Path chunkFile(Path work, int index) {
+        return work.resolve(RenderChunks.chunkFileName(index));
+    }
+
+    private static long sizeOf(Path file) {
+        try {
+            return Files.size(file);
+        } catch (IOException e) {
+            return -1;
+        }
     }
 
     /**
@@ -502,6 +757,29 @@ public class RecommendVideoService {
             value = Integer.parseInt(matcher.group(1));
         }
         return value;
+    }
+
+    /**
+     * 已知分块表（**局部重渲 / 续渲专用**）：有它就不跑 `--probe`。
+     *
+     * 为什么值得：probe 会重新 `bundle()` 整个 Remotion 工程 + `selectComposition`，与"要渲多少帧"无关，
+     * 实测是每次点「重渲第 N 块」里最没意义的那段等待（输入是工作目录里冻结的 `render-input.json`，
+     * 再探一遍只是重复劳动）。分块表本来就能从任务行复原，见 `VideoExportTaskService.knownPlanOf`。
+     *
+     * @param fps        合成帧率（`concatList` 要靠它把块帧数换算成秒）
+     * @param chunks     分块表（必须与工作目录里的 `chunk-xxx.mp4` 一一对应）
+     * @param stageLabel 任务面板上的阶段前缀（「局部重渲」/「续渲」）
+     */
+    public record KnownPlan(int fps, List<RenderChunks.Chunk> chunks, String stageLabel) {
+    }
+
+    /** probe 结果：分块表与块键的唯一来源（`--probe` 一行 JSON）。 */
+    public record ProbeInfo(int fps, int width, int height, int durationInFrames,
+                            List<Integer> boundaryFrames, String globalKey, List<String> segmentKeys) {
+    }
+
+    /** 增量更新的结果（给任务面板报告）。 */
+    public record IncrementalResult(int reused, int rendered, boolean allChanged, boolean noChange) {
     }
 
     /** 暂停/取消时抛出：任务服务据此**保留**工作目录且不标 ERROR。 */

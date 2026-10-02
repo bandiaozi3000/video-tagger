@@ -79,7 +79,16 @@ export interface EditorConfig {
     /** 片名卡（银幕式）备注：省略 = 跟随 `note`（老草稿零变化）。 */
     titleNote?: boolean;
     /** 片名卡显示「推荐理由」（每部手写那句）：省略 = 不显示。 */
-    titleReason?: boolean };
+    titleReason?: boolean;
+    /**
+     * 结构化场景关闭开关（用户 2026-09-30）：`false` = 关掉这一整类段，**省略 = 开**（老草稿零变化）。
+     * 键名/语义与 `src/sections.ts` 的 `SECTION_SWITCH`、Java 白名单一一对应。
+     */
+    sectionOpening?: boolean;
+    sectionIntro?: boolean;
+    sectionGroup?: boolean;
+    sectionRecap?: boolean;
+    sectionEnding?: boolean };
   bgColor: string;
   bgImages: string[];
   bgRotationSec: number;
@@ -370,6 +379,12 @@ export const api = {
   metaFingerprint: (ids: number[]) =>
     json<{ fingerprint: string }>(`/api/recommend/meta-fingerprint?ids=${ids.join(",")}`),
   exportVideo: (config: EditorConfig) => postJson<{ taskId: number; status: string }>('/api/recommend/video', config),
+  /**
+   * 按当前草稿**增量更新**某个成品任务（2026-10-01）：只重渲内容变了的块，其余复用已有产物，
+   * 拼接后覆盖原成品。请求体与导出一致（后端同一条翻译路径）。
+   */
+  updateFromDraft: (id: number, config: EditorConfig) =>
+    postJson<{ taskId: number; status: string }>(`/api/recommend/video/tasks/${id}/update-from-draft`, config),
   tasks: () => json<ExportTask[]>('/api/recommend/video/tasks'),
   pauseTask: (id: number) =>
     fetch(`/api/recommend/video/tasks/${id}/pause`, { method: 'POST' }).then(() => undefined),

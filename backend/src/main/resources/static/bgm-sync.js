@@ -1,7 +1,7 @@
 /**
  * 从 Bangumi 同步（2026-09-21 简化版 · 交互重设计）。
  *
- * 设计规格：`docs/superpowers/specs/2026-09-21-bangumi-sync-simplify-design.md`。
+ * 设计规格：`docs/superpowers/specs/2026-09-21-video-tagger-v030-bangumi-sync-simplify-design.md`。
  *
  * 交互三条原则（用户 2026-09-21 要求「方便直观、操作简单、没有歧义」后重定）：
  * ① **一个同步入口**：底部只有「同步勾选的 N 部」。原来的「直接同步全部」已删 ——

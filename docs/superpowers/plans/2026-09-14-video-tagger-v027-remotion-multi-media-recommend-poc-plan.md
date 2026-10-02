@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node.js、TypeScript、React、Remotion、`@remotion/player`、`@remotion/bundler`、`@remotion/renderer`、现有 FFmpeg/ffprobe、现有 `RecommendMediaClips` 选择语义。
 
-**Spec:** `docs/superpowers/specs/2026-09-14-video-tagger-remotion-multi-media-recommend-poc-design.md`
+**Spec:** `docs/superpowers/specs/2026-09-14-video-tagger-v027-remotion-multi-media-recommend-poc-design.md`
 
 ## Global Constraints
 
@@ -456,8 +456,8 @@ npm run render:poc -- --input poc/real-input.json --output poc/output/run-2.mp4
 
 **Files:**
 - Modify: `docs/worklog/2026-09-14.md`
-- Modify only if accepted: `docs/superpowers/specs/2026-09-14-video-tagger-remotion-multi-media-recommend-poc-design.md`
-- Modify only if accepted: `docs/superpowers/plans/2026-09-14-video-tagger-remotion-multi-media-recommend-poc-plan.md`
+- Modify only if accepted: `docs/superpowers/specs/2026-09-14-video-tagger-v027-remotion-multi-media-recommend-poc-design.md`
+- Modify only if accepted: `docs/superpowers/plans/2026-09-14-video-tagger-v027-remotion-multi-media-recommend-poc-plan.md`
 
 **Interfaces:**
 - Consumes: Player 页面、两次 MP4、ffprobe JSON、测试和类型检查结果。

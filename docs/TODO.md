@@ -53,7 +53,7 @@
 
 **结论**：POC 已验收通过，Remotion 路线可行。**生产接线需用户单独授权后才能开工。**
 
-**已交付**：`backend/remotion/`（场景计划纯函数 + 4 项单测、四类场景 Composition、Player 页面、Node renderer）；未提交的真实样本与成片在 `backend/remotion/poc/output/`（已 gitignore）。证据见 `docs/worklog/2026-09-14.md` 与 `docs/superpowers/specs/2026-09-14-video-tagger-remotion-multi-media-recommend-poc-design.md` §11。
+**已交付**：`backend/remotion/`（场景计划纯函数 + 4 项单测、四类场景 Composition、Player 页面、Node renderer）；未提交的真实样本与成片在 `backend/remotion/poc/output/`（已 gitignore）。证据见 `docs/worklog/2026-09-14.md` 与 `docs/superpowers/specs/2026-09-14-video-tagger-v027-remotion-multi-media-recommend-poc-design.md` §11。
 
 ### 待用户决定
 

@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -49,6 +51,8 @@ public class VideoExportTaskService {
     public record VideoExportTask(long id, String title, int mediaCount, String status, String message,
                                   String filePath, String format, long createdAt, long finishedAt, int progress,
                                   int chunksDone, int chunksTotal, String stageText, String boundaryFrames,
+                                  /** 块键 JSON（增量更新的复用依据；排障用，面板不读）。 */
+                                  String chunkKeys,
                                   /** 此刻**真的占着串行渲染线程**的是不是它（2026-09-27）。
                                    *  为什么需要：暂停只在块边界生效 → 一个 PAUSED 任务可能仍在渲当前块，
                                    *  而它会把后面的 PENDING 任务堵住；UI 不标明“谁在占”就完全看不出为何排队不动。 */
@@ -57,7 +61,7 @@ public class VideoExportTaskService {
         /** 兼容旧构造（没有进度/分块信息时按 0/空）。 */
         public VideoExportTask(long id, String title, int mediaCount, String status, String message,
                                String filePath, String format, long createdAt, long finishedAt) {
-            this(id, title, mediaCount, status, message, filePath, format, createdAt, finishedAt, 0, 0, 0, null, null, false);
+            this(id, title, mediaCount, status, message, filePath, format, createdAt, finishedAt, 0, 0, 0, null, null, null, false);
         }
     }
 
@@ -67,6 +71,9 @@ public class VideoExportTaskService {
 
     /** 已请求取消的任务 id：渲染线程收尾时据此把结果写成 CANCELLED 而不是 ERROR。 */
     private final java.util.Set<Long> cancelled = ConcurrentHashMap.newKeySet();
+
+    /** 增量更新的轮次目录名（`inc-<yyyyMMdd-HHmmss>`，与导出成品的时间戳同风格）。 */
+    private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     /** 节流用：任务 id → [上次写库时间, 上次写的百分比]。 */
     private final Map<Long, long[]> progressMark = new ConcurrentHashMap<>();
@@ -115,6 +122,114 @@ public class VideoExportTaskService {
                 bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset, requestedClips, seed, clipVolume, bgmRange,
                 stingPath, stingVolume, tierGroup);
         return toDto(mapper.selectById(id));
+    }
+
+    /**
+     * 「按当前草稿增量更新」（2026-10-01，设计规格 §3）：用当前草稿重算输入，**只重渲内容变了的块**，
+     * 其余复用本任务工作目录里已有的块产物，拼接后覆盖原成品。
+     *
+     * 同步段只做能立刻报错的校验（并把任务置回 RUNNING），慢活（素材准备 + 探帧 + 渲染）丢给渲染线程。
+     */
+    public VideoExportTask updateFromDraft(long id, List<Long> ids, String title, String format, String resolution,
+                                          List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
+                                          String groupBy, String groupStyle, String subtitle, String coverSize,
+                                          List<Long> openingIds, Map<Long, RecommendService.MediaMark> mediaMarks, String intro,
+                                          RecommendService.Durations durations, String endingTitle, String endingText,
+                                          String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity,
+                                          Integer bgBlur, Integer bgBrightness, String prologueTitle, String groupSort,
+                                          Integer openingSpeed, Integer endingScrollSpeed, Integer bgmScale, Integer bgmX,
+                                          Integer bgmY, String brandTitle, Integer perScreen,
+                                          Map<String, Boolean> detailShow, String preset,
+                                          Map<Long, RecommendMediaClips> requestedClips, Integer seed, Integer clipVolume,
+                                          String bgmRange, String stingPath, Integer stingVolume, Boolean tierGroup) {
+        VideoExportTaskRow row = mapper.selectById(id);
+        if (row == null) {
+            throw new NoSuchElementException("导出任务不存在: " + id);
+        }
+        if ("RUNNING".equals(row.getStatus()) || "PENDING".equals(row.getStatus())) {
+            throw new IllegalStateException("任务正在渲染中，先等它结束或取消");
+        }
+        if (row.getFilePath() == null || row.getWorkDir() == null) {
+            throw new IllegalStateException("这个任务没有成品/工作目录，无法增量更新（请重新导出）");
+        }
+        if (!Files.isDirectory(Path.of(row.getWorkDir()))) {
+            throw new IllegalStateException("工作目录已丢失（" + row.getWorkDir() + "），无法增量更新（请重新导出）");
+        }
+        long now = System.currentTimeMillis();
+        cancelled.remove(id);
+        mapper.markRunningFromTerminal(id, now);
+        mapper.updateChunks(id, 0, 0, "增量更新：准备素材（复用缓存）…", now);
+        // 进度也要归零：增量更新是在一个**已完成**的任务上跑，不重置就会在“还没开始渲”时显示 100%（实测）
+        mapper.updateProgress(id, 0, now);
+        self.updateAsync(id, ids, title, format, resolution, bgmPaths, bgmTracks, groupBy, groupStyle, subtitle,
+                coverSize, openingIds, mediaMarks, intro, durations, endingTitle, endingText, bgColor, bgImages,
+                bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort, openingSpeed, endingScrollSpeed,
+                bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset, requestedClips, seed, clipVolume,
+                bgmRange, stingPath, stingVolume, tierGroup);
+        return toDto(mapper.selectById(id));
+    }
+
+    /** 增量更新的异步执行体：新目录 ‣ 准备输入 ‣ 比对块键 ‣ 只渲变化块 ‣ 拼接覆盖（全程不碰旧目录）。 */
+    @Async("videoExportExecutor")
+    public void updateAsync(long id, List<Long> ids, String title, String format, String resolution,
+                            List<String> bgmPaths, List<RecommendService.BgmTrack> bgmTracks,
+                            String groupBy, String groupStyle, String subtitle, String coverSize,
+                            List<Long> openingIds, Map<Long, RecommendService.MediaMark> mediaMarks, String intro,
+                            RecommendService.Durations durations, String endingTitle, String endingText,
+                            String bgColor, List<String> bgImages, Integer bgRotationSec, Integer bgOpacity,
+                            Integer bgBlur, Integer bgBrightness, String prologueTitle, String groupSort,
+                            Integer openingSpeed, Integer endingScrollSpeed, Integer bgmScale, Integer bgmX,
+                            Integer bgmY, String brandTitle, Integer perScreen,
+                            Map<String, Boolean> detailShow, String preset,
+                            Map<Long, RecommendMediaClips> requestedClips, Integer seed, Integer clipVolume,
+                            String bgmRange, String stingPath, Integer stingVolume, Boolean tierGroup) {
+        VideoExportTaskRow row = mapper.selectById(id);
+        if (row == null || row.getWorkDir() == null || row.getFilePath() == null) {
+            return;
+        }
+        Path work = Path.of(row.getWorkDir());
+        Path incDir = work.resolve("inc-" + FILE_TS.format(LocalDateTime.now()));
+        activeTaskId.set(id);
+        try {
+            Files.createDirectories(incDir);
+            String fmt = row.getFormat() == null ? "MP4" : row.getFormat();
+            Path inputFile = videoService.prepareInput(ids, title, format, resolution, bgmPaths, bgmTracks, groupBy,
+                    groupStyle, subtitle, coverSize, openingIds, mediaMarks, intro, durations, endingTitle, endingText,
+                    bgColor, bgImages, bgRotationSec, bgOpacity, bgBlur, bgBrightness, prologueTitle, groupSort,
+                    openingSpeed, endingScrollSpeed, bgmScale, bgmX, bgmY, brandTitle, perScreen, detailShow, preset,
+                    requestedClips, seed, clipVolume, bgmRange, stingPath, stingVolume, incDir, tierGroup);
+            List<ChunkKeys.Entry> oldEntries = ChunkKeys.parseEntries(row.getChunkKeys());
+            RecommendVideoService.IncrementalResult result = videoService.renderIncremental(incDir, inputFile,
+                    Path.of(row.getFilePath()), fmt, work, oldEntries, callbacks(id));
+            String message;
+            if (result.noChange()) {
+                message = "内容未变：" + result.reused() + " 块均可复用，成品未动";
+                mapper.updateMessage(id, message, System.currentTimeMillis());
+                mapper.finishIfActive(id, "DONE", message, row.getFilePath(), System.currentTimeMillis());
+                log.info("导出任务 {} 增量更新：无需重渲（{} 块全命中）", id, result.reused());
+                return;
+            }
+            message = (result.allChanged() ? "整片重渲：" : "增量更新：") + "复用 " + result.reused()
+                    + " 块 / 重渲 " + result.rendered() + " 块（旧块已保留）";
+            mapper.finishIfActive(id, "DONE", message, row.getFilePath(), System.currentTimeMillis());
+            log.info("导出任务 {} 增量更新完成：{}", id, message);
+        } catch (RecommendVideoService.RenderPausedException e) {
+            // 增量更新中途被暂停：成品与旧目录都没动（最终覆盖那一步没执行）→ 再点一次即可
+            mapper.finishIfActive(id, "INTERRUPTED", "增量更新已暂停：成品保持上一版，可再次点「增量更新」",
+                    row.getFilePath(), System.currentTimeMillis());
+            log.info("导出任务 {} 增量更新被暂停: {}", id, e.getMessage());
+        } catch (Exception e) {
+            if (cancelled.remove(id)) {
+                log.info("导出任务 {} 增量更新已取消: {}", id, e.getMessage());
+            } else {
+                log.error("导出任务 {} 增量更新失败", id, e);
+                mapper.finishIfActive(id, "ERROR", e.getMessage() == null ? "增量更新失败" : e.getMessage(),
+                        row.getFilePath(), System.currentTimeMillis());
+            }
+        } finally {
+            activeTaskId.compareAndSet(id, 0);
+            progressMark.remove(id);
+        }
     }
 
     @Async("videoExportExecutor")
@@ -209,6 +324,16 @@ public class VideoExportTaskService {
                     mapper.setBoundaryFrames(id, json.append(']').toString(), System.currentTimeMillis());
                 } catch (RuntimeException e) {
                     log.warn("写分块边界失败（不影响渲染）: {}", e.getMessage());
+                }
+            }
+
+            @Override
+            public void onChunkKeys(java.util.List<ChunkKeys.Entry> entries) {
+                try {
+                    // 只在拼接成功后上报 → 这里写库失败 = 下一轮没有可复用的键（全渲），不会拼错片
+                    mapper.setChunkKeys(id, ChunkKeys.toJson(entries), System.currentTimeMillis());
+                } catch (RuntimeException e) {
+                    log.warn("写块键失败（不影响本次渲染，下一轮将整片重渲）: {}", e.getMessage());
                 }
             }
 
@@ -334,7 +459,11 @@ public class VideoExportTaskService {
         activeTaskId.set(id);
         try {
             Path target = overwrite && row.getFilePath() != null ? Path.of(row.getFilePath()) : null;
-            Path out = videoService.resumeFromWorkDir(work, fmt, callbacks(id), target);
+            /* 分块表从任务行复原（**不用迁移**：`boundaryFrames` 末值就是总帧数，`requestJson.groupStyle` 决定 fps）
+               → 局部重渲/续渲不必再跑 probe，省掉一次重复的 bundle + selectComposition（实测上界 ≤3 分钟；用户 2026-10-01 方案 A）。 */
+            RecommendVideoService.KnownPlan known = knownPlanOf(row.getBoundaryFrames(), row.getRequestJson(),
+                    row.getChunksTotal(), overwrite ? "局部重渲" : "续渲");
+            Path out = videoService.resumeFromWorkDir(work, fmt, callbacks(id), target, known);
             mapper.finishIfActive(id, "DONE", null, out.toString(), System.currentTimeMillis());
             log.info("导出任务 {} 续渲完成: {}", id, out);
         } catch (RecommendVideoService.RenderPausedException e) {
@@ -369,7 +498,10 @@ public class VideoExportTaskService {
         }
         cancelled.add(id);
         killChild(row.getChildPid());
-        mapper.finishIfActive(id, "CANCELLED", "已取消（工作目录保留）", null, System.currentTimeMillis());
+        // ⚠️ 保留 `file_path`：增量更新是从一个**已有成品**的任务上跑的，取消/中断时把 file_path 写成 null
+        //    会让那个成品在系统里“消失”（文件还在，但行里没了）→ 之后再点增量更新会被预检拦下
+        //    （2026-10-01 实测踩到：取消一次增量更新后报“这个任务没有成品/工作目录”）。
+        mapper.finishIfActive(id, "CANCELLED", "已取消（工作目录保留）", row.getFilePath(), System.currentTimeMillis());
         log.info("导出任务 {} 已取消（childPid={}）", id, row.getChildPid());
         return true;
     }
@@ -448,6 +580,58 @@ public class VideoExportTaskService {
         self.resumeAsync(id, true);
         log.info("导出任务 {} 局部重渲第 {} 块（完成后覆盖原成品）", id, chunkIndex + 1);
         return true;
+    }
+
+    /**
+     * 从任务行复原分块表（**不跑 probe**，用户 2026-10-01 拍的"方案 A"）。
+     *
+     * 为什么能复原：`boundaryFrames` 的**末值就是合成总帧数**（渲染脚本写的就是 `[0, …段尾]`），
+     * `requestJson` 里的 `groupStyle` 决定 fps（`RecommendService.fpsOf`：银幕式 24 / 其余 30）——
+     * 有了"边界 + 总帧数 + 目标块长"，`RenderChunks.planByBoundaries` 就是确定性的，与 probe 结果一致。
+     *
+     * 任一项缺失/不自洽 → 返回 null，调用方**老实回退 probe**（宁可慢一次，不能拼错片）。
+     * 不自洽的典型：任务行块数与按边界复原的块数不一致（旧的渲染脚本 / fps 口径变过）。
+     *
+     * @param stageLabel 阶段文案前缀（「局部重渲」/「续渲」）
+     */
+    static RecommendVideoService.KnownPlan knownPlanOf(String boundaryFrames, String requestJson, Integer chunksTotal,
+                                                       String stageLabel) {
+        /* ⚠️ 库里存的是**裸 JSON 数组**（`onBoundaries` 写的就是 `[0,1,…]`），而 `RenderChunks.parseBoundaryFrames`
+           吃的是 probe 输出那种 `{"boundaryFrames":[…]}` —— 直接喂库里的值会解析成空表、**静默回退 probe**
+           （实测踩过：第一次对拍才发现 A 方案等于没生效）。两种形态都试一下，保持只有一处解析数字的逻辑。 */
+        List<Integer> boundaries = RenderChunks.parseBoundaryFrames("{\"boundaryFrames\":" + boundaryFrames + "}");
+        if (boundaries.isEmpty()) {
+            boundaries = RenderChunks.parseBoundaryFrames(boundaryFrames);
+        }
+        if (boundaries.isEmpty()) {
+            return null;
+        }
+        Integer fps = fpsFromRequestJson(requestJson);
+        if (fps == null) {
+            return null;
+        }
+        int totalFrames = boundaries.get(boundaries.size() - 1);
+        List<RenderChunks.Chunk> chunks = RenderChunks.planByBoundaries(boundaries, totalFrames, RenderChunks.chunkFrames(fps));
+        if (chunks.isEmpty()) {
+            return null;
+        }
+        if (chunksTotal != null && chunksTotal > 0 && chunksTotal != chunks.size()) {
+            log.warn("任务行块数 {} 与按段边界复原的 {} 不一致 → 回退 probe", chunksTotal, chunks.size());
+            return null;
+        }
+        return new RecommendVideoService.KnownPlan(fps, chunks, stageLabel);
+    }
+
+    /** 从 `requestJson` 里取 `groupStyle` → fps；取不到（旧任务没这个字段）→ null。 */
+    private static Integer fpsFromRequestJson(String requestJson) {
+        if (requestJson == null || requestJson.isBlank()) {
+            return null;
+        }
+        var matcher = java.util.regex.Pattern.compile("\"groupStyle\"\\s*:\\s*\"([^\"]*)\"").matcher(requestJson);
+        if (!matcher.find()) {
+            return null;
+        }
+        return RecommendService.fpsOf(matcher.group(1));
     }
 
     /**
@@ -591,6 +775,7 @@ public class VideoExportTaskService {
                 row.getChunksTotal() == null ? 0 : row.getChunksTotal(),
                 row.getStageText(),
                 row.getBoundaryFrames(),
+                row.getChunkKeys(),
                 activeTaskId.get() == row.getId());
     }
 }

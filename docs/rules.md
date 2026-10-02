@@ -151,7 +151,7 @@
 - **渲染侧为什么不用改全局索引**：借来的片段被放进**卡片媒体的 `clips` 数组**（视图里多一个 `sourceTitle` 字段），于是 `plan.ts` / `scene-plan.ts` 的 `media.clips.find(...)` 天然命中。**别把来源媒体塞进 `ids`** —— 它不该出现在片单里。
 - **移除要连带**：`withoutClip()`（`editor/clip-refs.ts`）在删片段时**同步删 `sources[clipId]`**，否则留下悬空键。
 - **校验三条文案分开**（`RecommendClipSourceService.loadClips`）：库里没有 → `片段不存在`；无 sources 且不属本体 → `片段不存在或不属于所选媒体`；来源无视频类关联 → `片段 #N 与《本体》没有视频类关联`。
-- 规格与计划：`docs/superpowers/specs/2026-09-20-cross-media-clip-source-design.md`、`docs/superpowers/plans/2026-09-20-cross-media-clip-source-plan.md`。
+- 规格与计划：`docs/superpowers/specs/2026-09-20-video-tagger-v030-cross-media-clip-source-design.md`、`docs/superpowers/plans/2026-09-20-video-tagger-v030-cross-media-clip-source-plan.md`。
 
 ### 16. 「同步番剧」= 弹窗直连流程（2026-09-21 用户拍板简化；2026-09-24 加地区/标题查/单项同步）
 - **内容**：从 Bangumi 同步只有**一个弹窗**：年/季/月**多选**（+ 分类 chips + 地区下拉）→ 拉取候选 → 勾选 → 直接同步 → 显示条数。**不再有**独立审核工作区、后台任务表、逐项重试、跨会话草稿（V38 已把 `metadata_sync_task*` / `metadata_sync_draft` 三张表删掉）。
@@ -206,7 +206,7 @@
 - **幂等**：只扫未关联媒体，已关联一律不动 → 重跑天然收敛。
 - **既有缺陷 ①（2026-09-25 已修）**：`external_work.end_date` 原是 `varchar(32)`，装不下 Bangumi「放送结束」的自由文本（实测值 `2022年3月16日(OVA) / 2023年9月20日(TV Edition)`，44 字符）→ `Data too long`，该条目**永远关联失败**。已由 **V40** 加宽到 `varchar(128)`，重跑后 media 3619 关联成功。
 - **既有缺陷 ②（已修）**：`MediaService.purge` 漏删 `media_entry` → 对账的 `purgeDeep` 补上，历史 33 条孤儿一并清掉。
-- 过程存档（**已过时，看本节**）：`docs/superpowers/specs/2026-09-25-media-reconcile-design.md`、`plans/2026-09-25-media-reconcile-plan.md`（按旧的「分层人工」规则写的）。
+- 过程存档（**已过时，看本节**）：`docs/superpowers/specs/2026-09-25-video-tagger-v030-media-reconcile-design.md`、`plans/2026-09-25-video-tagger-v030-media-reconcile-plan.md`（按旧的「分层人工」规则写的）。
 
 ### 18. 「全量同步」= 按筛选条件跳过拉取候选，直接同步（2026-09-25 用户拍板）
 
@@ -672,7 +672,7 @@ done   # 然后在脚本里统计：总行 / 唯一 / 重复 / 年份块序列
 - **转场音（sting）挂点**：chapter 侧从「本组核心区」改成 **`GROUP_INTRO`**（年份页 + 回顾页）——`bgm.ts#stingTimeline`。
 - **Java 透传**：`buildRenderInput` / `VideoExportTaskService.create` / `RecommendVideoService.render` 参数表**末尾**新增 `Boolean tierGroup`（`null` = 前端未传 → Remotion 侧默认开），Controller 的 `RecommendExportRequest` 末尾加同名字段。
   ⚠️ 预览走编辑器本地 `applyLocalParams`（不用重启即可见），**导出**要后端重启一次才吃这个开关。
-- 设计稿：`docs/superpowers/specs/2026-09-26-recommend-tier-subgroup-design.md`（含四项拍板结果）。
+- 设计稿：`docs/superpowers/specs/2026-09-26-video-tagger-v030-recommend-tier-subgroup-design.md`（含四项拍板结果）。
 
 ## §34 Bangumi 外部封面缓存 = **文件名带来源 URL 哈希**（2026-09-26 修：用户报「库里换了封面、视频里依旧没变」）
 
@@ -847,6 +847,17 @@ done   # 然后在脚本里统计：总行 / 唯一 / 重复 / 年份块序列
   - 素材服务两个根：`<root>/assets/**`（片段/BGM/sting）、`/covers/**`（封面根，可选）。**两个根都要先 `path.resolve`**：`safePath` 用规范化结果做前缀比对，传 `D:/x/y` 这种正斜杠根会全量 400（实测踩过）。回归测试：`scripts/asset-server.test.ts`。
   - 另加 props 体积看守：输入 JSON **>32MB** 就打 `warn`（提示「封面是否又被内联成 base64」）—— 这个故障模式报错极难猜，留个路标。
 - **分块切点按段边界**：现在**两种模板都有** `boundaryFrames`（银幕式 `buildCinemaPlan`、章节式 `buildScenePlan`，同一份 plan 与 composition 校验总帧数）；Java 侧 `RenderChunks.planByBoundaries` 通用，拿不到边界才回退固定 120s。章节式 223 部实测：`[0,510,1020,…]`（之前是 `null`）。
+  - **2026-10-01 补（编辑器侧跟着改）**：`editor/main.tsx` 的 `currentBoundaries` 原来写死「非银幕式 → 空表」→ **章节式/片段式草稿永远报「当前草稿算不出段边界（非银幕式形态？）」、拒掉「只重渲某块」**（后端那侧本来就通用，`VideoExportTaskService.rerenderChunk` 也不校验形态 → 只剩编辑器没跟上）。现在唯一实现在 `editor/rerender.ts` 的 **`boundaryFramesOf(input)`**，与渲染脚本同一套判定；真实任务 #9（chapter / 223 部 / 127 段）与快照对拍**逐帧一致**。改形态判定时记得两边一起看。
+  - **2026-10-01 补（局部重渲的耗时与观感）**：用户报「重渲第一块怎么像全片重渲」。事实核查：**只重渲了第 1 块**（其余 `chunk-*.mp4` mtime 没变），观感来自三件事 + 他挑中了最贵的一块（3720 帧，原 42 分钟导出里占 ≈14.6 分钟）。两处修正：
+    - **A（跳过 probe）**：`VideoExportTaskService.knownPlanOf` 从任务行复原分块表（`boundary_frames` 末值 = 总帧数，`request_json.groupStyle` → `fpsOf` 得 fps；**零迁移**），失败则回退 probe。真实 #9/#10 行数据复原的块表与当年 `concat-list.txt` **逐块一致**。⚠️ 坑：库里存的是**裸数组** `[0,…]`，而 `RenderChunks.parseBoundaryFrames` 只吃 `{"boundaryFrames":[…]}` → 直接喂会解析成空表、**静默回退 probe**（A 等于没生效），必须自己包一层。
+    - **B（进度说真话）**：`done` 要把**复用块**算进去（面板 8/9 而不是 0/9）、块内进度按**本次要渲的块数**映射（重渲 1 块 = 0→100%，不再卡 1/N）、阶段文案明确「复用 8/9 块已有产物，本次只渲 1 块」与「整片重新拼接（-c copy 不重编码，但需完整重写一次成品）」。
+    - 真机实测（隔离实例 18099 + 真库）：POST → **14 秒**内已进入「渲染第 9/9 块」（旧代码这一步要等 ≤3.2 分钟），整次 **99 秒**完成，成品时长/音轨/帧率正常。
+    - **剩下改不动的**：结尾必须整片 `-c copy` 拼接 + 覆盖写（输出本来就只有一整个文件），耗时与全片等量 —— 别当成 bug 去"优化"。
+  - **2026-10-01 再补（手改 `render-input.json` 这条野路子）**：工作目录里的输入 JSON 有**两份标题** —— 顶层 `"title"` 只是
+    `resolveParams(params, fallback)` 的 **fallback**，**真正生效的是 `params.title`**（用户只改了顶层 → 白跑 7 分钟，开场标题一字未变）。
+    章节式里 `params.title` 只出现在三处：开场大标题（`Opening.tsx:173`，用到）、序言标题（被 `prologueTitle` 顶掉）、Topbar（被 `brandTitle` 顶掉）
+    → 本例只重渲第 1 块即可且不会前后不一致；但**副标题 / 品牌名 / BGM / 主题挂在根节点**（`RecommendComposition.tsx:40-55`，每帧都画），那些改动没有局部办法，只能整片。
+    另：成品文件名取自提交导出时的标题（`uniqueExportName`），改 JSON 不会改文件名。
 - **别信「旧测试是绿的」**：`RecommendServiceTest.显示时长归一化到默认区间` 在 2026-09-26 改规则后一直失败（期望上限 20s）没人管。改这类「上限/默认值」规则时，**同 PR 里搜一遍断言旧值的测试**。
 
 ### §40 附：导出任务生命周期三态（2026-09-27 事故后定稿）
@@ -1001,3 +1012,45 @@ chrome --headless=new --disable-gpu --user-data-dir=<每次新建> --allow-file-
   否则就是"编辑器勾了、导出不生效"（预览走本地补丁 `applyLocalParams`，导出走后端组装，两边不一致是这类开关最容易踩的坑 —— 那段代码里本来就有这条注释警告）。
 - 视觉分工：**推荐理由**用该部主色、最多两行、压在**备注（引语块）**上方 —— 一条是"你写的推荐语"，一条是"资料里的备注"，不靠颜色也分得清。
 - 相关事实：`MediaMark.reason` 另外**已经**被章节/网格卡（`src/scenes/Cards.tsx`）渲染，片名卡这边是新增的第二处消费点，不是替换。
+
+---
+
+## §47 结构化场景 = 卡片上的 ✕ 关闭（2026-10-01 用户拍板并实施）
+
+用户原话：「这些结构化的场景都能关闭。后续假如我新增这些结构也能做到关闭。直接在卡片上加X吧，不然后续越加越多」
+——所以**不做右栏开关面板**，✕ 就长在时间轴胶片条的卡片上。
+
+- **可关的 5 类**（`src/sections.ts` 的 `SECTION_LABEL`）：开场（含银幕式 `SCAN`+`SETTLE`）/ 序言 / 章节页 / 全片回顾（`RECAP_LIST` **与带 `mediaIds` 的回顾题头一起**）/ 结尾（含银幕式 `ENDING`）。
+- **内容页不给 ✕**（资料卡 / 网格 / 片名卡 / 封面镜头 / 片段）：关掉等于没内容可看。要拿掉某部用左栏「推荐顺序」的 ✕，要拿掉某片段用片段卡自己的 ✕。
+- **✕ 关掉的是"一整类"**，与旁边那枚时长牌同语义（那枚牌也是"拖一张 = 这一类全变"）→ 24 张章节卡点任一 = 全片章节页都没。
+- **唯一真源 = `src/sections.ts`**：`sectionKeyOfScene()`（场景→类别）+ `hiddenSectionsOf()` + `withoutHiddenSections()`。
+  新增一类结构化场景**只需补一行映射**，编辑器那边的 ✕ 会自己长出来（这就是"后续新增也能关"的落点）；
+  两个 plan（`scene-plan.ts` / `cinema/plan.ts`）都必须在 `audioWindows` 与返回值**之前**过滤，过滤会重排 `fromFrame` 并重算总长。
+- **开关存在 `detailShow`**（键 `sectionOpening/sectionIntro/sectionGroup/sectionRecap/sectionEnding`，**省略 = 开**，老草稿零变化）。
+  **故意复用**这张贯通全链路的映射：新开一个顶层参数要在 6 处方法签名里穿（见 §46 的坑），复用只需改 `RecommendService` 那一处白名单。
+  ⚠️ **改 Java 白名单后必须重启后端实例**：预览走本地补丁（刷新即见），导出走后端组装。
+- **点 ✕ 立刻生效**（`main.tsx` 的 `setSection` 同时写 `config` 与 `applied` 快照）：不像右栏参数要等「应用并渲染」——
+  卡片上的 ✕ 是"就地删掉它"的直觉动作，等按钮就变成"点了没反应"。代价：若当时还有未应用的右栏改动，会被一并应用。
+- **必须有恢复入口**（`胶片条` 下方「已关闭 · X · 恢复」行，**只在有已关闭项时渲染**）：关掉后卡片就没了，
+  没有这行就是"有入口删、无入口补"（片段那边 2026-09-20 刚踩过一次）。
+- 关闭**不改** `durations`：恢复后时长与关闭前一致。BGM 窗口按**秒数**贴片头/片尾（`bgm.ts`），故关掉开场/结尾后 BGM 照播，只是盖在现在排第一/最后的段上。
+
+---
+
+## §48 推荐视频「按当前草稿增量更新」（2026-10-01 用户拍板并实施）
+
+改完草稿不想整片重渲：任务面板上对**已有成品**的任务点「增量更新」→ 只重渲**内容变了的块**，其余复用旧产物 → 拼接 → 覆盖原成品。
+设计规格 `docs/superpowers/specs/2026-10-01-video-tagger-v030-recommend-incremental-update-design.md`、执行计划 `docs/superpowers/plans/2026-10-01-video-tagger-v030-recommend-incremental-update-plan.md`。
+
+- **块键 = 全局层 + 段层**，唯一真源在 **TS**（`backend/remotion/src/chunk-keys.ts`）：**TS 说"什么算内容"，Java 装配成块键并比对**（`ChunkKeys.assemble` / `planReuse`）。
+  为什么这么分：段表只有 TS 有（Java 只有 `boundaryFrames`），而"哪些帧算一块"只有 Java 的 `planByBoundaries` 知道。
+- **块键按内容匹配、不按下标**（插段会整体错位）；同一旧产物**不允许被两块复用**。键只用于"省时间"，任何不自洽一律**退全渲**（返回空表 / 全 pending），绝不拿不确定的产物去拼。
+- ⚠️ **两个必须守住的键稳定性前提**（都踩过）：
+  1. **规范化**：脚本每轮把 `/covers/**` 改写成**随机端口**的绝对地址 → 键必须从**改写前**的输入算、并剥掉 origin（否则永远不命中 → 永远全渲）。
+  2. **素材指纹不能用 mtime**：每轮 BGM/片段都会**重新拷进新目录**，mtime 必变 → 用 `size + 首尾各 64KB 内容哈希`。
+- **必然全渲的清单**（别当 bug）：`title`/`brandTitle`/`subtitle`/主题/画幅/fps、任意 `durations`、增删媒体或改分组/二级分组/等级、BGM 或 sting 素材与混音参数、`seed` —— 全在**根节点**（`RecommendComposition.tsx:40-55` 的 Topbar/Trackbar/BgmBadge/BgmAudio）或决定总长，**每一帧都变**。
+  能省的只有"**段内**改动"：某部的资料/备注/理由/等级/封面、某片段的素材或起止。（银幕式 `cinema/index.tsx:35-59` 根节点没有 Topbar/Trackbar → 改标题通常只影响首尾块。）
+- **每轮写 `work/inc-<yyyyMMdd-HHmmss>/`**，旧目录全程不动；只有拼接产物有效才 `move` 覆盖成品 → 中断/失败**成品无损**（实测：取消后成品 mtime 不变）。
+- ⚠️ **取消/中断必须保留 `file_path`**（实测踩到）：增量更新跑在**已有成品**的任务上，`finishIfActive(..., null, ...)` 会把成品从行里抹掉（文件还在，但再点增量更新就被预检拦下）。`cancel()` 与增量更新的 INTERRUPTED/ERROR 分支都改成传 `row.getFilePath()`。
+- 老任务没有 `chunk_keys` → `legacyEntries()` 对旧 `render-input.json` **补探一次帧**算出旧键；补不出就整片重渲（新键会写回，下一轮就有）。
+- 手改工作目录 `render-input.json` 的野路子（§40 那条）**已被这个功能取代**；「重渲某块」仍是"用导出当时的快照修坏块"，tooltip 里已写明。

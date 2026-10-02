@@ -31,6 +31,8 @@ public class VideoExportTaskRow {
     private String stageText;
     /** 段边界帧 JSON（如 `[0,165,300,…]`）：局部重渲前的安全校验基准。 */
     private String boundaryFrames;
+    /** 块键 JSON（`[{"key":"sha256…","file":"绝对路径"}]`，2026-10-01）：增量更新时按键复用旧块产物。 */
+    private String chunkKeys;
     private String workDir;
     private Long childPid;
     private String requestJson;

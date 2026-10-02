@@ -4,8 +4,8 @@
 - **关联版本**：v0.27
 - **状态**：待用户审阅批准。**未批准前不写执行计划、不改代码。**
 - **前置文档**：
-  - POC 设计规格：`docs/superpowers/specs/2026-09-14-video-tagger-remotion-multi-media-recommend-poc-design.md`
-  - POC 执行计划：`docs/superpowers/plans/2026-09-14-video-tagger-remotion-multi-media-recommend-poc-plan.md`
+  - POC 设计规格：`docs/superpowers/specs/2026-09-14-video-tagger-v027-remotion-multi-media-recommend-poc-design.md`
+  - POC 执行计划：`docs/superpowers/plans/2026-09-14-video-tagger-v027-remotion-multi-media-recommend-poc-plan.md`
   - 版本事实：`CHANGELOG.md` 中 v0.26.0 已于 2026-09-08 发布，并写明「正式模板录制/导出仍留在 v0.26 后续阶段」
 
 ## 1. 目标

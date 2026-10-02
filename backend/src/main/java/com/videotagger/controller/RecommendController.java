@@ -185,6 +185,55 @@ public class RecommendController {
     /** 导出视频：异步创建后台任务（RUNNING）立即返回 taskId；进度/产物由任务列表管理。 */
     @PostMapping(value = "/video")
     public ResponseEntity<Map<String, Object>> video(@RequestBody RecommendExportRequest body) throws IOException {
+        TaskArgs args = taskArgs(body);
+        RecommendService.Durations dur = recommendService.normalizeDurations(
+                body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec(), body.titleSec());
+        VideoExportTaskService.VideoExportTask t = exportTaskService.create(
+                body.ids(), body.title(), args.format(), body.resolution(), args.bgmPaths(), args.bgmTracks(),
+                body.groupBy(), body.groupStyle(), body.subtitle(), body.coverSize(),
+                body.openingIds(), body.mediaMarks(), body.intro(), dur, body.endingTitle(), body.endingText(),
+                body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(),
+                body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(),
+                body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(),
+                body.detailShow(), body.preset(), body.mediaClips(), body.seed(), body.clipVolume(), body.bgmRange(),
+                args.stingPath(), body.stingVolume(), body.tierGroup());
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("taskId", t.id());
+        resp.put("status", t.status());
+        return ResponseEntity.ok(resp);
+    }
+
+    /**
+     * 按当前草稿**增量更新**某个成品（2026-10-01，设计规格 §3）：
+     * 只重渲内容变了的块，其余复用该任务已有的块产物，拼接后覆盖原成品。
+     */
+    @PostMapping("/video/tasks/{id}/update-from-draft")
+    public ResponseEntity<Map<String, Object>> updateFromDraft(@PathVariable long id,
+                                                               @RequestBody RecommendExportRequest body) throws IOException {
+        TaskArgs args = taskArgs(body);
+        RecommendService.Durations dur = recommendService.normalizeDurations(
+                body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec(), body.titleSec());
+        VideoExportTaskService.VideoExportTask t = exportTaskService.updateFromDraft(id,
+                body.ids(), body.title(), args.format(), body.resolution(), args.bgmPaths(), args.bgmTracks(),
+                body.groupBy(), body.groupStyle(), body.subtitle(), body.coverSize(),
+                body.openingIds(), body.mediaMarks(), body.intro(), dur, body.endingTitle(), body.endingText(),
+                body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(),
+                body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(),
+                body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(),
+                body.detailShow(), body.preset(), body.mediaClips(), body.seed(), body.clipVolume(), body.bgmRange(),
+                args.stingPath(), body.stingVolume(), body.tierGroup());
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("taskId", t.id());
+        resp.put("status", t.status());
+        return ResponseEntity.ok(resp);
+    }
+
+    /** `/video` 与 `/update-from-draft` 共用的载荷翻译（格式归一 + BGM/转场音落临时文件）。 */
+    private record TaskArgs(String format, List<RecommendService.BgmTrack> bgmTracks, List<String> bgmPaths,
+                            String stingPath) {
+    }
+
+    private TaskArgs taskArgs(RecommendExportRequest body) throws IOException {
         String fmt = body.format() == null || body.format().isBlank() ? "MP4" : body.format().trim().toUpperCase(Locale.ROOT);
         List<RecommendService.BgmTrack> bgmTracks = RecommendSessionService.namedTracks(body.bgmTracks(), body.bgmName(), body.bgmBase64());
         List<String> bgmPaths = new ArrayList<>();
@@ -210,21 +259,7 @@ public class RecommendController {
                 stingPath = f.toString();
             }
         }
-        RecommendService.Durations dur = recommendService.normalizeDurations(
-                body.openingSec(), body.introSec(), body.groupSec(), body.detailSec(), body.endingSec(), body.titleSec());
-        VideoExportTaskService.VideoExportTask t = exportTaskService.create(
-                body.ids(), body.title(), fmt, body.resolution(), bgmPaths, bgmTracks,
-                body.groupBy(), body.groupStyle(), body.subtitle(), body.coverSize(),
-                body.openingIds(), body.mediaMarks(), body.intro(), dur, body.endingTitle(), body.endingText(),
-                body.bgColor(), body.bgImages(), body.bgRotationSec(), body.bgOpacity(), body.bgBlur(), body.bgBrightness(),
-                body.prologueTitle(), body.groupSort(), body.openingSpeed(), body.endingScrollSpeed(),
-                body.bgmScale(), body.bgmX(), body.bgmY(), body.brandTitle(), body.perScreen(),
-                body.detailShow(), body.preset(), body.mediaClips(), body.seed(), body.clipVolume(), body.bgmRange(),
-                stingPath, body.stingVolume(), body.tierGroup());
-        Map<String, Object> resp = new LinkedHashMap<>();
-        resp.put("taskId", t.id());
-        resp.put("status", t.status());
-        return ResponseEntity.ok(resp);
+        return new TaskArgs(fmt, bgmTracks, bgmPaths, stingPath);
     }
 
     /** 全部导出任务记录（按创建时间倒序）。 */

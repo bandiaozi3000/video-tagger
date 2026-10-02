@@ -59,6 +59,15 @@ export interface DetailShow {
   titleNote?: boolean;
   /** 片名卡显示「推荐理由」（每部手写那句，≤30 字）：省略 = 不显示（用户 2026-09-29）。 */
   titleReason?: boolean;
+  /**
+   * 结构化场景的关闭开关（用户 2026-09-30：「这些结构化的场景都能关闭」…）。
+   * **省略 = 开**（老草稿零变化）；写入方 = 时间轴胶片条卡片上的 ✕，映射见 `src/sections.ts`。
+   */
+  sectionOpening?: boolean;
+  sectionIntro?: boolean;
+  sectionGroup?: boolean;
+  sectionRecap?: boolean;
+  sectionEnding?: boolean;
 }
 
 /**
@@ -178,7 +187,8 @@ export const DEFAULT_PARAMS: RenderParams = {
   tiers: [...RECOMMEND_TIERS],
 
   coverSize: 50,
-  detailShow: { status: true, note: true, tag: true, endingWall: true, endingPaging: false, endingList: true, endingIndex: true, endingYear: true, endingStats: false },
+  detailShow: { status: true, note: true, tag: true, endingWall: true, endingPaging: false, endingList: true, endingIndex: true, endingYear: true, endingStats: false,
+    sectionOpening: true, sectionIntro: true, sectionGroup: true, sectionRecap: true, sectionEnding: true },
 
   bgColor: '',
   bgImages: [],
@@ -282,6 +292,12 @@ export function resolveParams(raw?: Partial<RenderParams>, fallbackText?: { titl
       endingStats: typeof show.endingStats === 'boolean' ? show.endingStats : false,
       titleNote: titleCard.note,
       titleReason: titleCard.reason,
+      // 结构化场景开关：省略 = 开（只有显式 false 才关）
+      sectionOpening: show.sectionOpening !== false,
+      sectionIntro: show.sectionIntro !== false,
+      sectionGroup: show.sectionGroup !== false,
+      sectionRecap: show.sectionRecap !== false,
+      sectionEnding: show.sectionEnding !== false,
     },
 
     bgColor: str(p.bgColor),

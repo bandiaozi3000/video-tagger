@@ -1,6 +1,7 @@
 import type { MultiMediaPocInput, PocMedia } from '../types';
 import type { RenderParams } from '../params';
 import { resolveParams } from '../params';
+import { hiddenSectionsOf, totalFramesOf, withoutHiddenSections } from '../sections';
 
 /**
  * 「银幕式」模板（v0.29 期间新增，与旧 chapter / clip **并存**）的视觉令牌与场景计划。
@@ -197,7 +198,10 @@ export function buildCinemaPlan(input: MultiMediaPocInput): CinemaPlan {
   const years = media.map((item) => item.year).filter((year): year is number => typeof year === 'number');
   // 原声区间：有音轨的片段幕（BGM 在这些帧里压低）。
   // 2026-09-20：用户把片段原声静音（clipVolume = 0）时**不应再压 BGM** —— 否则 BGM 白压一档、听感像「中途变小声」。
-  const audioWindows = params.clipVolume <= 0 ? [] : scenes
+  // 结构化场景关闭（银幕式只有「开场」= SCAN+SETTLE 与「结尾」两块可关）：整段拿掉并重排帧位。
+  const visibleScenes = withoutHiddenSections(scenes, hiddenSectionsOf(params.detailShow));
+
+  const audioWindows = params.clipVolume <= 0 ? [] : visibleScenes
     .filter((scene) => {
       if (scene.type !== 'CLIP' || scene.mediaId === undefined) return false;
       const clip = mediaIndex.get(scene.mediaId)?.clips.find((item) => item.clipId === scene.clipId);
@@ -210,9 +214,9 @@ export function buildCinemaPlan(input: MultiMediaPocInput): CinemaPlan {
     fps,
     width,
     height,
-    durationInFrames: cursor,
+    durationInFrames: totalFramesOf(visibleScenes),
     params,
-    scenes,
+    scenes: visibleScenes,
     media,
     mediaIndex,
     stats: {

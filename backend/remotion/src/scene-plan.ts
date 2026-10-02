@@ -1,6 +1,7 @@
 import { hash01 } from './cinema/slots';
 import { resolveParams, resolveStyle } from './params';
 import { recapPages, recapSeconds } from './recap';
+import { hiddenSectionsOf, totalFramesOf, withoutHiddenSections } from './sections';
 import { RECOMMEND_TIERS, tierRankOf } from './tier';
 import type { GroupPlan, MultiMediaPocInput, PocMedia, Scene, ScenePlan } from './types';
 import { TEMPLATE_IDS } from './types';
@@ -264,7 +265,11 @@ export function buildScenePlan(input: MultiMediaPocInput): ScenePlan {
 
   push({ type: 'COLLECTION_ENDING' }, secToFrames(params.durations.ending, fps));
 
-  const audioWindows = scenes
+  // 结构化场景关闭（开场/序言/章节页/全片回顾/结尾）：整段拿掉并重排帧位。
+  //   ⚠️ 必须在 audioWindows 与返回值之前 —— 计划表是时间轴/进度条/导出分块的唯一依据。
+  const visibleScenes = withoutHiddenSections(scenes, hiddenSectionsOf(params.detailShow));
+
+  const audioWindows = visibleScenes
     .filter((scene) => {
       if (scene.type !== 'MEDIA_CLIP') return false;
       const media = input.media.find((m) => m.mediaId === scene.mediaId);
@@ -278,8 +283,8 @@ export function buildScenePlan(input: MultiMediaPocInput): ScenePlan {
     fps,
     width,
     height,
-    durationInFrames: fromFrame,
-    scenes,
+    durationInFrames: totalFramesOf(visibleScenes),
+    scenes: visibleScenes,
     audioWindows,
     params,
     mediaIndex: new Map(input.media.map((media) => [media.mediaId, media])),

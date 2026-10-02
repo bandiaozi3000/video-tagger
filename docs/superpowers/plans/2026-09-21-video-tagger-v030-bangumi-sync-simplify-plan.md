@@ -1,7 +1,7 @@
 # 执行计划：从 Bangumi 同步简化为「选条件 → 勾选 → 直接同步」
 
 - 日期：2026-09-21
-- 设计规格：`docs/superpowers/specs/2026-09-21-bangumi-sync-simplify-design.md`
+- 设计规格：`docs/superpowers/specs/2026-09-21-video-tagger-v030-bangumi-sync-simplify-design.md`
 - 用户授权：设计 + 计划 + 实现**一次执行**（2026-09-21），F 项按「无关代码删除」
 
 ## 阶段零：删除边界核实（已完成，结论写进规格 §9）

@@ -1,6 +1,6 @@
 # Remotion 替换推荐视频渲染链路（v0.27）实现计划
 
-> 关联设计规格：`docs/superpowers/specs/2026-09-17-video-tagger-remotion-recommend-replace-design.md`
+> 关联设计规格：`docs/superpowers/specs/2026-09-17-video-tagger-v027-remotion-recommend-replace-design.md`
 > 授权：2026-09-17 用户「直接一次性跑全，接入生产。最后我生产验收，后续有要改动的我再说」
 > 前置：POC 已验收通过（`52e341a`）；参数通道最小切片已完成并实测（31 生效 / 0 未生效 / 0 出错）
 

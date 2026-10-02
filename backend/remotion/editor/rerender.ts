@@ -7,7 +7,26 @@
  *
  * 所以：拿当前草稿算出的段边界与任务快照比对（同源同格式：渲染脚本 --probe 输出的 boundaryFrames）→
  * 一致才允许局部重渲；不一致必须整片重渲。
+ *
+ * ⚠️ 2026-10-01 修：当前边界以前在 `main.tsx` 里**写死了「非银幕式 → 空表」**，于是章节式/片段式草稿
+ * 永远被拒（报「当前草稿算不出段边界（非银幕式形态？）」）—— 而渲染脚本 2026-09-27 起**两种形态都有**
+ * `boundaryFrames`（规则 §40），只有那处没跟上。现在两边同一套判定：{@link boundaryFramesOf}。
  */
+import { buildCinemaPlan } from '../src/cinema/plan';
+import { buildScenePlan } from '../src/scene-plan';
+import type { MultiMediaPocInput } from '../src/types';
+
+/**
+ * 当前草稿的段边界帧 —— 与渲染脚本 `scripts/render-recommend.ts` 的 `boundaryFrames` **同一套算法**：
+ * 同一份 plan（`cinema` → `buildCinemaPlan`，其余〔章节式/片段式〕→ `buildScenePlan`）、同一个公式。
+ * `seed` 只影响撚位不影响时长，所以算出来与成片一致。
+ *
+ * 输入非法（如空媒体集）时由调用方 try/catch 成空表 → 面板会拒局部重渲（宁可不做，也别拼错片）。
+ */
+export function boundaryFramesOf(input: MultiMediaPocInput): number[] {
+  const plan = input.style === 'cinema' ? buildCinemaPlan(input) : buildScenePlan(input);
+  return [0, ...plan.scenes.map((scene) => scene.fromFrame + scene.durationInFrames)];
+}
 
 /** 段边界帧列表（与快照同源：脚本输出的 `boundaryFrames`）。 */
 export function parseBoundaryFrames(json: string | null | undefined): number[] {

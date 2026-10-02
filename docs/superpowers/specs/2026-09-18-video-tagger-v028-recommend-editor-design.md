@@ -4,7 +4,7 @@
 - **关联版本**：**v0.28**（用户 2026-09-18 拍板）
 - **状态**：**四个阶段全部已实现**（2026-09-18）。规格已批准（装载方式 A 单页挂载）；配套计划：`docs/superpowers/plans/2026-09-18-video-tagger-v028-recommend-editor-plan.md`。阶段 1 的实现与偏离见 `docs/worklog/2026-09-18.md` 增量六，阶段 2–4 与收尾见增量七。
 - **前置文档**：
-  - v0.27 渲染链路重写：`docs/superpowers/specs/2026-09-18-video-tagger-remotion-native-recommend-design.md`
+  - v0.27 渲染链路重写：`docs/superpowers/specs/2026-09-18-video-tagger-v027-remotion-native-recommend-design.md`
   - 当日工作日志：`docs/worklog/2026-09-18.md`
   - 本次 Grilling 的实测探针：`backend/remotion/probe/`（脚本随本轮落地保留）
 

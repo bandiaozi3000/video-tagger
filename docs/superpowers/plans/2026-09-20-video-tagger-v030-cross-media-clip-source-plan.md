@@ -1,7 +1,7 @@
 # 跨媒体片段来源（同系列借片段）— 执行计划
 
 - 日期：2026-09-20
-- 设计规格：`docs/superpowers/specs/2026-09-20-cross-media-clip-source-design.md`
+- 设计规格：`docs/superpowers/specs/2026-09-20-video-tagger-v030-cross-media-clip-source-design.md`
 - 状态：**待用户确认**（确认后才动代码）
 - 定稿的 4 项决策（用户 2026-09-20「看你建议」）：
   1. 视频类关系白名单：`主线故事 / 番外篇 / 前传 / 续集 / 剧场版 / 角色出演 / 同一世界观`（**去掉**「其他」这种catch-all；白名单是常量，可后续加）

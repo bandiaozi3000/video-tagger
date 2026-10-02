@@ -63,6 +63,10 @@ public interface VideoExportTaskMapper extends BaseMapper<VideoExportTaskRow> {
     @Update("UPDATE video_export_task SET boundary_frames = #{json}, updated_at = #{now} WHERE id = #{id}")
     int setBoundaryFrames(@Param("id") long id, @Param("json") String json, @Param("now") long now);
 
+    /** 块键（增量更新的复用依据）：**只在拼接成功后**写；写失败 = 下一轮全渲（安全侧）。 */
+    @Update("UPDATE video_export_task SET chunk_keys = #{json}, updated_at = #{now} WHERE id = #{id}")
+    int setChunkKeys(@Param("id") long id, @Param("json") String json, @Param("now") long now);
+
     /** 暂停：只从 RUNNING 推进（渲染线程每块渲完会查状态，看到非 RUNNING 就停在块边界）。 */
     @Update("UPDATE video_export_task SET status = 'PAUSED', message = '已请求暂停：当前块渲完后停（已完成块保留）', updated_at = #{now} WHERE id = #{id} AND status = 'RUNNING'")
     int pauseTask(@Param("id") long id, @Param("now") long now);

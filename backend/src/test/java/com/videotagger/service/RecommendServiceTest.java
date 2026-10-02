@@ -113,12 +113,44 @@ class RecommendServiceTest {
     private String renderInput(List<Long> ids, String groupBy, String style,
                                List<RecommendService.BgmTrack> bgmTracks, List<String> bgmPaths,
                                Map<Long, List<RecommendClipSourceService.PreparedClip>> clips, String preset) {
+        return renderInput(ids, groupBy, style, bgmTracks, bgmPaths, clips, preset, null);
+    }
+
+    /** 同上，但可指定显示开关（`detailShow` 白名单——新开关漏透传就是「编辑器勾了/关了，成片不生效」）。 */
+    private String renderInput(List<Long> ids, String groupBy, String style,
+                               List<RecommendService.BgmTrack> bgmTracks, List<String> bgmPaths,
+                               Map<Long, List<RecommendClipSourceService.PreparedClip>> clips, String preset,
+                               Map<String, Boolean> detailShow) {
         return service.buildRenderInput(ids, "标题", bgmTracks, "副标题", "50", groupBy, style,
                 List.of(), Map.of(), "序言", service.normalizeDurations(null, null, null, null, null, null),
                 "结尾标题", "结尾文案", "", List.of(), 8, 100, 0, 50,
-                "序言标题", "date-desc", 50, 50, 100, 1, 8, "品牌", 1, null, preset,
+                "序言标题", "date-desc", 50, 50, 100, 1, 8, "品牌", 1, detailShow, preset,
                 clips == null ? Map.of() : clips, "embed", 30, 1280, 720, bgmPaths,
                 rel -> rel.startsWith("bgm-") ? 42.5 : 3.5, 20260920, 100, null, null, 60, null);
+    }
+
+    /**
+     * 结构化场景关闭开关（2026-09-30）：编辑器胶片条卡片上的 ✕ 写 `detailShow.sectionXxx = false`。
+     *
+     * 这是**白名单**：不在这里透传，预览（走本地补丁）会"关了"，导出（走后端组装）却还在 —— 
+     * `titleNote/titleReason` 当年就踩过一次。同时确认省略 = 开（老草稿结构零变化）。
+     */
+    @Test
+    void 结构化场景关闭开关透传且默认开() throws Exception {
+        when(mediaService.get(1L)).thenReturn(media(1L, "A", 2024));
+        List<String> keys = List.of("sectionOpening", "sectionIntro", "sectionGroup", "sectionRecap", "sectionEnding");
+        JsonNode dft = parse(renderInput(List.of(1L), null, null, null, null, null, null)).get("params").get("detailShow");
+        for (String key : keys) {
+            assertTrue(dft.get(key).asBoolean(), key + " 省略时必须默认开");
+        }
+        Map<String, Boolean> off = new LinkedHashMap<>();
+        off.put("sectionOpening", false);
+        off.put("sectionRecap", false);
+        JsonNode sent = parse(renderInput(List.of(1L), null, null, null, null, null, null, off))
+                .get("params").get("detailShow");
+        assertFalse(sent.get("sectionOpening").asBoolean());
+        assertFalse(sent.get("sectionRecap").asBoolean());
+        assertTrue(sent.get("sectionIntro").asBoolean(), "没传的开关仍要默认开");
     }
 
     /** 主题预设写入参数区；未指定 → 基线 `starlit`。 */

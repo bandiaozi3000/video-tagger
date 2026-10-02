@@ -19,6 +19,7 @@ import path from 'node:path';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
 import type { MultiMediaPocInput } from '../src/types';
+import { canonicalizePath, fnv1a64, globalLayerKey, segmentKeysOf, type KeyEnv } from '../src/chunk-keys';
 import { buildCinemaPlan } from '../src/cinema/plan';
 import { buildScenePlan } from '../src/scene-plan';
 import { startAssetServer } from './asset-server';
@@ -96,7 +97,21 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({ warn: 'plan 与 composition 总帧数不一致', plan: plan.durationInFrames, composition: composition.durationInFrames }));
   }
   boundaryFrames = [0, ...plan.scenes.map((scene) => scene.fromFrame + scene.durationInFrames)];
-  console.log(JSON.stringify({ composition: true, durationInFrames: composition.durationInFrames, fps: composition.fps, width: composition.width, height: composition.height, range: frameRange ?? null, boundaryFrames }));
+  /*
+   * 块键（2026-10-01 增量更新）：**全局键 + 每段键**，Java 拿它装配"块键"并决定哪些块可以复用。
+   *   ⚠️ 用**改写前**的 `input`（磁盘上那份 `/covers/**` 根相对形态）算 —— 若用 `renderInput`，
+   *     封面里的素材服务端口每轮都不同 → 键永远不相等 → 永远全渲（`chunk-keys.ts` 头部有完整说明）。
+   */
+  const keyEnv = await buildKeyEnv(input, assetRoot, coversRoot);
+  const keyPlan = plan as unknown as Parameters<typeof globalLayerKey>[0];
+  const segmentKeys = segmentKeysOf(keyPlan, input, keyEnv);
+  const keys = segmentKeys.length === plan.scenes.length
+    ? { globalKey: globalLayerKey(keyPlan, input, keyEnv), segmentKeys }
+    : { globalKey: null, segmentKeys: null };   // 段数对不上 → 键不可信，宁可让 Java 走全渲
+  if (keys.globalKey === null) {
+    process.stderr.write(`块键生成失败：段键 ${segmentKeys.length} 个 ≠ 段数 ${plan.scenes.length}\n`);
+  }
+  console.log(JSON.stringify({ composition: true, durationInFrames: composition.durationInFrames, fps: composition.fps, width: composition.width, height: composition.height, range: frameRange ?? null, boundaryFrames, globalKey: keys.globalKey, segmentKeys: keys.segmentKeys }));
   if (probeOnly) return;
     await fs.mkdir(path.dirname(path.resolve(outputPath)), { recursive: true });
     // 进度上报（2026-09-20）：每 ~4s 一行 `[progress] {...}`，Java 解析后写进导出任务 → UI 能显示百分比与预计剩余。
@@ -145,6 +160,54 @@ async function main(): Promise<void> {
     }));
   } finally {
     await assetServer.close();
+  }
+}
+
+/**
+ * 素材指纹表（`assetPath → size-内容哈希`）。
+ *
+ * ⚠️ **不能用 mtime**：每轮增量都会把 BGM/片段**重新拷进新工作目录**，mtime 必然变 →
+ * 全局键每轮都不同 → 永远全渲（那就白做了）。改成"大小 + 首尾各 64KB 内容哈希"：
+ * 复制/链接都不影响（内容相同 → 指纹相同），而"换了同名文件"会被抓到。
+ */
+async function buildKeyEnv(input: MultiMediaPocInput, assetRoot: string, coversRoot: string | undefined): Promise<KeyEnv> {
+  const paths = new Set<string>();
+  for (const media of input.media) {
+    if (media.coverAssetPath) paths.add(media.coverAssetPath);
+    for (const clip of media.clips ?? []) if (clip.assetPath) paths.add(clip.assetPath);
+  }
+  for (const track of input.params?.bgmTracks ?? []) if (track.assetPath) paths.add(track.assetPath);
+  if (input.params?.stingPath) paths.add(input.params.stingPath);
+  for (const bg of input.params?.bgImages ?? []) paths.add(bg);
+  const assetPrint: Record<string, string> = {};
+  for (const raw of paths) {
+    const canonical = canonicalizePath(raw) ?? raw;
+    assetPrint[canonical] = await assetPrintOf(canonical, assetRoot, coversRoot);
+  }
+  return { assetPrint };
+}
+
+async function assetPrintOf(canonical: string, assetRoot: string, coversRoot: string | undefined): Promise<string> {
+  const COVERS = '/covers/';
+  const resolved = canonical.startsWith(COVERS) && coversRoot
+    ? path.join(coversRoot, canonical.slice(COVERS.length))
+    : path.join(assetRoot, canonical.replace(/^\//, ''));
+  try {
+    const stat = await fs.stat(resolved);
+    const headLen = Math.min(65536, stat.size);
+    const tailLen = Math.min(65536, Math.max(0, stat.size - headLen));
+    const buffer = Buffer.alloc(headLen + tailLen);
+    const handle = await fs.open(resolved, 'r');
+    try {
+      await handle.read(buffer, 0, headLen, 0);
+      // latin1：一个字符 = 一个字节 → 直接复用 `fnv1a64`（避免再写一份字节版哈希）
+      if (tailLen > 0) await handle.read(buffer, headLen, tailLen, stat.size - tailLen);
+    } finally {
+      await handle.close();
+    }
+    return `${stat.size}-${fnv1a64(buffer.toString('latin1'))}`;
+  } catch {
+    return 'missing';
   }
 }
 

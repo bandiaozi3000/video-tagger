@@ -399,6 +399,12 @@ public class RecommendService {
                 ? detailShow.get("titleNote")
                 : (detailShow == null || detailShow.get("note") == null || detailShow.get("note")));
         show.put("titleReason", detailShow != null && Boolean.TRUE.equals(detailShow.get("titleReason")));
+        // 结构化场景关闭开关（用户 2026-09-30：「这些结构化的场景都能关闭」）：编辑器胶片条卡片上的 ✕ 写入。
+        //   **省略 = 开**（老草稿零变化）；同样是白名单 —— 不在这里透传就是「编辑器关了、成片还在」。
+        //   键名/默认值与 Remotion 侧 `src/sections.ts`、`src/params.ts` 的 DetailShow 一一对应。
+        for (String section : new String[]{"sectionOpening", "sectionIntro", "sectionGroup", "sectionRecap", "sectionEnding"}) {
+            show.put(section, detailShow == null || detailShow.get(section) == null || detailShow.get(section));
+        }
         p.put("detailShow", show);
         p.put("bgColor", bgColor == null ? "" : bgColor.trim());
         p.put("bgImages", bgImages == null ? List.of() : bgImages);

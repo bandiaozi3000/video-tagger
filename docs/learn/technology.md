@@ -794,7 +794,7 @@ Unregister-ScheduledTask -TaskName 'VideoTagger MySQL Backup Watcher' -Confirm:$
   - 启动接管（中断标记 / 杀遗留 node / 清无主目录）：`backend/src/main/java/com/videotagger/config/ExportTaskRecovery.java`
   - 渲染脚本（`--probe` / `--frames` / `enforceAudioTrack`）：`backend/remotion/scripts/render-recommend.ts`
   - 迁移：`V35__video_export_task.sql`、`V36__export_task_chunks.sql`
-  - 设计规格：`docs/superpowers/specs/2026-09-21-export-task-persistence-design.md`
+  - 设计规格：`docs/superpowers/specs/2026-09-21-video-tagger-v030-export-task-persistence-design.md`
 
 ### 断点续渲的「冻结快照」语义：中途改了推荐草稿，还能不能接着渲？
 

@@ -32,6 +32,8 @@ import { BasketPane, BgmOverlay, InspectorPane, ParamPalette, TemplatePanel, Too
 import { Filmstrip, Timeline, selectionOfScene, type Selection } from './timeline';
 import { DURATION_FIELD, type DurationKey } from './durations';
 import { withoutClip } from './clip-refs';
+import { boundaryFramesOf } from './rerender';
+import { hiddenSectionsOf, SECTION_LABEL, SECTION_SWITCH, type SectionKey } from '../src/sections';
 import { buildScenePlan } from '../src/scene-plan';
 import type { ScenePlan } from '../src/types';
 import './editor.css';
@@ -269,6 +271,22 @@ function App() {
   const configRef = React.useRef(config);
   configRef.current = config;
 
+  /**
+   * 关闭 / 恢复一整类结构化场景（胶片条卡片上的 ✕ 与下方「已关闭」行共用）。
+   *
+   * 与右栏参数不同的一点：**点一下立刻应用**（同时写 `config` 与 `applied` 快照）。
+   * 不这么做，用户点了卡片上的 ✕，段还在原地（时间轴吃的是 `appliedConfig` 快照），得像右栏那样
+   * 再去找「应用并渲染」——卡片 ✕ 本来就是「就地删掉它」的直觉动作。
+   * 这里不涉后端素材，重建计划表很便宜（不像片段集改动必须重建会话）。
+   */
+  const setSection = React.useCallback((key: SectionKey, visible: boolean) => {
+    const latest = configRef.current;
+    const next: EditorConfig = { ...latest, detailShow: { ...latest.detailShow, [SECTION_SWITCH[key]]: visible } };
+    saveConfig(next);
+    setConfig(next);
+    setApplied({ signature: sessionSignature(next), config: next });
+  }, []);
+
   const rendered: Rendered | null = React.useMemo(() => {
     if (!remoteInput || remoteInput.media.length === 0) return null;
     const input = applyLocalParams(remoteInput, appliedConfig, appliedConfig.ids.length);
@@ -295,14 +313,17 @@ function App() {
   };
 
   /**
-   * 当前草稿的段边界帧（只银幕式有）：给任务面板做「只重渲某块」的安全校验用。
-   * 非银幕式/算不出来 → 空表 → 面板会拒绝局部重渲（宁可不做，也别拼错片）。
+   * 当前草稿的段边界帧：给任务面板做「只重渲某块」的安全校验用（算法在 `rerender.ts` 的 `boundaryFramesOf`）。
+   *
+   * 2026-10-01 修：以前这里写死 `config.groupStyle !== 'cinema' → 返回空表`，导致**章节式/片段式草稿永远不能局部重渲**
+   * （报「当前草稿算不出段边界（非银幕式形态？）」）—— 而渲染脚本 2026-09-27 起两种形态都输出 `boundaryFrames`
+   * （规则 §40），只有这处没跟上。现在与脚本同一套判定。
+   * 算不出来（输入非法 / 草稿为空）→ 空表 → 面板拒局部重渲（宁可不做，也别拼错片）。
    */
   const currentBoundaries = React.useMemo(() => {
-    if (!remoteInput || remoteInput.media.length === 0 || config.groupStyle !== 'cinema') return [];
+    if (!remoteInput || remoteInput.media.length === 0) return [];
     try {
-      const plan = buildCinemaPlan(applyLocalParams(remoteInput, config, config.ids.length));
-      return [0, ...plan.scenes.map((scene) => scene.fromFrame + scene.durationInFrames)];
+      return boundaryFramesOf(applyLocalParams(remoteInput, config, config.ids.length));
     } catch {
       return [];
     }
@@ -632,8 +653,30 @@ function App() {
                 onDurationChange={changeDuration}
                 onDurationCommit={applyNow}
                 onDropClip={dropClip}
+                onHideSection={(key) => setSection(key, false)}
               />
             ) : null}
+
+            {/*
+             * 「已关闭」行（用户 2026-09-30）：胶片条卡片上的 ✕ 把某一类结构关掉后，**卡片就没了**，
+             * 没这行就变成「有入口删、无入口补」（项目在片段那边踩过一次）。
+             * 只在真有已关闭项时出现 —— 所以不会"越加越多"。
+             */}
+            {(() => {
+              const hidden = hiddenSectionsOf(config.detailShow);
+              return hidden.length === 0 ? null : (
+                <div className="vt-hidden-sections">
+                  <span className="vt-hint">已关闭</span>
+                  {hidden.map((key) => (
+                    <button key={key} type="button" className="btn-mini"
+                            title={`把「${SECTION_LABEL[key]}」加回成片`}
+                            onClick={() => setSection(key, true)}>
+                      🚫 {SECTION_LABEL[key]} · 恢复
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
 
             {rendered ? (
               <Timeline
@@ -673,7 +716,7 @@ function App() {
       <ConfirmHost />
       {tasksOpen ? (
         <TaskPanel onClose={() => setTasksOpen(false)} notify={notify}
-                   currentBoundaries={currentBoundaries} />
+                   currentBoundaries={currentBoundaries} config={config} />
       ) : null}
       {templatesOpen ? (
         <TemplatePanel
@@ -702,7 +745,7 @@ function App() {
 }
 
 /** 导出任务面板：轮询任务列表（阶段 1 只做状态/打开目录/删除）。 */
-function TaskPanel({ onClose, notify, currentBoundaries }: { onClose: () => void; notify: (message: string) => void; currentBoundaries: number[] }) {
+function TaskPanel({ onClose, notify, currentBoundaries, config }: { onClose: () => void; notify: (message: string) => void; currentBoundaries: number[]; config: EditorConfig }) {
   const [tasks, setTasks] = React.useState<ExportTask[]>([]);
   /** 此刻占着串行渲染线程的任务（后端 DTO 的 `active`）—— 用来解释“为什么排队不动”。 */
   const activeTaskId = tasks.find((task) => task.active)?.id ?? null;
@@ -752,6 +795,15 @@ function TaskPanel({ onClose, notify, currentBoundaries }: { onClose: () => void
                 ) : null}
               </span>
               <span className="vt-task-btns">
+                {task.status === 'DONE' || task.status === 'ERROR' || task.status === 'INTERRUPTED' ? (
+                  <button type="button" className="btn-mini"
+                          title="用当前草稿重算：只重渲内容变了的块（其余复用已有产物），完成后覆盖本成品。标题/主题/BGM/总长这类全局改动会让全部块都变 → 整片重渲（会先告诉你）。"
+                          onClick={() => {
+                            void api.updateFromDraft(task.id, config)
+                              .then(() => { notify(`已提交增量更新 #${task.id}，进度在任务面板`); refresh(); })
+                              .catch((error) => notify(error instanceof Error ? error.message : '增量更新提交失败'));
+                          }}>增量更新</button>
+                ) : null}
                 {task.status === 'RUNNING' ? (
                   <button type="button" className="btn-mini" title="当前块渲完后停（已完成块保留）"
                           onClick={() => void api.pauseTask(task.id).then(() => {
@@ -794,7 +846,7 @@ function TaskPanel({ onClose, notify, currentBoundaries }: { onClose: () => void
                   <em>重渲某块</em>
                   {Array.from({ length: task.chunksTotal }, (_, index) => (
                     <button key={index} type="button" className="btn-mini"
-                            title={`只重渲第 ${index + 1} 块并重新拼接，完成后覆盖原成品`}
+                            title={`只重渲第 ${index + 1} 块并重新拼接，完成后覆盖原成品（**只用导出当时的快照**；要吃草稿改动请用「增量更新」）`}
                             onClick={() => {
                               const check = canRerenderChunk(task.boundaryFrames, currentBoundaries);
                               if (!check.ok) {

@@ -14,6 +14,7 @@ import { Thumbnail } from '@remotion/player';
 import { RecommendComposition } from '../src/RecommendComposition';
 import { CinemaComposition } from '../src/cinema';
 import { sceneLabel } from '../src/scene-plan';
+import { SECTION_LABEL, sectionKeyOfScene, type SectionKey } from '../src/sections';
 import type { MultiMediaPocInput, Scene, ScenePlan } from '../src/types';
 import { clampSeconds, countByKey, durationKeyOfScene, DURATION_LABEL, type DurationKey } from './durations';
 
@@ -316,7 +317,7 @@ function ThumbTrigger({ index, root, onVisible }: {
   return <span ref={ref} className="vt-thumb-trigger" />;
 }
 
-export function Filmstrip({ input, plan, frame, selection, missingByClip, missingByMedia, onSeek, onSelect, onDurationChange, onDurationCommit, onDropClip }: {
+export function Filmstrip({ input, plan, frame, selection, missingByClip, missingByMedia, onSeek, onSelect, onDurationChange, onDurationCommit, onDropClip, onHideSection }: {
   input: MultiMediaPocInput;
   plan: ScenePlan;
   frame: number;
@@ -334,10 +335,24 @@ export function Filmstrip({ input, plan, frame, selection, missingByClip, missin
    * 只改草稿的 `mediaClips`，不动素材库。
    */
   onDropClip: (mediaId: number, clipId: number) => void;
+  /**
+   * 卡片上的 ✕ 关掉**这一整类结构化场景**（开场/序言/章节页/全片回顾/结尾）。
+   *
+   * 用户 2026-09-30：「这些结构化的场景都能关闭。后续假如我新增这些结构也能做到关闭。直接在卡片上加X吧，
+   * 不然后续越加越多」——所以不是右栏加一组开关，而是卡片就地关；能关的类别由 `sectionKeyOfScene` 决定，
+   * 新增一类结构只要补一行映射，✕ 会自己长出来。恢复入口见 `main.tsx` 的「已关闭」行。
+   */
+  onHideSection: (key: SectionKey) => void;
 }) {
   const scrollerRef = React.useRef<HTMLDivElement>(null);
   const { startDrag, moveDrag, endDrag, dragging } = useDurationDrag(onDurationChange, onDurationCommit);
   const counts = countByKey(plan.scenes);
+  /** 每个可关闭类别本轮有几段（✕ 的 tooltip 要说清「关一张 = 这一类全关」）。 */
+  const sectionCounts: Partial<Record<SectionKey, number>> = {};
+  for (const scene of plan.scenes) {
+    const key = sectionKeyOfScene(scene);
+    if (key) sectionCounts[key] = (sectionCounts[key] ?? 0) + 1;
+  }
   /** 卡的宽度不随时长变（用户 2026-09-20 定），所以拖拽用固定手感：**拖过一个卡宽 = 5s**。 */
   const perPxOf = (element: HTMLElement): number => 5 / Math.max(40, element.parentElement?.getBoundingClientRect().width ?? element.getBoundingClientRect().width);
   const activeIndex = plan.scenes.findIndex((scene) => frame >= scene.fromFrame && frame < scene.fromFrame + scene.durationInFrames);
@@ -388,6 +403,7 @@ export function Filmstrip({ input, plan, frame, selection, missingByClip, missin
         const missing = missingOf(scene, missingByClip, missingByMedia);
         const ready = readyThumbs.includes(index);
         const durationKey = durationKeyOfScene(scene);
+        const sectionKey = sectionKeyOfScene(scene);
         return (
           <button
             key={index}
@@ -432,6 +448,23 @@ export function Filmstrip({ input, plan, frame, selection, missingByClip, missin
                   onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.stopPropagation(); onDropClip(scene.mediaId!, scene.clipId!); } }}
                 >
                   ✕{missing ? ' 移除' : ''}
+                </span>
+              ) : null}
+              {/*
+               * 结构化场景（开场/序言/章节页/全片回顾/结尾）的 ✕ = **关掉这一整类**，
+               * 与旁边那枚时长牌同语义（那种牌也是"拖一张 = 这一类全变"）。
+               * 关掉后卡片消失，恢复入口是胶片条下面那排「已关闭 · X」（只在该出现时出现）。
+               */}
+              {sectionKey ? (
+                <span
+                  className="vt-film-drop quiet"
+                  role="button"
+                  tabIndex={0}
+                  title={`关掉全片「${SECTION_LABEL[sectionKey]}」${(sectionCounts[sectionKey] ?? 1) > 1 ? `（共 ${sectionCounts[sectionKey]} 段一起）` : ''} · 下方「已关闭」里可随时恢复`}
+                  onClick={(event) => { event.stopPropagation(); onHideSection(sectionKey); }}
+                  onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.stopPropagation(); onHideSection(sectionKey); } }}
+                >
+                  ✕ 关闭
                 </span>
               ) : null}
             </span>

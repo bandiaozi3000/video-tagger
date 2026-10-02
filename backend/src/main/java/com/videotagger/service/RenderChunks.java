@@ -72,9 +72,19 @@ public final class RenderChunks {
      * @param fps    合成帧率，用来把块帧数换算成秒
      */
     public static String concatList(List<Chunk> chunks, int fps) {
+        return concatList(chunks, fps, RenderChunks::chunkFileName);
+    }
+
+    /**
+     * 拼接清单（自定义文件来源）：增量更新会把**复用块**指到旧工作目录、新渲块指到本轮目录 ——
+     * 清单里因此可能是绝对路径，`concatChunks` 那边已带 `-safe 0`。
+     *
+     * ⚠️ 每项后面的 `duration` **一个都不能少**（`ffmpeg -f concat` 少了它块间会出现 ~0.18s 空洞）。
+     */
+    public static String concatList(List<Chunk> chunks, int fps, java.util.function.IntFunction<String> fileOf) {
         StringBuilder sb = new StringBuilder();
         for (Chunk chunk : chunks) {
-            sb.append("file '").append(chunkFileName(chunk.index())).append("'\n");
+            sb.append("file '").append(fileOf.apply(chunk.index())).append("'\n");
             sb.append("duration ").append(seconds(chunk.frames(), fps)).append('\n');
         }
         return sb.toString();
