@@ -363,13 +363,20 @@ function confirmAsync(opts) {
     });
 }
 
-/** 关闭通用确认弹窗（取消/确认共用）。 */
-function closeConfirmModal() {
+/**
+ * 关闭通用确认弹窗。
+ *
+ * ⚠️ `cancelled=false` 时**绝不能跑 onCancel**（点「确定」关闭时）——
+ * 否则点「确定」也会先 `resolve(false)`，`confirmAsync()` **永远拿到 false**：
+ * 2026-10-02 用户报「标签池新增标签未生效」查到的根因（连 `POST /api/tags` 都没发），
+ * 同一根因也吃掉「导出当前可用版」那个确认。这两行从 v0.24.2「全站弹窗统一」起就错了。
+ */
+function closeConfirmModal(cancelled = true) {
     confirmModal.hidden = true;
     confirmModalAction = null;
     const cancel = confirmModalOnCancel;
     confirmModalOnCancel = null;
-    if (cancel) cancel();
+    if (cancelled && cancel) cancel();
     // 换绑确认弹层取消/关闭后，恢复关联弹窗确认按钮，允许重新选择或重试
     const mdlBtn = document.getElementById('mdl-confirm');
     if (mdlBtn) mdlBtn.disabled = false;
@@ -6860,7 +6867,7 @@ document.getElementById('batch-del-confirm').addEventListener('click', confirmBa
 document.getElementById('confirm-modal-cancel').addEventListener('click', closeConfirmModal);
 document.getElementById('confirm-modal-ok').addEventListener('click', () => {
     const fn = confirmModalAction;
-    closeConfirmModal();
+    closeConfirmModal(false);   // 点确定 = 已确认，不要跑 onCancel
     if (fn) fn();
 });
 document.getElementById('coll-create').addEventListener('click', createCollectionFromToolbar);
