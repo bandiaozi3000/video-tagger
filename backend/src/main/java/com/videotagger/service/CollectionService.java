@@ -81,14 +81,18 @@ public class CollectionService {
         mediaCollectionMapper.deleteLink(mediaId, collectionId);
     }
 
-    /** 收藏夹内容（整体浏览）；支持 status/format/子分类/confirmed/year/source/q 标题筛选，sort=year 按首播年份排序；offset 分页。 */
+    /** 收藏夹内容（整体浏览）；支持 status/format/子分类/confirmed/year/source/q 标题筛选，sort=year 按首播年份排序；offset 分页。
+     *
+     * <p>本路径的筛选**仍是单值**（收藏夹视图自己的 `collFilter` 只有一个年份框），所以在这儿
+     * 把标量包成单元素列表喂给共用 SQL 片段 —— 片段只认 List，单值语义不变。 */
     public List<MediaSummary> media(Long collectionId, int limit, int offset, String status, String format,
                                     Long subcategoryId, Integer confirmed, Integer year, String source, String q,
                                     String sort, String order, List<String> genres, String season) {
         requireCollection(collectionId);
         return mediaMapper.listByCollection(collectionId, Math.max(limit, 1), Math.max(offset, 0),
-                status, format, subcategoryId, confirmed, year, source, q, sort, order,
-                MediaService.genresJson(genres), season);
+                status == null ? null : List.of(status), format, subcategoryId, confirmed,
+                year == null ? null : List.of(year), source, q, sort, order,
+                null, null, genres, season == null ? null : List.of(season));
     }
 
     private Collection requireCollection(Long id) {

@@ -68,7 +68,7 @@ class TagFilterIT extends AbstractMySqlIT {
 
         // 媒体视角：媒体墙筛选命中（三级任一层）
         List<Long> filtered = mediaService.list(50, 0, null, null, null, null, null, null, null, null, null,
-                List.of(tagId), "AND", null, null, null, null).stream().map(s -> s.id()).toList();
+                List.of(tagId), "AND", null, null, null, null, null, null).stream().map(s -> s.id()).toList();
         assertTrue(filtered.contains(m.getId()), "片段级标签必须能被媒体墙筛出来（查询期三级并集）");
 
         // 选项字典同口径：得列出该标签，且计数 ≥ 1（否则面板里根本选不到）
@@ -103,11 +103,11 @@ class TagFilterIT extends AbstractMySqlIT {
         long clipTag = TestTagSeed.ensure(tagMapper, "片段层探针B");
 
         List<Long> and = mediaService.list(50, 0, null, null, null, null, null, null, null, null, null,
-                List.of(clipTag, episodeTag), "AND", null, null, null, null).stream().map(s -> s.id()).toList();
+                List.of(clipTag, episodeTag), "AND", null, null, null, null, null, null).stream().map(s -> s.id()).toList();
         assertTrue(and.contains(m.getId()), "AND 的语义是每个标签各自三级命中，不要求落在同一条记录上");
 
         List<Long> or = mediaService.list(50, 0, null, null, null, null, null, null, null, null, null,
-                List.of(clipTag, episodeTag), "OR", null, null, null, null).stream().map(s -> s.id()).toList();
+                List.of(clipTag, episodeTag), "OR", null, null, null, null, null, null).stream().map(s -> s.id()).toList();
         assertTrue(or.containsAll(and), "OR 结果必须包含 AND 结果");
         assertEquals(1, tagAdminService.episodeStats(ep.getId()).size(), "集池只有集自己那一个标签");
     }

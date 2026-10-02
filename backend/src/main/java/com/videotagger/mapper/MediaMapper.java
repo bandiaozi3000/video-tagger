@@ -21,19 +21,43 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "ORDER BY (SELECT COUNT(*) FROM clip_tag WHERE clip_id = c.id) DESC, c.created_at DESC "
             + "LIMIT 1) AS fallbackCoverPath";
 
+    /* ── 单值维度（v0.32 起全部多选）：同维度内**恒为「任一匹配」**，不提供且/或开关 ──
+       `media.year`／`media.status` 是单值列，`external_work` 实测每部媒体只有 1 条条目
+       （抽 200 部 200 条），所以这些维度选 2 个值再取「且」恒为空集 —— 不给开关是刻意的，
+       别当成漏改去补。缺省 = 不筛（null / 空列表）。 */
+    String STATUS_FILTER = "<if test='status != null and !status.isEmpty()'> AND a.status IN "
+            + "<foreach collection='status' item='st' open='(' separator=',' close=')'>#{st}</foreach></if>";
+    String YEAR_FILTER = "<if test='year != null and !year.isEmpty()'> AND a.year IN "
+            + "<foreach collection='year' item='yr' open='(' separator=',' close=')'>#{yr}</foreach></if>";
+    /** 季度筛选（`external_work.season`：SPRING / SUMMER / FALL / WINTER）。 */
+    String SEASON_FILTER = "<if test='season != null and !season.isEmpty()'> AND a.id IN "
+            + "(SELECT ews.media_id FROM external_work ews WHERE ews.season IN "
+            + "<foreach collection='season' item='se' open='(' separator=',' close=')'>#{se}</foreach>)</if>";
+
+    /* ── 多值维度（v0.32）：AND = 逐值各自成立（形状照抄 TAG_FILTER）；缺省 OR。 ── */
+    String COLLECTION_IDS = "<foreach collection='collectionId' item='cid' open='(' separator=',' close=')'>#{cid}</foreach>";
+    String COLLECTION_FILTER = "<if test='collectionId != null and !collectionId.isEmpty()'><choose>"
+            + "<when test=\"collectionMode == 'AND'\"><foreach collection='collectionId' item='cid'>"
+            + " AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{cid})</foreach></when>"
+            + "<otherwise> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id IN "
+            + COLLECTION_IDS + ")</otherwise></choose></if>";
+
     /**
-     * 题材筛选（Bangumi tag，**多选 OR**）：与外部作品的标签数组求交集。
+     * 题材筛选（Bangumi tag，**多选**）：与外部作品的标签数组比对。
      *
-     * <p>`genresJson` 由 service 拼成 `["奇幻","战斗"]`；`JSON_OVERLAPS` 任一命中即真（需 MySQL 8.0.17+）。
+     * <p>OR（缺省，= 历史语义）：`JSON_OVERLAPS` 任一命中即真，需 MySQL 8.0.17+；
+     * AND：逐词 `JSON_CONTAINS`，每个词都命中才算。
+     * 不用 `CAST(#{g} AS JSON)`：裸词（`奇幻`）不是合法 JSON，必须走 `JSON_QUOTE`（→ `"奇幻"`）。
      * SQLite 侧不维护（桌面轨道已冻结，见 `docs/rules.md` §13）。
      */
-    String GENRE_FILTER = "<if test='genresJson != null'> AND EXISTS (SELECT 1 FROM external_work ew "
-            + "WHERE ew.media_id = a.id AND ew.genres_json IS NOT NULL "
-            + "AND JSON_OVERLAPS(ew.genres_json, CAST(#{genresJson} AS JSON)))</if>";
-
-    /** 季度筛选（`external_work.season`：SPRING / SUMMER / FALL / WINTER）。 */
-    String SEASON_FILTER = "<if test='season != null'> AND a.id IN "
-            + "(SELECT ews.media_id FROM external_work ews WHERE ews.season = #{season})</if>";
+    String GENRE_FILTER = "<if test='genres != null and !genres.isEmpty()'><choose>"
+            + "<when test=\"genreMode == 'AND'\"><foreach collection='genres' item='g'>"
+            + " AND EXISTS (SELECT 1 FROM external_work eg WHERE eg.media_id = a.id AND eg.genres_json IS NOT NULL"
+            + " AND JSON_CONTAINS(eg.genres_json, JSON_QUOTE(#{g})))</foreach></when>"
+            + "<otherwise> AND EXISTS (SELECT 1 FROM external_work ew WHERE ew.media_id = a.id"
+            + " AND ew.genres_json IS NOT NULL AND JSON_OVERLAPS(ew.genres_json, JSON_ARRAY("
+            + "<foreach collection='genres' item='g' separator=','>#{g}</foreach>)))"
+            + "</otherwise></choose></if>";
 
     /* ── 标签筛选（v0.31 标签重做）──────────────────────────────
        媒体视角 = **查询期三级并集**：媒体自己 ∪ 其下集 ∪ 其下片段，任一层命中即算。
@@ -107,7 +131,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "LEFT JOIN clips c ON c.episode_id = e.id "
             + "<where>"
             + "<if test='true'> AND a.deleted_at IS NULL</if>"
-            + "<if test='status != null'> AND a.status = #{status}</if>"
+            + STATUS_FILTER
             + "<if test='format != null'> AND a.media_format = #{format}</if>"
             + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
             + "WITH RECURSIVE cte AS ("
@@ -115,8 +139,8 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
             + ") SELECT id FROM cte)</if>"
             + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
-            + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
-            + "<if test='year != null'> AND a.year = #{year}</if>"
+            + COLLECTION_FILTER
+            + YEAR_FILTER
             + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + TAG_FILTER
@@ -127,13 +151,14 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "ORDER BY latestAt DESC, a.id DESC LIMIT #{limit} OFFSET #{offset}"
             + "</script>")
     List<MediaSummary> listByLatest(@Param("limit") int limit, @Param("offset") int offset,
-                                    @Param("status") String status, @Param("format") String format,
+                                    @Param("status") List<String> status, @Param("format") String format,
                                     @Param("subcategoryId") Long subcategoryId,
-                                    @Param("confirmed") Integer confirmed, @Param("collectionId") Long collectionId,
-                                    @Param("year") Integer year, @Param("source") String source,
+                                    @Param("confirmed") Integer confirmed, @Param("collectionId") List<Long> collectionId,
+                                    @Param("year") List<Integer> year, @Param("source") String source,
                                     @Param("q") String q,
                                     @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode,
-                                    @Param("genresJson") String genresJson, @Param("season") String season);
+                                    @Param("genreMode") String genreMode, @Param("collectionMode") String collectionMode,
+                                       @Param("genres") List<String> genres, @Param("season") List<String> season);
 
     @Select("SELECT COUNT(*) FROM media WHERE deleted_at IS NULL")
     long countMedia();
@@ -143,7 +168,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "SELECT COUNT(DISTINCT a.id) FROM media a "
             + "<where>"
             + "<if test='true'> AND a.deleted_at IS NULL</if>"
-            + "<if test='status != null'> AND a.status = #{status}</if>"
+            + STATUS_FILTER
             + "<if test='format != null'> AND a.media_format = #{format}</if>"
             + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
             + "WITH RECURSIVE cte AS ("
@@ -151,8 +176,8 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
             + ") SELECT id FROM cte)</if>"
             + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
-            + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
-            + "<if test='year != null'> AND a.year = #{year}</if>"
+            + COLLECTION_FILTER
+            + YEAR_FILTER
             + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + TAG_FILTER
@@ -160,19 +185,21 @@ public interface MediaMapper extends BaseMapper<Media> {
             + SEASON_FILTER
             + "</where>"
             + "</script>")
-    long countFiltered(@Param("status") String status, @Param("format") String format,
+    long countFiltered(@Param("status") List<String> status, @Param("format") String format,
                        @Param("subcategoryId") Long subcategoryId, @Param("confirmed") Integer confirmed,
-                       @Param("collectionId") Long collectionId, @Param("year") Integer year,
+                       @Param("collectionId") List<Long> collectionId, @Param("year") List<Integer> year,
                        @Param("source") String source,
-                       @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode, @Param("q") String q,
-                       @Param("genresJson") String genresJson, @Param("season") String season);
+                       @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode,
+                       @Param("genreMode") String genreMode, @Param("collectionMode") String collectionMode,
+                       @Param("q") String q,
+                       @Param("genres") List<String> genres, @Param("season") List<String> season);
 
     /** 最近观看分支总数：与 listByLatest 同条件 + 仅统计打过标记的媒体。 */
     @Select("<script>"
             + "SELECT COUNT(DISTINCT a.id) FROM media a "
             + "<where>"
             + "<if test='true'> AND a.deleted_at IS NULL</if>"
-            + "<if test='status != null'> AND a.status = #{status}</if>"
+            + STATUS_FILTER
             + "<if test='format != null'> AND a.media_format = #{format}</if>"
             + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
             + "WITH RECURSIVE cte AS ("
@@ -180,8 +207,8 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
             + ") SELECT id FROM cte)</if>"
             + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
-            + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
-            + "<if test='year != null'> AND a.year = #{year}</if>"
+            + COLLECTION_FILTER
+            + YEAR_FILTER
             + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + TAG_FILTER
@@ -190,12 +217,13 @@ public interface MediaMapper extends BaseMapper<Media> {
             + " AND EXISTS (SELECT 1 FROM clips c JOIN episode e ON e.id = c.episode_id WHERE e.media_id = a.id)"
             + "</where>"
             + "</script>")
-    long countLatest(@Param("status") String status, @Param("format") String format,
+    long countLatest(@Param("status") List<String> status, @Param("format") String format,
                      @Param("subcategoryId") Long subcategoryId, @Param("confirmed") Integer confirmed,
-                     @Param("collectionId") Long collectionId, @Param("year") Integer year,
+                     @Param("collectionId") List<Long> collectionId, @Param("year") List<Integer> year,
                      @Param("source") String source, @Param("q") String q,
                      @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode,
-                     @Param("genresJson") String genresJson, @Param("season") String season);
+                     @Param("genreMode") String genreMode, @Param("collectionMode") String collectionMode,
+                     @Param("genres") List<String> genres, @Param("season") List<String> season);
 
     /** 库中已有的全部首播年份（降序，供年份筛选下拉）。 */
     @Select("SELECT DISTINCT year FROM media WHERE year IS NOT NULL AND deleted_at IS NULL ORDER BY year DESC")
@@ -213,7 +241,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "LEFT JOIN clips c ON c.episode_id = e.id "
             + "<where>"
             + "<if test='true'> AND a.deleted_at IS NULL</if>"
-            + "<if test='status != null'> AND a.status = #{status}</if>"
+            + STATUS_FILTER
             + "<if test='format != null'> AND a.media_format = #{format}</if>"
             + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
             + "WITH RECURSIVE cte AS ("
@@ -221,7 +249,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
             + ") SELECT id FROM cte)</if>"
             + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
-            + "<if test='year != null'> AND a.year = #{year}</if>"
+            + YEAR_FILTER
             + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + GENRE_FILTER
@@ -240,12 +268,13 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "</script>")
     List<MediaSummary> listByCollection(@Param("collectionId") long collectionId, @Param("limit") int limit,
                                         @Param("offset") int offset,
-                                        @Param("status") String status, @Param("format") String format,
+                                        @Param("status") List<String> status, @Param("format") String format,
                                         @Param("subcategoryId") Long subcategoryId,
-                                        @Param("confirmed") Integer confirmed, @Param("year") Integer year,
+                                        @Param("confirmed") Integer confirmed, @Param("year") List<Integer> year,
                                         @Param("source") String source, @Param("q") String q,
                                         @Param("sort") String sort, @Param("order") String order,
-                                        @Param("genresJson") String genresJson, @Param("season") String season);
+                                        @Param("genreMode") String genreMode, @Param("collectionMode") String collectionMode,
+                                       @Param("genres") List<String> genres, @Param("season") List<String> season);
 
     /**
      * 清单导出：候选（当前筛选，同一套条件）/ 已选（ids）→ 含集数与标签的轻量投影。
@@ -272,7 +301,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "FROM media a "
             + "<where>"
             + "<if test='true'> AND a.deleted_at IS NULL</if>"
-            + "<if test='status != null'> AND a.status = #{status}</if>"
+            + STATUS_FILTER
             + "<if test='format != null'> AND a.media_format = #{format}</if>"
             + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
             + "WITH RECURSIVE cte AS ("
@@ -280,8 +309,8 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
             + ") SELECT id FROM cte)</if>"
             + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
-            + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
-            + "<if test='year != null'> AND a.year = #{year}</if>"
+            + COLLECTION_FILTER
+            + YEAR_FILTER
             + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + TAG_FILTER
@@ -291,13 +320,15 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "</where>"
             + "GROUP BY a.id ORDER BY (a.year IS NULL), a.year DESC, a.id DESC"
             + "</script>")
-    List<MediaExportRow> listExportRows(@Param("status") String status, @Param("format") String format,
+    List<MediaExportRow> listExportRows(@Param("status") List<String> status, @Param("format") String format,
                                        @Param("subcategoryId") Long subcategoryId,
-                                       @Param("confirmed") Integer confirmed, @Param("collectionId") Long collectionId,
-                                       @Param("year") Integer year, @Param("source") String source,
-                                       @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode, @Param("q") String q,
+                                       @Param("confirmed") Integer confirmed, @Param("collectionId") List<Long> collectionId,
+                                       @Param("year") List<Integer> year, @Param("source") String source,
+                                       @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode,
+                                       @Param("genreMode") String genreMode, @Param("collectionMode") String collectionMode,
+                                       @Param("q") String q,
                                        @Param("ids") List<Long> ids,
-                                       @Param("genresJson") String genresJson, @Param("season") String season);
+                                       @Param("genres") List<String> genres, @Param("season") List<String> season);
 
     /** 媒体列表筛选：状态/格式/子分类/待确认/年份 组合，sort=latest 按最近标记倒序。 */
     @Select("<script>"
@@ -310,7 +341,7 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "LEFT JOIN clips c ON c.episode_id = e.id "
             + "<where>"
             + "<if test='true'> AND a.deleted_at IS NULL</if>"
-            + "<if test='status != null'> AND a.status = #{status}</if>"
+            + STATUS_FILTER
             + "<if test='format != null'> AND a.media_format = #{format}</if>"
             + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
             + "WITH RECURSIVE cte AS ("
@@ -318,8 +349,8 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
             + ") SELECT id FROM cte)</if>"
             + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
-            + "<if test='collectionId != null'> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{collectionId})</if>"
-            + "<if test='year != null'> AND a.year = #{year}</if>"
+            + COLLECTION_FILTER
+            + YEAR_FILTER
             + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
             + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
             + TAG_FILTER
@@ -347,16 +378,17 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "</script>")
 
 
-    List<MediaSummary> listFiltered(@Param("status") String status, @Param("format") String format,
+    List<MediaSummary> listFiltered(@Param("status") List<String> status, @Param("format") String format,
                                     @Param("subcategoryId") Long subcategoryId,
-                                    @Param("confirmed") Integer confirmed, @Param("collectionId") Long collectionId,
+                                    @Param("confirmed") Integer confirmed, @Param("collectionId") List<Long> collectionId,
                                     @Param("sort") String sort, @Param("order") String order,
-                                    @Param("year") Integer year,
+                                    @Param("year") List<Integer> year,
                                     @Param("source") String source,
                                     @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode,
+                                    @Param("genreMode") String genreMode, @Param("collectionMode") String collectionMode,
                                     @Param("q") String q,
                                     @Param("ids") List<Long> ids,
-                                    @Param("genresJson") String genresJson, @Param("season") String season,
+                                    @Param("genres") List<String> genres, @Param("season") List<String> season,
                                     @Param("limit") int limit, @Param("offset") int offset);
 
     /**

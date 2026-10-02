@@ -74,41 +74,45 @@ public class MediaController {
      * 与 `GET /api/media` 的区别：不分页、多两列（episodeCount/tags）、列少很多（封面/状态/评分不参与导出）。
      */
     @GetMapping("/list-export")
-    public List<MediaExportRow> listExport(@RequestParam(required = false) String status,
+    public List<MediaExportRow> listExport(@RequestParam(required = false) List<String> status,
                                           @RequestParam(required = false) String format,
                                           @RequestParam(required = false) Long subcategoryId,
                                           @RequestParam(required = false) Integer confirmed,
-                                          @RequestParam(required = false) Long collectionId,
-                                          @RequestParam(required = false) Integer year,
+                                          @RequestParam(required = false) List<Long> collectionId,
+                                          @RequestParam(required = false) List<Integer> year,
                                           @RequestParam(required = false) String source,
                                           @RequestParam(required = false) List<Long> tagIds,
                                    @RequestParam(required = false) String tagMode,
+                                   @RequestParam(required = false) String genreMode,
+                                   @RequestParam(required = false) String collectionMode,
                                           @RequestParam(required = false) String q,
                                           @RequestParam(required = false) List<Long> ids,
                                           @RequestParam(required = false) List<String> genres,
-                                          @RequestParam(required = false) String season) {
-        return mediaService.listExport(status, format, subcategoryId, confirmed, collectionId, year, source, tagIds, tagMode, q, ids, genres, season);
+                                          @RequestParam(required = false) List<String> season) {
+        return mediaService.listExport(status, format, subcategoryId, confirmed, collectionId, year, source, tagIds, tagMode, genreMode, collectionMode, q, ids, genres, season);
     }
 
     @GetMapping
     public List<MediaSummary> list(@RequestParam(defaultValue = "50") int limit,
                                    @RequestParam(defaultValue = "0") int offset,
-                                   @RequestParam(required = false) String status,
+                                   @RequestParam(required = false) List<String> status,
                                    @RequestParam(required = false) String format,
                                    @RequestParam(required = false) Long subcategoryId,
                                    @RequestParam(required = false) Integer confirmed,
-                                   @RequestParam(required = false) Long collectionId,
+                                   @RequestParam(required = false) List<Long> collectionId,
                                    @RequestParam(required = false) String sort,
                                    @RequestParam(required = false) String order,
-                                   @RequestParam(required = false) Integer year,
+                                   @RequestParam(required = false) List<Integer> year,
                                    @RequestParam(required = false) String source,
                                    @RequestParam(required = false) List<Long> tagIds,
                                    @RequestParam(required = false) String tagMode,
+                                   @RequestParam(required = false) String genreMode,
+                                   @RequestParam(required = false) String collectionMode,
                                    @RequestParam(required = false) String q,
                                    @RequestParam(required = false) List<Long> ids,
                                    @RequestParam(required = false) List<String> genres,
-                                   @RequestParam(required = false) String season) {
-        return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, order, year, source, tagIds, tagMode, q, ids, genres, season);
+                                   @RequestParam(required = false) List<String> season) {
+        return mediaService.list(limit, offset, status, format, subcategoryId, confirmed, collectionId, sort, order, year, source, tagIds, tagMode, genreMode, collectionMode, q, ids, genres, season);
     }
 
     /**
@@ -140,37 +144,41 @@ public class MediaController {
     @GetMapping("/recent")
     public List<MediaSummary> recent(@RequestParam(defaultValue = "20") int limit,
                                      @RequestParam(defaultValue = "0") int offset,
-                                     @RequestParam(required = false) String status,
+                                     @RequestParam(required = false) List<String> status,
                                      @RequestParam(required = false) String format,
                                      @RequestParam(required = false) Long subcategoryId,
                                      @RequestParam(required = false) Integer confirmed,
-                                     @RequestParam(required = false) Long collectionId,
-                                     @RequestParam(required = false) Integer year,
+                                     @RequestParam(required = false) List<Long> collectionId,
+                                     @RequestParam(required = false) List<Integer> year,
                                      @RequestParam(required = false) String source,
                                      @RequestParam(required = false) String q,
                                      @RequestParam(required = false) List<Long> tagIds,
                                    @RequestParam(required = false) String tagMode,
+                                   @RequestParam(required = false) String genreMode,
+                                   @RequestParam(required = false) String collectionMode,
                                      @RequestParam(required = false) List<String> genres,
-                                     @RequestParam(required = false) String season) {
-        return mediaService.recent(limit, offset, status, format, subcategoryId, confirmed, collectionId, year, source, q, tagIds, tagMode, genres, season);
+                                     @RequestParam(required = false) List<String> season) {
+        return mediaService.recent(limit, offset, status, format, subcategoryId, confirmed, collectionId, year, source, q, tagIds, tagMode, genreMode, collectionMode, genres, season);
     }
 
     /** 带筛选的媒体总数（分页页码导航用）；latest=true 时按「最近观看」口径只统计打过标记的媒体。 */
     @GetMapping("/count")
-    public long count(@RequestParam(required = false) String status,
+    public long count(@RequestParam(required = false) List<String> status,
                       @RequestParam(required = false) String format,
                       @RequestParam(required = false) Long subcategoryId,
                       @RequestParam(required = false) Integer confirmed,
-                      @RequestParam(required = false) Long collectionId,
-                      @RequestParam(required = false) Integer year,
+                      @RequestParam(required = false) List<Long> collectionId,
+                      @RequestParam(required = false) List<Integer> year,
                       @RequestParam(required = false) String source,
                       @RequestParam(required = false) List<Long> tagIds,
                                    @RequestParam(required = false) String tagMode,
+                                   @RequestParam(required = false) String genreMode,
+                                   @RequestParam(required = false) String collectionMode,
                       @RequestParam(defaultValue = "false") boolean latest,
                       @RequestParam(required = false) String q,
                       @RequestParam(required = false) List<String> genres,
-                      @RequestParam(required = false) String season) {
-        return mediaService.count(status, format, subcategoryId, confirmed, collectionId, year, source, tagIds, tagMode, latest, q, genres, season);
+                      @RequestParam(required = false) List<String> season) {
+        return mediaService.count(status, format, subcategoryId, confirmed, collectionId, year, source, tagIds, tagMode, genreMode, collectionMode, latest, q, genres, season);
     }
 
     /** 库中已有的全部首播年份（年份筛选下拉选项）。 */

@@ -40,13 +40,13 @@ class MediaSummaryTagColumnIT extends AbstractMySqlIT {
                 List.of(tagId), ""));
 
         List<MediaSummary> filtered = mediaService.list(50, 0, null, null, null, null, null, null, null, null, null,
-                List.of(tagId), "AND", "卡片列探针", null, null, null);
+                List.of(tagId), "AND", null, null, "卡片列探针", null, null, null);
         assertTrue(filtered.stream().anyMatch(m -> m.tags() != null && m.tags().contains("卡片列探针")),
                 "listFiltered（全部媒体 tab）必须带回 tags，且含片段级标签");
 
         // 最近观看 tab（listByLatest）—— 原本零覆盖
         List<MediaSummary> recent = mediaService.recent(50, 0, null, null, null, null, null, null, null,
-                "卡片列探针", List.of(tagId), "AND", List.of(), null);
+                "卡片列探针", List.of(tagId), "AND", null, null, List.of(), null);
         assertTrue(recent.stream().anyMatch(m -> m.tags() != null && m.tags().contains("卡片列探针")),
                 "listByLatest（最近观看 tab）也必须带回 tags");
 

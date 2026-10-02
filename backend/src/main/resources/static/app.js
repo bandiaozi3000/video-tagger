@@ -424,7 +424,7 @@ document.getElementById('prompt-modal-input').addEventListener('keydown', (e) =>
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('prompt-modal-ok').click(); }
 });
 document.getElementById('prompt-modal').addEventListener('click', (e) => { if (e.target && e.target.id === 'prompt-modal') { const c = promptModalCancel; closePromptModal(); if (c) c(); } });
-let mediaFilter = { q: '', status: '', format: '', subcategoryId: '', collectionId: '', unconfirmed: false, year: '', sort: '', order: 'desc', genres: [], season: '', tagIds: [], tagMode: 'AND' };
+let mediaFilter = { q: '', format: '', subcategoryId: '', unconfirmed: false, sort: '', order: 'desc', genres: [], tagIds: [], status: [], year: [], season: [], collectionId: [], mode: { genres: 'OR', tagIds: 'AND', collectionId: 'OR' } };
 let displayView = 'card';   // 全局视图偏好：card 卡片 / list 列表（媒体页/收藏夹/推荐页共用，单按钮切换）
 let collSelectedId = null;           // 收藏夹 tab：当前选中的收藏夹 id
 let collectionsCache = [];           // 收藏夹列表缓存（管理视图用）
@@ -2164,8 +2164,12 @@ function hl(text, q) {
 async function loadMedia(resetPage = true) {
     if (resetPage) mediaPage = 1;
     mediaStatusEl.textContent = '加载中…';
+    let url = '';
+    let countUrl = '';
     try {
-        const { url, countUrl } = buildMediaUrls();
+        const built = buildMediaUrls();
+        url = built.url;
+        countUrl = built.countUrl;
         const [listResp, countResp] = await Promise.all([fetch(url), fetch(countUrl)]);
         if (!listResp.ok) throw new Error(`HTTP ${listResp.status}`);
         let list = await listResp.json();
@@ -2178,13 +2182,27 @@ async function loadMedia(resetPage = true) {
         renderMediaGrid(list);
         renderMediaPagination(totalPages);
         if (list.length === 0) {
-            mediaStatusEl.textContent = mediaMode === 'recent' && mediaTotal === 0
-                ? '还没有打过标记的媒体，去看片按 Alt+S 打一个' : '没有符合条件的媒体';
+            // 有筛选条件时不要把“筛出来 0 条”说成“你还没打过标记”（2026-10-02 用户报筛选结果为空时被误导）
+            const hasFilter = !!(mediaFilter.q || mediaFilter.format
+                || mediaFilter.subcategoryId || mediaFilter.unconfirmed
+                || MEDIA_DIMS.some(d => (mediaFilter[d.key] || []).length));
+            mediaStatusEl.textContent = hasFilter
+                ? '没有符合筛选条件的媒体（可以清掉筛选或换个标签再看看）'
+                : mediaMode === 'recent' && mediaTotal === 0
+                    ? '还没有打过标记的媒体，去看片按 Alt+S 打一个' : '没有符合条件的媒体';
         } else {
             mediaStatusEl.textContent = '';
         }
     } catch (err) {
-        mediaStatusEl.textContent = '加载失败：后端未响应';
+        // 以前这里一律写「后端未响应」→ 客户端的 JS 异常也被说成后端没响应，误导排查（2026-10-02 用户报筛选失败，查了两轮才发现这句话在撝）。
+        // 现在：只有真的是 fetch 网络失败才说"后端未响应"，其余把**原始报错**写出来。
+        const msg = String((err && err.message) || err || '未知错误');
+        if (/Failed to fetch|NetworkError|Load failed|Network request failed/i.test(msg)) {
+            mediaStatusEl.textContent = `加载失败：后端未响应（${msg}）`;
+        } else {
+            mediaStatusEl.textContent = `加载失败：${msg}`;
+        }
+        if (window.console) console.error('[loadMedia]', url, err);
     }
 }
 
@@ -2275,12 +2293,15 @@ async function addCustomGenre(word) {
     return { ok: true, msg: n == null ? '已常驻（媒体数未知）' : `已常驻（${n} 部）` };
 }
 
-/** 只有题材是多选；其余单选（单选列表顶部给「全部（不限）」当清空入口）。 */
-function dimIsMulti(key) { return key === 'genres'; }
+/* 维度取值基数（v0.32）：六个维度**全部多选**（值是数组）。
+   true = 同维度内「全部匹配 / 任一匹配」都成立 → 给开关；
+   false = 单值列（`media.year`／`media.status`；季度实测每部媒体只有 1 条外部条目）→ 只「任一匹配」。
+   ⚠ 不给单值维度「且」不是漏改：选 2 个年份取交恒为空集（详见 `docs/worklog`）。 */
+const DIM_MODE_CAPABLE = { genres: true, tagIds: true, collectionId: true };
+const isModeDim = (key) => !!DIM_MODE_CAPABLE[key];
 
 function dimActive(key) {
-    if (dimIsMulti(key)) return (mediaFilter[key] || []).length > 0;
-    return String(mediaFilter[key] ?? '').trim() !== '';
+    return (mediaFilter[key] || []).length > 0;
 }
 
 /** 某维度的取值列表（带媒体数，方便判断哪个条件划得来）。 */
@@ -2310,23 +2331,17 @@ function dimValues(key) {
             break;
         default: list = [];
     }
-    return dimIsMulti(key) ? list : [{ value: '', label: '全部（不限）' }, ...list];
+    return list;
 }
 
-/** 维度当前值的中文展示（chip 与浮层左栏共用）。 */
+/** 维度当前值的中文展示（chip 与浮层左栏共用）；连接词跟模式走，别让用户猜。 */
 function dimLabel(key) {
-    if (dimIsMulti(key)) {
-        // 标签多选：文案里把语义（且 / 或）写出来，别让用户猜
-        const names = (mediaFilter[key] || []).map(v => {
-            const hit = dimValues(key).find(o => String(o.value) === String(v));
-            return hit ? hit.label : v;
-        });
-        return names.join(key === 'tagIds' && mediaFilter.tagMode === 'OR' ? ' 或 ' : ' 且 ');
-    }
-    if (key === 'year') return `${mediaFilter.year} 年`;
-    const raw = String(mediaFilter[key] ?? '');
-    const hit = dimValues(key).find(o => String(o.value) === raw);
-    return hit ? hit.label : raw;
+    const names = (mediaFilter[key] || []).map(v => {
+        const hit = dimValues(key).find(o => String(o.value) === String(v));
+        return hit ? hit.label : v;
+    });
+    const or = !isModeDim(key) || (mediaFilter.mode[key] || 'OR') === 'OR';
+    return names.join(or ? ' 或 ' : ' 且 ');
 }
 
 /** 已选条件 chips；返回激活的条件数（题材多选按个数算）。 */
@@ -2335,7 +2350,7 @@ function renderFilterChips() {
     let n = 0;
     for (const d of MEDIA_DIMS) {
         if (!dimActive(d.key)) continue;
-        n += dimIsMulti(d.key) ? (mediaFilter[d.key] || []).length : 1;
+        n += (mediaFilter[d.key] || []).length;
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'filter-chip';
@@ -2356,15 +2371,11 @@ function renderFilterChips() {
     return n;
 }
 
-/** 写一个维度的取值并立刻重查（value=null → 清掉该维度）。 */
+/** 写一个维度的取值并立刻重查（value=null → 清掉该维度；否则在数组里 toggle）。 */
 function setDim(key, value) {
-    if (dimIsMulti(key)) {
-        const cur = mediaFilter[key] || [];
-        if (value == null) mediaFilter[key] = [];
-        else mediaFilter[key] = cur.includes(value) ? cur.filter(g => g !== value) : [...cur, value];
-    } else {
-        mediaFilter[key] = value == null ? '' : String(value);
-    }
+    const cur = mediaFilter[key] || [];
+    if (value == null) mediaFilter[key] = [];
+    else mediaFilter[key] = cur.includes(value) ? cur.filter(g => g !== value) : [...cur, value];
     renderFilterChips();
     renderFilterPop();
     loadMedia();
@@ -2419,20 +2430,20 @@ function renderFilterPop() {
     if (!dim) return;
     const head = document.createElement('div');
     head.className = 'fp-vals-head';
-    head.textContent = dim.key === 'tagIds' ? '标签（可多选）'
-            : dimIsMulti(dim.key) ? `${dim.label}（可多选，命中任一）` : dim.label;
+    head.textContent = isModeDim(dim.key) ? `${dim.label}（可多选，可设全部 / 任一匹配）` : `${dim.label}（可多选，命中任一）`;
     valHost.appendChild(head);
-    // 标签多选语义开关（v0.31）：默认「全部匹配」（每个标签各自三级命中）
-    if (dim.key === 'tagIds') {
+    // 且/或语义开关（v0.31 起标签有，v0.32 推广到题材/收藏夹）：只有**多值**维度才给 ——
+    // 年份/季度/状态是单值列，选 2 个值再取交恒为空集，摆上按钮就是保证让用户踩空列表。
+    if (isModeDim(dim.key)) {
         const seg = document.createElement('div');
         seg.className = 'fp-mode';
         for (const [mode, label] of [['AND', '全部匹配'], ['OR', '任一匹配']]) {
             const mb = document.createElement('button');
             mb.type = 'button';
-            mb.className = 'btn-mini' + (mediaFilter.tagMode === mode ? ' on' : '');
+            mb.className = 'btn-mini' + ((mediaFilter.mode[dim.key] || 'OR') === mode ? ' on' : '');
             mb.textContent = label;
             mb.addEventListener('click', () => {
-                mediaFilter.tagMode = mode;
+                mediaFilter.mode[dim.key] = mode;
                 renderFilterChips();
                 renderFilterPop();
                 loadMedia();
@@ -2452,15 +2463,13 @@ function renderFilterPop() {
         body.appendChild(empty);
     }
     for (const item of items) {
-        const on = dimIsMulti(dim.key)
-            ? (mediaFilter[dim.key] || []).includes(String(item.value))
-            : String(mediaFilter[dim.key] ?? '') === String(item.value);
+        const on = (mediaFilter[dim.key] || []).includes(String(item.value));
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'fp-val' + (on ? ' on' : '');
         const mark = document.createElement('span');
         mark.className = 'fv-mark';
-        mark.textContent = dimIsMulti(dim.key) ? (on ? '☑' : '☐') : (on ? '●' : '○');
+        mark.textContent = on ? '☑' : '☐';
         const label = document.createElement('span');
         label.textContent = item.label;
         b.append(mark, label);
@@ -2470,7 +2479,7 @@ function renderFilterPop() {
             c.textContent = String(item.count);
             b.appendChild(c);
         }
-        b.addEventListener('click', () => setDim(dim.key, item.value === '' ? null : item.value));
+        b.addEventListener('click', () => setDim(dim.key, item.value));
         if (!item.custom) { body.appendChild(b); continue; }
         // 常驻项：右侧一个 × 直接移除（移除正在用的条件时顺手取消它，免得留下看不见的条件）
         const row = document.createElement('div');
@@ -2525,32 +2534,35 @@ function buildMediaUrls() {
     const base = new URLSearchParams({ limit: String(mediaPageSize), offset: String((mediaPage - 1) * mediaPageSize) });
     const addCommon = p => {
         if (mediaFilter.q) p.set('q', mediaFilter.q);
-        if (mediaFilter.status) p.set('status', mediaFilter.status);
+        // v0.32：所有维度都是数组 → 逗号串（后端的 `List<T>` 直接绑，单值调用方照样合法）
+        if (mediaFilter.status && mediaFilter.status.length) p.set('status', mediaFilter.status.join(','));
         if (mediaFilter.format) p.set('format', mediaFilter.format);
         if (mediaFilter.subcategoryId) p.set('subcategoryId', mediaFilter.subcategoryId);
         if (mediaFilter.unconfirmed) p.set('confirmed', '0');
-        if (mediaFilter.year) p.set('year', mediaFilter.year);
+        if (mediaFilter.year && mediaFilter.year.length) p.set('year', mediaFilter.year.join(','));
+        if (mediaFilter.season && mediaFilter.season.length) p.set('season', mediaFilter.season.join(','));
+        if (mediaFilter.collectionId && mediaFilter.collectionId.length) {
+            p.set('collectionId', mediaFilter.collectionId.join(','));
+            p.set('collectionMode', mediaFilter.mode.collectionId || 'OR');
+        }
         if (mediaFilter.tagIds && mediaFilter.tagIds.length) {
             p.set('tagIds', mediaFilter.tagIds.join(','));
-            p.set('tagMode', mediaFilter.tagMode || 'AND');
+            p.set('tagMode', mediaFilter.mode.tagIds || 'AND');
         }
-        if (mediaFilter.season) p.set('season', mediaFilter.season);
-        if (mediaFilter.genres && mediaFilter.genres.length) p.set('genres', mediaFilter.genres.join(','));
+        if (mediaFilter.genres && mediaFilter.genres.length) {
+            p.set('genres', mediaFilter.genres.join(','));
+            p.set('genreMode', mediaFilter.mode.genres || 'OR');
+        }
         if (mediaFilter.sort) p.set('sort', mediaFilter.sort);
         if (mediaFilter.order !== 'desc') p.set('order', mediaFilter.order);
     };
+    // 收藏夹不再是「视图路径」（v0.32）：它现在只是一个普通筛选条件（可多选 + 且/或），
+    // 统一走 /api/media —— 两条路径的列与 `ORDER BY a.id` 一致，结果等价。
     let url, countParams;
-    if (mediaFilter.collectionId && mediaMode !== 'recent') {
-        addCommon(base);
-        url = `/api/collections/${mediaFilter.collectionId}/media?${base.toString()}`;
-        countParams = new URLSearchParams({ collectionId: mediaFilter.collectionId });
-        addCommon(countParams);
-    } else if (mediaMode === 'recent') {
-        if (mediaFilter.collectionId) base.set('collectionId', mediaFilter.collectionId);
+    if (mediaMode === 'recent') {
         addCommon(base);
         url = `/api/media/recent?${base.toString()}`;
         countParams = new URLSearchParams({ latest: 'true' });
-        if (mediaFilter.collectionId) countParams.set('collectionId', mediaFilter.collectionId);
         addCommon(countParams);
     } else {
         addCommon(base);
@@ -2680,7 +2692,7 @@ async function saveCollectionFromModal() {
                 await fillFilterCollections();
             } else {
                 await fillFilterCollections();
-                mediaFilter.collectionId = String(c.id);
+                mediaFilter.collectionId = [String(c.id)];
                 renderFilterChips();
                 loadMedia();
             }
@@ -5979,7 +5991,11 @@ async function loadTags() {
         renderTagList();
         updateTagPager();
     } catch (err) {
-        tagStatusEl.textContent = '加载失败：后端未响应';
+        const msg = String((err && err.message) || err || '未知错误');
+        tagStatusEl.textContent = /Failed to fetch|NetworkError|Load failed|Network request failed/i.test(msg)
+            ? `加载失败：后端未响应（${msg}）`
+            : `加载失败：${msg}`;
+        if (window.console) console.error('[loadTags]', err);
     }
 }
 
@@ -6176,8 +6192,8 @@ function toggleTagUsage(t) {
 function jumpToMediaTagFilter(t) {
     showView('media');
     mediaFilter.tagIds = [String(t.id)];
-    mediaFilter.tagMode = 'AND';
-    mediaFilter.collectionId = '';
+    mediaFilter.mode.tagIds = 'AND';
+    mediaFilter.collectionId = [];
     renderFilterChips();
     loadMedia();
     showToast(`已按标签「${t.name}」筛选媒体`);
@@ -7411,7 +7427,7 @@ document.addEventListener('mousedown', (e) => {
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !filterPopEl.hidden) closeFilterPop(); });
 filterClearEl.addEventListener('click', () => {
-    for (const d of MEDIA_DIMS) mediaFilter[d.key] = d.key === 'genres' ? [] : '';
+    for (const d of MEDIA_DIMS) mediaFilter[d.key] = [];
     renderFilterChips();
     if (!filterPopEl.hidden) renderFilterPop();
     loadMedia();
@@ -7933,6 +7949,13 @@ function applySiteBackground(cfg) {
 
 /* 设置弹窗事件绑定 + 页面加载应用已保存背景
    web 顶栏 ⚙(settings-btn) 与桌面侧栏设置(settings-btn-side) 都绑 openSettings（双布局） */
+/** 打开设置弹窗（恢复位置：这里的函数体一度被重构时删掉，只留下调用 → 初始化即 ReferenceError，
+ *  把本文后面的所有顶层绑定（设置/背景图/推荐编辑器挂载/导出徐标轮询）全部干掉。2026-10-02 修复）。 */
+function openSettings() {
+    document.getElementById('settings-modal').hidden = false;
+    loadSettings(true);
+}
+
 document.querySelectorAll('.settings-btn').forEach(b => b.addEventListener('click', openSettings));
 document.getElementById('settings-cancel').addEventListener('click', () => {
     document.getElementById('settings-modal').hidden = true;

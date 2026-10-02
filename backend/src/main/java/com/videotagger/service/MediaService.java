@@ -107,11 +107,12 @@ public class MediaService {
 
     /** 媒体卡片墙：支持状态/格式/子分类（子树收敛）/待确认/收藏夹/年份/来源/媒体标签/q 标题模糊筛选；ids 精确圈选（仅显示已勾选用）；offset 分页。 */
     /** 清单导出（候选按当前筛选 / 已选按 ids）：与 list 同一套条件，不分页、**无行数上限**。 */
-    public List<MediaExportRow> listExport(String status, String format, Long subcategoryId, Integer confirmed,
-                                           Long collectionId, Integer year, String source, List<Long> tagIds, String tagMode, String q,
-                                           List<Long> ids, List<String> genres, String season) {
+    public List<MediaExportRow> listExport(List<String> status, String format, Long subcategoryId, Integer confirmed,
+                                           List<Long> collectionId, List<Integer> year, String source, List<Long> tagIds,
+                                           String tagMode, String genreMode, String collectionMode, String q,
+                                           List<Long> ids, List<String> genres, List<String> season) {
         List<MediaExportRow> rows = mediaMapper.listExportRows(status, format, subcategoryId, confirmed, collectionId,
-                year, source, tagIds, tagMode, q, ids, genresJson(genres), season);
+                year, source, tagIds, tagMode, genreMode, collectionMode, q, ids, genres, season);
         if (rows.isEmpty()) {
             return rows;
         }
@@ -142,34 +143,35 @@ public class MediaService {
      * 不去掉也不会有无界风险 —— 返回行数**天然被表数据量封顶**（当前 5249 部 ≈ 1MB / 2s，
      * 而更重的「清单导出」本来就无上限）。
      */
-    public List<MediaSummary> list(int limit, int offset, String status, String format, Long subcategoryId,
-                                   Integer confirmed, Long collectionId, String sort, String order, Integer year,
-                                   String source, List<Long> tagIds, String tagMode, String q, List<Long> ids,
-                                   List<String> genres, String season) {
+    public List<MediaSummary> list(int limit, int offset, List<String> status, String format, Long subcategoryId,
+                                   Integer confirmed, List<Long> collectionId, String sort, String order, List<Integer> year,
+                                   String source, List<Long> tagIds, String tagMode, String genreMode, String collectionMode,
+                                   String q, List<Long> ids, List<String> genres, List<String> season) {
         return mediaMapper.listFiltered(status, format, subcategoryId, confirmed, collectionId, sort, order, year,
-                source, tagIds, tagMode, q, ids, genresJson(genres), season,
+                source, tagIds, tagMode, genreMode, collectionMode, q, ids, genres, season,
                 Math.max(limit, 1), Math.max(offset, 0));
     }
 
     /** 最近观看：打过标记即算，按最新标记时间倒序；支持 status/format/子分类/confirmed/collectionId/year/source/q 筛选；offset 分页。 */
-    public List<MediaSummary> recent(int limit, int offset, String status, String format, Long subcategoryId,
-                                     Integer confirmed, Long collectionId, Integer year, String source, String q,
-                                     List<Long> tagIds, String tagMode, List<String> genres, String season) {
+    public List<MediaSummary> recent(int limit, int offset, List<String> status, String format, Long subcategoryId,
+                                     Integer confirmed, List<Long> collectionId, List<Integer> year, String source, String q,
+                                     List<Long> tagIds, String tagMode, String genreMode, String collectionMode,
+                                     List<String> genres, List<String> season) {
         return mediaMapper.listByLatest(Math.max(limit, 1), Math.max(offset, 0),
                 status, format, subcategoryId, confirmed, collectionId, year, source, q,
-                tagIds, tagMode, genresJson(genres), season);
+                tagIds, tagMode, genreMode, collectionMode, genres, season);
     }
 
     /** 带筛选的媒体总数：全部媒体/收藏夹分支走 countFiltered，最近观看分支（latest=true）走 countLatest。 */
-    public long count(String status, String format, Long subcategoryId, Integer confirmed, Long collectionId,
-                      Integer year, String source, List<Long> tagIds, String tagMode, boolean latest, String q,
-                      List<String> genres, String season) {
+    public long count(List<String> status, String format, Long subcategoryId, Integer confirmed, List<Long> collectionId,
+                      List<Integer> year, String source, List<Long> tagIds, String tagMode, String genreMode,
+                      String collectionMode, boolean latest, String q, List<String> genres, List<String> season) {
         if (latest) {
             return mediaMapper.countLatest(status, format, subcategoryId, confirmed, collectionId, year, source, q,
-                    tagIds, tagMode, genresJson(genres), season);
+                    tagIds, tagMode, genreMode, collectionMode, genres, season);
         }
-        return mediaMapper.countFiltered(status, format, subcategoryId, confirmed, collectionId, year, source, tagIds, tagMode, q,
-                genresJson(genres), season);
+        return mediaMapper.countFiltered(status, format, subcategoryId, confirmed, collectionId, year, source, tagIds,
+                tagMode, genreMode, collectionMode, q, genres, season);
     }
 
     /** 库中已有的全部首播年份（降序）。 */
@@ -202,22 +204,6 @@ public class MediaService {
     /** 媒体标签选项字典：只列真正挂在媒体上的标签（降序）。 */
     public List<MediaMapper.TagCount> tagCounts() {
         return mediaMapper.listTagCounts();
-    }
-
-    /**
-     * 题材多选 → JSON 数组字面量（空 → null，即“不筛”）。
-     *
-     * <p>手写而不用 ObjectMapper：三行、无受检异常；题材词含引号的情况不存在（已核）。
-     */
-    static String genresJson(List<String> genres) {
-        if (genres == null) {
-            return null;
-        }
-        List<String> clean = genres.stream()
-                .filter(g -> g != null && !g.isBlank())
-                .map(g -> '"' + g.trim().replace("\\", "\\\\").replace("\"", "\\\"") + '"')
-                .toList();
-        return clean.isEmpty() ? null : "[" + String.join(",", clean) + "]";
     }
 
     /** 补下缺失封面已停用：外部封面只从 external_work.cover_url 远程读取，用户封面仍走 cover_path。 */
