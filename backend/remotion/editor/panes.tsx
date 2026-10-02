@@ -127,9 +127,20 @@ function Pop({ anchor, width = 300, onClose, children }: {
      * 浮层本体是 `overflow:auto; max-height:420px`（题材/标签列表都靠它滚）。
      * 媒体侧浮层压根没这个监听，才能正常滚。
      */
+    /**
+     * 页面**整体**滚动 → 浮层脱锚，关掉。
+     *
+     * ⚠️ 只能认 `document` 级的滚动（2026-10-02 实测踩坑）：
+     * - 起初用 `window.addEventListener('scroll', onClose, true)` + 只排除「来源在浮层内」，
+     *   结果**时间轴胶片条 `.vt-film` 会自动跟随播放头滚动** → 面板打开 ~840ms 后连发 6 次 scroll，
+     *   全被当成页面滚动 → 面板瞬间自己关掉（表现就是「点了弹出来又没了」）。
+     * - 浮层是 `position:fixed` 锚在按钮上，**别的容器自己滚并不会让它脱锚**，不该关。
+     */
     const onScroll = (event: Event) => {
       const target = event.target as Node | null;
       if (target && ref.current?.contains(target)) return;
+      // 只有 document 级滚动才算「页面滚了」（scroll 事件的 target 是 document / documentElement，不会是 window）
+      if (target !== document && target !== document.documentElement) return;
       onClose();
     };
     window.addEventListener('resize', onClose);
