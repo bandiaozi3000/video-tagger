@@ -65,6 +65,10 @@ const videoPageInfoEl = document.getElementById('video-page-info');
 const videoTotalEl = document.getElementById('video-total');
 
 const backBtn = document.getElementById('back-to-videos');
+const detailBackBtn = document.getElementById('back-to-media');
+const mediaBackBtn = document.getElementById('media-back');
+const tagBackBtn = document.getElementById('tag-back');
+const searchBackBtn = document.getElementById('search-back');
 const timelineTitleEl = document.getElementById('timeline-title');
 const timelineAxisEl = document.getElementById('timeline-axis');
 const timelineStatusEl = document.getElementById('timeline-status');
@@ -464,8 +468,6 @@ let highlightPreviewExportId = null;
 let clipExportTaskId = null;
 let clipRecordState = null;
 let viewHistory = [];      // 详情页返回栈：记录上一活动视图名
-let fromMediaDetail = false;
-let fromEpisodeDetail = false;
 
 // ---------- 通用 ----------
 
@@ -579,9 +581,39 @@ function showView(name) {
     if (name === 'tags') loadTags();
     if (name === 'collections') loadCollections();
     if (name === 'recommend') mountRecommendEditor();
+    syncBackButtons();
 }
 
 // ---------- 视图历史栈（详情页逐层返回） ----------
+
+/**
+ * 各视图的中文名（返回按钮文案用）。
+ * 2026-10-02 用户：「跳转过后没返回的，类似这种场景能都加上返回的操作吗」→
+ * 详情页那个写死的「← 返回媒体」其实不一定是回媒体，改成按**栈顶来源**说话。
+ */
+const VIEW_LABEL = {
+    search: '搜索', media: '媒体', videos: '视频列表', stats: '统计', tags: '标签页',
+    collections: '收藏夹', timeline: '时间线', 'media-detail': '媒体详情',
+    'episode-detail': '集详情', 'clip-detail': '片段详情', highlight: '高亮工程', recommend: '推荐工作台',
+};
+
+/**
+ * 「← 返回」按钮只在**有来源可回**时出现（跳转进来的页面）。
+ * 从侧栏直接导航过来时历史栈是空的 —— 不摆一个点了只会乱跳的按钮（侧栏导航会清栈，见下面 tab 绑定）。
+ */
+function syncBackButtons() {
+    const hasPrev = viewHistory.length > 0;
+    const mine = { media: mediaBackBtn, tags: tagBackBtn, search: searchBackBtn };
+    for (const [view, btn] of Object.entries(mine)) {
+        if (btn) btn.hidden = !(hasPrev && currentViewName === view);
+    }
+    // 媒体详情的返回按钮写清楚「回哪儿」：栈顶是哪个视图就用它的名字
+    if (currentViewName === 'media-detail' && detailBackBtn) {
+        const prev = viewHistory[viewHistory.length - 1];
+        const name = prev && VIEW_LABEL[prev.view];
+        detailBackBtn.textContent = name ? `← 返回${name}` : '← 返回';
+    }
+}
 
 function activeView() {
     return currentViewName;
@@ -598,8 +630,8 @@ function pushView(name) {
     showView(name);
 }
 
-/** 返回需恢复滚动的列表视图（媒体/收藏夹：showView 会自动重新加载列表）。 */
-const SCROLL_RESTORE_VIEWS = new Set(['media', 'collections']);
+/** 返回需恢复滚动的列表视图（媒体/收藏夹/标签：showView 会自动重新加载列表）。 */
+const SCROLL_RESTORE_VIEWS = new Set(['media', 'collections', 'tags']);
 
 function goBack() {
     const prev = viewHistory.pop();
@@ -609,7 +641,7 @@ function goBack() {
     if (SCROLL_RESTORE_VIEWS.has(prev.view) && prev.scrollY > 0) restoreListScroll(prev.scrollY, prev.view);
     if (prev.view === 'search' && currentQuery) runSearch(currentQuery);
     else if (prev.view === 'media-detail' && prev.id != null) loadMediaDetail(prev.id);
-    else if (prev.view === 'timeline' && currentVideo) openTimeline(currentVideo);
+    else if (prev.view === 'timeline' && currentVideo) loadTimeline(currentVideo);
     else if (prev.view === 'episode-detail' && prev.id != null) loadEpisodeDetail(prev.id);
     else if (prev.view === 'clip-detail' && prev.id != null) renderClipDetail(prev.id);
     else if (prev.view === 'highlight' && prev.id != null) loadHighlightProject(prev.id);
@@ -620,6 +652,7 @@ function goBack() {
  *  viewName 用于限定查询容器（避免全局 querySelector 误判 hidden 的其他视图旧卡片）。 */
 function restoreListScroll(y, viewName) {
     const gridSel = viewName === 'media' ? '#media-grid'
+        : viewName === 'tags' ? '#tag-list'
         : '#coll-media-grid';
     const grid = document.querySelector(gridSel);
     if (grid) grid.innerHTML = '';   // 先清空旧内容：避免返回瞬间 section 里残留上次列表被 poll 误判「已渲染」
@@ -627,7 +660,7 @@ function restoreListScroll(y, viewName) {
     (function poll() {
         if (tries++ > 120) return;   // 最多 ~6s 超时放弃（内容加载异常时不硬跳）
         const h = document.documentElement.scrollHeight;
-        const hasItem = grid && grid.querySelector('.media-card, .media-row, .coll-group') != null;
+        const hasItem = grid && grid.querySelector('.media-card, .media-row, .coll-group, .tag-row') != null;
         if (hasItem && h > window.innerHeight) {
             if (h === lastH) {       // 高度稳定 → 渲染完成，恢复
                 window.scrollTo(0, Math.min(y, h - window.innerHeight));
@@ -1872,7 +1905,6 @@ function appendEpisodeCard(container, r) {
         if (r.episodeId) {
             openEpisodeDetail(r.episodeId); // 点集卡片进集详情
         } else if (r.videoFp) {
-            fromMediaDetail = true;
             openTimeline({ fp: r.videoFp, title: r.title || '时间线' });
         } else if (r.mediaId) {
             openMediaDetail(r.mediaId);
@@ -1937,6 +1969,12 @@ function renderVideoPagination(totalPages) {
 // ---------- 时间线 ----------
 
 async function openTimeline(v) {
+    pushView('timeline');   // 进栈（从哪来就能回哪去）——以前靠 fromMediaDetail/fromEpisodeDetail 两个布尔兵，跳错地方
+    await loadTimeline(v);
+}
+
+/** 时间线加载（返回/刷新复用，**不入栈**；注意别再叫 renderTimeline —— 那个名字已经是「画主体」那个函数）。 */
+async function loadTimeline(v) {
     currentVideo = { fp: v.fp, title: v.title };
     showView('timeline');
     timelineTitleEl.textContent = v.title || '(未命名)';
@@ -3600,7 +3638,6 @@ function openMediaDetail(id) {
 /** 媒体详情渲染（刷新/返回复用，不入栈）。 */
 async function loadMediaDetail(id) {
     currentMedia = { id };
-    fromMediaDetail = false;
     const mdBox = document.getElementById('media-detail');
     if (mdBox) mdBox.innerHTML = '<div style="color:var(--text-dim);padding:20px">加载中…</div>';
     detailStatusEl.textContent = '加载中…';
@@ -3761,7 +3798,6 @@ async function renderMediaDetail(d, eps) {
         row.querySelector('.ep-time-btn')?.addEventListener('click', (e) => {
             e.stopPropagation();
             if (!ep) return;
-            fromMediaDetail = true;
             openTimeline({ fp: ep.videoFp, title: (d.title || '') + (ep.episodeNo != null ? ` · 第${ep.episodeNo}集` : '') });
         });
         row.querySelector('.ep-bt-btn')?.addEventListener('click', (e) => { e.stopPropagation(); if (ep && d && d.id) openEpisodeBtDownloadModal(d, ep); });
@@ -3948,7 +3984,7 @@ async function renderTagPool(d, container) {
     scope.title = '到标签页只看这部作品自己挂的词条（可改名/合并/删除）';
     scope.addEventListener('click', () => {
         setTagScope(d.id, d.title);
-        showView('tags');
+        pushView('tags');   // 记下来源（这部媒体详情）→ 标签页的「← 返回」能回作品
     });
     container.appendChild(scope);
 }
@@ -5444,7 +5480,6 @@ function buildEpisodeRow(ep, unknown) {
     });
     row.querySelector('.ep-time-btn').addEventListener('click', (e) => {
         e.stopPropagation();
-        fromMediaDetail = true;
         openTimeline({ fp: ep.videoFp, title: (currentMedia.title || '') + (unknown ? ' · 未识别' : ` · 第${ep.episodeNo}集`) });
     });
     row.querySelector('.ep-bt-btn')?.addEventListener('click', (e) => { e.stopPropagation(); if (currentMedia && currentMedia.id) openEpisodeBtDownloadModal(currentMedia, ep); });
@@ -5824,7 +5859,7 @@ async function loadStats() {
                 chip.className = 'tag-chip';
                 chip.textContent = `${t.tag} · ${t.count}`;
                 chip.addEventListener('click', () => {
-                    showView('search');
+                    pushView('search');   // 记下来源（统计页）→ 「← 返回」能回统计
                     input.value = t.tag;
                     runSearch(t.tag);
                 });
@@ -6250,7 +6285,7 @@ function toggleTagUsage(t) {
 /** 跳媒体页并按该标签筛选（媒体视角：三级任一层命中即算） */
 function jumpToMediaTagFilter(t) {
     /*
-     * 先设状态再切视图：`showView('media')` 自己会 loadMedia，这样那一笔就带着新筛选。
+     * 先设状态再切视图（`pushView` 内部会 showView，而 showView 自己会 loadMedia，那一笔就带着新筛选）。
      *
      * ⚠️ 必须把媒体页的 tab 切回「全部媒体」（2026-10-02 用户报「从标签点媒体跳转失败」）：
      * 默认 tab 是「最近观看」→ `mediaMode='recent'` → 走 `/api/media/recent?latest=true`，
@@ -6277,9 +6312,8 @@ function jumpToMediaTagFilter(t) {
     mediaFilter.mode.tagIds = 'AND';
     renderFilterChips();
     if (!filterPopEl.hidden) renderFilterPop();
-    showView('media');
-    // 之前可能停在回收站 → 恢复主区（内部那次 loadMedia 也带着已设好的筛选；序号保护保证结果正确）
-    backToMedia();
+    pushView('media');   // 进栈（来源 = 标签页）→ 媒体页的「← 返回」能回标签页
+    backToMedia();       // 之前可能停在回收站 → 恢复主区（内部 loadMedia 带着已设好的筛选；序号保护保证结果正确）
     showToast(`已按标签「${t.name}」筛选媒体（全部媒体）`);
 }
 
@@ -6713,20 +6747,10 @@ searchPageNextEl.addEventListener('click', () => { searchPage++; runSearch(curre
 videoPageSizeEl.addEventListener('change', () => { videoPageSize = Number(videoPageSizeEl.value); loadVideos(); });
 videoPagePrevEl.addEventListener('click', () => { if (videoPage > 1) { videoPage--; loadVideos(false); } });
 videoPageNextEl.addEventListener('click', () => { videoPage++; loadVideos(false); });
-backBtn.addEventListener('click', () => {
-    if (fromMediaDetail && currentMedia) {
-        fromMediaDetail = false;
-        showView('media-detail');
-    } else if (fromEpisodeDetail && currentEpisode) {
-        fromEpisodeDetail = false;
-        showView('episode-detail');
-        loadEpisodeDetail(currentEpisode.id);
-    } else {
-        showView('videos');
-    }
-});
+backBtn.addEventListener('click', goBack);
+// 侧栏导航 = 重新开始导航 → 清掉视图历史栈（否则会留个指向“已被离开的流程”的幽灵返回）
 document.querySelectorAll('.nav .tab').forEach(tab => {
-    tab.addEventListener('click', () => showView(tab.dataset.view));
+    tab.addEventListener('click', () => { viewHistory.length = 0; showView(tab.dataset.view); });
 });
 editModal.addEventListener('click', (e) => { if (e.target === editModal) editModal.hidden = true; });
 document.getElementById('edit-cancel').addEventListener('click', () => { editModal.hidden = true; editingClip = null; });
@@ -6902,6 +6926,9 @@ window.addEventListener('click', (e) => {
     document.querySelectorAll('.ep-menu.open').forEach(m => m.classList.remove('open'));
 });
 document.getElementById('back-to-media').addEventListener('click', goBack);
+mediaBackBtn.addEventListener('click', goBack);
+tagBackBtn.addEventListener('click', goBack);
+searchBackBtn.addEventListener('click', goBack);
 
 // ---------- v0.24.1 详情页统一布局：视图切换（☰ 列表 / ▦2-4 卡片列数，默认列表，localStorage 记忆） ----------
 const VT_COLS_TARGETS = {
@@ -7795,7 +7822,6 @@ document.getElementById('ep-detail-quick-play')?.addEventListener('click', () =>
 document.getElementById('ep-detail-cover').addEventListener('click', () => { if (currentEpisode) openEpisodeCoverModal(currentEpisode); });
 document.getElementById('ep-detail-timeline').addEventListener('click', () => {
     if (!currentEpisode) return;
-    fromEpisodeDetail = true;
     openTimeline({ fp: currentEpisode.videoFp, title: currentEpisode.title || '时间线' });
 });
 document.getElementById('ep-detail-jump').addEventListener('click', () => {

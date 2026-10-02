@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Tagger · 二次元打标库</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="app.css?v=20261002-jumpfix4">
+    <link rel="stylesheet" href="app.css?v=20261002-jumpfix5">
     <link rel="stylesheet" href="v022-metadata.css?v=20260829-v022-media-detail2">
     <link rel="stylesheet" href="bgm-sync.css?v=20260924-region">
     <link rel="stylesheet" href="v023-video-sources.css?v=20260830-v023-1">
@@ -136,6 +136,7 @@
 <main class="container">
     <!-- 媒体视图 -->
     <section id="view-media" class="view" hidden>
+        <button type="button" id="media-back" class="back-btn" hidden>← 返回</button>
         <div class="media-toolbar">
             <div class="media-tabs">
                 <button type="button" class="atab active" data-media-tab="recent">最近观看</button>
@@ -367,6 +368,8 @@
 
     <!-- 搜索视图 -->
     <section id="view-search" class="view">
+        <!-- 跳转进来的页面的返回入口（只在视图历史栈非空时显示，见 syncBackButtons） -->
+        <button type="button" id="search-back" class="back-btn" hidden>← 返回</button>
         <form id="search-form" class="search-box">
             <span class="search-ico">
                 <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -468,6 +471,7 @@
 
     <!-- 标签管理视图 -->
     <section id="view-tags" class="view" hidden>
+        <button type="button" id="tag-back" class="back-btn" hidden>← 返回</button>
         <!-- 面板头：标题 + 治理指标（未引用数才是本页要盯的数）+ 主操作 -->
         <div class="tag-head">
             <div class="tag-head-left">
@@ -1205,7 +1209,7 @@
     <img src="" alt="">
 </div>
 <button type="button" id="back-nav" title="去底部" aria-label="去底部">↓</button>
-<script src="app.js?v=20261002-jumpfix4"></script>
+<script src="app.js?v=20261002-jumpfix5"></script>
 <script src="bgm-sync.js?v=20260924-region"></script>
 <script src="v023-video-sources.js?v=20260830-v023-1"></script>
 <script src="v023-player-workbench.js?v=20260901-v023-3"></script>
