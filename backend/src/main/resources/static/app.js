@@ -96,7 +96,6 @@ const mediaStatusEl = document.getElementById('media-status');
 const mediaGridEl = document.getElementById('media-grid');
 const mediaDetailHeadEl = document.getElementById('media-detail-head');
 const episodeListEl = document.getElementById('episode-list');
-const detailTagsEl = document.getElementById('detail-tags');
 const detailCollectionsEl = document.getElementById('detail-collections');
 const detailStatusEl = document.getElementById('detail-status');
 /* 媒体页筛选（2026-09-25 重构为「搜素 + ⚙ 筛选浮层 + 条件 chips」）：
@@ -580,7 +579,11 @@ function showView(name) {
         el.hidden = k !== name;
     }
     if (name === 'videos') loadVideos(true);
-    if (name === 'stats') loadStats();
+    if (name === 'stats') {
+        loadStats();
+        // v0.32 媒体趋势板块：另有独立脚本文件（不再往 app.js 里塞），未加载时静默跳过
+        if (typeof trendMount === 'function') trendMount();
+    }
     // media 保留当前分页/筛选：详情返回或导航切回都回到上次浏览位置（不重置回第一页）
     if (name === 'media') loadMedia(false);
     if (name === 'tags') loadTags();
@@ -1412,10 +1415,6 @@ async function renderClipTags(clip, mediaId) {
     const names = (Array.isArray(clip.tagNames) && clip.tagNames.length)
         ? clip.tagNames
         : String(clip.tag || '').split(/[，,\s]+/).map(s => s.trim()).filter(Boolean);
-    if (names.length === 0) {
-        clipDetailTagsEl.innerHTML = '<span class="status">无标签</span>';
-        return;
-    }
     // 作品内热度（词条名 → 引用次数）；接口失败则无热度、纯卡片
     const heat = new Map();
     if (mediaId) {
@@ -1444,6 +1443,42 @@ async function renderClipTags(clip, mediaId) {
         }
         clipDetailTagsEl.appendChild(chip);
     }
+    clipDetailTagsEl.appendChild(clipTagAddWrap(clip));
+}
+
+/** 片段标签追加入口（与集详情同一套样式）：现有 tagIds ∪ 新标签 → PUT 全量替换（无新端点）。 */
+function clipTagAddWrap(clip) {
+    const wrap = document.createElement('span');
+    wrap.className = 'tag-add-wrap';
+    const input = document.createElement('input');
+    input.className = 'tag-add-input';
+    input.placeholder = '+ 添加片段标签';
+    input.addEventListener('keydown', async (e) => {
+        if (e.key !== 'Enter' || !input.value.trim()) return;
+        const picked = await resolveTagId(input);
+        if (!picked) return;
+        const tagIds = Array.isArray(clip.tagIds) ? clip.tagIds.slice() : [];
+        if (!tagIds.includes(picked.id)) tagIds.push(picked.id);
+        try {
+            const resp = await fetch(`/api/clips/${clip.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: clip.title, url: clip.url, timestampSec: clip.timestampSec,
+                    endSec: clip.endSec, startMs: clip.startMs, endMs: clip.endMs,
+                    videoDuration: clip.videoDuration, videoAssetId: clip.videoAssetId,
+                    sourceRevision: clip.sourceRevision, note: clip.note || '', tagIds
+                })
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            input.value = '';
+            renderClipDetail(clip.id);
+        } catch (err) {
+            clipDetailStatusEl.textContent = '添加标签失败：后端未响应';
+        }
+    });
+    wrap.appendChild(input);
+    return wrap;
 }
 
 async function loadClipDetailExtras(clip) {
@@ -2140,7 +2175,7 @@ function renderTimeline(clips) {
 function openEditModal(r) {
     editingClip = r;
     editTitle.value = r.title;
-    // v0.31：标签改成受控词表（名字 → tagId），多标签在这里只编辑第一个（不改时保存会原样保留全部）
+    // v0.31：标签改成受控词表（名字 → tagId）；空格分隔可写多个（不存在会问「新建并打上」）
     const names = Array.isArray(r.tagNames) && r.tagNames.length
         ? r.tagNames
         : String(r.tag || '').split(/\s+/).filter(Boolean);
@@ -2201,18 +2236,18 @@ async function saveEdit() {
     const originalNames = Array.isArray(editingClip.tagNames) && editingClip.tagNames.length
         ? editingClip.tagNames
         : String(editingClip.tag || '').split(/\s+/).filter(Boolean);
-    let pickedTag = null;
     if (editTag.value.trim() === originalNames.join(' ') && Array.isArray(editingClip.tagIds)) {
         delete payload.tag;
         payload.tagIds = editingClip.tagIds;
     } else {
-        pickedTag = await resolveTagId(editTag);
-        if (!pickedTag) {
+        // 空格/逗号分隔可写多个：逐个解析（2026-10-05 修：以前只取第一个，一改就剩一个标签）
+        const ids = await resolveTagIds(editTag.value);
+        if (!ids) {
             statusEl.textContent = '';
             return;
         }
         delete payload.tag;
-        payload.tagIds = [pickedTag.id];
+        payload.tagIds = ids;
     }
     try {
         const resp = await fetch(`/api/clips/${editingClip.id}`, {
@@ -2499,8 +2534,8 @@ async function addCustomGenre(word) {
 const DIM_MODE_CAPABLE = { genres: true, tagIds: true, collectionId: true };
 const isModeDim = (key) => !!DIM_MODE_CAPABLE[key];
 
-function dimActive(key) {
-    return (mediaFilter[key] || []).length > 0;
+function dimActive(key, f = mediaFilter) {
+    return (f[key] || []).length > 0;
 }
 
 /** 某维度的取值列表（带媒体数，方便判断哪个条件划得来）。 */
@@ -2534,12 +2569,14 @@ function dimValues(key) {
 }
 
 /** 维度当前值的中文展示（chip 与浮层左栏共用）；连接词跟模式走，别让用户猜。 */
-function dimLabel(key) {
-    const names = (mediaFilter[key] || []).map(v => {
+function dimLabel(key, f = mediaFilter) {
+    const names = (f[key] || []).map(v => {
         const hit = dimValues(key).find(o => String(o.value) === String(v));
         return hit ? hit.label : v;
     });
-    const or = !isModeDim(key) || (mediaFilter.mode[key] || 'OR') === 'OR';
+    const or = !isModeDim(key) || (f.mode[key] || 'OR') === 'OR';
+    // 收藏夹的「排除所选」：连接词用「或」才对（不在 A 或 B = 两者都不在）
+    if (isModeDim(key) && f.mode[key] === 'NOT') return `不在 ${names.join(' 或 ')}`;
     return names.join(or ? ' 或 ' : ' 且 ');
 }
 
@@ -2571,20 +2608,47 @@ function renderFilterChips() {
 }
 
 /** 写一个维度的取值并立刻重查（value=null → 清掉该维度；否则在数组里 toggle）。 */
-function setDim(key, value) {
-    const cur = mediaFilter[key] || [];
-    if (value == null) mediaFilter[key] = [];
-    else mediaFilter[key] = cur.includes(value) ? cur.filter(g => g !== value) : [...cur, value];
+/**
+ * 写一个维度的取值（value=null → 清掉该维度；否则在数组里 toggle）。
+ *
+ * v0.32：筛选对象与变更回调**都可注入** —— 媒体页用默认的 `mediaFilter`（改完重查列表），
+ * 统计页传自己的 `trendFilter`（勾选互不影响，改完只刷趋势图）。
+ */
+function setDim(key, value, f = mediaFilter, onChange = null) {
+    const cur = f[key] || [];
+    if (value == null) f[key] = [];
+    else f[key] = cur.includes(value) ? cur.filter(g => g !== value) : [...cur, value];
+    if (typeof onChange === 'function') {
+        onChange();
+        return;
+    }
     renderFilterChips();
     renderFilterPop();
     loadMedia();
+    notifyMediaFilterChange();
+}
+
+/* 筛选变更的外部订阅（v0.32 统计页趋势图用）：媒体页与统计页共用同一份 `mediaFilter`，
+   所以任一处改了筛选，另一处要跟着刷新 —— 这里发出通知，谁挂谁听。 */
+const mediaFilterListeners = [];
+
+function onMediaFilterChange(fn) {
+    if (typeof fn === 'function') mediaFilterListeners.push(fn);
+}
+
+function notifyMediaFilterChange() {
+    for (const fn of mediaFilterListeners) {
+        try { fn(); } catch (e) { if (window.console) console.error('[mediaFilter listener]', e); }
+    }
 }
 
 let filterPopDim = 'genres';
+/** 当前正在用的筛选浮层宿主（v0.32）：默认媒体页那套；统计页用它自己那套。 */
+let filterPopHosts = { dims: 'fp-dims', vals: 'fp-vals' };
 let filterDictAt = 0;   // 选项字典上次刷新时间（防止反复开关面板时白拉）
 
 function openFilterPop() {
-    renderFilterPop();
+    renderFilterPop('fp-dims', 'fp-vals');
     filterPopEl.hidden = false;
     filterOpenBtn.setAttribute('aria-expanded', 'true');
     // 选项字典改成「**每次打开面板都刷新**」（启动时那一次 + 这里）：
@@ -2601,12 +2665,30 @@ function closeFilterPop() {
     filterOpenBtn.setAttribute('aria-expanded', 'false');
 }
 
-/** 浮层两栏：左维度（带当前值与激活态）→ 右取值。两栏常驻，不做窄屏的「返回」二级页。 */
-function renderFilterPop() {
-    const dimsHost = document.getElementById('fp-dims');
+/** 浮层两栏：左维度（带当前值与激活态）→ 右取值。两栏常驻，不做窄屏的「返回」二级页。
+ *
+ * v0.32：两个宿主容器**参数化** —— 媒体页用默认的 `fp-dims`/`fp-vals`，统计页传自己的 id（共用同一份
+ * `mediaFilter` 与同一套渲染代码，只是 DOM 实例不同；跨视图搬 DOM 会踩事件绑定的坑）。 */
+function renderFilterPop(dimsHostId, valsHostId, f = mediaFilter, onChange = null) {
+    // 宿主记忆（v0.32）：`setDim` / 常驻词增删这些**不知道自己在哪个弹层里**的调用点
+    // 走后直接重渲**当前正在用的那一套**（媒体页或统计页），不然会渲染到另一个隐藏容器里
+    // —— 表现就是「点了取值，弹层里没反应」（探针实测踩到：统计页点维度后渲染到了媒体页容器）。
+    const dims = dimsHostId || filterPopHosts.dims;
+    const vals = valsHostId || filterPopHosts.vals;
+    filterPopHosts = { dims, vals };
+    const apply = () => {
+        if (typeof onChange === 'function') onChange();
+        else {
+            renderFilterChips();
+            renderFilterPop(dims, vals, f, onChange);
+            loadMedia();
+            notifyMediaFilterChange();
+        }
+    };
+    const dimsHost = document.getElementById(dims);
     dimsHost.innerHTML = '';
     for (const d of MEDIA_DIMS) {
-        const active = dimActive(d.key);
+        const active = dimActive(d.key, f);
         const b = document.createElement('button');
         b.type = 'button';
         b.className = active ? 'on' : '';
@@ -2616,36 +2698,40 @@ function renderFilterPop() {
         if (active) {
             const val = document.createElement('span');
             val.className = 'fd-val';
-            val.textContent = dimLabel(d.key);
+            val.textContent = dimLabel(d.key, f);
             b.appendChild(val);
         }
-        b.addEventListener('click', () => { filterPopDim = d.key; renderFilterPop(); });
+        b.addEventListener('click', () => { filterPopDim = d.key; renderFilterPop(dims, vals, f, onChange); });
         dimsHost.appendChild(b);
     }
 
-    const valHost = document.getElementById('fp-vals');
+    const valHost = document.getElementById(vals);
     valHost.innerHTML = '';
     const dim = MEDIA_DIMS.find(d => d.key === filterPopDim);
     if (!dim) return;
     const head = document.createElement('div');
     head.className = 'fp-vals-head';
-    head.textContent = isModeDim(dim.key) ? `${dim.label}（可多选，可设全部 / 任一匹配）` : `${dim.label}（可多选，命中任一）`;
+    const hasNot = dim.key === 'collectionId';
+    head.textContent = isModeDim(dim.key)
+        ? `${dim.label}（可多选，可设${hasNot ? '全部 / 任一 / 排除所选' : '全部 / 任一匹配'}）`
+        : `${dim.label}（可多选，命中任一）`;
     valHost.appendChild(head);
     // 且/或语义开关（v0.31 起标签有，v0.32 推广到题材/收藏夹）：只有**多值**维度才给 ——
     // 年份/季度/状态是单值列，选 2 个值再取交恒为空集，摆上按钮就是保证让用户踩空列表。
+    // 「排除所选」只给收藏夹（2026-10-04 用户拍板 A 方案，后端 `COLLECTION_FILTER` 的 NOT 分支）。
     if (isModeDim(dim.key)) {
         const seg = document.createElement('div');
         seg.className = 'fp-mode';
-        for (const [mode, label] of [['AND', '全部匹配'], ['OR', '任一匹配']]) {
+        const modes = [['AND', '全部匹配'], ['OR', '任一匹配']];
+        if (hasNot) modes.push(['NOT', '排除所选']);
+        for (const [mode, label] of modes) {
             const mb = document.createElement('button');
             mb.type = 'button';
-            mb.className = 'btn-mini' + ((mediaFilter.mode[dim.key] || 'OR') === mode ? ' on' : '');
+            mb.className = 'btn-mini' + ((f.mode[dim.key] || 'OR') === mode ? ' on' : '');
             mb.textContent = label;
             mb.addEventListener('click', () => {
-                mediaFilter.mode[dim.key] = mode;
-                renderFilterChips();
-                renderFilterPop();
-                loadMedia();
+                f.mode[dim.key] = mode;
+                apply();
             });
             seg.appendChild(mb);
         }
@@ -2662,7 +2748,7 @@ function renderFilterPop() {
         body.appendChild(empty);
     }
     for (const item of items) {
-        const on = (mediaFilter[dim.key] || []).includes(String(item.value));
+        const on = (f[dim.key] || []).includes(String(item.value));
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'fp-val' + (on ? ' on' : '');
@@ -2678,7 +2764,7 @@ function renderFilterPop() {
             c.textContent = String(item.count);
             b.appendChild(c);
         }
-        b.addEventListener('click', () => setDim(dim.key, item.value));
+        b.addEventListener('click', () => setDim(dim.key, item.value, f, onChange));
         if (!item.custom) { body.appendChild(b); continue; }
         // 常驻项：右侧一个 × 直接移除（移除正在用的条件时顺手取消它，免得留下看不见的条件）
         const row = document.createElement('div');
@@ -2691,8 +2777,8 @@ function renderFilterPop() {
         del.addEventListener('click', () => {
             saveCustomGenres(customGenres().filter(g => g !== item.value));
             delete customGenreCounts[item.value];
-            if ((mediaFilter.genres || []).includes(item.value)) setDim('genres', item.value);
-            else renderFilterPop();
+            if ((f.genres || []).includes(item.value)) setDim('genres', item.value, f, onChange);
+            else apply();
         });
         row.append(b, del);
         body.appendChild(row);
@@ -2717,7 +2803,7 @@ function renderFilterPop() {
             btn.disabled = true;
             const res = await addCustomGenre(input.value);
             btn.disabled = false;
-            if (res.ok) renderFilterPop();           // 重建列表，新词出现在最前
+            if (res.ok) apply();                       // 重建列表，新词出现在最前
             else if (res.msg) hint.textContent = res.msg;  // 失败留在原地提示（重建会清掉输入框内容）
         };
         btn.addEventListener('click', submit);
@@ -2727,34 +2813,46 @@ function renderFilterPop() {
     }
 }
 
+/** 把当前 `mediaFilter` 写进 URLSearchParams（v0.32 抽出：媒体页列表/计数与**统计页趋势共用同一份**，
+ *  口径靠「同一个构造函数」保证，而不是靠两边各写一遍再祈祷一致）。 */
+function mediaFilterParams(p, f = mediaFilter) {
+    if (f.q) p.set('q', f.q);
+    // v0.32：所有维度都是数组 → 逗号串（后端的 `List<T>` 直接绑，单值调用方照样合法）
+    if (f.status && f.status.length) p.set('status', f.status.join(','));
+    if (f.format) p.set('format', f.format);
+    if (f.subcategoryId) p.set('subcategoryId', f.subcategoryId);
+    if (f.unconfirmed) p.set('confirmed', '0');
+    if (f.year && f.year.length) p.set('year', f.year.join(','));
+    if (f.season && f.season.length) p.set('season', f.season.join(','));
+    if (f.collectionId && f.collectionId.length) {
+        p.set('collectionId', f.collectionId.join(','));
+        p.set('collectionMode', f.mode.collectionId || 'OR');
+    }
+    if (f.tagIds && f.tagIds.length) {
+        p.set('tagIds', f.tagIds.join(','));
+        p.set('tagMode', f.mode.tagIds || 'AND');
+    }
+    if (f.genres && f.genres.length) {
+        p.set('genres', f.genres.join(','));
+        p.set('genreMode', f.mode.genres || 'OR');
+    }
+    if (f.sort) p.set('sort', f.sort);
+    if (f.order !== 'desc') p.set('order', f.order);
+    return p;
+}
+
+/** 同一份筛选换成 URLSearchParams（调用方改动不到 mediaFilter）。 */
+function mediaFilterQuery(extra, f = mediaFilter) {
+    const p = new URLSearchParams(extra || {});
+    mediaFilterParams(p, f);
+    return p;
+}
+
 /** 按当前筛选/分页构造列表与 count 请求 URL（全部媒体/最近观看/收藏夹三分支）。
  *  format/subcategoryId/year/genres/season/tagIds 全部后端过滤，保证分页总数与列表同条件。 */
 function buildMediaUrls(limit = mediaPageSize, offset = (mediaPage - 1) * mediaPageSize) {
     const base = new URLSearchParams({ limit: String(limit), offset: String(offset) });
-    const addCommon = p => {
-        if (mediaFilter.q) p.set('q', mediaFilter.q);
-        // v0.32：所有维度都是数组 → 逗号串（后端的 `List<T>` 直接绑，单值调用方照样合法）
-        if (mediaFilter.status && mediaFilter.status.length) p.set('status', mediaFilter.status.join(','));
-        if (mediaFilter.format) p.set('format', mediaFilter.format);
-        if (mediaFilter.subcategoryId) p.set('subcategoryId', mediaFilter.subcategoryId);
-        if (mediaFilter.unconfirmed) p.set('confirmed', '0');
-        if (mediaFilter.year && mediaFilter.year.length) p.set('year', mediaFilter.year.join(','));
-        if (mediaFilter.season && mediaFilter.season.length) p.set('season', mediaFilter.season.join(','));
-        if (mediaFilter.collectionId && mediaFilter.collectionId.length) {
-            p.set('collectionId', mediaFilter.collectionId.join(','));
-            p.set('collectionMode', mediaFilter.mode.collectionId || 'OR');
-        }
-        if (mediaFilter.tagIds && mediaFilter.tagIds.length) {
-            p.set('tagIds', mediaFilter.tagIds.join(','));
-            p.set('tagMode', mediaFilter.mode.tagIds || 'AND');
-        }
-        if (mediaFilter.genres && mediaFilter.genres.length) {
-            p.set('genres', mediaFilter.genres.join(','));
-            p.set('genreMode', mediaFilter.mode.genres || 'OR');
-        }
-        if (mediaFilter.sort) p.set('sort', mediaFilter.sort);
-        if (mediaFilter.order !== 'desc') p.set('order', mediaFilter.order);
-    };
+    const addCommon = p => mediaFilterParams(p);
     // 收藏夹不再是「视图路径」（v0.32）：它现在只是一个普通筛选条件（可多选 + 且/或），
     // 统一走 /api/media —— 两条路径的列与 `ORDER BY a.id` 一致，结果等价。
     let url, countParams;
@@ -2807,7 +2905,7 @@ async function fillMediaFilterDict() {
         if (n != null) customGenreCounts[g] = n;
     }));
     renderFilterChips();
-    if (!filterPopEl.hidden) renderFilterPop();
+    if (!filterPopEl.hidden) renderFilterPop('fp-dims', 'fp-vals');
 }
 
 /** 收藏夹 tab 年份筛选下拉：库中已有的首播年份（降序）。 */
@@ -2836,7 +2934,7 @@ async function fillFilterCollections() {
         if (!resp.ok) return;
         const list = await resp.json();
         mediaFilterDict.collections = Array.isArray(list) ? list : [];
-        if (!filterPopEl.hidden) renderFilterPop();
+        if (!filterPopEl.hidden) renderFilterPop("fp-dims", "fp-vals");
     } catch (e) { /* 忽略 */ }
 }
 
@@ -3112,16 +3210,17 @@ function mediaGroupOf(row, dim) {
     }
 }
 
-/** 组间顺序：年份/季度/状态 按天然序；收藏夹按名称；题材/标签按**组内条数降序**（无天然序）。 */
+/** 组间顺序（2026-10-23 用户要求组间也能升降序）：每个维度各有**天然序 = 默认（↓）**，按 ↑ 时整体反转；
+ *  年份另算（「未知年份」恒在最后，不随方向翻）；题材/标签没有天然序，按**组内条数**。 */
 function mediaGroupOrder(dim) {
     const byCount = (a, b) => b.items.length - a.items.length || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0);
-    switch (dim) {
-        case 'year': return yearGroupOrder;
-        case 'season': return (a, b) => SEASON_ORDER.indexOf(a.key) - SEASON_ORDER.indexOf(b.key) || byCount(a, b);
-        case 'status': return (a, b) => MEDIA_STATUS_OPTIONS.findIndex(o => o.label === a.key) - MEDIA_STATUS_OPTIONS.findIndex(o => o.label === b.key) || byCount(a, b);
-        case 'collectionId': return (a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0);
-        default: return byCount;
-    }
+    if (dim === 'year') return yearGroupOrder(mediaFilter.order);
+    const natural = {
+        season: (a, b) => SEASON_ORDER.indexOf(a.key) - SEASON_ORDER.indexOf(b.key) || byCount(a, b),
+        status: (a, b) => MEDIA_STATUS_OPTIONS.findIndex(o => o.label === a.key) - MEDIA_STATUS_OPTIONS.findIndex(o => o.label === b.key) || byCount(a, b),
+        collectionId: (a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0),
+    }[dim] || byCount;
+    return mediaFilter.order === 'asc' ? (a, b) => -natural(a, b) : natural;
 }
 
 /** 分组态下：分页条「每页条数」换成「分组上限」，反向亦然（与收藏夹同形）。 */
@@ -3286,11 +3385,14 @@ function yearGroupOf(item) {
     return [{ key, label: key }];
 }
 
-/** 默认维度的组间顺序：年份降序、未知年份最后。 */
-function yearGroupOrder(a, b) {
-    if (a.key === '未知年份') return 1;
-    if (b.key === '未知年份') return -1;
-    return Number(b.key) - Number(a.key);
+/** 默认维度的组间顺序：跟排序方向走（↓ 新年份在前，↑ 老年份在前）；「未知年份」恒在最后。 */
+function yearGroupOrder(dir = 'desc') {
+    return (a, b) => {
+        if (a.key === '未知年份') return 1;
+        if (b.key === '未知年份') return -1;
+        const d = Number(a.key) - Number(b.key);
+        return dir === 'asc' ? d : -d;
+    };
 }
 
 /** 组打包分页：按维度分组 → 组按序打包进页，每页媒体总数 ≤ perPage（组不跨页切碎）；
@@ -3302,7 +3404,7 @@ function yearGroupOrder(a, b) {
  *
  *  返回 { pages, groupToPage, keys }：pages 每页 = 组数组 [{key,label,items,chunk,chunkIndex,chunkTotal,total}]；
  *  groupToPage = key → 首个切片所在页 index（导航跨页）；keys = 全部组 key（已排序）。 */
-function buildGroupedPages(list, perPage, groupOf = yearGroupOf, groupOrder = yearGroupOrder) {
+function buildGroupedPages(list, perPage, groupOf = yearGroupOf, groupOrder = yearGroupOrder()) {
     const groups = new Map();
     for (const a of list) {
         for (const g of groupOf(a)) {
@@ -3418,9 +3520,9 @@ function gotoGroup(key, pageIndex, currentPage, renderToPage, scopeEl) {
     }
 }
 
-/** 收藏夹分组视图：组打包分页（打包全部组 → 渲染当前页 + 分组分页条）。 */
+/** 收藏夹分组视图：组打包分页（打包全部组 → 渲染当前页 + 分组分页条）。年份组间顺序跟收藏夹自己的排序方向。 */
 function renderCollGrouped(list) {
-    const { pages, groupToPage, keys } = buildGroupedPages(list, collGroupPerPage);
+    const { pages, groupToPage, keys } = buildGroupedPages(list, collGroupPerPage, yearGroupOf, yearGroupOrder(collFilter.order));
     collGroupPages = pages;
     collGroupTotalPages = pages.length;
     collGroupNav = groupToPage;
@@ -3493,7 +3595,30 @@ function deleteCollection(id, name) {
     });
 }
 
-// ---------- 卡片快捷收藏（♡ 按钮 → 收藏夹勾选浮层） ----------
+// ---------- 卡片快捷收藏（♡ 按钮 → 悬停/点击开收藏夹勾选浮层） ----------
+
+// 进出按钮与浮层都给一段缓冲：手扫过一排卡片时不会把浮层开开关关。
+let favOpenTimer = null, favCloseTimer = null, favAnchorBtn = null;
+
+/** 给爱心按钮挂上「悬停即开」（点击仍可开，触屏/键盘靠它）。 */
+function bindFavTrigger(btn, mediaId) {
+    const cancelClose = () => { clearTimeout(favCloseTimer); favCloseTimer = null; };
+    btn.addEventListener('mouseenter', () => {
+        cancelClose();
+        clearTimeout(favOpenTimer);
+        favOpenTimer = setTimeout(() => openFavPicker(mediaId, btn), 150);
+    });
+    btn.addEventListener('mouseleave', () => {
+        clearTimeout(favOpenTimer);
+        favCloseTimer = setTimeout(closeFavPicker, 220);
+    });
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        clearTimeout(favOpenTimer);
+        if (favOverlay && favAnchorBtn === btn) return;   // 悬停已经开了，别关了重开
+        openFavPicker(mediaId, btn);
+    });
+}
 
 function openFavPicker(mediaId, btn) {
     closeFavPicker();
@@ -3501,7 +3626,11 @@ function openFavPicker(mediaId, btn) {
     overlay.className = 'coll-pick';
     overlay.textContent = '加载中…';
     favOverlay = overlay;
+    favAnchorBtn = btn;
     document.body.appendChild(overlay);
+    // 指针挪进浮层就取消关闭（按钮/浮层之间的 6px 缝隙靠这段缓冲跨过）
+    overlay.addEventListener('mouseenter', () => { clearTimeout(favCloseTimer); favCloseTimer = null; });
+    overlay.addEventListener('mouseleave', () => { favCloseTimer = setTimeout(closeFavPicker, 220); });
     btn.classList.add('fav-open');
     const rect = btn.getBoundingClientRect();
     const w = Math.min(210, window.innerWidth - 24);
@@ -3513,6 +3642,8 @@ function openFavPicker(mediaId, btn) {
 }
 
 function closeFavPicker() {
+    clearTimeout(favOpenTimer); clearTimeout(favCloseTimer);
+    favOpenTimer = null; favCloseTimer = null; favAnchorBtn = null;
     if (favOverlay) { favOverlay.remove(); favOverlay = null; }
     document.querySelectorAll('.fav-open').forEach(b => b.classList.remove('fav-open'));
 }
@@ -3641,11 +3772,8 @@ function renderMediaGrid(list, container = mediaGridEl, mode = 'media') {
                 openBatchDelModal([a.id]);
             });
         }
-        // 卡片快捷收藏（batch-mode 下按钮被 CSS 隐藏，事件无影响）
-        card.querySelector('.media-fav-btn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            openFavPicker(a.id, e.currentTarget);
-        });
+        // 卡片快捷收藏（batch-mode 下按钮被 CSS 隐藏，事件无影响）：悬停即开，点击也能开
+        bindFavTrigger(card.querySelector('.media-fav-btn'), a.id);
         card.addEventListener('click', () => {
             if (mediaBatchMode) { // 批量模式下点卡片=切换勾选
                 cb.checked = !cb.checked;
@@ -3706,7 +3834,7 @@ function renderMediaRow(list, container, mode = 'media') {
         } else {
             row.querySelector('.row-btn.del').addEventListener('click', (e) => { e.stopPropagation(); openBatchDelModal([a.id]); });
         }
-        row.querySelector('.row-btn.fav').addEventListener('click', (e) => { e.stopPropagation(); openFavPicker(a.id, e.currentTarget); });
+        bindFavTrigger(row.querySelector('.row-btn.fav'), a.id);
         row.addEventListener('click', () => {
             if (mediaBatchMode) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); return; }
             openMediaDetail(a.id);
@@ -3973,6 +4101,16 @@ function parseMetadataList(value) {
     } catch (e) { return []; }
 }
 
+/** Bangumi 评分：`external_work.raw_json` 的 `rating{score,total,rank}`。
+ * 后端同口径见 MediaMapper.BGM_SCORE，但那条 JSON_EXTRACT 只对 MySQL 有效；这里走前端已有字段，桌面版同样有值。 */
+function parseBangumiRating(rawJson) {
+    try {
+        const r = JSON.parse(rawJson || '{}').rating;
+        // ⚠️ 无票数时 Bangumi 返回 score=0（不是 null），0 分必须当「无评分」——与后端 BGM_SCORE 的 `> 0` 口径一致
+        return r && r.score > 0 ? r : null;
+    } catch (e) { return null; }
+}
+
 function renderMetadataChips(container, label, values) {
     if (!container || !values.length) return;
     container.hidden = false;
@@ -4037,7 +4175,10 @@ async function renderMediaDetail(d, eps) {
           </div>
         </div></div>`).join('') : '<div style="color:var(--text-faint);padding:16px">该媒体还没有集</div>';
 
-    const profile = [['观看状态', statusLabel(d.status), d.status === 'WATCHED' ? 'green' : ''], ['个人评分', d.rating != null ? '★ ' + d.rating : '未评分', 'green'], ['资料来源', mediaSourceLabel(d.source), ''], ['档案状态', d.confirmed ? '已确认' : '待确认', 'amber']]
+    // Bangumi 评分（社区分）：票数/排名与分数同行展示（票数用来挡「冷门高分」的误导）
+    const bgm = parseBangumiRating(w.rawJson);
+    const bgmValue = bgm ? `${esc(Number(bgm.score).toFixed(1))}<span style="font-size:11px;font-weight:400;color:var(--text-dim)"> · ${esc(String(bgm.total || 0))} 票${bgm.rank ? ` · 排名 #${esc(String(bgm.rank))}` : ''}</span>` : '—';
+    const profile = [['观看状态', statusLabel(d.status), d.status === 'WATCHED' ? 'green' : ''], ['个人评分', d.rating != null ? '★ ' + d.rating : '未评分', 'green'], ['Bangumi 评分', bgmValue, ''], ['资料来源', mediaSourceLabel(d.source), ''], ['档案状态', d.confirmed ? '已确认' : '待确认', 'amber']]
         .map(([l,v,c]) => `<div class="profile-row"><span>${l}</span><b class="${c}">${v}</b></div>`).join('');
     const shelves = colls.map(c => `<div class="shelf-row ${inColl.has(c.id) ? 'active' : ''}" data-coll="${c.id}"><span class="shelf-dot"></span><span class="shelf-name">${esc(c.name)}</span><span class="shelf-count">${c.mediaCount ?? 0}</span></div>`).join('');
 
@@ -4047,7 +4188,7 @@ async function renderMediaDetail(d, eps) {
           <div class="hero-cover">${cover}<span class="src-badge">${esc(mediaSourceLabel(d.source))}</span></div>
           <div class="hero-info">
             <div class="hero-title-line"><h1 class="hero-title">${esc(d.title)}</h1>${w.nativeTitle ? `<span class="hero-native">${esc(w.nativeTitle)}</span>` : ''}${w.externalId
-              ? `<span class="hero-link-badge linked" title="已关联 Bangumi 条目 #${esc(w.externalId)} · 点击更换关联">Bangumi <b>#${esc(w.externalId)}</b></span>`
+              ? `<a class="hero-link-badge linked" href="https://bgm.tv/subject/${esc(w.externalId)}" target="_blank" rel="noopener" title="打开 Bangumi 条目 #${esc(w.externalId)}（新标签）">Bangumi <b>#${esc(w.externalId)}</b> ↗</a>`
               : `<span class="hero-link-badge" title="尚未关联 Bangumi 条目 · 点击绑定">未关联 Bangumi</span>`}</div>
             ${desc ? `<div><div class="ext-desc">${esc(desc)}</div>${desc.length > 120 ? `<span class="desc-toggle">展开更多</span>` : ''}</div>` : ''}
             ${genres.length ? chipRow('题材', genres, 6, true) : ''}
@@ -4058,7 +4199,7 @@ async function renderMediaDetail(d, eps) {
         <!-- 操作区：本地档案操作（关联入口 = 标题右侧 Bangumi 徽标） -->
         <div class="hero-ops">
           <div class="hero-ops-main">
-            ${btn('detail-edit','编辑信息','')}${btn('detail-rename','改名/合并','')}${btn('detail-cover','设置封面','')}${btn('detail-confirm','确认档案','')}${btn('detail-highlight','制作推荐视频','')}${btn('detail-materialize-batch','批量剪出视频','primary')}${btn('detail-delete','删除','danger')}
+            ${btn('detail-edit','编辑信息','')}${btn('detail-link','关联条目','')}${btn('detail-rename','改名/合并','')}${btn('detail-cover','设置封面','')}${btn('detail-confirm','确认档案','')}${btn('detail-highlight','制作推荐视频','')}${btn('detail-materialize-batch','批量剪出视频','primary')}${btn('detail-delete','删除','danger')}
           </div>
         </div>
       </div>
@@ -4265,25 +4406,17 @@ async function renderTagPool(d, container) {
     }
     const wrap = document.createElement('span');
     wrap.className = 'tag-add-wrap';
-    const input = document.createElement('input');
-    input.className = 'tag-add-input';
-    input.placeholder = '+ 添加标签';
-    input.addEventListener('keydown', async (e) => {
-        if (e.key === 'Enter' && input.value.trim()) {
-            const picked = await resolveTagId(input);
-            if (!picked) return;
-            input.value = '';
-            await fetch(`/api/media/${d.id}/tags`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tagIds: [picked.id] })
-            });
-            refreshMediaDetail();
-        }
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'tag-add-input';
+    addBtn.textContent = '+ 添加标签';
+    addBtn.title = '点开面板：最近打上的 / 常用 / 搜索；点一下就打上（Esc 或点外部关闭）';
+    addBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openTagPicker(addBtn, d.id, removableIds);
     });
-    wrap.appendChild(input);
+    wrap.appendChild(addBtn);
     container.appendChild(wrap);
-    attachTagSuggest(input, () => (currentMedia && currentMedia.id) || null);
     // v0.31：去标签页看这套词条（带上媒体作用域，可单个 × 掉）
     const scope = document.createElement('button');
     scope.type = 'button';
@@ -4295,6 +4428,202 @@ async function renderTagPool(d, container) {
         navigate({ view: 'tags' });   // 进 URL 历史 → 标签页的「← 返回」能回这部作品
     });
     container.appendChild(scope);
+}
+
+// ---------- 打标签面板（媒体详情「+ 添加标签」→ 最近打上的 / 常用 / 搜索） ----------
+/* 「最近打上的」只记在本机浏览器（localStorage）：无后端改动、无迁移；换设备 / 清缓存即失忆，
+   所以面板另有一段「常用」兜底（现成的 GET /api/tags，本作品挂过优先 + 全库高频）。
+   面板挂在 body 上（不在详情 DOM 里）→ 连点打标时详情不会重渲、面板不被冲掉。 */
+const RECENT_TAG_KEY = 'vt-recent-tags';
+const RECENT_TAG_MAX = 30;
+
+function readRecentTags() {
+    try {
+        const v = JSON.parse(localStorage.getItem(RECENT_TAG_KEY) || '[]');
+        return Array.isArray(v) ? v.filter(t => t && t.id && t.name) : [];
+    } catch (e) { return []; }
+}
+
+function pushRecentTag(tag) {
+    const list = readRecentTags().filter(t => t.id !== tag.id);
+    list.unshift({ id: tag.id, name: tag.name });
+    try { localStorage.setItem(RECENT_TAG_KEY, JSON.stringify(list.slice(0, RECENT_TAG_MAX))); } catch (e) { /* 容量满就算了 */ }
+}
+
+let tagPickEl = null;
+let tagPickState = null;   // { btn, mediaId, tagged:Set<number>, changed, seq }
+
+/** 关面板：只有真打过标签才重刷详情（连点时不必每次都整块重渲标签池）。 */
+function closeTagPicker() {
+    if (!tagPickEl) return;
+    tagPickEl.remove();
+    tagPickEl = null;
+    const st = tagPickState;
+    tagPickState = null;
+    if (st && st.changed) refreshMediaDetail();
+}
+
+// 点外部 / Esc / 页面滚动都关。⚠️ 用 mousedown：面板内容会整块重建，等 click 冒泡到 document 时
+// 目标已脱离 DOM，`contains` 判外部会把自己关掉（筛选浮层 2026-09-25 就踩过这个坑）。
+document.addEventListener('mousedown', (e) => {
+    if (!tagPickEl) return;
+    if (tagPickEl.contains(e.target)) return;
+    if (tagPickState && tagPickState.btn.contains(e.target)) return;   // 按钮交给它的 click 去 toggle
+    closeTagPicker();
+});
+document.addEventListener('keydown', (e) => { if (tagPickEl && e.key === 'Escape') closeTagPicker(); });
+window.addEventListener('scroll', (e) => {
+    if (tagPickEl && !(e.target instanceof Node && tagPickEl.contains(e.target))) closeTagPicker();
+}, true);
+
+/** 打开面板（再点一次按钮 = 收起）。taggedIds = 这部作品已挂的标签，用来标 ✓。 */
+async function openTagPicker(btn, mediaId, taggedIds) {
+    if (tagPickEl) { closeTagPicker(); return; }
+    const el = document.createElement('div');
+    el.className = 'tag-pick';
+    el.innerHTML = '<input class="tag-pick-input" placeholder="搜索标签，回车直接打上" autocomplete="off">\n        <div class="tag-pick-body"></div>';
+    document.body.appendChild(el);
+    tagPickEl = el;
+    tagPickState = { btn, mediaId, tagged: new Set(taggedIds || []), changed: false, seq: 0 };
+    const rect = btn.getBoundingClientRect();
+    el.style.left = `${Math.min(Math.max(12, rect.left), window.innerWidth - 344)}px`;
+    el.style.top = `${Math.min(rect.bottom + 6, Math.max(12, window.innerHeight - 352))}px`;
+    const input = el.querySelector('.tag-pick-input');
+    input.focus();
+    let timer = null;
+    input.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(renderTagPickSearch, 180);
+    });
+    input.addEventListener('keydown', async (e) => {
+        if (e.key !== 'Enter' || !input.value.trim()) return;
+        const picked = await resolveTagId(input);   // 老回车路径不变（词库没有就问一句再建）
+        if (!picked) return;
+        input.value = '';
+        await pickTag(picked.id, picked.name);
+        await renderTagPickDefault();
+    });
+    await renderTagPickDefault();
+}
+
+function tagPickSection(title) {
+    const wrap = document.createElement('div');
+    const head = document.createElement('div');
+    head.className = 'tag-pick-sec';
+    head.textContent = title;
+    const chips = document.createElement('div');
+    chips.className = 'tag-pick-chips';
+    wrap.append(head, chips);
+    return { wrap, chips };
+}
+
+/** 候选 chip：已挂过 → ✓ 置灰不可点；否则点一下直接打上。 */
+function tagPickChip(tag) {
+    const st = tagPickState;
+    const id = tag.id || tagPoolByName.get(tag.name);
+    const tagged = !!(id && st && st.tagged.has(id));
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tag-pick-chip' + (tagged ? ' done' : '');
+    btn.dataset.tagName = tag.name;
+    btn.textContent = tagged ? `✓ ${tag.name}` : tag.name;
+    if (tagged) return btn;
+    btn.addEventListener('click', async () => {
+        const tagId = tag.id || tagPoolByName.get(tag.name);
+        if (!tagId) { showToast(`词库里没有「${tag.name}」`, 2500); return; }
+        await pickTag(tagId, tag.name);
+    });
+    return btn;
+}
+
+/** 空输入时的默认面板：最近打上的（本机）+ 常用（接口）。 */
+async function renderTagPickDefault() {
+    const st = tagPickState, el = tagPickEl;
+    if (!st || !el) return;
+    const body = el.querySelector('.tag-pick-body');
+    body.textContent = '加载中…';
+    await ensureTagPool();
+    let common = [];
+    try {
+        const resp = await fetch(`/api/tags?limit=16&mediaId=${st.mediaId}`);
+        if (resp.ok) common = await resp.json();
+    } catch (e) { /* 拉不到就只显示最近 */ }
+    if (tagPickState !== st) return;   // 期间被关了
+    const recent = readRecentTags().slice(0, 8);
+    body.innerHTML = '';
+    if (recent.length) {
+        const sec = tagPickSection('最近打上的');
+        for (const t of recent) sec.chips.appendChild(tagPickChip(t));
+        body.appendChild(sec.wrap);
+    }
+    const shown = new Set(recent.map(t => t.name));
+    const rest = common.filter(c => !shown.has(c.tag)).slice(0, 8);
+    if (rest.length) {
+        const sec = tagPickSection('常用');
+        for (const c of rest) sec.chips.appendChild(tagPickChip({ name: c.tag }));
+        body.appendChild(sec.wrap);
+    }
+    if (!body.children.length) body.textContent = '直接输入标签名搜索（回车即打上）';
+}
+
+/** 打字时的搜索面板：走 /api/tags?prefix=（能搜全库）；无同名命中 → 给「新建并打上」。 */
+async function renderTagPickSearch() {
+    const st = tagPickState, el = tagPickEl;
+    if (!st || !el) return;
+    const input = el.querySelector('.tag-pick-input');
+    const q = input.value.trim();
+    if (!q) { await renderTagPickDefault(); return; }
+    const seq = ++st.seq;
+    await ensureTagPool();
+    let list = [];
+    try {
+        const resp = await fetch(`/api/tags?prefix=${encodeURIComponent(q)}&limit=12&mediaId=${st.mediaId}`);
+        if (resp.ok) list = await resp.json();
+    } catch (e) { /* 搜索失败就只剩新建入口 */ }
+    if (tagPickState !== st || seq !== st.seq) return;   // 慢响应不覆盖更新的输入
+    const body = el.querySelector('.tag-pick-body');
+    body.innerHTML = '';
+    if (list.length) {
+        const sec = tagPickSection('匹配');
+        for (const c of list) sec.chips.appendChild(tagPickChip({ name: c.tag }));
+        body.appendChild(sec.wrap);
+    }
+    if (!list.some(c => c.tag === q)) {
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'tag-pick-new';
+        add.textContent = `＋ 新建「${q}」并打上`;
+        add.addEventListener('click', async () => {
+            const created = await createTag(q);
+            if (!created) { showToast(`「${q}」已存在或新建失败`, 3000); return; }
+            input.value = '';
+            await pickTag(created.id, created.name);
+            await renderTagPickDefault();
+        });
+        body.appendChild(add);
+    }
+    if (!body.children.length) body.textContent = '没有匹配的标签';
+}
+
+/** 打上标签：成功 → 记本机最近 + 面板里当场标 ✓（面板不关，可连点）。 */
+async function pickTag(tagId, name) {
+    const st = tagPickState, el = tagPickEl;
+    if (!st || !el || st.tagged.has(tagId)) return;
+    const resp = await fetch(`/api/media/${st.mediaId}/tags`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagIds: [tagId] })
+    });
+    if (!resp.ok) { showToast('打标签失败', 3000); return; }
+    st.tagged.add(tagId);
+    st.changed = true;
+    pushRecentTag({ id: tagId, name });
+    el.querySelectorAll('[data-tag-name]').forEach(node => {
+        if (node.classList.contains('done') || tagPoolByName.get(node.dataset.tagName) !== tagId) return;
+        node.classList.add('done');
+        node.textContent = `✓ ${node.textContent}`;
+    });
+    showToast(`已打上「${name}」`);
 }
 
 function renderLocalDetailSummary(d, eps, isVideo) {
@@ -4351,72 +4680,6 @@ async function renderDetailAliases(d) {
             else showToast('解除别名失败');
         } catch (e) { showToast('解除别名失败'); }
     }));
-}
-
-/** 标签池：三级聚合热度视图（次数降序 + 分级配色）。作品级已挂标签可删，保留添加；聚合接口失败兜底回作品级。 */
-async function renderDetailTags(d) {
-    detailTagsEl.innerHTML = '';
-    let stats = [];
-    try {
-        const resp = await fetch(`/api/tags/manage?mediaId=${d.id}&page=1&size=1000`);
-        if (resp.ok) {
-            const pr = await resp.json();
-            stats = (pr.items || []).map(s => ({
-                id: s.id, name: s.name, count: Number(s.refCount) || 0
-            }));
-        }
-    } catch (e) { /* 兜底：仅作品级 */ }
-    // 作品级标签 id 集合 → 标记可删除（删作品级关联，集/片段引用不动）
-    const removableIds = new Set((d.tags || []).map(t => t.id));
-    const pool = stats.length > 0 ? stats : (d.tags || []).map(t => ({ id: t.id, name: t.name, count: 1 }));
-    pool.sort((a, b) => b.count - a.count || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-    for (const p of pool) {
-        const chip = document.createElement('span');
-        chip.className = `tag-pool-chip stat-${tagStatTier(p.count)}`;
-        chip.title = `${p.name} · 引用 ${p.count} 次`;
-        const name = document.createElement('span');
-        name.className = 'tag-pool-name';
-        name.textContent = p.name;
-        chip.appendChild(name);
-        const cnt = document.createElement('span');
-        cnt.className = 'tag-pool-count';
-        cnt.textContent = `×${p.count}`;
-        chip.appendChild(cnt);
-        if (removableIds.has(p.id)) {
-            const rm = document.createElement('span');
-            rm.className = 'chip-remove';
-            rm.textContent = '×';
-            rm.title = '从作品级移除（集/片段引用保留）';
-            rm.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                await fetch(`/api/media/${d.id}/tags/${p.id}`, { method: 'DELETE' });
-                refreshMediaDetail();
-            });
-            chip.appendChild(rm);
-        }
-        detailTagsEl.appendChild(chip);
-    }
-    const wrap = document.createElement('span');
-    wrap.className = 'tag-add-wrap';
-    const input = document.createElement('input');
-    input.className = 'tag-add-input';
-    input.placeholder = '+ 添加标签';
-    input.addEventListener('keydown', async (e) => {
-        if (e.key === 'Enter' && input.value.trim()) {
-            const picked = await resolveTagId(input);
-            if (!picked) return;
-            input.value = '';
-            await fetch(`/api/media/${d.id}/tags`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tagIds: [picked.id] })
-            });
-            refreshMediaDetail();
-        }
-    });
-    wrap.appendChild(input);
-    detailTagsEl.appendChild(wrap);
-    attachTagSuggest(input, () => (currentMedia && currentMedia.id) || null);
 }
 
 /** 标签池分级档位：1 / 2-3 / 4-6 / 7-9 / 10+ → 1..5。 */
@@ -6619,7 +6882,7 @@ function jumpToMediaTagFilter(t) {
     mediaFilter.tagIds = [String(t.id)];
     mediaFilter.mode.tagIds = 'AND';
     renderFilterChips();
-    if (!filterPopEl.hidden) renderFilterPop();
+    if (!filterPopEl.hidden) renderFilterPop("fp-dims", "fp-vals");
     navigate({ view: 'media' });   // 进 URL 历史 → 媒体页的「← 返回」能回标签页
     backToMedia();       // 之前可能停在回收站 → 恢复主区（内部 loadMedia 带着已设好的筛选；序号保护保证结果正确）
     showToast(`已按标签「${t.name}」筛选媒体（全部媒体）`);
@@ -6966,7 +7229,12 @@ async function resolveEpisodeMediaId(episodeId) {
  * - 用户取消 / 名为空 → 返回 null（调用方直接放弃本次保存）。
  */
 async function resolveTagId(inputEl) {
-    const name = (inputEl && inputEl.value ? inputEl.value : '').trim();
+    return resolveTagIdByName(inputEl && inputEl.value ? inputEl.value : '');
+}
+
+/** 单个名字 → tagId（核心，不依赖输入框）。 */
+async function resolveTagIdByName(name) {
+    name = (name || '').trim();
     if (!name) return null;
     await ensureTagPool();
     const hit = tagPoolByName.get(name);
@@ -6978,22 +7246,37 @@ async function resolveTagId(inputEl) {
         danger: false
     });
     if (!ok) return null;
+    const created = await createTag(name);
+    if (!created) { showToast('新建词条失败', 3000); return null; }
+    return created;
+}
+
+/** 建词条（不弹确认；调用方自己决定要不要先问一句）：成功 → `{id, name}`，同名已存在则失败。 */
+async function createTag(name) {
     const resp = await fetch('/api/tags', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name })
     });
-    if (!resp.ok) {
-        showToast('新建词条失败', 3000);
-        return null;
-    }
+    if (!resp.ok) return null;
     const created = await resp.json().catch(() => null);
-    if (created && created.id) {
-        tagPoolByName.set(name, created.id);
-        return { id: created.id, name };
+    const id = created && created.id;
+    if (!id) return null;
+    tagPoolByName.set(name, id);
+    return { id, name };
+}
+
+/** 空白/逗号分隔的多个名字 → tagIds（去重保序）；任一名字被取消则整体放弃。 */
+async function resolveTagIds(text) {
+    const names = String(text || '').split(/[，,\s]+/).map(s => s.trim()).filter(Boolean);
+    if (names.length === 0) return null;
+    const ids = [];
+    for (const n of names) {
+        const picked = await resolveTagIdByName(n);
+        if (!picked) return null;
+        if (!ids.includes(picked.id)) ids.push(picked.id);
     }
-    showToast('新建词条失败', 3000);
-    return null;
+    return ids;
 }
 
 /** 给打标输入挂共享补全：mediaId 由 resolveMediaId() 惰性取（可为 async）。 */
@@ -7453,10 +7736,11 @@ function renderClipSourcePanel(clip, ev) {
 // v0.24 媒体详情按钮：事件委托（#media-detail 渲染后才存在）
 document.addEventListener('click', (e) => {
     const id = e.target && e.target.id;
-    // 标题右侧 Bangumi 状态徽标 = 关联条目入口
+    // 标题右侧 Bangumi 徽标：已关联 = 真外链（新标签跳 bgm.tv，走浏览器默认行为）；未关联 = 无 id 可跳，开关联弹窗
     const badge = e.target && e.target.closest ? e.target.closest('.hero-link-badge') : null;
-    if (badge) { openMetadataLinkModal(); return; }
+    if (badge && !badge.classList.contains('linked')) { openMetadataLinkModal(); return; }
     if (id === 'detail-edit') openEditMedia();
+    else if (id === 'detail-link') openMetadataLinkModal();
     else if (id === 'detail-rename') openRenameModal();
     else if (id === 'detail-cover') openCoverModal();
     else if (id === 'detail-materialize-batch') openMaterializeModal();
@@ -7492,7 +7776,7 @@ function openMetadataLinkModal() {
         if (curEl) {
             if (work) {
                 curEl.classList.add('has-link');
-                curEl.innerHTML = `当前关联：<b>${esc(work.canonicalTitle || work.nativeTitle || '')}</b> <span class="mdl-cur-id">#${esc(work.externalId || '')}</span> · 换绑会重建旧条目同步的集与片段，含用户数据的集会二次确认`;
+                curEl.innerHTML = `当前关联：<b>${esc(work.canonicalTitle || work.nativeTitle || '')}</b> <span class="mdl-cur-id">#${esc(work.externalId || '')}</span> <a class="mdl-cur-jump" href="https://bgm.tv/subject/${esc(work.externalId || '')}" target="_blank" rel="noopener">↗ 打开 Bangumi 页</a> · 换绑会重建旧条目同步的集与片段，含用户数据的集会二次确认`;
             } else {
                 curEl.innerHTML = '尚未关联外部条目 · 搜索后点选一条完成绑定';
             }
@@ -7866,15 +8150,20 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !filterP
 filterClearEl.addEventListener('click', () => {
     for (const d of MEDIA_DIMS) mediaFilter[d.key] = [];
     renderFilterChips();
-    if (!filterPopEl.hidden) renderFilterPop();
+    if (!filterPopEl.hidden) renderFilterPop("fp-dims", "fp-vals");
     loadMedia();
+    notifyMediaFilterChange();
 });
 /* 标题模糊搜索（300ms 防抖） */
 const filterQEl = document.getElementById('filter-q');
 let filterQTimer = null;
 filterQEl.addEventListener('input', () => {
     clearTimeout(filterQTimer);
-    filterQTimer = setTimeout(() => { mediaFilter.q = filterQEl.value.trim(); loadMedia(); }, 300);
+    filterQTimer = setTimeout(() => {
+        mediaFilter.q = filterQEl.value.trim();
+        loadMedia();
+        notifyMediaFilterChange();
+    }, 300);
 });
 // 来源筛选已改由外部资料关联派生，当前界面不开放旧来源控件。
 filterSortEl.addEventListener('change', () => { mediaFilter.sort = filterSortEl.value; loadMedia(); });

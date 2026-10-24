@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Tagger · 二次元打标库</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="stylesheet" href="app.css?v=20261002-jumpfix8">
+    <link rel="stylesheet" href="app.css?v=20261024-tagpick">
     <link rel="stylesheet" href="v022-metadata.css?v=20260829-v022-media-detail2">
+    <link rel="stylesheet" href="stats-trend.css?v=20261004-trend5">
     <link rel="stylesheet" href="bgm-sync.css?v=20260924-region">
     <link rel="stylesheet" href="v023-video-sources.css?v=20260830-v023-1">
     <link rel="stylesheet" href="v023-source-interactions.css?v=20260901-v023-5">
@@ -15,6 +16,8 @@
          `?v=` 跟本站其它资源一样手动 bump：改完 `npm run build:editor` 后把日期/序号换一下，避免浏览器吃缓存 -->
     <link rel="stylesheet" href="/recommend-editor/editor.css?v=20261002-parity1">
     <script type="module" src="/recommend-editor/editor.js?v=20261002-parity1"></script>
+    <!-- 统计视频页内预览（v0.32 第二部分）：构建产物 `dist-trend/trend-preview.js`；未构建时统计页给出构建命令 -->
+    <script type="module" src="/stats-trend-preview/trend-preview.js?v=20261004-trend3"></script>
 </head>
 <body>
 <!-- 网站背景图层（设置里上传，多图轮播；z-index 在 bg-fx 之下） -->
@@ -471,6 +474,57 @@
             <div class="stat-card"><div class="stat-num" id="stat-clips">–</div><div class="stat-label">标签片段</div></div>
             <div class="stat-card"><div class="stat-num" id="stat-videos">–</div><div class="stat-label">视频</div></div>
             <div class="stat-card"><div class="stat-num" id="stat-tags">–</div><div class="stat-label">标签数</div></div>
+        </div>
+        <!-- 媒体趋势（v0.32 第一部分）：筛选 → 逐年折线/柱状；点数据点弹代表作小卡。
+             筛选与媒体页**共用同一份状态**（浮层是统计页自己的 DOM 实例）。
+             ⚠️ 容器故意**不用 `.stats-chart`** —— 那条 `rect { fill: var(--pink) !important }` 会把多线柱染成一个色。 -->
+        <h3 class="stats-title">媒体趋势（按筛选逐年统计）</h3>
+        <div class="trend-panel">
+            <div class="trend-toolbar">
+                <div class="filter-pop-wrap">
+                    <button type="button" id="trend-filter-open" class="btn-mini filter-open"
+                            title="筛选维度与媒体页完全一致（同一份条件）" aria-expanded="false">⚙ 筛选</button>
+                    <div id="trend-filter-pop" class="filter-pop" hidden>
+                        <div class="fp-dims" id="trend-fp-dims"></div>
+                        <div class="fp-vals" id="trend-fp-vals"></div>
+                    </div>
+                </div>
+                <span id="trend-filter-chips" class="filter-chips"></span>
+                <button type="button" id="trend-clear" class="btn-mini filter-clear" hidden>清空</button>
+                <button type="button" id="trend-add-line" class="btn-mini"
+                        title="把当前筛选条件固定成一条线（最多 5 条，用来对比）">＋ 固定为一条线</button>
+                <span class="filter-grow"></span>
+                <select id="trend-chart-mode" title="折线 / 柱状（线数 ≥3 时柱状不可用，会糊成马赛克）">
+                    <option value="line">折线</option>
+                    <option value="bar">柱状</option>
+                </select>
+                <select id="trend-view-mode" title="数量 / 占比（占全库当年总量的比例）">
+                    <option value="count">数量</option>
+                    <option value="ratio">占比</option>
+                </select>
+                <select id="trend-theme" title="视频/预览的画面风格">
+                    <option value="light">白底亮色</option>
+                    <option value="dark">深色（旧）</option>
+                </select>
+                <select id="trend-score-source" title="代表作小卡 / 视频定格用的评分口径">
+                    <option value="mixed">混合（个人优先）</option>
+                    <option value="bgm">Bangumi 评分</option>
+                    <option value="personal">个人评分</option>
+                </select>
+                <label class="trend-sec-label" title="视频里每年停留几秒（0.25–10，非法值回落到 1.5）">秒/年
+                    <input id="trend-video-sec" class="trend-sec-input" type="text" value="1.5" inputmode="decimal">
+                </label>
+                <button type="button" id="trend-video" class="btn-mini"
+                        title="把当前可见的线渲成统计视频（Remotion，1920×1080 / 30fps / 末尾定格 3 秒）">🎬 生成统计视频</button>
+                <button type="button" id="trend-preview-open" class="btn-mini"
+                        title="渲染前先在页内逐帧预览（同一份 composition、零等待、可改参数后再渲）">👁 预览</button>
+            </div>
+            <div id="trend-legend" class="trend-legend"></div>
+            <div id="trend-hint" class="trend-hint" hidden></div>
+            <div id="trend-chart" class="trend-chart"></div>
+            <div id="trend-status" class="status"></div>
+            <div id="trend-video-status" class="status"></div>
+            <div id="trend-video-player" class="trend-video-player" hidden></div>
         </div>
         <h3 class="stats-title">最常用标签</h3>
         <div id="stats-tags" class="stats-tags"></div>
@@ -1207,6 +1261,17 @@
 </div>
 
 <!-- 集封面：自选片段帧 / 上传兜底 -->
+<div id="trend-preview-modal" class="modal-overlay" hidden>
+    <div class="modal modal-wide">
+        <h2>统计视频预览</h2>
+        <div id="trend-preview-root" class="trend-preview-root"></div>
+        <div id="trend-preview-hint" class="status"></div>
+        <div class="modal-actions">
+            <button id="trend-preview-close" type="button">关闭</button>
+            <button id="trend-preview-render" type="button" class="btn-primary">渲染正式版</button>
+        </div>
+    </div>
+</div>
 <div id="episode-cover-modal" class="modal-overlay" hidden>
     <div class="modal modal-wide">
         <h2>设置集封面</h2>
@@ -1225,7 +1290,8 @@
     <img src="" alt="">
 </div>
 <button type="button" id="back-nav" title="去底部" aria-label="去底部">↓</button>
-<script src="app.js?v=20261002-jumpfix8"></script>
+<script src="app.js?v=20261024-tagpick2"></script>
+<script src="stats-trend.js?v=20261004-trend5"></script>
 <script src="bgm-sync.js?v=20260924-region"></script>
 <script src="v023-video-sources.js?v=20260830-v023-1"></script>
 <script src="v023-player-workbench.js?v=20260901-v023-3"></script>

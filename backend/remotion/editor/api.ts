@@ -181,6 +181,8 @@ export interface ClipBrief {
   note?: string | null;
   timestampSec?: number | null;
   endSec?: number | null;
+  /** 所属集；`null` = 无集（推荐里上传的「资源视频」）。老响应/老草稿可能没有。 */
+  episodeId?: number | null;
   /** v0.31：片段标签（真源 `clip_tag`，后端派生回填）；旧草稿/老响应可能没有 */
   tagNames?: string[] | null;
   tagIds?: number[] | null;
@@ -379,6 +381,23 @@ export const api = {
   mediaTags: () => json<{ tagId: number; name: string; count: number }[]>('/api/media/tags'),
   formats: () => json<MediaFormatBrief[]>('/api/media-formats'),
   clips: (mediaId: number) => json<ClipBrief[]>(`/api/clips/media/${mediaId}`),
+  /** 单个片段（草稿重开后补标题用：上传的资源没有归属集，不在媒体片段列表里）。 */
+  clip: (id: number) => json<ClipBrief>(`/api/clips/${id}`),
+  /**
+   * 上传「资源视频」（给某部媒体挂的额外视频，**用法同片段**：可多个、可设首尾）。
+   *
+   * 后端：文件落 `data/videos/{指纹}.{扩展名}` + 登记一条**无集**片段（`episode_id = NULL`）——
+   * 所以推荐准备/物化/预览/导出全走既有片段通道；归属由草稿的 `mediaClips[mediaId].order` 决定，
+   * 库里不存 media_id。代价：这条片段不会出现在 `/api/clips/media/{id}` 列表里（没有归属集）。
+   */
+  uploadResource: (file: File, title: string, startSec: number, endSec: number) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('title', title);
+    form.append('startSec', String(startSec));
+    form.append('endSec', String(endSec));
+    return json<ClipBrief>('/api/clips/upload', { method: 'POST', body: form });
+  },
   /** 同系列条目（本地有片段的视频类关联条目）→ 跨媒体借片段的来源列表。 */
   relatedMedia: (mediaId: number) => json<RelatedMedia[]>(`/api/media/${mediaId}/related`),
 

@@ -21,6 +21,7 @@ Thumbs.db
 
 # 运行时封面数据（og:image / 截帧 / 集封面，本地落盘，禁止提交）
 data/
+# 后端备份的 SQL dump 不入库：每份约 100MiB 且含真实观看数据（备份由 BackupWatcherLauncher 守护）
 backend/data/
 
 # Claude Code / Superpowers 工具链本地产物（skill 副本 / SDD 简报 / 截图 / 本地设置，禁止提交）
@@ -68,9 +69,13 @@ backend/test-bg.png
 .tmp/
 tag-tray.log
 backend/remotion/dist-editor/
+backend/remotion/dist-trend/
 
 # Codex CLI 项目级目录（工具生成，不进版本库）
 .codex/
 
 # 临时文件（提交信息/探针输出等，2026-09-21 踩到过被 add -A 一起提交）
 .tmp-*
+
+# 隔离验证副本的上传产物（封面/片段/导出），测试垃圾不进版本库
+backend/data-verify-upload/

@@ -20,6 +20,8 @@ public class WebConfig implements WebMvcConfigurer {
     private final String clipImageDir;
     private final String recommendPreviewDir;
     private final String editorDir;
+    /** v0.32：统计视频页内预览的构建产物（`dist-trend/`）。 */
+    private final String statsTrendPreviewDir;
     /** 封面工坊的字体目录（编辑器预览用 http://localhost:8080/fonts/**；导出时由后端换成 file://）。 */
     private final String fontDir;
 
@@ -36,6 +38,7 @@ public class WebConfig implements WebMvcConfigurer {
         this.clipImageDir = Paths.get(clipImageDir).toAbsolutePath() + "/";
         this.recommendPreviewDir = Paths.get("data/recommend-previews").toAbsolutePath() + "/";
         this.editorDir = resolveBuildDir(remotionDir, "dist-editor") + "/";
+        this.statsTrendPreviewDir = resolveBuildDir(remotionDir, "dist-trend") + "/";
         // 字体：编辑器预览直接引 /fonts/**（导出走 file://，见 CoverRenderService）
         this.fontDir = resolvePublicDir(remotionDir, "fonts") + "/";
     }
@@ -69,6 +72,14 @@ public class WebConfig implements WebMvcConfigurer {
                 return candidate.resolve(buildDir).toAbsolutePath().normalize();
             }
         }
+        // 兜底（2026-10-04 踩到）：启动时构建产物**还不存在**（例如后建的 dist-trend）时，
+        // 不能拿 remotionDir 裸拼路径 —— IDE（cwd=项目根）与 mvn（cwd=backend）两种启动下它指向不同地方，
+        // 拼错的后果是一直 500/404，而且**必须重启才看得出**。改成认「Remotion 工程根」（有 package.json 的那个）。
+        for (java.nio.file.Path candidate : candidates) {
+            if (java.nio.file.Files.isRegularFile(candidate.resolve("package.json"))) {
+                return candidate.resolve(buildDir).toAbsolutePath().normalize();
+            }
+        }
         return Paths.get(remotionDir).toAbsolutePath().resolve(buildDir);
     }
 
@@ -91,5 +102,8 @@ public class WebConfig implements WebMvcConfigurer {
         // 推荐工作台编辑器（Remotion 工程构建产物 dist-editor/；未构建时该路由 404，编辑器入口给出构建命令）
         registry.addResourceHandler("/recommend-editor/**")
                 .addResourceLocations("file:" + editorDir);
+        // 统计视频页内预览（v0.32）：`dist-trend/trend-preview.js`（未构建时 404，统计页给出构建命令）
+        registry.addResourceHandler("/stats-trend-preview/**")
+                .addResourceLocations("file:" + statsTrendPreviewDir);
     }
 }

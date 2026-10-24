@@ -32,6 +32,9 @@ class ClipServiceIT extends AbstractMySqlIT {
     @Autowired
     TagMapper tagMapper;
 
+    @Autowired
+    com.videotagger.mapper.EpisodeMapper episodeMapper;
+
     /** v0.31 标签受控：测试里先建词条，再传 id。 */
     private List<Long> tags(String... names) {
         return TestTagSeed.ensure(tagMapper, names);
@@ -82,6 +85,29 @@ class ClipServiceIT extends AbstractMySqlIT {
 
         assertFalse(r2.deduped());
         assertNotEquals(r1.id(), r2.id());
+    }
+
+    @Test
+    void saveClaimsExistingBangumiEpisodeWithoutUrl() {
+        Media m = insertMedia("某同步番剧");
+        com.videotagger.entity.Episode ep = new com.videotagger.entity.Episode();
+        ep.setMediaId(m.getId());
+        ep.setEpisodeNo(5);
+        ep.setTitle("顾问！");
+        ep.setCreatedAt(System.currentTimeMillis());
+        episodeMapper.insert(ep);
+
+        SaveClipResult r = clipService.save(new SaveClipRequest(
+                "某同步番剧 第5集", "https://claim.test/ep5", 30.0, tags("高燃"), "",
+                null, null, null, null, m.getId(), null));
+
+        // 认领已有集（而不是新建重复集），并回填 url/指纹
+        assertEquals(5, r.episodeNo());
+        assertEquals(ep.getId(), clipService.get(r.id()).getEpisodeId());
+        com.videotagger.entity.Episode claimed = episodeMapper.selectById(ep.getId());
+        assertNotNull(claimed.getVideoFp());
+        assertEquals("https://claim.test/ep5", claimed.getUrl());
+        assertEquals(1, episodeMapper.listByMedia(m.getId()).size());
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.videotagger.entity.Media;
 import com.videotagger.service.MediaExportRow;
 import com.videotagger.service.MediaSummary;
+import com.videotagger.service.TrendRef;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -36,9 +37,12 @@ public interface MediaMapper extends BaseMapper<Media> {
 
     /* ── 多值维度（v0.32）：AND = 逐值各自成立（形状照抄 TAG_FILTER）；缺省 OR。 ── */
     String COLLECTION_IDS = "<foreach collection='collectionId' item='cid' open='(' separator=',' close=')'>#{cid}</foreach>";
+    /** 收藏夹筛选：AND = 逐个夹子都在；NOT = **都不在**（`NOT IN` 天然把「没归进任何收藏夹」的媒体算进来）。 */
     String COLLECTION_FILTER = "<if test='collectionId != null and !collectionId.isEmpty()'><choose>"
             + "<when test=\"collectionMode == 'AND'\"><foreach collection='collectionId' item='cid'>"
             + " AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id = #{cid})</foreach></when>"
+            + "<when test=\"collectionMode == 'NOT'\"> AND a.id NOT IN (SELECT media_id FROM media_collection WHERE collection_id IN "
+            + COLLECTION_IDS + ")</when>"
             + "<otherwise> AND a.id IN (SELECT media_id FROM media_collection WHERE collection_id IN "
             + COLLECTION_IDS + ")</otherwise></choose></if>";
 
@@ -492,6 +496,174 @@ public interface MediaMapper extends BaseMapper<Media> {
             + "GROUP BY a.subcategory_id, s.name ORDER BY count DESC")
     List<SubcategoryCount> countGroupBySubcategory();
 
+    /* ── v0.32 媒体趋势统计（第一部分）──────────────────────────────
+       筛选口径**逐字复用**媒体页那批 filter 常量（STATUS / YEAR / SEASON / GENRE / TAG / COLLECTION），
+       **禁止另写一套 WHERE** —— 口径一分叉就会变成「同一个筛选，媒体页和统计页数不一样」（v0.31 刚填过这个坑）。
+       ⚠️ refs 里的 Bangumi 评分走 `JSON_EXTRACT`，**仅 MySQL 生效**（现有题材筛选本来就有同样限制，桌面轨道已冻结）。 */
+
+    /** Bangumi 评分（`raw_json.rating.score`）。⚠️ JSON null 会被 CAST 成 **0 而非 NULL**，判定必须用 `> 0`。 */
+    String BGM_SCORE = "CAST(JSON_EXTRACT((SELECT ew9.raw_json FROM external_work ew9 WHERE ew9.media_id = a.id"
+            + " ORDER BY ew9.id LIMIT 1), '$.rating.score') AS DECIMAL(4,1))";
+
+    /** Bangumi 评分人数（`raw_json.rating.total`）。冷门高分（如 21 票 6.1 分）靠它挡在代表作之外。 */
+    String BGM_VOTES = "CAST(JSON_EXTRACT((SELECT ew9.raw_json FROM external_work ew9 WHERE ew9.media_id = a.id"
+            + " ORDER BY ew9.id LIMIT 1), '$.rating.total') AS SIGNED)";
+
+    /**
+     * 趋势：筛选命中的媒体按首播年份计数（`year` 为空的行不参与）。
+     *
+     * <p>补 0 与横轴刻度由 `StatsService` 负责，这里只返回**有数据的年份**。
+     */
+    @Select("<script>"
+            + "SELECT a.year AS year, COUNT(DISTINCT a.id) AS count FROM media a "
+            + "<where>"
+            + "<if test='true'> AND a.deleted_at IS NULL AND a.year IS NOT NULL</if>"
+            + STATUS_FILTER
+            + "<if test='format != null'> AND a.media_format = #{format}</if>"
+            + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
+            + "WITH RECURSIVE cte AS ("
+            + "SELECT id FROM media_subcategory WHERE id = #{subcategoryId} "
+            + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
+            + ") SELECT id FROM cte)</if>"
+            + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
+            + COLLECTION_FILTER
+            + YEAR_FILTER
+            + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
+            + TAG_FILTER
+            + GENRE_FILTER
+            + SEASON_FILTER
+            + "</where> GROUP BY a.year ORDER BY a.year"
+            + "</script>")
+    List<YearCount> countTrendByYear(@Param("status") List<String> status, @Param("format") String format,
+                                     @Param("subcategoryId") Long subcategoryId,
+                                     @Param("confirmed") Integer confirmed,
+                                     @Param("collectionId") List<Long> collectionId,
+                                     @Param("year") List<Integer> year, @Param("source") String source,
+                                     @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode,
+                                     @Param("genreMode") String genreMode, @Param("collectionMode") String collectionMode,
+                                     @Param("q") String q,
+                                     @Param("genres") List<String> genres, @Param("season") List<String> season);
+
+    /** 横轴默认范围：全库有效年份区间（2026-10-03 实测 1983–2026，其中 1983–1999 合计仅 3 部）。 */
+    @Select("SELECT MIN(year) AS minYear, MAX(year) AS maxYear FROM media "
+            + "WHERE year IS NOT NULL AND deleted_at IS NULL")
+    YearRange yearRange();
+
+    /**
+     * 代表作（趋势小卡 / 视频定格）：同一套筛选 + 指定年份 + 评分口径。
+     *
+     * <p>三种口径：`bgm`（分数降序 + 票数门槛）· `personal`（个人评分，**不套票数门槛**）·
+     * 其余（含 null）= `mixed`（个人优先、未评分回落 Bangumi）。
+     *
+     * <p>⚠️ 列顺序必须与 `TrendRef` 一致。
+     */
+    @Select("<script>"
+            + "SELECT a.id, a.title, a.year, a.media_format AS mediaFormat, a.cover_path AS coverPath, "
+            + "(SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl, "
+            + FALLBACK_COVER
+            + ", COALESCE((SELECT ew2.episode_count FROM external_work ew2 WHERE ew2.media_id = a.id "
+            + "AND ew2.episode_count IS NOT NULL ORDER BY ew2.id LIMIT 1), "
+            + "(SELECT COUNT(*) FROM episode e WHERE e.media_id = a.id)) AS episodeCount, "
+            + "(SELECT COUNT(*) FROM clips c JOIN episode e ON e.id = c.episode_id WHERE e.media_id = a.id) AS clipCount, "
+            + "a.rating AS personalRating, " + BGM_SCORE + " AS bgmScore, " + BGM_VOTES + " AS bgmVotes "
+            + "FROM media a "
+            + "<where>"
+            + "<if test='true'> AND a.deleted_at IS NULL</if>"
+            + "<if test='refYear != null'> AND a.year = #{refYear}</if>"
+            + STATUS_FILTER
+            + "<if test='format != null'> AND a.media_format = #{format}</if>"
+            + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
+            + "WITH RECURSIVE cte AS ("
+            + "SELECT id FROM media_subcategory WHERE id = #{subcategoryId} "
+            + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
+            + ") SELECT id FROM cte)</if>"
+            + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
+            + COLLECTION_FILTER
+            + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
+            + TAG_FILTER
+            + GENRE_FILTER
+            + SEASON_FILTER
+            + "<choose>"
+            + "<when test=\"scoreSource == 'bgm'\"> AND " + BGM_VOTES + " &gt;= 100 AND " + BGM_SCORE + " &gt; 0</when>"
+            + "<when test=\"scoreSource == 'personal'\"> AND a.rating IS NOT NULL</when>"
+            + "<otherwise> AND (a.rating IS NOT NULL OR (" + BGM_VOTES + " &gt;= 100 AND " + BGM_SCORE + " &gt; 0))</otherwise>"
+            + "</choose>"
+            + "</where>"
+            + "<choose>"
+            + "<when test=\"scoreSource == 'bgm'\">ORDER BY " + BGM_SCORE + " DESC, a.id DESC</when>"
+            + "<when test=\"scoreSource == 'personal'\">ORDER BY a.rating DESC, a.id DESC</when>"
+            + "<otherwise>ORDER BY (a.rating IS NULL), a.rating DESC, " + BGM_SCORE + " DESC, a.id DESC</otherwise>"
+            + "</choose>"
+            + " LIMIT #{limit}"
+            + "</script>")
+    List<TrendRef> listTrendRefs(@Param("status") List<String> status, @Param("format") String format,
+                                 @Param("subcategoryId") Long subcategoryId,
+                                 @Param("confirmed") Integer confirmed,
+                                 @Param("collectionId") List<Long> collectionId,
+                                 @Param("source") String source,
+                                 @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode,
+                                 @Param("genreMode") String genreMode, @Param("collectionMode") String collectionMode,
+                                 @Param("q") String q,
+                                 @Param("genres") List<String> genres, @Param("season") List<String> season,
+                                 @Param("refYear") Integer refYear, @Param("scoreSource") String scoreSource,
+                                 @Param("limit") int limit);
+
+    /**
+     * 每年「当年第一名」的代表作（视频里每年贴一张封面小头像用）——一条 SQL 拿全年，不逐年查。
+     *
+     * <p>评分口径与 `listTrendRefs` 同一套（bgm / personal / mixed）——两处口径必须一致，
+     * 否则视频里「带头像那个作品」和定格卡片里的排序会对不上。
+     */
+    @Select("<script>"
+            + "SELECT t.year AS year, t.title AS title, t.externalCoverUrl AS externalCoverUrl FROM ("
+            + "SELECT a.year AS year, a.title AS title, "
+            + "(SELECT ew.cover_url FROM external_work ew WHERE ew.media_id = a.id ORDER BY ew.id LIMIT 1) AS externalCoverUrl, "
+            + "ROW_NUMBER() OVER (PARTITION BY a.year ORDER BY "
+            + "<choose>"
+            + "<when test=\"scoreSource == 'bgm'\">" + BGM_SCORE + " DESC</when>"
+            + "<when test=\"scoreSource == 'personal'\">a.rating DESC</when>"
+            + "<otherwise>(a.rating IS NULL), a.rating DESC, " + BGM_SCORE + " DESC</otherwise>"
+            + "</choose>"
+            + ", a.id DESC) AS rn "
+            + "FROM media a "
+            + "<where>"
+            + "<if test='true'> AND a.deleted_at IS NULL AND a.year IS NOT NULL</if>"
+            + STATUS_FILTER
+            + "<if test='format != null'> AND a.media_format = #{format}</if>"
+            + "<if test='subcategoryId != null'> AND a.subcategory_id IN ("
+            + "WITH RECURSIVE cte AS ("
+            + "SELECT id FROM media_subcategory WHERE id = #{subcategoryId} "
+            + "UNION ALL SELECT s.id FROM media_subcategory s JOIN cte ON s.parent_id = cte.id"
+            + ") SELECT id FROM cte)</if>"
+            + "<if test='confirmed != null'> AND a.confirmed = #{confirmed}</if>"
+            + COLLECTION_FILTER
+            + YEAR_FILTER
+            + "<if test='source != null'> AND a.id IN (SELECT ew.media_id FROM external_work ew WHERE ew.provider = #{source})</if>"
+            + "<if test='q != null and q != \"\"'> AND a.title LIKE CONCAT('%', #{q}, '%')</if>"
+            + TAG_FILTER
+            + GENRE_FILTER
+            + SEASON_FILTER
+            + "<choose>"
+            + "<when test=\"scoreSource == 'bgm'\"> AND " + BGM_VOTES + " &gt;= 100 AND " + BGM_SCORE + " &gt; 0</when>"
+            + "<when test=\"scoreSource == 'personal'\"> AND a.rating IS NOT NULL</when>"
+            + "<otherwise> AND (a.rating IS NOT NULL OR (" + BGM_VOTES + " &gt;= 100 AND " + BGM_SCORE + " &gt; 0))</otherwise>"
+            + "</choose>"
+            + "</where>"
+            + ") t WHERE t.rn = 1 ORDER BY t.year"
+            + "</script>")
+    List<YearTopRef> listYearTopRefs(@Param("status") List<String> status, @Param("format") String format,
+                                     @Param("subcategoryId") Long subcategoryId,
+                                     @Param("confirmed") Integer confirmed,
+                                     @Param("collectionId") List<Long> collectionId,
+                                     @Param("year") List<Integer> year, @Param("source") String source,
+                                     @Param("tagIds") List<Long> tagIds, @Param("tagMode") String tagMode,
+                                     @Param("genreMode") String genreMode, @Param("collectionMode") String collectionMode,
+                                     @Param("q") String q,
+                                     @Param("genres") List<String> genres, @Param("season") List<String> season,
+                                     @Param("scoreSource") String scoreSource);
+
     /**
      * 回收站：已删媒体列表（deleted_at 非空），可按标题模糊过滤，按删除时间倒序。
      *
@@ -564,5 +736,17 @@ public interface MediaMapper extends BaseMapper<Media> {
     }
 
     record SubcategoryDirectCount(Long subcategoryId, long count) {
+    }
+
+    /** 趋势聚合行（v0.32 第一部分）：某年的命中数。 */
+    record YearCount(Integer year, long count) {
+    }
+
+    /** 横轴默认范围（v0.32 第一部分）：全库有效年份区间。 */
+    record YearRange(Integer minYear, Integer maxYear) {
+    }
+
+    /** 每年第一名的代表作（v0.32 第二部分：视频封面小头像）。 */
+    record YearTopRef(Integer year, String title, String externalCoverUrl) {
     }
 }

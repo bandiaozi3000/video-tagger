@@ -422,6 +422,17 @@ public class ClipService {
     private Episode ensureEpisode(TitleParser.ParsedTitle parsed, SaveClipRequest req, long mediaId, long now) {
         String fp = VideoFingerprint.fingerprint(req.url());
         Episode ep = episodeMapper.selectByFp(fp);
+        if (ep == null && parsed.episodeNo() != null) {
+            /* Bangumi 同步来的集没有 url/指纹：标题解析出集号时优先认领这一集（回填 url+指纹），
+               否则同一个媒体每打一次标就多一条重复集（2026-10-05 轻音少女第5集实测）。 */
+            ep = episodeMapper.selectUnclaimedByMediaAndNo(mediaId, parsed.episodeNo());
+            if (ep != null) {
+                ep.setUrl(req.url());
+                ep.setVideoFp(fp);
+                episodeMapper.updateById(ep);
+                return ep;
+            }
+        }
         if (ep == null) {
             ep = new Episode();
             ep.setMediaId(mediaId);

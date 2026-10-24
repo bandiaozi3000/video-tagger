@@ -462,6 +462,13 @@ public class RecommendClipSourceService {
                 }
                 Long sourceMediaId = entry.getValue().sourceOf(clipId);
                 if (sourceMediaId == null) {
+                    // 「资源视频」上传（`POST /api/clips/upload`）：无集片段，不在任何媒体的片段列表里
+                    // （`listByMedia` 走 episode JOIN），只能按键直查；归属由草稿的 mediaClips 决定。
+                    Clip uploaded = clipMapper.selectById(clipId);
+                    if (uploaded != null && uploaded.getEpisodeId() == null) {
+                        result.put(clipId, uploaded);
+                        continue;
+                    }
                     result.put(clipId, null);
                     reasons.put(clipId, "片段不存在或不属于所选媒体");
                     // 旧草稿的跨媒体悬空引用：片段其实在库里，只是属于**本部同系列**的条目（如 OVA）

@@ -12,6 +12,8 @@
     "verify:params": "tsx scripts/verify-params.ts",
     "verify:encode": "tsx scripts/verify-encode.ts",
     "render:recommend": "tsx scripts/render-recommend.ts",
+    "render:trend": "tsx scripts/render-trend.ts",
+    "build:trend-preview": "vite build --config vite.trend.config.ts",
     "check:native": "node scripts/check-native.mjs",
     "build:editor": "vite build --config vite.editor.config.ts",
     "verify:player": "tsx probe/run-player-probe.ts",

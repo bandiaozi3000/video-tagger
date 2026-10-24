@@ -657,6 +657,33 @@ body:has(#view-recommend:not([hidden])) .site-footer { display: none; }
 .vt-media-card:hover .vt-clip-badge { opacity: 1; }
 .vt-clip-badge.has { opacity: 1; color: var(--cyan); border-color: rgba(53, 214, 242, .45); }
 
+/* 资源视频（上传的本地视频）：放在「＋ 片段」上方一格，避开 .vt-tier-badge 的右下位置 */
+.vt-resource-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 30px;
+  z-index: 2;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 7px;
+  border: 1px solid var(--border-strong);
+  background: rgba(4, 4, 12, .78);
+  color: var(--text-dim);
+  font-size: 10.5px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .12s;
+}
+.vt-media-card:hover .vt-resource-badge { opacity: 1; }
+.vt-resource-badge.has { opacity: 1; color: #9ae6b4; border-color: rgba(154, 230, 180, .45); }
+
+/* 资源视频上传弹窗：本地预览 + 首尾秒数 */
+.vt-upload-form { display: flex; flex-direction: column; gap: 10px; padding: 4px 2px; }
+.vt-upload-video { width: 100%; max-height: 240px; background: #000; border-radius: 8px; }
+.vt-upload-name { flex: 1; min-width: 160px; }
+.vt-upload-sec { width: 76px; }
+.vt-upload-error { color: #ff9a9a; }
+
 /* 沉浸模式（P）：只留画布 */
 .vt-body.stage-only { grid-template-columns: minmax(0, 1fr); }
 .vt-workspace.flash .vt-toolbar,

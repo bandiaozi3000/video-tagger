@@ -40,4 +40,15 @@ class LocalVideoResolverTest {
         p.setAllowedExtensions(List.of("mp4", "mkv"));
         assertThrows(IllegalArgumentException.class, () -> new LocalVideoResolver(p).resolve("abc123"));
     }
+
+    /** 上传的资源视频可能是不在白名单里的容器（m2ts/ts…）：兜底按 `{指纹}.*` 找，不报假故障。 */
+    @Test
+    void resolvesExtensionOutsideWhitelist() throws Exception {
+        Files.writeString(temp.resolve("abc123.m2ts"), "video");
+        ClipExportProperties p = new ClipExportProperties();
+        p.setVideoDir(temp.toString());
+        p.setAllowedExtensions(List.of("mp4"));
+        assertEquals(temp.resolve("abc123.m2ts").toAbsolutePath().normalize(),
+                new LocalVideoResolver(p).resolve("abc123"));
+    }
 }

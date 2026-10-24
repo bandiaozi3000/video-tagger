@@ -10,6 +10,8 @@ import com.videotagger.mapper.MediaSubcategoryMapper;
 import com.videotagger.mapper.TagMapper;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -33,6 +35,79 @@ public class StatsService {
         this.mediaFormatMapper = mediaFormatMapper;
         this.mediaSubcategoryMapper = mediaSubcategoryMapper;
         this.tagMapper = tagMapper;
+    }
+
+    /**
+     * v0.32 媒体趋势（第一部分）：筛选命中的媒体按首播年份计数。
+     *
+     * <p>横轴刻度规则（规格 §3.2）：`year` 维度有勾选 → 用勾选集合；无勾选 → 全库年份区间。
+     * `points` 与 `years` 等长等序，**缺失年在这里补 0**（前端不做补 0）。
+     *
+     * <p>筛选为空时**不拦截**：照常返回全库统计（由前端决定不画）。
+     */
+    public StatsTrendResponse trend(List<String> status, String format, Long subcategoryId, Integer confirmed,
+                                    List<Long> collectionId, List<Integer> year, String source,
+                                    List<Long> tagIds, String tagMode, String genreMode, String collectionMode,
+                                    String q, List<String> genres, List<String> season) {
+        List<MediaMapper.YearCount> rows = mediaMapper.countTrendByYear(status, format, subcategoryId, confirmed,
+                collectionId, year, source, tagIds, tagMode, genreMode, collectionMode, q, genres, season);
+        Map<Integer, Long> byYear = new HashMap<>();
+        long total = 0;
+        for (MediaMapper.YearCount r : rows) {
+            byYear.merge(r.year(), r.count(), Long::sum);
+            total += r.count();
+        }
+        List<Integer> years = axisYears(year);
+        List<StatsTrendResponse.Point> points = years.stream()
+                .map(y -> new StatsTrendResponse.Point(y, byYear.getOrDefault(y, 0L)))
+                .toList();
+        return new StatsTrendResponse(years, total, points);
+    }
+
+    /**
+     * v0.32 代表作（趋势小卡 / 视频定格）：同一套筛选 + 指定年份 + 评分口径。
+     *
+     * <p>`scoreSource`：`bgm`（分 + ≥100 票门槛）/ `personal`（不套门槛）/ 其余（含 null）= `mixed`（个人优先回落 Bangumi）。
+     */
+    public List<TrendRef> trendRefs(List<String> status, String format, Long subcategoryId, Integer confirmed,
+                                    List<Long> collectionId, String source,
+                                    List<Long> tagIds, String tagMode, String genreMode, String collectionMode,
+                                    String q, List<String> genres, List<String> season,
+                                    Integer refYear, String scoreSource, Integer limit) {
+        int n = limit == null ? 5 : Math.max(1, Math.min(limit, 20));
+        return mediaMapper.listTrendRefs(status, format, subcategoryId, confirmed, collectionId, source,
+                tagIds, tagMode, genreMode, collectionMode, q, genres, season, refYear, scoreSource, n);
+    }
+
+    /**
+     * v0.32 第二部分：每年「当年第一名」的代表作（视频里每年贴一张封面小头像）。
+     *
+     * <p>一条 SQL 拿全年（`ROW_NUMBER() OVER (PARTITION BY year ...)`），**不逐年查** —— 44 年就是 44 次往返，白等。
+     */
+    public List<MediaMapper.YearTopRef> trendYearRefs(List<String> status, String format, Long subcategoryId,
+                                                      Integer confirmed, List<Long> collectionId,
+                                                      List<Integer> year, String source, List<Long> tagIds,
+                                                      String tagMode, String genreMode, String collectionMode,
+                                                      String q, List<String> genres, List<String> season,
+                                                      String scoreSource) {
+        return mediaMapper.listYearTopRefs(status, format, subcategoryId, confirmed, collectionId, year, source,
+                tagIds, tagMode, genreMode, collectionMode, q, genres, season, scoreSource);
+    }
+
+    /** 横轴刻度：有勾选年份 → 勾选集合（升序去重）；否则全库年份区间（连续）。 */
+    private List<Integer> axisYears(List<Integer> year) {
+        if (year != null && !year.isEmpty()) {
+            return year.stream().distinct().sorted().toList();
+        }
+        MediaMapper.YearRange range = mediaMapper.yearRange();
+        if (range == null || range.minYear() == null || range.maxYear() == null) {
+            return List.of();
+        }
+        List<Integer> out = new ArrayList<>(range.maxYear() - range.minYear() + 1);
+        for (int y = range.minYear(); y <= range.maxYear(); y++) {
+            out.add(y);
+        }
+        return out;
     }
 
     public StatsResponse stats() {

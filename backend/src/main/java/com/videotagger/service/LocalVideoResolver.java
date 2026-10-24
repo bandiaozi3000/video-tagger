@@ -39,6 +39,9 @@ public class LocalVideoResolver {
             }
         }
         if (matches.isEmpty()) {
+            matches.addAll(anyExtension(videoFp));
+        }
+        if (matches.isEmpty()) {
             throw new IllegalArgumentException("找不到本地源视频，请将文件放入 data/videos 并命名为 videoFp.扩展名");
         }
         if (matches.size() > 1) {
@@ -49,5 +52,26 @@ public class LocalVideoResolver {
 
     public Path videoDir() {
         return videoDir;
+    }
+
+    /**
+     * 兜底：`{videoFp}.任意扩展名`。
+     *
+     * <p>为什么需要：上传的「资源视频」可能是不在白名单里的容器（m2ts/ts/wmv…），
+     * 只按 {@code allowedExtensions} 找会报「找不到本地源视频」——那是**难查的假故障**。
+     * 只在白名单找不到时才扫目录，正常路径零代价；`limit(2)` 保证「多个源文件」仍会照旧报错。
+     */
+    private List<Path> anyExtension(String videoFp) {
+        if (videoDir == null || !Files.isDirectory(videoDir)) {
+            return List.of();
+        }
+        try (var stream = Files.list(videoDir)) {
+            return stream.filter(Files::isRegularFile)
+                    .filter((path) -> path.getFileName().toString().startsWith(videoFp + "."))
+                    .limit(2)
+                    .toList();
+        } catch (IOException e) {
+            return List.of();
+        }
     }
 }

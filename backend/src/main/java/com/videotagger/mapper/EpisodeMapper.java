@@ -21,6 +21,14 @@ public interface EpisodeMapper extends BaseMapper<Episode> {
     @Select("SELECT * FROM episode WHERE video_fp = #{fp} LIMIT 1")
     Episode selectByFp(@Param("fp") String fp);
 
+    /**
+     * 同媒体内「还没被任何 URL 认领」的该集号（Bangumi 同步来的集 url/video_fp 全空）。
+     * 打标签时用它兜底认领，避免同一集反复新建（见 ClipService.ensureEpisode）。
+     */
+    @Select("SELECT * FROM episode WHERE media_id = #{mediaId} AND episode_no = #{episodeNo} "
+            + "AND (video_fp IS NULL OR video_fp = '') ORDER BY id LIMIT 1")
+    Episode selectUnclaimedByMediaAndNo(@Param("mediaId") long mediaId, @Param("episodeNo") int episodeNo);
+
     @Select("SELECT * FROM episode WHERE media_id = #{mediaId} "
             + "ORDER BY IFNULL(episode_no, 0), id")
     List<Episode> listByMedia(@Param("mediaId") long mediaId);

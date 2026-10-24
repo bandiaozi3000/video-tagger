@@ -430,11 +430,105 @@ function moveMedia(config: EditorConfig, patch: Patch, mediaId: number, delta: n
  * 片段选择器（篮子与 Inspector 共用，避免两份实现）：候选片段 → 播放顺序 → 字幕条内容。
  * 片段列表按媒体懒加载（`/api/clips/media/{id}`）。
  */
-export function ClipPicker({ mediaId, title, config, onClips }: {
+/**
+ * 「资源视频」上传弹窗（2026-10-03 用户）：给某部媒体挂一段额外视频，**用法同片段**。
+ *
+ * 本地 `<video>` 预览 + 两个时间输入（不做拖动时间轴）——上传后由后端按首尾裁进推荐会话。
+ */
+function ResourceUploadDialog({ media, onClose, onDone }: {
+  media: MediaBrief;
+  onClose: () => void;
+  onDone: (clip: ClipBrief) => void;
+}) {
+  const [file, setFile] = React.useState<File | null>(null);
+  const [objectUrl, setObjectUrl] = React.useState<string | null>(null);
+  const [duration, setDuration] = React.useState(0);
+  const [title, setTitle] = React.useState('');
+  const [start, setStart] = React.useState(0);
+  const [end, setEnd] = React.useState(0);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // 选中新文件/关闭时释放上一个 object URL（否则大文件一直占着内存）
+  React.useEffect(() => () => { if (objectUrl) URL.revokeObjectURL(objectUrl); }, [objectUrl]);
+
+  const pick = (picked: File | null) => {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    setError(null);
+    setFile(picked);
+    setDuration(0);
+    setStart(0);
+    setEnd(0);
+    if (!picked) { setObjectUrl(null); return; }
+    setTitle(picked.name.replace(/\.[^.]+$/, ''));
+    setObjectUrl(URL.createObjectURL(picked));
+  };
+
+  const submit = () => {
+    if (!file) { setError('先选一个视频文件'); return; }
+    setBusy(true);
+    setError(null);
+    api.uploadResource(file, title.trim() || file.name, start, end || duration)
+      .then(onDone)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : '上传失败'))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="vt-overlay">
+      <div className="vt-panel">
+        <div className="vt-panel-head">
+          <strong>资源视频 · {media.title}</strong>
+          <span className="btns">
+            <button type="button" className="btn-mini" onClick={onClose} disabled={busy}>关闭</button>
+          </span>
+        </div>
+        <div className="vt-upload-form">
+          <input type="file" accept="video/*" disabled={busy}
+                 onChange={(event) => pick(event.target.files?.[0] ?? null)} />
+          {objectUrl ? (
+            <video className="vt-upload-video" src={objectUrl} controls preload="metadata"
+                   onLoadedMetadata={(event) => {
+                     const total = event.currentTarget.duration;
+                     if (Number.isFinite(total) && total > 0) { setDuration(total); setEnd(total); }
+                   }} />
+          ) : (
+            <p className="vt-hint">选一个本地视频文件（不限制格式/大小）；选好后可以指定开头结尾，不指定就是整段。</p>
+          )}
+          <label className="vt-inline">标题
+            <input className="vt-upload-name" value={title} placeholder="如 OP1 / NCOP" disabled={busy}
+                   onChange={(event) => setTitle(event.target.value)} />
+          </label>
+          <div className="vt-inline">
+            开头 <input className="vt-upload-sec" type="number" min={0} step={0.1} value={start} disabled={busy}
+                       onChange={(event) => setStart(Number(event.target.value))} /> 秒
+            结尾 <input className="vt-upload-sec" type="number" min={0} step={0.1} value={end} disabled={busy}
+                       onChange={(event) => setEnd(Number(event.target.value))} /> 秒
+            {duration > 0 ? <span className="vt-hint">总时长 {duration.toFixed(1)} 秒</span> : null}
+          </div>
+          {error ? <p className="vt-hint vt-upload-error">{error}</p> : null}
+          <div className="btns">
+            <button type="button" className="btn-mini" onClick={submit} disabled={busy || !file}>
+              {busy ? '上传中…' : '上传并挂到这部媒体'}
+            </button>
+          </div>
+          <p className="vt-hint">上传后与「＋ 片段」一样计入该媒体的播放顺序；不想要就在片段面板的「资源」那一行取消勾选。</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function ClipPicker({ mediaId, title, config, onClips, extraBriefs }: {
   mediaId: number;
   title: string;
   config: EditorConfig;
   onClips: (clips: MediaClips) => void;
+  /**
+   * 上传的「资源视频」本地表（clipId → brief）：它们没有归属集，不会出现在
+   * `/api/clips/media/{id}` 的候选里，标题与取消都要靠这份表。
+   */
+  extraBriefs?: Record<number, ClipBrief>;
 }) {
   const [clips, setClips] = React.useState<ClipBrief[] | null>(null);
   /** 来源页签：本部 / 同系列（跨媒体借片段，设计规格 §7）。 */
@@ -451,6 +545,11 @@ export function ClipPicker({ mediaId, title, config, onClips }: {
 
   /** 同系列条目各自的片段（切到那个页签才取，避免一次拉一堆）。 */
   const [relatedClips, setRelatedClips] = React.useState<Record<number, ClipBrief[]>>({});
+  /**
+   * 按 id 补齐的片段行：草稿重开后，本次会话上传的资源已不在本地表里
+   * （草稿只存 clipId），但片段行还在库里 → 补回标题，否则只能显示 `#1`。
+   */
+  const [fetched, setFetched] = React.useState<Record<number, ClipBrief>>({});
   React.useEffect(() => {
     if (sourceTab === 'own') return;
     let cancelled = false;
@@ -461,6 +560,26 @@ export function ClipPicker({ mediaId, title, config, onClips }: {
   }, [sourceTab, relatedClips]);
 
   const current: MediaClips = config.mediaClips[String(mediaId)] ?? { order: [] };
+
+  // 候选列表里找不到、本地表也没有的 id → 按 id 查一次（只在 id 集合变化时触发）
+  const unknownIds = current.order.filter((id) => extraBriefs?.[id] === undefined && fetched[id] === undefined
+      && !(clips ?? []).some((clip) => clip.id === id)
+      && !Object.values(relatedClips).some((list) => list.some((clip) => clip.id === id)));
+  const unknownKey = unknownIds.join(',');
+  React.useEffect(() => {
+    if (!unknownKey) return;
+    let cancelled = false;
+    Promise.all(unknownKey.split(',').map((raw) => api.clip(Number(raw)).catch(() => null)))
+        .then((rows) => {
+          if (cancelled) return;
+          setFetched((currentRows) => {
+            const next = { ...currentRows };
+            for (const row of rows) if (row) next[row.id] = row;
+            return next;
+          });
+        });
+    return () => { cancelled = true; };
+  }, [unknownKey]);
   const badge = current.badge ?? {};
   const sources: Record<string, number> = current.sources ?? {};
 
@@ -478,8 +597,10 @@ export function ClipPicker({ mediaId, title, config, onClips }: {
     setOrder(order, nextSources);
   };
 
-  /** 片段标题：借来的片段不在本部的 clips 里，要从来源列表里找。 */
+  /** 片段标题：借来的片段不在本部的 clips 里，要从来源列表里找；上传的资源视频在本地表里。 */
   const titleOfClip = (clipId: number): string => {
+    const uploaded = extraBriefs?.[clipId] ?? fetched[clipId];
+    if (uploaded) return uploaded.title || `资源 #${clipId}`;
     const own = clips?.find((clip) => clip.id === clipId);
     if (own) return own.title || `片段 #${clipId}`;
     for (const list of Object.values(relatedClips)) {
@@ -515,6 +636,14 @@ export function ClipPicker({ mediaId, title, config, onClips }: {
       || tagPick.every((name) => (c.tagNames ?? []).includes(name)));
   const toggleTag = (name: string) =>
       setTagPick((cur) => (cur.includes(name) ? cur.filter((n) => n !== name) : [...cur, name]));
+
+  /**
+   * 已挂的资源视频：单独列一行，否则「播放顺序」里的它们取消不掉（候选里没有它们）。
+   * 判定 = **无集**（`episodeId == null`），所以借来的片段不会被误列进来。
+   */
+  const pickedResources = current.order
+      .map((id) => extraBriefs?.[id] ?? fetched[id])
+      .filter((clip): clip is ClipBrief => Boolean(clip) && clip.episodeId == null);
 
   return (
     <div className="vt-clip-picker">
@@ -577,6 +706,18 @@ export function ClipPicker({ mediaId, title, config, onClips }: {
           </div>
         </>
       )}
+      {pickedResources.length > 0 ? (
+        <div className="vt-clip-candidates">
+          {pickedResources.map((clip) => (
+            <label key={clip.id} className="vt-clip-item">
+              <input type="checkbox" checked onChange={() => toggleClip(clip.id, null)} />
+              <span>{clip.title || `资源 #${clip.id}`}</span>
+              <span className="vt-clip-from">资源</span>
+              <span className="vt-hint">{clip.timestampSec ?? '?'}s</span>
+            </label>
+          ))}
+        </div>
+      ) : null}
       {current.order.length > 0 ? (
         <div className="vt-clip-order">
           <div className="vt-hint">播放顺序（{current.order.length}）</div>
@@ -1405,6 +1546,9 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   const filterBtn = React.useRef<HTMLButtonElement>(null);
   const bulkBtn = React.useRef<HTMLButtonElement>(null);
   const [clipMedia, setClipMedia] = React.useState<MediaBrief | null>(null);
+  /** 上传的「资源视频」本地表（clipId → brief）：它们没有归属集，接口列表里没有，只能本地记。 */
+  const [resourceBriefs, setResourceBriefs] = React.useState<Record<number, ClipBrief>>({});
+  const [uploadFor, setUploadFor] = React.useState<MediaBrief | null>(null);
   const [loading, setLoading] = React.useState(false);
   /** 列表镜像：翻页 effect 只依赖 `query`，读 `list` 会拿到过期闭包，所以用 ref 取"当前已加载"。 */
   const listRef = React.useRef<MediaBrief[]>([]);
@@ -1535,6 +1679,8 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
     // 媒体封面统一取值链（用户 2026-09-20 定稿）：Bangumi 外链 → 显式封面 → 片段帧兜底
     const cover = item.coverPath || item.externalCoverUrl || item.fallbackCoverPath;
     const clipCount = config.mediaClips[String(item.id)]?.order.length ?? 0;
+    const resourceCount = (config.mediaClips[String(item.id)]?.order ?? [])
+        .filter((id) => resourceBriefs[id]).length;
     return (
       <div key={item.id} className={cls('vt-media-card', selected.has(item.id) && 'selected', picked === item.id && 'picked')} draggable
            title="双击进入媒体详情"
@@ -1555,6 +1701,12 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
           <button type="button" className={cls('vt-clip-badge', clipCount > 0 && 'has')} title="挂载片段"
                   onClick={(event) => { event.stopPropagation(); openClips(item); }}>
             {clipCount > 0 ? `✂ ${clipCount}` : '＋ 片段'}
+          </button>
+          {/* 资源视频：上传的本地视频（用法同片段，可多个、可设首尾）——2026-10-03 用户 */}
+          <button type="button" className={cls('vt-resource-badge', resourceCount > 0 && 'has')}
+                  title="挂载资源视频（上传本地文件；用法同片段：可多个、可设首尾）"
+                  onClick={(event) => { event.stopPropagation(); setUploadFor(item); }}>
+            {resourceCount > 0 ? `🎞 ${resourceCount}` : '⬆ 资源'}
           </button>
           {/* 开场秀：拖卡也可以（旧交互保留），但拖拽不发现 → 再给一个按钮（用户 2026-09-20） */}
           <button type="button"
@@ -1705,6 +1857,20 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
   };
 
   const openClips = (media: MediaBrief) => setClipMedia(media);
+
+  /**
+   * 资源视频上传完成：记本地 brief（标题）+ 追进该媒体播放顺序 + 必要时把媒体加入推荐。
+   *
+   * 「加入推荐」不能省：plan 只渲染 `config.ids` 里的媒体，不加入就是**静默无效**
+   * （与拖拽入篮同一套处理，见 `onDropTo`）。
+   */
+  const addResource = (mediaId: number, clip: ClipBrief) => {
+    const current = config.mediaClips[String(mediaId)] ?? { order: [] };
+    const mediaClips = { ...config.mediaClips, [String(mediaId)]: { ...current, order: [...current.order, clip.id] } };
+    const ids = config.ids.includes(mediaId) ? config.ids : [...config.ids, mediaId];
+    setResourceBriefs((briefs) => ({ ...briefs, [clip.id]: clip }));
+    patch({ ids, mediaClips });
+  };
 
   const dict: FilterDict = { collections, years, genres, tags };
   const chipKeys = expandChips ? activeKeys : activeKeys.slice(0, 4);
@@ -1975,6 +2141,12 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
         </div>
       )}
 
+      {uploadFor ? (
+        <ResourceUploadDialog media={uploadFor}
+                              onClose={() => setUploadFor(null)}
+                              onDone={(clip) => { addResource(uploadFor.id, clip); setUploadFor(null); }} />
+      ) : null}
+
       {clipMedia ? (
         <div className="vt-overlay">
           <div className="vt-panel">
@@ -1985,6 +2157,7 @@ export function BasketPane({ config, patch, filter, onFilter, onSelect, highligh
               </span>
             </div>
             <ClipPicker mediaId={clipMedia.id} title={clipMedia.title} config={config}
+                        extraBriefs={resourceBriefs}
                         onClips={(next) => {
                           const mediaClips = { ...config.mediaClips };
                           if (next.order.length === 0) delete mediaClips[String(clipMedia.id)];

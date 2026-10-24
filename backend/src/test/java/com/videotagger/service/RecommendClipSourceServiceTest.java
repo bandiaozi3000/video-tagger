@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -157,6 +158,42 @@ class RecommendClipSourceServiceTest {
 
         assertEquals(1, result.missing().size());
         assertTrue(result.missing().get(0).reason().contains("找不到本地源视频"));
+    }
+
+    /**
+     * 「资源视频」上传（2026-10-03）：无集片段不在 `listByMedia` 结果里（那条 SQL 是 episode JOIN），
+     * 必须能按 id 直查命中 —— 否则编辑器里挂了、准备时却报「片段不存在或不属于所选媒体」。
+     *
+     * 这里只验「加载”这一步放行（真 ffmpeg 不在 → 重编码那步必然失败，原因里写 ffmpeg 而不是「不属于所选媒体」）。
+     */
+    @Test
+    void acceptsUploadedResourceClipWithoutEpisode() throws Exception {
+        Clip uploaded = new Clip();
+        uploaded.setId(CLIP_ID);
+        uploaded.setTitle("NCOP");
+        uploaded.setTimestampSec(0d);
+        uploaded.setEndSec(5d);
+        uploaded.setStartMs(0L);
+        uploaded.setEndMs(5_000L);
+        uploaded.setVideoFp("abc123");
+
+        ClipMapper clipMapper = mock(ClipMapper.class);
+        when(clipMapper.listByMedia(MEDIA_ID)).thenReturn(List.of());   // 无集 → 任何媒体的片段列表里都没有它
+        when(clipMapper.selectById(CLIP_ID)).thenReturn(uploaded);
+
+        Path source = workDir.resolve("uploaded-source.mp4");
+        Files.write(source, new byte[16]);
+        LocalVideoResolver resolver = mock(LocalVideoResolver.class);
+        when(resolver.resolve("abc123")).thenReturn(source);
+
+        RecommendClipSourceService.PreparedClips result =
+                service(clipMapper, mock(VideoAssetMapper.class), resolver, mock(MediaProbe.class))
+                        .prepare(request(), workDir);
+
+        assertEquals(1, result.missing().size());
+        String reason = result.missing().get(0).reason();
+        assertTrue(reason.contains("ffmpeg"), "应已进入素材准备（失败原因是 ffmpeg 不在）: " + reason);
+        assertFalse(reason.contains("不属于所选媒体"), "上传的资源视频不应被归属校验拦住: " + reason);
     }
 
     /**
